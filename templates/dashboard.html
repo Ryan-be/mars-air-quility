@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>MLSS Monitor Dashboard</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+</head>
+<body>
+    <h1>Mars Life Support Sensor Monitor</h1>
+    <div id="temperature"></div>
+    <div id="humidity"></div>
+    <div id="eco2"></div>
+    <div id="tvoc"></div>
+
+    <script>
+    async function fetchData() {
+        const response = await fetch('/api/data');
+        return await response.json();
+    }
+
+    async function drawCharts() {
+        const data = await fetchData();
+
+        const layout = {margin: { t: 30 }};
+        Plotly.newPlot('temperature', [{x: data.timestamp, y: data.temperature, type: 'scatter', name: 'Temperature'}], {...layout, title: 'Temperature (°C)'});
+        Plotly.newPlot('humidity', [{x: data.timestamp, y: data.humidity, type: 'scatter', name: 'Humidity'}], {...layout, title: 'Humidity (%)'});
+        Plotly.newPlot('eco2', [{x: data.timestamp, y: data.eco2, type: 'scatter', name: 'eCO₂'}], {...layout, title: 'eCO₂ (ppm)'});
+        Plotly.newPlot('tvoc', [{x: data.timestamp, y: data.tvoc, type: 'scatter', name: 'TVOC'}], {...layout, title: 'TVOC (ppb)'});
+    }
+
+    setInterval(drawCharts, 10000); // update every 10 seconds
+    drawCharts();
+    </script>
+</body>
+</html>

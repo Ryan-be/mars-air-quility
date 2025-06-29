@@ -1,0 +1,12 @@
+[Unit]
+Description=MLSS Monitor Flask App
+After=network.target
+
+[Service]
+User=pi
+WorkingDirectory=/home/pi/mlss-monitor
+ExecStart=/home/pi/.local/bin/poetry run python app.py
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

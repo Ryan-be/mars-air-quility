@@ -1,0 +1,24 @@
+[tool.poetry]
+name = "mlss-monitor"
+version = "0.1.0"
+description = "Mars Life Support Sensor Monitor"
+authors = ["Your Name <your.email@example.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+flask = "^2.3"
+pandas = "^2.0"
+matplotlib = "^3.7"
+dynaconf = "^3.2"
+adafruit-circuitpython-ahtx0 = "^1.0.27"
+adafruit-circuitpython-sgp30 = "^2.0.4"
+adafruit-blinka = "^8.2.1"
+Pillow = "^10.0"
+adafruit-circuitpython-rgb-display = "^3.14.1"
+
+[tool.poetry.scripts]
+mlss-monitor = "app:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
