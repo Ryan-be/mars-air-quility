@@ -3,9 +3,39 @@
 <head>
     <title>MLSS Monitor Dashboard</title>
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        .summary {
+            margin-bottom: 30px;
+            padding: 15px;
+            border: 1px solid #ccc;
+            display: flex;
+            gap: 30px;
+            background: #f7f7f7;
+            border-radius: 8px;
+        }
+        .summary-item {
+            font-size: 1.2em;
+        }
+        .label {
+            font-weight: bold;
+        }
+    </style>
 </head>
 <body>
     <h1>Mars Life Support Sensor Monitor</h1>
+    <button onclick="window.location.href='/download'">Download CSV</button>
+
+    <div class="summary">
+        <div class="summary-item"><span class="label">Temperature:</span> <span id="temp-latest">--</span> °C</div>
+        <div class="summary-item"><span class="label">Humidity:</span> <span id="humidity-latest">--</span> %</div>
+        <div class="summary-item"><span class="label">eCO₂:</span> <span id="eco2-latest">--</span> ppm</div>
+        <div class="summary-item"><span class="label">TVOC:</span> <span id="tvoc-latest">--</span> ppb</div>
+    </div>
+
     <div id="temperature"></div>
     <div id="humidity"></div>
     <div id="eco2"></div>
@@ -19,6 +49,15 @@
 
     async function drawCharts() {
         const data = await fetchData();
+        if (data.timestamp.length === 0) return;
+
+        const lastIndex = data.timestamp.length - 1;
+
+        // Update live summary
+        document.getElementById('temp-latest').textContent = data.temperature[lastIndex].toFixed(1);
+        document.getElementById('humidity-latest').textContent = data.humidity[lastIndex].toFixed(1);
+        document.getElementById('eco2-latest').textContent = data.eco2[lastIndex];
+        document.getElementById('tvoc-latest').textContent = data.tvoc[lastIndex];
 
         const layout = {margin: { t: 30 }};
         Plotly.newPlot('temperature', [{x: data.timestamp, y: data.temperature, type: 'scatter', name: 'Temperature'}], {...layout, title: 'Temperature (°C)'});
