@@ -15,6 +15,7 @@ adafruit-circuitpython-sgp30 = "^2.0.4"
 adafruit-blinka = "^8.2.1"
 Pillow = "^10.0"
 adafruit-circuitpython-rgb-display = "^3.14.1"
+psutil = "==7.0.0"
 
 [tool.poetry.scripts]
 mlss-monitor = "app:main"

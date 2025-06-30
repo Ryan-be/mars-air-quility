@@ -1,178 +1,217 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>MLSS Monitor Dashboard</title>
-    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        :root {
-            --bg-color: #ffffff;
-            --text-color: #000000;
-            --table-bg: #f9f9f9;
-        }
-
-        [data-theme="dark"] {
-            --bg-color: #121212;
-            --text-color: #ffffff;
-            --table-bg: #1e1e1e;
-        }
-
-        body {
-            font-family: Arial, sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-color);
-            margin: 0;
-            padding: 0;
-        }
-
-        header {
-            background-color: #2c3e50;
-            color: white;
-            padding: 1rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        header h1 {
-            margin: 0;
-            font-size: 1.2rem;
-        }
-
-        .toolbar {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-        }
-
-        main {
-            padding: 1rem;
-        }
-
-        table {
-            width: 100%;
-            margin-bottom: 1rem;
-            background-color: var(--table-bg);
-            border-collapse: collapse;
-        }
-
-        td {
-            padding: 0.5rem;
-            border-bottom: 1px solid #ddd;
-            font-size: 1rem;
-        }
-
-        td:first-child {
-            font-weight: bold;
-            width: 50%;
-        }
-
-        .chart {
-            margin-bottom: 2rem;
-        }
-
-        #dark-mode-label {
-            color: white;
-        }
-
-        @media (max-width: 600px) {
-            table td {
-                font-size: 0.9rem;
-            }
-        }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Mars Life Support Monitor</title>
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #121212;
+      color: #fff;
+      margin: 0;
+      padding: 1em;
+    }
+    .top-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 1em;
+    }
+    .top-bar select,
+    .top-bar button,
+    .top-bar label {
+      margin: 0.25em;
+    }
+    .sensor-table {
+      border-collapse: collapse;
+      width: 100%;
+      margin-bottom: 1em;
+    }
+    .sensor-table td {
+      padding: 0.5em 1em;
+      border-bottom: 1px solid #444;
+    }
+    .sensor-table td:first-child {
+      font-weight: bold;
+      white-space: nowrap;
+    }
+    .plot-container {
+      display: grid;
+      grid-template-columns: 1fr; /* Single column layout */
+      gap: 1em;
+    }
+    .dark-mode {
+      background-color: #121212;
+      color: #fff;
+    }
+    .light-mode {
+      background-color: #fff;
+      color: #000;
+    }
+    .ok { color: lightgreen; }
+    .error { color: orange; }
+    #health ul {
+      list-style-type: none;
+      padding: 0;
+    }
+    #health li {
+      margin: 0.25em 0;
+    }
+  </style>
 </head>
-<body data-theme="light">
-    <header>
-        <h1>🌍 MLSS Dashboard</h1>
-        <div class="toolbar">
-            <label id="dark-mode-label">Dark Mode <input type="checkbox" id="darkModeToggle"></label>
-            <button onclick="downloadCSV()">📄 Download CSV</button>
-        </div>
-    </header>
+<body>
+  <div class="top-bar">
+    <p id="last-updated" style="margin: 0.5em 0; font-style: italic;">Last updated: never</p>
 
-    <main>
-        <table>
-            <tr><td>🌡️ Temperature</td><td id="temp">--</td></tr>
-            <tr><td>💧 Humidity</td><td id="humidity">--</td></tr>
-            <tr><td>🫁 eCO₂</td><td id="eco2">--</td></tr>
-            <tr><td>🧪 TVOC</td><td id="tvoc">--</td></tr>
-        </table>
+    <h2>Mars Life Support Monitor</h2>
+    <div>
+      <label for="range">Time Range:</label>
+      <select id="range">
+        <option value="1h">Last Hour</option>
+        <option value="6h">Last 6 Hours</option>
+        <option value="12h">Last 12 Hours</option>
+        <option value="24h">Last 24 Hours</option>
+        <option value="all">All Time</option>
+      </select>
+      <button onclick="downloadCSV()">Download CSV</button>
+      <label><input type="checkbox" id="darkToggle" checked> Dark Mode</label>
+    </div>
+  </div>
 
-        <table>
-            <tr><td>🌡️ Temperature</td><td id="tempStatus">✅ OK</td></tr>
-            <tr><td>🫁 eCO₂</td><td id="eco2Status">✅ OK</td></tr>
-            <tr><td>🧪 TVOC</td><td id="tvocStatus">✅ Normal</td></tr>
-        </table>
+  <table class="sensor-table" id="summary-table">
+    <tr><td>🌡️ <strong>Temperature (°C):</strong></td><td id="tempValue">--</td></tr>
+    <tr><td>💧 <strong>Humidity (%):</strong></td><td id="humValue">--</td></tr>
+    <tr><td>🫁 <strong>eCO₂ (ppm):</strong></td><td id="eco2Value">--</td></tr>
+    <tr><td>🧪 <strong>TVOC (ppb):</strong></td><td id="tvocValue">--</td></tr>
+  </table>
 
-        <div class="chart" id="temperatureChart"></div>
-        <div class="chart" id="humidityChart"></div>
-        <div class="chart" id="eco2Chart"></div>
-        <div class="chart" id="tvocChart"></div>
-    </main>
+  <div class="plot-container">
+    <div id="tempPlot"></div>
+    <div id="humPlot"></div>
+    <div id="eco2Plot"></div>
+    <div id="tvocPlot"></div>
+  </div>
 
-    <script>
-    const darkToggle = document.getElementById('darkModeToggle');
-    darkToggle.addEventListener('change', () => {
-        document.body.setAttribute('data-theme', darkToggle.checked ? 'dark' : 'light');
+  <div id="health">
+    <h3>🔧 System Health</h3>
+    <table class="sensor-table" id="health-table">
+      <tr><td><strong>AHT20:</strong></td><td id="aht20Status">Checking...</td></tr>
+      <tr><td><strong>SGP30:</strong></td><td id="sgp30Status">Checking...</td></tr>
+      <tr><td><strong>CPU Usage:</strong></td><td id="cpuUsage">--</td></tr>
+      <tr><td><strong>Memory:</strong></td><td id="memoryUsage">--</td></tr>
+      <tr><td><strong>Uptime:</strong></td><td id="uptime">--</td></tr>
+    </table>
+  </div>
+
+
+  <script>
+    const darkToggle = document.getElementById("darkToggle");
+    darkToggle.addEventListener("change", () => {
+      document.body.className = darkToggle.checked ? "dark-mode" : "light-mode";
     });
 
+    document.getElementById("range").addEventListener("change", fetchData);
+
     async function fetchData() {
-        const response = await fetch('/api/data');
-        return await response.json();
+      const range = document.getElementById("range").value;
+      const res = await fetch(`/api/data?range=${range}`);
+      const data = await res.json();
+      if (!Array.isArray(data)) return;
+
+      const timestamps = data.map(d => new Date(Date.parse(d.timestamp + ' UTC')));
+
+      const temperatures = data.map(d => d.temperature);
+      const humidities = data.map(d => d.humidity);
+      const eco2 = data.map(d => d.eco2);
+      const tvoc = data.map(d => d.tvoc);
+
+      document.getElementById("tempValue").textContent = temperatures.at(-1)?.toFixed(2) ?? "--";
+      document.getElementById("humValue").textContent = humidities.at(-1)?.toFixed(2) ?? "--";
+      document.getElementById("eco2Value").textContent = eco2.at(-1) ?? "--";
+      document.getElementById("tvocValue").textContent = tvoc.at(-1) ?? "--";
+
+      const layout = title => ({
+        title: { text: title, font: { size: 14 }, y: 0.9 },
+        margin: { t: 40 },
+        xaxis: { title: "Time" },
+        yaxis: { automargin: true }
+      });
+
+      Plotly.newPlot("tempPlot", [{
+        x: timestamps, y: temperatures,
+        mode: "lines+markers",
+        name: "Temperature",
+        line: { color: "deeppink" },
+        connectgaps: false
+      }], layout("🌡️ Temperature (°C)"), { responsive: true });
+
+      Plotly.newPlot("humPlot", [{
+        x: timestamps, y: humidities,
+        mode: "lines+markers",
+        name: "Humidity",
+        line: { color: "dodgerblue" },
+        connectgaps: false
+      }], layout("💧 Humidity (%)"), { responsive: true });
+
+      Plotly.newPlot("eco2Plot", [{
+        x: timestamps, y: eco2,
+        mode: "lines+markers",
+        name: "eCO₂",
+        line: { color: "yellowgreen" },
+        connectgaps: false
+      }], layout("🫁 eCO₂ (ppm)"), { responsive: true });
+
+      Plotly.newPlot("tvocPlot", [{
+        x: timestamps, y: tvoc,
+        mode: "lines+markers",
+        name: "TVOC",
+        line: { color: "lightgreen" },
+        connectgaps: false
+      }], layout("🧪 TVOC (ppb)"), { responsive: true });
+
+      const now = new Date();
+      document.getElementById("last-updated").textContent =
+        "Last updated: " + now.toLocaleString();
+    }
+
+    async function fetchHealth() {
+      try {
+        const res = await fetch('/system_health');
+        const stat = await res.json();
+
+        document.getElementById("aht20Status").textContent = stat.AHT20;
+        document.getElementById("aht20Status").className = stat.AHT20 === "OK" ? "ok" : "error";
+
+        document.getElementById("sgp30Status").textContent = stat.SGP30;
+        document.getElementById("sgp30Status").className = stat.SGP30 === "OK" ? "ok" : "error";
+
+        document.getElementById("cpuUsage").textContent = stat.cpu_usage;
+        document.getElementById("memoryUsage").textContent = `${stat.memory_used}/${stat.memory_total} (${stat.memory_percent})`;
+        document.getElementById("uptime").textContent = stat.uptime;
+      } catch (err) {
+        const errorMessage = "Unable to fetch system health.";
+        document.getElementById("aht20Status").textContent = errorMessage;
+        document.getElementById("sgp30Status").textContent = errorMessage;
+        document.getElementById("cpuUsage").textContent = "--";
+        document.getElementById("memoryUsage").textContent = "--";
+        document.getElementById("uptime").textContent = "--";
+      }
     }
 
     function downloadCSV() {
-        window.location.href = "/download";
+      const range = document.getElementById("range").value;
+      window.open(`/api/data.csv?range=${range}`, "_blank");
     }
 
-    function updateStatus(value, thresholds, okText, warnText) {
-        return value < thresholds[0] || value > thresholds[1] ? warnText : okText;
-    }
-
-    async function drawCharts() {
-        const data = await fetchData();
-
-        // Update stats
-        document.getElementById("temp").innerText = `${data.temperature.at(-1).toFixed(2)} °C`;
-        document.getElementById("humidity").innerText = `${data.humidity.at(-1).toFixed(2)} %`;
-        document.getElementById("eco2").innerText = `${data.eco2.at(-1)} ppm`;
-        document.getElementById("tvoc").innerText = `${data.tvoc.at(-1)} ppb`;
-
-        // Update status
-        document.getElementById("tempStatus").innerText = updateStatus(data.temperature.at(-1), [10, 35], "✅ OK", "⚠️ Warning");
-        document.getElementById("eco2Status").innerText = updateStatus(data.eco2.at(-1), [0, 1000], "✅ OK", "⚠️ High");
-        document.getElementById("tvocStatus").innerText = updateStatus(data.tvoc.at(-1), [0, 500], "✅ Normal", "⚠️ High");
-
-        const layout = {
-            margin: { t: 50 },
-            responsive: true,
-        };
-
-        Plotly.newPlot('temperatureChart', [{
-            x: data.timestamp, y: data.temperature,
-            type: 'scatter', name: 'Temperature'
-        }], {...layout, title: { text: 'Temperature (°C)', font: { size: 18 }}});
-
-        Plotly.newPlot('humidityChart', [{
-            x: data.timestamp, y: data.humidity,
-            type: 'scatter', name: 'Humidity'
-        }], {...layout, title: { text: 'Humidity (%)', font: { size: 18 }}});
-
-        Plotly.newPlot('eco2Chart', [{
-            x: data.timestamp, y: data.eco2,
-            type: 'scatter', name: 'eCO₂'
-        }], {...layout, title: { text: 'eCO₂ (ppm)', font: { size: 18 }}});
-
-        Plotly.newPlot('tvocChart', [{
-            x: data.timestamp, y: data.tvoc,
-            type: 'scatter', name: 'TVOC'
-        }], {...layout, title: { text: 'TVOC (ppb)', font: { size: 18 }}});
-    }
-
-    setInterval(drawCharts, 10000);
-    drawCharts();
-    </script>
+    fetchData();
+    fetchHealth();
+    setInterval(() => {
+      fetchData();
+      fetchHealth();
+    }, 15000);
+  </script>
 </body>
 </html>

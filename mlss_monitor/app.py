@@ -1,4 +1,4 @@
-from flask import Flask, send_file, render_template, jsonify
+from flask import Flask, send_file, render_template, jsonify, request
 import pandas as pd
 from datetime import datetime, timedelta
 import csv
@@ -13,7 +13,9 @@ from config import config
 from sensors.display import update_display
 from sensors.aht20 import read_aht20
 from sensors.sgp30 import read_sgp30
-
+from datetime import datetime, timedelta
+import psutil
+import subprocess
 
 app = Flask(
     __name__,
@@ -27,7 +29,14 @@ DATA_FILE = os.path.join(BASE_DIR, "logs", "default.csv")
 
 i2c = busio.I2C(board.SCL, board.SDA)
 
-aht20 = AHTx0(i2c)
+try:
+    aht20 = AHTx0(i2c)
+except (OSError, ValueError) as e:
+    print(f"Failed to initialize AHT20 sensor (I2C error or device not found): {e}")
+    sgp30 = None
+except Exception as e:
+    print(f"Unexpected error initializing AHT30 sensor: {e}")
+    sgp30 = None
 
 try:
     sgp30 = Adafruit_SGP30(i2c)
@@ -39,7 +48,7 @@ except Exception as e:
     sgp30 = None
 
 def read_sensors():
-    ts = datetime.now()
+    ts = int(datetime.now().timestamp() * 1000)  # in ms
     temperature, humidity, eco2, tvoc = 0, 0, 0, 0
 
     # Read AHT20 sensor data if available
@@ -63,8 +72,11 @@ def read_sensors():
 
 def log_data():
     ts, temp, hum, eco2, tvoc = read_sensors()
+    write_header = not os.path.exists(DATA_FILE)
     with open(DATA_FILE, "a", newline="") as f:
         writer = csv.writer(f)
+        if write_header:
+            writer.writerow(["timestamp", "temperature", "humidity", "eco2", "tvoc"])
         writer.writerow([ts, temp, hum, eco2, tvoc])
 #    update_display(temp, hum, eco2, tvoc)
 
@@ -80,19 +92,71 @@ def download_data():
         as_attachment=True,
         download_name="mlss_data.csv"
     )
+
 @app.route("/api/data")
-def api_data():
+def get_data():
+    range_param = request.args.get("range", "24h")
+    now = datetime.utcnow()
+
+    range_map = {
+        "1h": timedelta(hours=1),
+        "6h": timedelta(hours=6),
+        "12h": timedelta(hours=12),
+        "24h": timedelta(hours=24),
+    }
+
+    if range_param in range_map:
+        since = now - range_map[range_param]
+    else:
+        since = datetime.min  # 'all'
+
     if not os.path.exists(DATA_FILE):
-        return jsonify([])
-    df = pd.read_csv(DATA_FILE, names=["timestamp", "temperature", "humidity", "eco2", "tvoc"], parse_dates=["timestamp"])
-    df = df[df["timestamp"] > datetime.now() - timedelta(hours=24)]
-    return jsonify({
-        "timestamp": df["timestamp"].astype(str).tolist(),
-        "temperature": df["temperature"].tolist(),
-        "humidity": df["humidity"].tolist(),
-        "eco2": df["eco2"].tolist(),
-        "tvoc": df["tvoc"].tolist()
-    })
+        return jsonify({"error": "Data file not found."}), 404
+
+    try:
+        df = pd.read_csv(DATA_FILE)
+        # Only convert rows that are numeric
+        df = df[pd.to_numeric(df["timestamp"], errors="coerce").notnull()]
+        df["timestamp"] = pd.to_datetime(df["timestamp"].astype("int64"), unit='ms')
+        df = df[df["timestamp"] >= since]
+    except Exception as e:
+        return jsonify({"error": f"Error reading data: {str(e)}"}), 500
+
+    return jsonify(df.to_dict(orient="records"))
+
+@app.route("/system_health")
+def system_health():
+    status = {}
+
+    # Check AHT20
+    if aht20:
+        status["AHT20"] = "OK"
+    else:
+        status["AHT20"] = "UNAVAILABLE"
+
+    # Check SGP30
+    if sgp30:
+        status["SGP30"] = "OK"
+    else:
+        status["SGP30"] = "UNAVAILABLE"
+
+    # System stats
+    try:
+        uptime_seconds = float(subprocess.check_output(["cat", "/proc/uptime"]).decode().split()[0])
+        uptime_str = str(timedelta(seconds=int(uptime_seconds)))
+    except Exception:
+        uptime_str = "Unknown"
+
+    cpu_percent = psutil.cpu_percent(interval=0.5)
+    memory = psutil.virtual_memory()
+
+    status["uptime"] = uptime_str
+    status["cpu_usage"] = f"{cpu_percent:.1f}%"
+    status["memory_used"] = f"{memory.used // (1024**2)} MB"
+    status["memory_total"] = f"{memory.total // (1024**2)} MB"
+    status["memory_percent"] = f"{memory.percent:.1f}%"
+
+    return jsonify(status)
 
 def main():
     if not os.path.exists(DATA_FILE):
