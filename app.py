@@ -1,30 +1,37 @@
-from flask import Flask, render_template, jsonify
+from flask import Flask, send_file, render_template, jsonify
 import pandas as pd
 from datetime import datetime, timedelta
 import csv
 import os
 import time
 import board
+import io
 import busio
 from adafruit_ahtx0 import AHTx0
 from adafruit_sgp30 import Adafruit_SGP30
 from config import config
 from sensors.display import update_display
 from sensors.aht20 import read_aht20
-from sensors.sgp30 import read_sgp30
+#from sensors.sgp30 import read_sgp30
 
-app = Flask(__name__)
-DATA_FILE = config.LOG_FILE
-LOG_INTERVAL = int(config.LOG_INTERVAL)
+app = Flask(
+    __name__,
+    template_folder=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "templates")
+)
+
+
+LOG_INTERVAL = int(config.get("LOG_INTERVAL", "10"))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # one level up from mlss_monitor
+DATA_FILE = os.path.join(BASE_DIR, "logs", "default.csv")
 
 i2c = busio.I2C(board.SCL, board.SDA)
 aht20 = AHTx0(i2c)
-sgp30 = Adafruit_SGP30(i2c)
+#sgp30 = Adafruit_SGP30(i2c)
 
 def read_sensors():
     temperature, humidity = read_aht20()
-    eco2, tvoc = read_sgp30()
-    return datetime.now(), temperature, humidity, eco2, tvoc
+ #   eco2, tvoc = read_sgp30()
+    return datetime.now(), temperature, humidity, 0, 0
 
 def log_data():
     ts, temp, hum, eco2, tvoc = read_sensors()
@@ -37,6 +44,14 @@ def log_data():
 def dashboard():
     return render_template("dashboard.html")
 
+@app.route("/download")
+def download_data():
+    return send_file(
+        DATA_FILE,
+        mimetype="text/csv",
+        as_attachment=True,
+        download_name="mlss_data.csv"
+    )
 @app.route("/api/data")
 def api_data():
     if not os.path.exists(DATA_FILE):
