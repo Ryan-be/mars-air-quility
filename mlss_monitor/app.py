@@ -12,7 +12,8 @@ from adafruit_sgp30 import Adafruit_SGP30
 from config import config
 from sensors.display import update_display
 from sensors.aht20 import read_aht20
-#from sensors.sgp30 import read_sgp30
+from sensors.sgp30 import read_sgp30
+
 
 app = Flask(
     __name__,
@@ -25,20 +26,47 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # one le
 DATA_FILE = os.path.join(BASE_DIR, "logs", "default.csv")
 
 i2c = busio.I2C(board.SCL, board.SDA)
+
 aht20 = AHTx0(i2c)
-#sgp30 = Adafruit_SGP30(i2c)
+
+try:
+    sgp30 = Adafruit_SGP30(i2c)
+except (OSError, ValueError) as e:
+    print(f"Failed to initialize SGP30 sensor (I2C error or device not found): {e}")
+    sgp30 = None
+except Exception as e:
+    print(f"Unexpected error initializing SGP30 sensor: {e}")
+    sgp30 = None
 
 def read_sensors():
-    temperature, humidity = read_aht20()
- #   eco2, tvoc = read_sgp30()
-    return datetime.now(), temperature, humidity, 0, 0
+    ts = datetime.now()
+    temperature, humidity, eco2, tvoc = 0, 0, 0, 0
+
+    # Read AHT20 sensor data if available
+    if aht20:
+        try:
+            print("reading aht20")
+            temperature, humidity = read_aht20()
+            print(f" temperature and humidity = {temperature}, {humidity}")
+        except Exception as e:
+            print(f"Error reading AHT20 sensor: {e}")
+
+    # Read SGP30 sensor data if available
+    if sgp30:
+        try:
+            eco2, tvoc = read_sgp30()
+        except Exception as e:
+            print(f"Error reading SGP30 sensor: {e}")
+
+    # Return the timestamp and sensor data
+    return ts, temperature, humidity, eco2, tvoc
 
 def log_data():
     ts, temp, hum, eco2, tvoc = read_sensors()
     with open(DATA_FILE, "a", newline="") as f:
         writer = csv.writer(f)
         writer.writerow([ts, temp, hum, eco2, tvoc])
-    update_display(temp, hum, eco2, tvoc)
+#    update_display(temp, hum, eco2, tvoc)
 
 @app.route("/")
 def dashboard():
