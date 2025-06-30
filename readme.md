@@ -65,26 +65,29 @@ mlss_monitor-project/
 ├── pyproject.toml        # Poetry-managed dependencies
 ├── poetry.lock
 └── mlss-monitor.service  # systemd unit file
+```
 
 ## 🔁 Running on Boot (systemd)
 
 To run automatically as a service:
-'''
+```
 sudo cp mlss-monitor.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable mlss-monitor
 sudo systemctl start mlss-monitor
-'''
+```
+
 To check service status:
-'''
+```
 sudo systemctl status mlss-monitor
-'''
+```
 
 ## 📁 Data Logging
 
 Data is logged to:
-'''
+```
 mlss_monitor/logs/default.csv
-'''
+```
+
 You can download it from the web UI or access it directly on the Pi for offline analysis.
 
