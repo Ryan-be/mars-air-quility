@@ -13,6 +13,7 @@ from config import config
 from sensors.display import update_display
 from sensors.aht20 import read_aht20
 from sensors.sgp30 import read_sgp30
+from database.db_logger import log_sensor_data, get_sensor_data, get_sensor_data_by_date, add_annotation
 from datetime import datetime, timedelta
 import psutil
 import subprocess
@@ -25,7 +26,7 @@ app = Flask(
 
 LOG_INTERVAL = int(config.get("LOG_INTERVAL", "10"))
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # one level up from mlss_monitor
-DATA_FILE = os.path.join(BASE_DIR, "logs", "default.csv")
+DATA_FILE = os.path.join(BASE_DIR, "data", "default.csv")
 
 i2c = busio.I2C(board.SCL, board.SDA)
 
@@ -78,6 +79,8 @@ def log_data():
         if write_header:
             writer.writerow(["timestamp", "temperature", "humidity", "eco2", "tvoc"])
         writer.writerow([ts, temp, hum, eco2, tvoc])
+    log_sensor_data(temp, hum, eco2, tvoc)
+
 #    update_display(temp, hum, eco2, tvoc)
 
 @app.route("/")
