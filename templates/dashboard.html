@@ -4,7 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Mars Life Support Monitor</title>
-  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+  <script src="https://cdn.plot.ly/plotly-2.24.2.min.js"></script>
+
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -39,9 +40,16 @@
       white-space: nowrap;
     }
     .plot-container {
-      display: grid;
-      grid-template-columns: 1fr; /* Single column layout */
+      display: flex;
+      flex-direction: column;
       gap: 1em;
+      width: 100%;
+    }
+    .plot-container > div {
+      width: 90%;
+      min-height: 300px;
+      max-width: 100%; /* Ensure it doesn't overflow */
+      overflow-x: auto; /* Allow horizontal scrolling if needed */
     }
     .dark-mode {
       background-color: #121212;
@@ -89,6 +97,7 @@
   </table>
 
   <div class="plot-container">
+    <div id="combinedPlot"></div>
     <div id="tempPlot"></div>
     <div id="humPlot"></div>
     <div id="eco2Plot"></div>
@@ -121,8 +130,8 @@
       const data = await res.json();
       if (!Array.isArray(data)) return;
 
-      const timestamps = data.map(d => new Date(Date.parse(d.timestamp + ' UTC')));
-
+<!--      const timestamps = data.map(d => new Date(Date.parse(d.timestamp + ' UTC')));-->
+      const timestamps = data.map(d => new Date(d.timestamp));
       const temperatures = data.map(d => d.temperature);
       const humidities = data.map(d => d.humidity);
       const eco2 = data.map(d => d.eco2);
@@ -133,11 +142,48 @@
       document.getElementById("eco2Value").textContent = eco2.at(-1) ?? "--";
       document.getElementById("tvocValue").textContent = tvoc.at(-1) ?? "--";
 
+
+    const layoutCombined = {
+        title: { text: "🌡️ Temperature (°C) & 💧 Humidity (%)", font: { size: 14 }, y: 0.9 },
+        margin: { t: 40 },
+        xaxis: { title: "Time" },
+        yaxis: { title: "Temperature (°C)", automargin: true },
+        yaxis2: {
+          title: "Humidity (%)",
+          overlaying: "y",
+          side: "right",
+          automargin: true,
+        },
+        autosize: true,
+    };
+
+    Plotly.newPlot("combinedPlot", [
+      {
+        x: timestamps,
+        y: temperatures,
+        mode: "lines+markers",
+        name: "Temperature",
+        line: { color: "deeppink" },
+        connectgaps: false,
+      },
+      {
+        x: timestamps,
+        y: humidities,
+        mode: "lines+markers",
+        name: "Humidity",
+        line: { color: "dodgerblue" },
+        connectgaps: false,
+        yaxis: "y2",
+      },
+    ], layoutCombined, { responsive: true, editable: true  });
+
       const layout = title => ({
         title: { text: title, font: { size: 14 }, y: 0.9 },
         margin: { t: 40 },
         xaxis: { title: "Time" },
-        yaxis: { automargin: true }
+        yaxis: { automargin: true },
+        autosize: true, // Ensure the plot resizes automatically
+
       });
 
       Plotly.newPlot("tempPlot", [{
@@ -171,6 +217,8 @@
         line: { color: "lightgreen" },
         connectgaps: false
       }], layout("🧪 TVOC (ppb)"), { responsive: true });
+
+      window.dispatchEvent(new Event('resize'));
 
       const now = new Date();
       document.getElementById("last-updated").textContent =
