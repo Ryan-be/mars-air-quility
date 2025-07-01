@@ -130,7 +130,7 @@
       const data = await res.json();
       if (!Array.isArray(data)) return;
 
-<!--      const timestamps = data.map(d => new Date(Date.parse(d.timestamp + ' UTC')));-->
+      const ids = data.map(d => d.id);
       const timestamps = data.map(d => new Date(d.timestamp));
       const temperatures = data.map(d => d.temperature);
       const humidities = data.map(d => d.humidity);
@@ -141,6 +141,33 @@
       document.getElementById("humValue").textContent = humidities.at(-1)?.toFixed(2) ?? "--";
       document.getElementById("eco2Value").textContent = eco2.at(-1) ?? "--";
       document.getElementById("tvocValue").textContent = tvoc.at(-1) ?? "--";
+
+
+
+    function attachAnnotationHandler(plotId) {
+      const plot = document.getElementById(plotId);
+
+      plot.on('plotly_click', function(data) {
+        const dbId = data.points[0].customdata;
+        const timestamp = data.points[0].x;
+
+        const annotation = prompt(`Add annotation for ${timestamp}:`);
+        if (!annotation) return;
+
+        // Call API to annotate this point
+        fetch(`/api/annotate?point=${dbId}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ annotation: annotation })
+        }).then(res => {
+          if (res.ok) {
+            alert("✅ Annotation saved!");
+          } else {
+            alert("❌ Failed to save annotation.");
+          }
+        });
+      });
+    }
 
 
     const layoutCombined = {
@@ -164,6 +191,7 @@
         mode: "lines+markers",
         name: "Temperature",
         line: { color: "deeppink" },
+        customdata: ids,  // attaches DB IDs to each point
         connectgaps: false,
       },
       {
@@ -172,10 +200,11 @@
         mode: "lines+markers",
         name: "Humidity",
         line: { color: "dodgerblue" },
+        customdata: ids,  // attaches DB IDs to each point
         connectgaps: false,
         yaxis: "y2",
       },
-    ], layoutCombined, { responsive: true, editable: true  });
+    ], layoutCombined, { responsive: true, editable: true  }).then(() => attachAnnotationHandler("combinedPlot"));
 
       const layout = title => ({
         title: { text: title, font: { size: 14 }, y: 0.9 },
@@ -191,32 +220,36 @@
         mode: "lines+markers",
         name: "Temperature",
         line: { color: "deeppink" },
+        customdata: ids,  // attaches DB IDs to each point
         connectgaps: false
-      }], layout("🌡️ Temperature (°C)"), { responsive: true });
+      }], layout("🌡️ Temperature (°C)"), { responsive: true }).then(() => attachAnnotationHandler("tempPlot"));
 
       Plotly.newPlot("humPlot", [{
         x: timestamps, y: humidities,
         mode: "lines+markers",
         name: "Humidity",
         line: { color: "dodgerblue" },
+        customdata: ids,  // attaches DB IDs to each point
         connectgaps: false
-      }], layout("💧 Humidity (%)"), { responsive: true });
+      }], layout("💧 Humidity (%)"), { responsive: true }).then(() => attachAnnotationHandler("humPlot"));
 
       Plotly.newPlot("eco2Plot", [{
         x: timestamps, y: eco2,
         mode: "lines+markers",
         name: "eCO₂",
         line: { color: "yellowgreen" },
+        customdata: ids,  // attaches DB IDs to each point
         connectgaps: false
-      }], layout("🫁 eCO₂ (ppm)"), { responsive: true });
+      }], layout("🫁 eCO₂ (ppm)"), { responsive: true }).then(() => attachAnnotationHandler("eco2Plot"));
 
       Plotly.newPlot("tvocPlot", [{
         x: timestamps, y: tvoc,
         mode: "lines+markers",
         name: "TVOC",
         line: { color: "lightgreen" },
+        customdata: ids,  // attaches DB IDs to each point
         connectgaps: false
-      }], layout("🧪 TVOC (ppb)"), { responsive: true });
+      }], layout("🧪 TVOC (ppb)"), { responsive: true }).then(() => attachAnnotationHandler("tvocPlot"));
 
       window.dispatchEvent(new Event('resize'));
 
@@ -251,7 +284,7 @@
 
     function downloadCSV() {
       const range = document.getElementById("range").value;
-      window.open(`/api/data.csv?range=${range}`, "_blank");
+      window.open(`/api/download?range=${range}`, "_blank");
     }
 
     fetchData();

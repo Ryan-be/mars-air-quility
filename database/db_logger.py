@@ -8,7 +8,7 @@ def log_sensor_data(temp, hum, eco2, tvoc, annotation=None):
     cur.execute("""
         INSERT INTO sensor_data (timestamp, temperature, humidity, eco2, tvoc, annotation)
         VALUES (?, ?, ?, ?, ?, ?)
-    """, (datetime.now().isoformat(), temp, hum, eco2, tvoc, annotation))
+    """, (datetime.utcnow().isoformat(), temp, hum, eco2, tvoc, annotation))
 
     conn.commit()
     conn.close()

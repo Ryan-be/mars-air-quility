@@ -74,11 +74,11 @@ def read_sensors():
 def log_data():
     ts, temp, hum, eco2, tvoc = read_sensors()
     write_header = not os.path.exists(DATA_FILE)
-    with open(DATA_FILE, "a", newline="") as f:
-        writer = csv.writer(f)
-        if write_header:
-            writer.writerow(["timestamp", "temperature", "humidity", "eco2", "tvoc"])
-        writer.writerow([ts, temp, hum, eco2, tvoc])
+    # with open(DATA_FILE, "a", newline="") as f:
+    #     writer = csv.writer(f)
+    #     if write_header:
+    #         writer.writerow(["timestamp", "temperature", "humidity", "eco2", "tvoc"])
+    #     writer.writerow([ts, temp, hum, eco2, tvoc])
     log_sensor_data(temp, hum, eco2, tvoc)
 
 #    update_display(temp, hum, eco2, tvoc)
@@ -87,14 +87,43 @@ def log_data():
 def dashboard():
     return render_template("dashboard.html")
 
-@app.route("/download")
+@app.route("/api/download")
 def download_data():
-    return send_file(
-        DATA_FILE,
-        mimetype="text/csv",
-        as_attachment=True,
-        download_name="mlss_data.csv"
-    )
+    range_param = request.args.get("range", "24h")
+    now = datetime.utcnow()
+
+    range_map = {
+        "1h": timedelta(hours=1),
+        "6h": timedelta(hours=6),
+        "12h": timedelta(hours=12),
+        "24h": timedelta(hours=24),
+    }
+
+    if range_param in range_map:
+        since = now - range_map[range_param]
+    else:
+        since = datetime.min  # 'all'
+
+    try:
+        # Fetch data from SQLite database
+        rows = get_sensor_data_by_date(since.isoformat(), now.isoformat())
+
+        # Write data to a CSV in memory
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["id", "timestamp", "temperature", "humidity", "eco2", "tvoc", "annotation"])  # Header
+        writer.writerows(rows)
+        output.seek(0)
+
+        # Serve the CSV file
+        return send_file(
+            io.BytesIO(output.getvalue().encode("utf-8")),
+            mimetype="text/csv",
+            as_attachment=True,
+            download_name="sensor_data.csv"
+        )
+    except Exception as e:
+        return jsonify({"error": f"Error generating CSV: {str(e)}"}), 500
 
 @app.route("/api/data")
 def get_data():
@@ -113,19 +142,47 @@ def get_data():
     else:
         since = datetime.min  # 'all'
 
-    if not os.path.exists(DATA_FILE):
-        return jsonify({"error": "Data file not found."}), 404
-
     try:
-        df = pd.read_csv(DATA_FILE)
-        # Only convert rows that are numeric
-        df = df[pd.to_numeric(df["timestamp"], errors="coerce").notnull()]
-        df["timestamp"] = pd.to_datetime(df["timestamp"].astype("int64"), unit='ms')
-        df = df[df["timestamp"] >= since]
+        # Fetch data from SQLite database
+        rows = get_sensor_data_by_date(since.isoformat(), now.isoformat())
+        data = [
+            {
+                "id": row[0],
+                "timestamp": row[1],
+                "temperature": row[2],
+                "humidity": row[3],
+                "eco2": row[4],
+                "tvoc": row[5],
+                "annotation": row[6],
+            }
+            for row in rows
+        ]
     except Exception as e:
         return jsonify({"error": f"Error reading data: {str(e)}"}), 500
 
-    return jsonify(df.to_dict(orient="records"))
+    return jsonify(data)
+
+@app.route("/api/annotate", methods=["POST"])
+def annotate_point_query():
+    try:
+        # Get the 'point' query parameter
+        entry_id = request.args.get("point", type=int)
+        if not entry_id:
+            return jsonify({"error": "'point' query parameter is required and must be an integer."}), 400
+
+        # Parse JSON payload
+        data = request.get_json()
+        annotation = data.get("annotation")
+        if not annotation:
+            return jsonify({"error": "'annotation' is required in the request body."}), 400
+
+        # Add annotation to the database
+        add_annotation(entry_id, annotation)
+
+        return jsonify({"message": "Annotation added successfully."}), 200
+    except Exception as e:
+        return jsonify({"error": f"Error adding annotation: {str(e)}"}), 500
+
 
 @app.route("/system_health")
 def system_health():
