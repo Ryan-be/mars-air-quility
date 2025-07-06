@@ -1,0 +1,35 @@
+import asyncio
+from kasa import SmartPlug
+
+class KasaSmartPlug:
+    def __init__(self, ip_address: str):
+        self.plug = SmartPlug(ip_address)
+
+    async def health(self) -> bool:
+        try:
+            await self.plug.update()
+            return True
+        except Exception as e:
+            print(f"Health check failed: {e}")
+            return False
+
+    async def switch(self, state: bool):
+        try:
+            await self.plug.update()
+            if state:
+                await self.plug.turn_on()
+            else:
+                await self.plug.turn_off()
+        except Exception as e:
+            print(f"Failed to switch plug state: {e}")
+
+# Example usage:
+async def main():
+    smart_plug = KasaSmartPlug("192.168.1.63")
+    is_healthy = await smart_plug.health()
+    print(f"Plug health: {is_healthy}")
+    await smart_plug.switch(True)  # Turn on the plug
+    # await smart_plug.switch(False)  # Turn off the plug
+
+if __name__ == "__main__":
+    asyncio.run(main())

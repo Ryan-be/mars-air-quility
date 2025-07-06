@@ -3,9 +3,10 @@ Description=MLSS Monitor Flask App
 After=network.target
 
 [Service]
-User=pi
-WorkingDirectory=/home/pi/mlss-monitor
-ExecStart=/home/pi/.local/bin/poetry run python app.py
+User=masadmin
+WorkingDirectory=/home/masadmin/projects/mlss-monitor/mlss_monitor-project
+ExecStart=poetry run mlss_monitor
+Environment="PATH=/home/masadmin/.local/bin/poetry:/home/masadmin/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 Restart=always
 
 [Install]
