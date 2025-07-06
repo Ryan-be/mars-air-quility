@@ -17,6 +17,9 @@ from database.db_logger import log_sensor_data, get_sensor_data, get_sensor_data
 from datetime import datetime, timedelta
 import psutil
 import subprocess
+from external_api_interfaces.kasa_smart_plug import KasaSmartPlug
+import asyncio
+
 
 app = Flask(
     __name__,
@@ -27,6 +30,7 @@ app = Flask(
 LOG_INTERVAL = int(config.get("LOG_INTERVAL", "10"))
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # one level up from mlss_monitor
 DATA_FILE = os.path.join(BASE_DIR, "data", "default.csv")
+FAN_KASA_SMART_PLUG_IP = config.get("FAN_KASA_SMART_PLUG_IP", "192.168.1.63")
 
 i2c = busio.I2C(board.SCL, board.SDA)
 
@@ -71,17 +75,22 @@ def read_sensors():
     # Return the timestamp and sensor data
     return ts, temperature, humidity, eco2, tvoc
 
+# Initialize the KasaSmartPlug instance
+fan_smart_plug = KasaSmartPlug(FAN_KASA_SMART_PLUG_IP)
+
 def log_data():
     ts, temp, hum, eco2, tvoc = read_sensors()
-    write_header = not os.path.exists(DATA_FILE)
-    # with open(DATA_FILE, "a", newline="") as f:
-    #     writer = csv.writer(f)
-    #     if write_header:
-    #         writer.writerow(["timestamp", "temperature", "humidity", "eco2", "tvoc"])
-    #     writer.writerow([ts, temp, hum, eco2, tvoc])
     log_sensor_data(temp, hum, eco2, tvoc)
 
-#    update_display(temp, hum, eco2, tvoc)
+    # Add logic to control the smart plug based on temperature and TVOC
+    try:
+        if temp > 26 or tvoc > 500:
+            asyncio.run(fan_smart_plug.switch(True))  # Turn on the plug
+        else:
+            asyncio.run(fan_smart_plug.switch(False))  # Turn off the plug
+    except Exception as e:
+        print(f"Error controlling smart plug fan: {e}")
+
 
 @app.route("/")
 def dashboard():
