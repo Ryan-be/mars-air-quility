@@ -13,7 +13,7 @@ from config import config
 from sensors.display import update_display
 from sensors.aht20 import read_aht20
 from sensors.sgp30 import read_sgp30
-from database.db_logger import log_sensor_data, get_sensor_data, get_sensor_data_by_date, add_annotation
+from database.db_logger import log_sensor_data, get_sensor_data, get_sensor_data_by_date, add_annotation, remove_annotation
 from datetime import datetime, timedelta
 import psutil
 import subprocess
@@ -198,6 +198,21 @@ def annotate_point_query():
         return jsonify({"message": "Annotation added successfully."}), 200
     except Exception as e:
         return jsonify({"error": f"Error adding annotation: {str(e)}"}), 500
+
+@app.route("/api/annotate", methods=["DELETE"])
+def remove_annotation_query():
+    try:
+        # Get the 'point' query parameter
+        entry_id = request.args.get("point", type=int)
+        if not entry_id:
+            return jsonify({"error": "'point' query parameter is required and must be an integer."}), 400
+
+        # Remove annotation from the database
+        remove_annotation(entry_id)
+
+        return jsonify({"message": "Annotation removed successfully."}), 200
+    except Exception as e:
+        return jsonify({"error": f"Error removing annotation: {str(e)}"}), 500
 
 
 @app.route("/system_health")

@@ -46,10 +46,8 @@
       width: 100%;
     }
     .plot-container > div {
-      width: 90%;
+      width: 100%;
       min-height: 300px;
-      max-width: 100%; /* Ensure it doesn't overflow */
-      overflow-x: auto; /* Allow horizontal scrolling if needed */
     }
     .dark-mode {
       background-color: #121212;
@@ -73,7 +71,6 @@
 <body>
   <div class="top-bar">
     <p id="last-updated" style="margin: 0.5em 0; font-style: italic;">Last updated: never</p>
-
     <h2>MLSS</h2>
     <div>
       <label for="range">Time Range:</label>
@@ -97,7 +94,6 @@
   </table>
 
   <div class="plot-container">
-    <div id="combinedPlot"></div>
     <div id="tempPlot"></div>
     <div id="humPlot"></div>
     <div id="eco2Plot"></div>
@@ -115,7 +111,6 @@
     </table>
   </div>
 
-
   <script>
     const darkToggle = document.getElementById("darkToggle");
     darkToggle.addEventListener("change", () => {
@@ -123,6 +118,65 @@
     });
 
     document.getElementById("range").addEventListener("change", fetchData);
+
+    function attachAnnotationHandler(plotId) {
+      const plot = document.getElementById(plotId);
+
+      plot.on('plotly_click', function(data) {
+        const dbId = data.points[0].customdata;
+        const timestamp = data.points[0].x;
+        const currentAnnotation = data.points[0].text || "";
+
+        const container = document.createElement("div");
+        container.innerHTML = `
+          <div style="font-family: sans-serif;">
+            <p><strong>Edit annotation for:</strong><br>${timestamp}</p>
+            <p>Current annotation:</p>
+            <textarea id="annotationInput" rows="4" style="width: 100%;">${currentAnnotation}</textarea>
+            <div style="margin-top: 1em; text-align: right;">
+              <button id="editBtn">Save</button>
+              <button id="deleteBtn">Delete</button>
+              <button id="cancelBtn">Cancel</button>
+            </div>
+          </div>
+        `;
+
+        const dialog = document.createElement("dialog");
+        dialog.style.padding = "1em";
+        dialog.style.maxWidth = "400px";
+        dialog.appendChild(container);
+        document.body.appendChild(dialog);
+        dialog.showModal();
+
+        dialog.querySelector("#editBtn").onclick = () => {
+          const newAnnotation = document.getElementById("annotationInput").value;
+          fetch(`/api/annotate?point=${dbId}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ annotation: newAnnotation })
+          }).then(res => {
+            dialog.close();
+            dialog.remove();
+            alert(res.ok ? "✅ Annotation updated!" : "❌ Failed to update annotation.");
+          });
+        };
+
+        dialog.querySelector("#deleteBtn").onclick = () => {
+          fetch(`/api/annotate?point=${dbId}`, {
+            method: "DELETE",
+          }).then(res => {
+            dialog.close();
+            dialog.remove();
+            alert(res.ok ? "🗑️ Annotation removed." : "❌ Failed to remove annotation.");
+          });
+        };
+
+        dialog.querySelector("#cancelBtn").onclick = () => {
+          dialog.close();
+          dialog.remove();
+        };
+      });
+    }
 
     async function fetchData() {
       const range = document.getElementById("range").value;
@@ -136,122 +190,135 @@
       const humidities = data.map(d => d.humidity);
       const eco2 = data.map(d => d.eco2);
       const tvoc = data.map(d => d.tvoc);
+      const annotations = data.map(d => d.annotation);
 
-      document.getElementById("tempValue").textContent = temperatures.at(-1)?.toFixed(2) ?? "--";
-      document.getElementById("humValue").textContent = humidities.at(-1)?.toFixed(2) ?? "--";
-      document.getElementById("eco2Value").textContent = eco2.at(-1) ?? "--";
-      document.getElementById("tvocValue").textContent = tvoc.at(-1) ?? "--";
-
-
-
-    function attachAnnotationHandler(plotId) {
-      const plot = document.getElementById(plotId);
-
-      plot.on('plotly_click', function(data) {
-        const dbId = data.points[0].customdata;
-        const timestamp = data.points[0].x;
-
-        const annotation = prompt(`Add annotation for ${timestamp}:`);
-        if (!annotation) return;
-
-        // Call API to annotate this point
-        fetch(`/api/annotate?point=${dbId}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ annotation: annotation })
-        }).then(res => {
-          if (res.ok) {
-            alert("✅ Annotation saved!");
-          } else {
-            alert("❌ Failed to save annotation.");
-          }
-        });
+      const rollingTVOC = tvoc.map((_, i, arr) => {
+        const slice = arr.slice(Math.max(i - 5, 0), i + 1);
+        return slice.reduce((a, b) => a + b, 0) / slice.length;
       });
-    }
 
+      const rateOfChange = tvoc.map((v, i, arr) => i > 0 ? v - arr[i - 1] : 0);
 
-    const layoutCombined = {
-        title: { text: "🌡️ Temperature (°C) & 💧 Humidity (%)", font: { size: 14 }, y: 0.9 },
-        margin: { t: 40 },
-        xaxis: { title: "Time" },
-        yaxis: { title: "Temperature (°C)", automargin: true },
-        yaxis2: {
-          title: "Humidity (%)",
-          overlaying: "y",
-          side: "right",
-          automargin: true,
-        },
-        autosize: true,
-    };
-
-    Plotly.newPlot("combinedPlot", [
-      {
-        x: timestamps,
-        y: temperatures,
-        mode: "lines+markers",
-        name: "Temperature",
-        line: { color: "deeppink" },
-        customdata: ids,  // attaches DB IDs to each point
-        connectgaps: false,
-      },
-      {
-        x: timestamps,
-        y: humidities,
-        mode: "lines+markers",
-        name: "Humidity",
-        line: { color: "dodgerblue" },
-        customdata: ids,  // attaches DB IDs to each point
-        connectgaps: false,
-        yaxis: "y2",
-      },
-    ], layoutCombined, { responsive: true, editable: true  }).then(() => attachAnnotationHandler("combinedPlot"));
-
-      const layout = title => ({
-        title: { text: title, font: { size: 14 }, y: 0.9 },
-        margin: { t: 40 },
-        xaxis: { title: "Time" },
-        yaxis: { automargin: true },
-        autosize: true, // Ensure the plot resizes automatically
-
-      });
+      const eventAnnotations = annotations.map((note, i) => {
+        if (note && note.trim()) {
+          return {
+            x: timestamps[i],
+            y: tvoc[i],
+            text: note,
+            showarrow: true,
+            arrowhead: 2,
+            ax: 0,
+            ay: -40,
+            bgcolor: "#444",
+            font: { color: "#fff" }
+          };
+        }
+        return null;
+      }).filter(Boolean);
 
       Plotly.newPlot("tempPlot", [{
         x: timestamps, y: temperatures,
         mode: "lines+markers",
         name: "Temperature",
         line: { color: "deeppink" },
-        customdata: ids,  // attaches DB IDs to each point
-        connectgaps: false
-      }], layout("🌡️ Temperature (°C)"), { responsive: true }).then(() => attachAnnotationHandler("tempPlot"));
+        customdata: ids
+      }], {
+        title: { text: "🌡️ Temperature (°C)" },
+        xaxis: { title: "Time" },
+        yaxis: { title: "°C" },
+        autosize: true
+      }, { responsive: true }).then(() => attachAnnotationHandler("tempPlot"));
 
       Plotly.newPlot("humPlot", [{
         x: timestamps, y: humidities,
         mode: "lines+markers",
         name: "Humidity",
         line: { color: "dodgerblue" },
-        customdata: ids,  // attaches DB IDs to each point
-        connectgaps: false
-      }], layout("💧 Humidity (%)"), { responsive: true }).then(() => attachAnnotationHandler("humPlot"));
+        customdata: ids
+      }], {
+        title: { text: "💧 Humidity (%)" },
+        xaxis: { title: "Time" },
+        yaxis: { title: "%" },
+        autosize: true
+      }, { responsive: true }).then(() => attachAnnotationHandler("humPlot"));
 
       Plotly.newPlot("eco2Plot", [{
         x: timestamps, y: eco2,
         mode: "lines+markers",
         name: "eCO₂",
         line: { color: "yellowgreen" },
-        customdata: ids,  // attaches DB IDs to each point
-        connectgaps: false
-      }], layout("🫁 eCO₂ (ppm)"), { responsive: true }).then(() => attachAnnotationHandler("eco2Plot"));
+        customdata: ids
+      }], {
+        title: { text: "🫁 eCO₂ (ppm)" },
+        xaxis: { title: "Time" },
+        yaxis: { title: "ppm" },
+        autosize: true
+      }, { responsive: true }).then(() => attachAnnotationHandler("eco2Plot"));
 
-      Plotly.newPlot("tvocPlot", [{
-        x: timestamps, y: tvoc,
-        mode: "lines+markers",
-        name: "TVOC",
-        line: { color: "lightgreen" },
-        customdata: ids,  // attaches DB IDs to each point
-        connectgaps: false
-      }], layout("🧪 TVOC (ppb)"), { responsive: true }).then(() => attachAnnotationHandler("tvocPlot"));
+      Plotly.newPlot("tvocPlot", [
+        {
+          x: timestamps,
+          y: tvoc,
+          mode: "lines+markers",
+          name: "TVOC",
+          marker: {
+            color: tvoc,
+            colorscale: "YlOrRd",
+            cmin: Math.min(...tvoc),
+            cmax: Math.max(...tvoc),
+            colorbar: {
+              title: "TVOC (ppb)",
+              thickness: 15,
+              len: 0.75,
+              yanchor: "middle"
+            }
+          },
+          line: { color: "rgba(0,0,0,0)" },
+          customdata: ids,
+          text: annotations,
+          hoverinfo: "x+y+text"
+        },
+        {
+          x: timestamps,
+          y: rollingTVOC,
+          mode: "lines",
+          name: "Rolling Avg (TVOC)",
+          line: { dash: "dash", color: "white", width: 2 }
+        },
+        {
+          x: timestamps,
+          y: rateOfChange,
+          mode: "lines",
+          name: "Rate of Change (TVOC)",
+          yaxis: "y2",
+          line: { color: "cyan", width: 2 }
+        }
+      ], {
+        title: { text: "🧪 TVOC (ppb)" },
+        xaxis: { title: "Time" },
+        yaxis: { title: "TVOC (ppb)" },
+        yaxis2: {
+          title: "Rate of Change",
+          overlaying: "y",
+          side: "right",
+          showgrid: false
+        },
+        legend: {
+          x: 1.05,
+          y: 1,
+          bgcolor: "rgba(0,0,0,0)",
+          font: { size: 12 }
+        },
+        annotations: eventAnnotations,
+        autosize: true
+      }, { responsive: true }).then(() => attachAnnotationHandler("tvocPlot"));
 
-      window.dispatchEvent(new Event('resize'));
+
+
+      document.getElementById("tvocValue").textContent = tvoc.at(-1) ?? "--";
+      document.getElementById("tempValue").textContent = temperatures.at(-1)?.toFixed(2) ?? "--";
+      document.getElementById("humValue").textContent = humidities.at(-1)?.toFixed(2) ?? "--";
+      document.getElementById("eco2Value").textContent = eco2.at(-1) ?? "--";
 
       const now = new Date();
       document.getElementById("last-updated").textContent =
