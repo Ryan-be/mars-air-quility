@@ -29,7 +29,6 @@ app = Flask(
 
 LOG_INTERVAL = int(config.get("LOG_INTERVAL", "10"))
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # one level up from mlss_monitor
-DATA_FILE = os.path.join(BASE_DIR, "data", "default.csv")
 FAN_KASA_SMART_PLUG_IP = config.get("FAN_KASA_SMART_PLUG_IP", "192.168.1.63")
 
 i2c = busio.I2C(board.SCL, board.SDA)
@@ -65,10 +64,18 @@ def read_sensors():
         except Exception as e:
             print(f"Error reading AHT20 sensor: {e}")
 
+    # Update SGP30 humidity compensation if available
+    if sgp30 and humidity > 0:
+        try:
+            sgp30.set_iaq_relative_humidity(celcius=temperature, relative_humidity=humidity)
+        except Exception as e:
+            print(f"Error setting SGP30 humidity compensation: {e}")
+
     # Read SGP30 sensor data if available
     if sgp30:
         try:
-            eco2, tvoc = read_sgp30()
+            eco2, tvoc= read_sgp30()
+            print(f"eco2: {eco2}, tvoc: {tvoc}")
         except Exception as e:
             print(f"Error reading SGP30 sensor: {e}")
 
@@ -228,8 +235,6 @@ def system_health():
     return jsonify(status)
 
 def main():
-    if not os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "w"): pass
 
     from threading import Thread
 

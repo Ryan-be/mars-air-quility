@@ -19,19 +19,6 @@ class KasaSmartPlug:
         """
         self.plug = SmartPlug(ip_address)
 
-    async def health(self) -> bool:
-        """
-        Checks the health of the smart plug by attempting to update its state.
-
-        Returns:
-            bool: True if the smart plug is reachable, False otherwise.
-        """
-        try:
-            await self.plug.update()
-            return True
-        except Exception as e:
-            print(f"Health check failed: {e}")
-            return False
 
     async def switch(self, state: bool):
         """

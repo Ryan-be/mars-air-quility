@@ -17,9 +17,10 @@ except (OSError, ValueError) as e:
 def read_sgp30():
     if sgp30 is None:
         print("SGP30 sensor is not available.")
-        return None, None
+        return None, None, None, None
     try:
-        return sgp30.eCO2, sgp30.TVOC
+        eco2, tvoc = sgp30.eCO2, sgp30.TVOC
+        return eco2, tvoc
     except Exception as e:
         print(f"Error reading from SGP30 sensor: {e}")
-        return None, None
+        return None, None, None, None

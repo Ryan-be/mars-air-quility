@@ -66,6 +66,26 @@ mlss_monitor-project/
 ├── poetry.lock
 └── mlss-monitor.service  # systemd unit file
 ```
+## 📦 Installation
+
+### 1. Clone the Repository
+
+
+### 2. Install Dependencies
+
+```bash     
+    sudo apt-get install libffi-dev 
+    sudo apt-get install python3-dev
+    sudo apt-get install python3-pip
+    sudo apt-get install python3-venv
+    python3 -m venv venv
+    source venv/bin/activate
+    pip install -U pip
+    pip install -U poetry
+    poetry install
+```
+
+
 
 ## 🔁 Running on Boot (systemd)
 
