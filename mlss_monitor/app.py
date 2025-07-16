@@ -147,6 +147,7 @@ def get_data():
     now = datetime.utcnow()
 
     range_map = {
+        "15m": timedelta(minutes=15),
         "1h": timedelta(hours=1),
         "6h": timedelta(hours=6),
         "12h": timedelta(hours=12),
