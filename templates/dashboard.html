@@ -72,7 +72,7 @@
       font-size: 14px;
       background-color: #1e1e1e;
       border-radius: 6px;
-      max-width: 300px;
+      max-width: 95%;
     }
 
     .tvoc-level {
@@ -96,6 +96,47 @@
       text-align: left;
       padding: 0.5em 1em;
       border-bottom: 2px solid #666;
+    }
+
+  .fan-card {
+    border: 1px solid #444;
+    border-radius: 6px;
+    padding: 1em;
+    margin-top: 1em;
+    margin-bottom: 20px;
+    background-color: #1e1e1e;
+    max-width: 95%; /* Match the width of plots and tables */
+    margin-left: auto; /* Center horizontally */
+    margin-right: auto; /* Center horizontally */
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+    .fan-card h3 {
+      margin: 0;
+      font-size: 1.1em;
+      display: flex;
+      align-items: center;
+    }
+
+    .fan-buttons {
+      display: flex;
+      gap: 0.5em;
+    }
+
+    .fan-buttons button {
+      background-color: #333;
+      color: white;
+      border: 1px solid #555;
+      border-radius: 4px;
+      padding: 0.4em 1em;
+      cursor: pointer;
+      transition: background-color 0.2s ease;
+    }
+
+    .fan-buttons button:hover {
+      background-color: #555;
     }
   </style>
 </head>
@@ -160,6 +201,17 @@
     </tbody>
   </table>
 
+  <div class="fan-card">
+    <h3><span>🌀</span> Fan Control</h3>
+    <div class="fan-buttons">
+      <button onclick="setFanControl('on')">Turn On</button>
+      <button onclick="setFanControl('off')">Turn Off</button>
+      <button onclick="setFanControl('auto')">Auto</button>
+    </div>
+    <p id="fan-status">Status: Unknown</p>
+    <p id="fan-mode">Mode: Unknown</p>
+  </div>
+
   <div class="plot-container">
     <div id="tempPlot"></div>
     <div id="humPlot"></div>
@@ -185,6 +237,40 @@
   </div>
 
   <script>
+    async function setFanControl(state) {
+      try {
+        const res = await fetch(`/api/fan?state=${state}`, { method: "POST" });
+        const result = await res.json();
+
+        if (res.ok) {
+          document.getElementById("fan-status").textContent = `Status: ${result.message}`;
+          document.getElementById("fan-mode").textContent = `Mode: ${state === "auto" ? "Auto" : "Manual"}`;
+        } else {
+          document.getElementById("fan-status").textContent = `Error: ${result.error || "Unknown error"}`;
+        }
+      } catch (err) {
+        document.getElementById("fan-status").textContent = "Error: Could not reach server";
+      }
+    }
+
+    async function fetchFanStatus() {
+      try {
+        const res = await fetch('/api/fan/status');
+        const result = await res.json();
+        if (res.ok) {
+          document.getElementById("fan-status").textContent = `Status: ${result.state}`;
+          document.getElementById("fan-mode").textContent = `Mode: ${result.mode}`;
+        } else {
+          document.getElementById("fan-status").textContent = `Error: ${result.error || "Unknown error"}`;
+        }
+      } catch (err) {
+        document.getElementById("fan-status").textContent = "Error: Could not reach server";
+      }
+    }
+
+    // Fetch fan status on page load
+    fetchFanStatus();
+
     const darkToggle = document.getElementById("darkToggle");
 
     darkToggle.addEventListener("change", () => {
@@ -491,6 +577,8 @@
       fetchData();
       fetchHealth();
     }, 15000);
+
+
   </script>
 </body>
 </html>

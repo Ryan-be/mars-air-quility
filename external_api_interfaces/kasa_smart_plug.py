@@ -39,6 +39,21 @@ class KasaSmartPlug:
         except Exception as e:
             print(f"Failed to switch plug state: {e}")
 
+    def get_state(self):
+        """
+        Returns the state of the smart plug for serialization.
+
+        Returns:
+            dict: The state of the smart plug.
+        """
+        return {
+            'ip_address': self.plug.host,
+            'state': self.plug.is_on
+        }
+
+
+
+
 # Example usage:
 # async def main():
 #     smart_plug = KasaSmartPlug("192.168.1.63")

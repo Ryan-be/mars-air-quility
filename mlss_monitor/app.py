@@ -1,6 +1,5 @@
 from flask import Flask, send_file, render_template, jsonify, request
-import pandas as pd
-from datetime import datetime, timedelta
+
 import csv
 import os
 import time
@@ -10,10 +9,9 @@ import busio
 from adafruit_ahtx0 import AHTx0
 from adafruit_sgp30 import Adafruit_SGP30
 from config import config
-from sensors.display import update_display
 from sensors.aht20 import read_aht20
 from sensors.sgp30 import read_sgp30
-from database.db_logger import log_sensor_data, get_sensor_data, get_sensor_data_by_date, add_annotation, remove_annotation
+from database.db_logger import log_sensor_data, get_sensor_data_by_date, add_annotation, remove_annotation
 from datetime import datetime, timedelta
 import psutil
 import subprocess
@@ -30,6 +28,10 @@ app = Flask(
 LOG_INTERVAL = int(config.get("LOG_INTERVAL", "10"))
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # one level up from mlss_monitor
 FAN_KASA_SMART_PLUG_IP = config.get("FAN_KASA_SMART_PLUG_IP", "192.168.1.63")
+
+# Global variables to store fan state and mode
+fan_mode = "auto"  # Default mode: auto
+fan_state = "off"  # Default state: off
 
 i2c = busio.I2C(board.SCL, board.SDA)
 
@@ -89,14 +91,17 @@ def log_data():
     ts, temp, hum, eco2, tvoc = read_sensors()
     log_sensor_data(temp, hum, eco2, tvoc)
 
-    # Add logic to control the smart plug based on temperature and TVOC
-    try:
-        if temp > 26 or tvoc > 500:
-            asyncio.run(fan_smart_plug.switch(True))  # Turn on the plug
-        else:
-            asyncio.run(fan_smart_plug.switch(False))  # Turn off the plug
-    except Exception as e:
-        print(f"Error controlling smart plug fan: {e}")
+    # Control the fan automatically if in auto mode
+    if fan_mode == "auto":
+        try:
+            if temp > 20 or tvoc > 500:
+                fan_state = "on"
+                asyncio.run(fan_smart_plug.switch(True))
+            else:
+                fan_state = "off"
+                asyncio.run(fan_smart_plug.switch(False))
+        except Exception as e:
+            print(f"Error controlling smart plug fan: {e}")
 
 
 @app.route("/")
@@ -140,6 +145,40 @@ def download_data():
         )
     except Exception as e:
         return jsonify({"error": f"Error generating CSV: {str(e)}"}), 500
+
+@app.route("/api/fan", methods=["POST"])
+def control_fan():
+    global fan_mode, fan_state
+    try:
+        # Get the 'state' query parameter
+        state = request.args.get("state")
+        if state not in ["on", "off", "auto"]:
+            return jsonify({"error": "'state' must be 'on', 'off', or 'auto'."}), 400
+
+        if state == "auto":
+            # Set to auto mode
+            fan_mode = "auto"
+            fan_state = "off"  # Default state when switching to auto
+        else:
+            # Set to manual mode and update state
+            fan_mode = "manual"
+            fan_state = state
+            asyncio.run(fan_smart_plug.switch(state == "on"))
+
+        return jsonify({"message": f"Fan set to {state} successfully.", "mode": fan_mode}), 200
+    except Exception as e:
+        return jsonify({"error": f"Error controlling fan: {str(e)}"}), 500
+
+
+@app.route("/api/fan/status", methods=["GET"])
+def get_fan_state():
+    try:
+        # Get the current state of the fan
+        fan_active = fan_smart_plug.get_state()
+        return jsonify({"state": fan_active, "mode": fan_mode}), 200
+    except Exception as e:
+        return jsonify({"error": f"Error retrieving fan state: {str(e)}"}), 500
+
 
 @app.route("/api/data")
 def get_data():
