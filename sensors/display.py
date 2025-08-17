@@ -20,6 +20,7 @@ height = disp.height
 # Load default font
 font = ImageFont.load_default()
 
+
 def update_display(temp, hum, eco2, tvoc):
     image = Image.new("RGB", (width, height), "black")
     draw = ImageDraw.Draw(image)

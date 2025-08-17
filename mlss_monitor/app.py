@@ -18,12 +18,10 @@ import subprocess
 from external_api_interfaces.kasa_smart_plug import KasaSmartPlug
 import asyncio
 
-
 app = Flask(
     __name__,
     template_folder=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "templates")
 )
-
 
 LOG_INTERVAL = int(config.get("LOG_INTERVAL", "10"))
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # one level up from mlss_monitor
@@ -53,6 +51,7 @@ except Exception as e:
     print(f"Unexpected error initializing SGP30 sensor: {e}")
     sgp30 = None
 
+
 def read_sensors():
     ts = int(datetime.now().timestamp() * 1000)  # in ms
     temperature, humidity, eco2, tvoc = 0, 0, 0, 0
@@ -76,7 +75,7 @@ def read_sensors():
     # Read SGP30 sensor data if available
     if sgp30:
         try:
-            eco2, tvoc= read_sgp30()
+            eco2, tvoc = read_sgp30()
             print(f"eco2: {eco2}, tvoc: {tvoc}")
         except Exception as e:
             print(f"Error reading SGP30 sensor: {e}")
@@ -84,8 +83,10 @@ def read_sensors():
     # Return the timestamp and sensor data
     return ts, temperature, humidity, eco2, tvoc
 
+
 # Initialize the KasaSmartPlug instance
 fan_smart_plug = KasaSmartPlug(FAN_KASA_SMART_PLUG_IP)
+
 
 def log_data():
     ts, temp, hum, eco2, tvoc = read_sensors()
@@ -107,6 +108,7 @@ def log_data():
 @app.route("/")
 def dashboard():
     return render_template("dashboard.html")
+
 
 @app.route("/api/download")
 def download_data():
@@ -145,6 +147,7 @@ def download_data():
         )
     except Exception as e:
         return jsonify({"error": f"Error generating CSV: {str(e)}"}), 500
+
 
 @app.route("/api/fan", methods=["POST"])
 def control_fan():
@@ -218,6 +221,7 @@ def get_data():
 
     return jsonify(data)
 
+
 @app.route("/api/annotate", methods=["POST"])
 def annotate_point_query():
     try:
@@ -238,6 +242,7 @@ def annotate_point_query():
         return jsonify({"message": "Annotation added successfully."}), 200
     except Exception as e:
         return jsonify({"error": f"Error adding annotation: {str(e)}"}), 500
+
 
 @app.route("/api/annotate", methods=["DELETE"])
 def remove_annotation_query():
@@ -283,14 +288,14 @@ def system_health():
 
     status["uptime"] = uptime_str
     status["cpu_usage"] = f"{cpu_percent:.1f}%"
-    status["memory_used"] = f"{memory.used // (1024**2)} MB"
-    status["memory_total"] = f"{memory.total // (1024**2)} MB"
+    status["memory_used"] = f"{memory.used // (1024 ** 2)} MB"
+    status["memory_total"] = f"{memory.total // (1024 ** 2)} MB"
     status["memory_percent"] = f"{memory.percent:.1f}%"
 
     return jsonify(status)
 
-def main():
 
+def main():
     from threading import Thread
 
     def background_log():
@@ -300,6 +305,7 @@ def main():
 
     Thread(target=background_log, daemon=True).start()
     app.run(host="0.0.0.0", port=5000)
+
 
 if __name__ == "__main__":
     main()

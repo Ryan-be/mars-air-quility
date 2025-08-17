@@ -1,5 +1,6 @@
 import sqlite3
 
+
 def create_db():
     conn = sqlite3.connect("data/sensor_data.db")
     cur = conn.cursor()
@@ -18,6 +19,7 @@ def create_db():
 
     conn.commit()
     conn.close()
+
 
 if __name__ == "__main__":
     create_db()

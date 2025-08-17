@@ -14,6 +14,7 @@ except (OSError, ValueError) as e:
     print(f"Error initializing SGP30 sensor: {e}")
     sgp30 = None
 
+
 def read_sgp30():
     if sgp30 is None:
         print("SGP30 sensor is not available.")

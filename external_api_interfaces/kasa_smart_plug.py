@@ -1,6 +1,7 @@
 import asyncio
 from kasa import SmartPlug
 
+
 class KasaSmartPlug:
     """
     A class to interact with a Kasa Smart Plug.
@@ -18,7 +19,6 @@ class KasaSmartPlug:
             ip_address (str): The IP address of the smart plug.
         """
         self.plug = SmartPlug(ip_address)
-
 
     async def switch(self, state: bool):
         """
@@ -50,9 +50,6 @@ class KasaSmartPlug:
             'ip_address': self.plug.host,
             'state': self.plug.is_on
         }
-
-
-
 
 # Example usage:
 # async def main():
