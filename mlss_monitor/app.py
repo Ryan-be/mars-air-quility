@@ -17,6 +17,7 @@ import psutil
 import subprocess
 from external_api_interfaces.kasa_smart_plug import KasaSmartPlug
 import asyncio
+from threading import Thread
 
 app = Flask(
     __name__,
@@ -87,6 +88,17 @@ def read_sensors():
 # Initialize the KasaSmartPlug instance
 fan_smart_plug = KasaSmartPlug(FAN_KASA_SMART_PLUG_IP)
 
+# Create an event loop for the background thread
+thread_loop = asyncio.new_event_loop()
+
+def start_thread_event_loop():
+    asyncio.set_event_loop(thread_loop)
+    thread_loop.run_forever()
+
+
+# Start the thread with the event loop
+thread = Thread(target=start_thread_event_loop, daemon=True)
+thread.start()
 
 def log_data():
     ts, temp, hum, eco2, tvoc = read_sensors()
@@ -97,13 +109,12 @@ def log_data():
         try:
             if temp > 20 or tvoc > 500:
                 fan_state = "on"
-                asyncio.run(fan_smart_plug.switch(True))
+                asyncio.run_coroutine_threadsafe(fan_smart_plug.switch(True), thread_loop)
             else:
                 fan_state = "off"
-                asyncio.run(fan_smart_plug.switch(False))
+                asyncio.run_coroutine_threadsafe(fan_smart_plug.switch(False), thread_loop)
         except Exception as e:
             print(f"Error controlling smart plug fan: {e}")
-
 
 @app.route("/")
 def dashboard():
@@ -151,7 +162,6 @@ def download_data():
 
 @app.route("/api/fan", methods=["POST"])
 def control_fan():
-    global fan_mode, fan_state
     try:
         # Get the 'state' query parameter
         state = request.args.get("state")
@@ -170,18 +180,23 @@ def control_fan():
 
         return jsonify({"message": f"Fan set to {state} successfully.", "mode": fan_mode}), 200
     except Exception as e:
+        app.logger.error(f"Error controlling fan: {str(e)}")
         return jsonify({"error": f"Error controlling fan: {str(e)}"}), 500
-
 
 @app.route("/api/fan/status", methods=["GET"])
 def get_fan_state():
     try:
-        # Get the current state of the fan
-        fan_active = fan_smart_plug.get_state()
-        return jsonify({"state": fan_active, "mode": fan_mode}), 200
+        # Schedule the update coroutine in the thread's event loop
+        update_task = asyncio.run_coroutine_threadsafe(fan_smart_plug.plug.update(), thread_loop)
+        update_task.result()  # Wait for the update to complete
+
+        # Schedule the get_state coroutine in the thread's event loop
+        state_task = asyncio.run_coroutine_threadsafe(fan_smart_plug.get_state(), thread_loop)
+        fan_state = state_task.result()  # Wait for the state retrieval to complete
+
+        return jsonify(fan_state), 200
     except Exception as e:
         return jsonify({"error": f"Error retrieving fan state: {str(e)}"}), 500
-
 
 @app.route("/api/data")
 def get_data():
@@ -299,13 +314,13 @@ def main():
     from threading import Thread
 
     def background_log():
+        asyncio.set_event_loop(thread_loop)
         while True:
             log_data()
             time.sleep(LOG_INTERVAL)
 
     Thread(target=background_log, daemon=True).start()
     app.run(host="0.0.0.0", port=5000)
-
 
 if __name__ == "__main__":
     main()
