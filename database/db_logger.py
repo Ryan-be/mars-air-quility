@@ -1,6 +1,8 @@
 import sqlite3
 from datetime import datetime
 
+DB_FILE = "data/sensor_data.db"
+
 
 def log_sensor_data(temp, hum, eco2, tvoc, annotation=None):
     """
@@ -106,7 +108,7 @@ def edit_annotation(sensor_id, new_annotation):
     :param new_annotation:
     :return:
     """
-    conn = sqlite3.connect("data/sensor_data.db")
+    conn = sqlite3.connect("%s" % DB_FILE)
     cur = conn.cursor()
 
     cur.execute("""
@@ -114,6 +116,36 @@ def edit_annotation(sensor_id, new_annotation):
         SET annotation = ?
         WHERE id = ?
     """, (new_annotation, sensor_id))
+
+    conn.commit()
+    conn.close()
+
+
+def auto_fan_control():
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    cur.execute("SELECT tvoc_min, tvoc_max, temp_min, temp_max FROM fan_settings ORDER BY id DESC LIMIT 1")
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
+def update_fan_settings(tvoc_min, tvoc_max, temp_min, temp_max, enabled):
+    """
+    Update the fan settings in the database.
+    :param tvoc_min: Minimum TVOC level to enable the fan.
+    :param tvoc_max: Maximum TVOC level to enable the fan.
+    :param temp_min: Minimum temperature to enable the fan.
+    :param temp_max: Maximum temperature to enable the fan.
+    :param enabled: Whether the fan is enabled (1) or disabled (0).
+    """
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+
+    cur.execute("""
+        UPDATE fan_settings
+        SET tvoc_min = ?, tvoc_max = ?, temp_min = ?, temp_max = ?, enabled = ?
+        WHERE id = (SELECT MAX(id) FROM fan_settings)
+    """, (tvoc_min, tvoc_max, temp_min, temp_max, enabled))
 
     conn.commit()
     conn.close()

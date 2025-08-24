@@ -1,3 +1,5 @@
+import sqlite3
+
 from flask import Flask, send_file, render_template, jsonify, request
 
 import csv
@@ -11,7 +13,8 @@ from adafruit_sgp30 import Adafruit_SGP30
 from config import config
 from sensors.aht20 import read_aht20
 from sensors.sgp30 import read_sgp30
-from database.db_logger import log_sensor_data, get_sensor_data_by_date, add_annotation, remove_annotation
+from database.db_logger import log_sensor_data, get_sensor_data_by_date, add_annotation, remove_annotation, \
+    auto_fan_control, update_fan_settings
 from datetime import datetime, timedelta
 import psutil
 import subprocess
@@ -100,14 +103,21 @@ def start_thread_event_loop():
 thread = Thread(target=start_thread_event_loop, daemon=True)
 thread.start()
 
+
+
 def log_data():
     ts, temp, hum, eco2, tvoc = read_sensors()
     log_sensor_data(temp, hum, eco2, tvoc)
 
+    auto_fan_bounds = get_fan_settings()
+
+    max_temp = auto_fan_bounds.get("temp_max", 20.0)
+    max_tvoc = auto_fan_bounds.get("tvoc_max", 500)
+
     # Control the fan automatically if in auto mode
     if fan_mode == "auto":
         try:
-            if temp > 20 or tvoc > 500:
+            if temp > max_temp or tvoc > max_tvoc:
                 fan_state = "on"
                 asyncio.run_coroutine_threadsafe(fan_smart_plug.switch(True), thread_loop)
             else:
@@ -274,6 +284,35 @@ def remove_annotation_query():
     except Exception as e:
         return jsonify({"error": f"Error removing annotation: {str(e)}"}), 500
 
+@app.route("/api/fan/settings", methods=["GET"])
+def get_fan_settings():
+    row = auto_fan_control()
+    print("Auto fan control settings:", row)
+    if row:
+        tvoc_min, tvoc_max, temp_min, temp_max = row[0]
+        return jsonify({
+            "tvoc_min": tvoc_min,
+            "tvoc_max": tvoc_max,
+            "temp_min": temp_min,
+            "temp_max": temp_max
+        })
+    return jsonify({"tvoc_min": 0, "tvoc_max": 500, "temp_min": 0, "temp_max": 20})
+
+@app.route("/api/fan/settings", methods=["POST"])
+def update_fan_settings():
+    data = request.json
+    update_fan_settings(
+        tvoc_min=data.get("tvoc_min", 0),
+        tvoc_max=data.get("tvoc_max", 500),
+        temp_min=data.get("temp_min", 0.0),
+        temp_max=data.get("temp_max", 20.0),
+        enabled=data.get("enabled", False)
+    )
+    return jsonify({"message": "Fan settings updated"})
+
+@app.route("/admin")
+def admin():
+    return render_template("admin.html")
 
 @app.route("/system_health")
 def system_health():

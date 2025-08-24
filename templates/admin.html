@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin – Auto Fan Settings</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #121212; color: white; padding: 1em; }
+    label { display: block; margin: 0.5em 0 0.2em; }
+    input { padding: 0.3em; width: 100px; }
+    button { margin-top: 1em; padding: 0.5em 1em; }
+  </style>
+</head>
+<body>
+  <h2>🛠 Auto Fan Settings</h2>
+  <form id="fanForm">
+    <label>TVOC Min: <input type="number" id="tvocMin"></label>
+    <label>TVOC Max: <input type="number" id="tvocMax"></label>
+    <label>Temp Min (°C): <input type="number" id="tempMin" step="0.1"></label>
+    <label>Temp Max (°C): <input type="number" id="tempMax" step="0.1"></label>
+    <label><input type="checkbox" id="enabled"> Enable Auto Control</label>
+    <br>
+    <button type="submit">💾 Save</button>
+  </form>
+  <p id="status"></p>
+
+  <script>
+    async function loadSettings() {
+      const res = await fetch("/api/fan/settings");
+      const data = await res.json();
+      document.getElementById("tvocMin").value = data.tvoc_min;
+      document.getElementById("tvocMax").value = data.tvoc_max;
+      document.getElementById("tempMin").value = data.temp_min;
+      document.getElementById("tempMax").value = data.temp_max;
+      document.getElementById("enabled").checked = data.enabled;
+    }
+
+    document.getElementById("fanForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const payload = {
+        tvoc_min: parseInt(document.getElementById("tvocMin").value),
+        tvoc_max: parseInt(document.getElementById("tvocMax").value),
+        temp_min: parseFloat(document.getElementById("tempMin").value),
+        temp_max: parseFloat(document.getElementById("tempMax").value),
+        enabled: document.getElementById("enabled").checked
+      };
+      const res = await fetch("/api/fan/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      document.getElementById("status").textContent = data.message;
+    });
+
+    loadSettings();
+  </script>
+</body>
+</html>
