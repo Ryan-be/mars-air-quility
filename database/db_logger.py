@@ -124,19 +124,19 @@ def edit_annotation(sensor_id, new_annotation):
 def auto_fan_control():
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
-    cur.execute("SELECT tvoc_min, tvoc_max, temp_min, temp_max FROM fan_settings ORDER BY id DESC LIMIT 1")
+    cur.execute("SELECT tvoc_min, tvoc_max, temp_min, temp_max, enabled FROM fan_settings ORDER BY id DESC LIMIT 1")
     rows = cur.fetchall()
     conn.close()
     return rows
 
-def update_fan_settings(tvoc_min, tvoc_max, temp_min, temp_max, enabled):
+def update_fan_settings(tvoc_min, tvoc_max, temp_min, temp_max, enabled=True):
     """
     Update the fan settings in the database.
     :param tvoc_min: Minimum TVOC level to enable the fan.
     :param tvoc_max: Maximum TVOC level to enable the fan.
     :param temp_min: Minimum temperature to enable the fan.
     :param temp_max: Maximum temperature to enable the fan.
-    :param enabled: Whether the fan is enabled (1) or disabled (0).
+    :param enabled: Whether auto fan control is enabled.
     """
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
@@ -146,6 +146,23 @@ def update_fan_settings(tvoc_min, tvoc_max, temp_min, temp_max, enabled):
         SET tvoc_min = ?, tvoc_max = ?, temp_min = ?, temp_max = ?, enabled = ?
         WHERE id = (SELECT MAX(id) FROM fan_settings)
     """, (tvoc_min, tvoc_max, temp_min, temp_max, enabled))
+
+    conn.commit()
+    conn.close()
+
+def update_fan_state(enabled):
+    """
+    Update the fan enabled state in the database.
+    :param enabled: Whether auto fan control is enabled.
+    """
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+
+    cur.execute("""
+        UPDATE fan_settings
+        SET enabled = ?
+        WHERE id = (SELECT MAX(id) FROM fan_settings)
+    """, (enabled,))
 
     conn.commit()
     conn.close()

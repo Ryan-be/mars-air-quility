@@ -14,7 +14,7 @@ from config import config
 from sensors.aht20 import read_aht20
 from sensors.sgp30 import read_sgp30
 from database.db_logger import log_sensor_data, get_sensor_data_by_date, add_annotation, remove_annotation, \
-    auto_fan_control, update_fan_settings
+    auto_fan_control, update_fan_settings, update_fan_state
 from datetime import datetime, timedelta
 import psutil
 import subprocess
@@ -94,6 +94,7 @@ fan_smart_plug = KasaSmartPlug(FAN_KASA_SMART_PLUG_IP)
 # Create an event loop for the background thread
 thread_loop = asyncio.new_event_loop()
 
+
 def start_thread_event_loop():
     asyncio.set_event_loop(thread_loop)
     thread_loop.run_forever()
@@ -104,8 +105,7 @@ thread = Thread(target=start_thread_event_loop, daemon=True)
 thread.start()
 
 
-
-def log_data():
+async def log_data():
     ts, temp, hum, eco2, tvoc = read_sensors()
     log_sensor_data(temp, hum, eco2, tvoc)
 
@@ -115,16 +115,18 @@ def log_data():
     max_tvoc = auto_fan_bounds.get("tvoc_max", 500)
 
     # Control the fan automatically if in auto mode
-    if fan_mode == "auto":
+    ##TODO: there seams to be a bug where it is not dropping into this logic
+    if auto_fan_bounds.get("enabled"):
         try:
             if temp > max_temp or tvoc > max_tvoc:
                 fan_state = "on"
-                asyncio.run_coroutine_threadsafe(fan_smart_plug.switch(True), thread_loop)
+                await fan_smart_plug.switch(True)
             else:
                 fan_state = "off"
-                asyncio.run_coroutine_threadsafe(fan_smart_plug.switch(False), thread_loop)
+                await fan_smart_plug.switch(False)
         except Exception as e:
             print(f"Error controlling smart plug fan: {e}")
+
 
 @app.route("/")
 def dashboard():
@@ -181,17 +183,20 @@ def control_fan():
         if state == "auto":
             # Set to auto mode
             fan_mode = "auto"
+            update_fan_state(True)
             fan_state = "off"  # Default state when switching to auto
         else:
             # Set to manual mode and update state
             fan_mode = "manual"
             fan_state = state
+            update_fan_state(False)
             asyncio.run(fan_smart_plug.switch(state == "on"))
 
         return jsonify({"message": f"Fan set to {state} successfully.", "mode": fan_mode}), 200
     except Exception as e:
         app.logger.error(f"Error controlling fan: {str(e)}")
         return jsonify({"error": f"Error controlling fan: {str(e)}"}), 500
+
 
 @app.route("/api/fan/status", methods=["GET"])
 def get_fan_state():
@@ -207,6 +212,7 @@ def get_fan_state():
         return jsonify(fan_state), 200
     except Exception as e:
         return jsonify({"error": f"Error retrieving fan state: {str(e)}"}), 500
+
 
 @app.route("/api/data")
 def get_data():
@@ -284,22 +290,29 @@ def remove_annotation_query():
     except Exception as e:
         return jsonify({"error": f"Error removing annotation: {str(e)}"}), 500
 
-@app.route("/api/fan/settings", methods=["GET"])
-def get_fan_settings():
+
+def get_fan_settings(as_json=False):
     row = auto_fan_control()
     print("Auto fan control settings:", row)
-    if row:
-        tvoc_min, tvoc_max, temp_min, temp_max = row[0]
-        return jsonify({
-            "tvoc_min": tvoc_min,
-            "tvoc_max": tvoc_max,
-            "temp_min": temp_min,
-            "temp_max": temp_max
-        })
-    return jsonify({"tvoc_min": 0, "tvoc_max": 500, "temp_min": 0, "temp_max": 20})
+    settings = {
+        "tvoc_min": row[0][0] if row else 0,
+        "tvoc_max": row[0][1] if row else 500,
+        "temp_min": row[0][2] if row else 0,
+        "temp_max": row[0][3] if row else 20,
+        "enabled": bool(row[0][4])
+    }
+    if as_json:
+        return jsonify(settings)
+    return settings
+
+
+@app.route("/api/fan/settings", methods=["GET"])
+def get_fan_settings_route():
+    return get_fan_settings(as_json=True)
+
 
 @app.route("/api/fan/settings", methods=["POST"])
-def update_fan_settings():
+def update_fan_settings_api():
     data = request.json
     update_fan_settings(
         tvoc_min=data.get("tvoc_min", 0),
@@ -310,9 +323,11 @@ def update_fan_settings():
     )
     return jsonify({"message": "Fan settings updated"})
 
+
 @app.route("/admin")
 def admin():
     return render_template("admin.html")
+
 
 @app.route("/system_health")
 def system_health():
@@ -353,13 +368,18 @@ def main():
     from threading import Thread
 
     def background_log():
-        asyncio.set_event_loop(thread_loop)
-        while True:
-            log_data()
-            time.sleep(LOG_INTERVAL)
+        with app.app_context():
+            while True:
+                try:
+                    asyncio.run_coroutine_threadsafe(log_data(), thread_loop).result()
+                    print("Logged sensor data")
+                except Exception as e:
+                    print(f"Error in background logging: {e}")
+                time.sleep(LOG_INTERVAL)
 
     Thread(target=background_log, daemon=True).start()
     app.run(host="0.0.0.0", port=5000)
+
 
 if __name__ == "__main__":
     main()
