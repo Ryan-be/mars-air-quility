@@ -105,7 +105,7 @@ thread.start()
 
 def log_data():
     global fan_state
-    ts, temp, hum, eco2, tvoc = read_sensors()
+    _, temp, hum, eco2, tvoc = read_sensors()
     log_sensor_data(temp, hum, eco2, tvoc)
 
     settings = get_fan_settings()
@@ -194,9 +194,9 @@ def get_fan_state():
 
         # Schedule the get_state coroutine in the thread's event loop
         state_task = asyncio.run_coroutine_threadsafe(fan_smart_plug.get_state(), thread_loop)
-        fan_state = state_task.result()  # Wait for the state retrieval to complete
+        plug_state = state_task.result()  # Wait for the state retrieval to complete
 
-        return jsonify(fan_state), 200
+        return jsonify(plug_state), 200
     except Exception as e:
         return jsonify({"error": f"Error retrieving fan state: {str(e)}"}), 500
 
@@ -336,8 +336,6 @@ def system_health():
 
 
 def main():
-    from threading import Thread
-
     def background_log():
         asyncio.set_event_loop(thread_loop)
         while True:

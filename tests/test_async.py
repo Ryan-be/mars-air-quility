@@ -14,7 +14,7 @@ asyncio.run_coroutine_threadsafe().  These tests verify:
 """
 import asyncio
 import threading
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -213,13 +213,13 @@ class TestControlFanAsyncDispatch:
 
     def test_result_called_for_manual_on(self, app_client, monkeypatch):
         client, _ = app_client
-        calls, mock_future = self._mock_threadsafe(monkeypatch)
+        _, mock_future = self._mock_threadsafe(monkeypatch)
         client.post("/api/fan?state=on")
         mock_future.result.assert_called_once()
 
     def test_result_called_for_manual_off(self, app_client, monkeypatch):
         client, _ = app_client
-        calls, mock_future = self._mock_threadsafe(monkeypatch)
+        _, mock_future = self._mock_threadsafe(monkeypatch)
         client.post("/api/fan?state=off")
         mock_future.result.assert_called_once()
 
@@ -228,7 +228,7 @@ class TestControlFanAsyncDispatch:
         calls, mock_future = self._mock_threadsafe(monkeypatch)
         client.post("/api/fan?state=auto")
         assert len(calls) == 0
-        mock_future.result.assert_not_called()
+        mock_future.result.assert_not_called()  # auto mode must not touch the plug
 
     def test_dispatches_to_thread_loop(self, app_client, monkeypatch):
         import mlss_monitor.app as app_module
@@ -277,7 +277,7 @@ class TestGetFanStateAsync:
         futures = iter([update_future, state_future])
         call_order = []
 
-        def fake_threadsafe(coro, loop):
+        def fake_threadsafe(_coro, _loop):
             f = next(futures)
             # Record which future is being dispatched by checking which mock it is
             if f is update_future:
@@ -291,7 +291,7 @@ class TestGetFanStateAsync:
 
     def test_update_called_before_get_state(self, app_client, monkeypatch):
         client, _ = app_client
-        update_fut, state_fut, order = self._setup_status_mocks(monkeypatch)
+        _, _, order = self._setup_status_mocks(monkeypatch)
         client.get("/api/fan/status")
         assert order == ["update", "get_state"]
 

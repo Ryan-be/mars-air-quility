@@ -1,0 +1,27 @@
+[MASTER]
+# Hardware libs that only exist on the Pi — skip import resolution for them
+ignored-modules=board,busio,adafruit_ahtx0,adafruit_sgp30,kasa
+
+[MESSAGES CONTROL]
+disable=
+    missing-module-docstring,
+    missing-class-docstring,
+    missing-function-docstring,
+    broad-exception-caught,
+    global-statement,
+    logging-fstring-interpolation,
+    unspecified-encoding,
+    invalid-name,
+    wrong-import-order,
+    wrong-import-position,
+    import-outside-toplevel,
+    unused-argument,
+    consider-using-from-import,
+    too-few-public-methods,
+    too-many-positional-arguments,
+
+[FORMAT]
+max-line-length=120
+
+[DESIGN]
+max-args=6

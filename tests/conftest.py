@@ -29,7 +29,7 @@ def db(tmp_path):
 
 
 @pytest.fixture
-def app_client(db, monkeypatch):
+def app_client(db, monkeypatch):  # pylint: disable=redefined-outer-name
     """Flask test client with hardware and smart plug stubbed out."""
     import mlss_monitor.app as app_module
 

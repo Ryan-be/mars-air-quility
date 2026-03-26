@@ -1,5 +1,8 @@
 """Tests for fan settings DB layer and Flask API endpoints."""
-import pytest
+import sqlite3
+from unittest.mock import MagicMock
+
+import database.db_logger as dbl
 from database.db_logger import get_fan_settings, update_fan_settings
 
 
@@ -18,7 +21,6 @@ class TestGetFanSettings:
         assert s["temp_max"] == 20.0
 
     def test_returns_dict_when_table_empty(self, db, monkeypatch):
-        import sqlite3, database.db_logger as dbl
         # Wipe all rows to simulate missing seed data
         conn = sqlite3.connect(dbl.DB_FILE)
         conn.execute("DELETE FROM fan_settings")
@@ -90,52 +92,37 @@ class TestFanSettingsAPI:
 class TestLogDataAutoFan:
     def _run_log_data(self, monkeypatch, temp, tvoc):
         import mlss_monitor.app as app_module
-        from unittest.mock import MagicMock, patch
 
-        mock_plug = MagicMock()
-        monkeypatch.setattr(app_module, "fan_smart_plug", mock_plug)
-
-        # Stub sensor read and DB write
+        monkeypatch.setattr(app_module, "fan_smart_plug", MagicMock())
         monkeypatch.setattr(app_module, "read_sensors", lambda: (0, temp, 50, 300, tvoc))
         monkeypatch.setattr(app_module, "log_sensor_data", lambda *a, **kw: None)
 
-        # Stub run_coroutine_threadsafe so we can capture calls without an event loop
         captured = []
         def fake_threadsafe(coro, loop):
             captured.append(coro)
-            future = MagicMock()
-            return future
+            return MagicMock()
 
         monkeypatch.setattr(app_module.asyncio, "run_coroutine_threadsafe", fake_threadsafe)
         app_module.log_data()
-        return mock_plug, captured
+        return captured
 
     def test_fan_on_when_temp_exceeds_max(self, db, monkeypatch):
-        from database.db_logger import update_fan_settings
         update_fan_settings(0, 500, 0.0, 20.0, True)  # enabled, temp_max=20
-
-        mock_plug, captured = self._run_log_data(monkeypatch, temp=25.0, tvoc=100)
+        captured = self._run_log_data(monkeypatch, temp=25.0, tvoc=100)
         assert len(captured) == 1
-        # The coroutine should be switch(True)
         assert "switch" in str(captured[0])
 
     def test_fan_off_when_below_thresholds(self, db, monkeypatch):
-        from database.db_logger import update_fan_settings
         update_fan_settings(0, 500, 0.0, 20.0, True)
-
-        mock_plug, captured = self._run_log_data(monkeypatch, temp=18.0, tvoc=100)
+        captured = self._run_log_data(monkeypatch, temp=18.0, tvoc=100)
         assert len(captured) == 1
 
     def test_no_fan_control_when_disabled(self, db, monkeypatch):
-        from database.db_logger import update_fan_settings
         update_fan_settings(0, 500, 0.0, 20.0, False)  # disabled
-
-        mock_plug, captured = self._run_log_data(monkeypatch, temp=30.0, tvoc=1000)
-        assert len(captured) == 0  # should not touch the plug at all
+        captured = self._run_log_data(monkeypatch, temp=30.0, tvoc=1000)
+        assert len(captured) == 0
 
     def test_fan_on_when_tvoc_exceeds_max(self, db, monkeypatch):
-        from database.db_logger import update_fan_settings
         update_fan_settings(0, 500, 0.0, 20.0, True)
-
-        mock_plug, captured = self._run_log_data(monkeypatch, temp=15.0, tvoc=600)
+        captured = self._run_log_data(monkeypatch, temp=15.0, tvoc=600)
         assert len(captured) == 1
