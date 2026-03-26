@@ -325,12 +325,35 @@ def system_health():
 
     cpu_percent = psutil.cpu_percent(interval=0.5)
     memory = psutil.virtual_memory()
+    disk = psutil.disk_usage("/")
 
     status["uptime"] = uptime_str
     status["cpu_usage"] = f"{cpu_percent:.1f}%"
     status["memory_used"] = f"{memory.used // (1024 ** 2)} MB"
     status["memory_total"] = f"{memory.total // (1024 ** 2)} MB"
     status["memory_percent"] = f"{memory.percent:.1f}%"
+    status["disk_used"] = f"{disk.used // (1024 ** 3):.1f} GB"
+    status["disk_total"] = f"{disk.total // (1024 ** 3):.1f} GB"
+    status["disk_percent"] = f"{disk.percent:.1f}%"
+
+    # DB file size
+    db_path = config.get("DB_FILE", "data/sensor_data.db")
+    try:
+        db_bytes = os.path.getsize(db_path)
+        if db_bytes >= 1024 ** 2:
+            status["db_size"] = f"{db_bytes / (1024 ** 2):.1f} MB"
+        else:
+            status["db_size"] = f"{db_bytes / 1024:.1f} KB"
+    except OSError:
+        status["db_size"] = "Unknown"
+
+    # Smart plug connectivity
+    try:
+        future = asyncio.run_coroutine_threadsafe(fan_smart_plug.plug.update(), thread_loop)
+        future.result(timeout=5)
+        status["smart_plug"] = "OK"
+    except Exception:
+        status["smart_plug"] = "UNAVAILABLE"
 
     return jsonify(status)
 

@@ -175,6 +175,35 @@
     .ok    { color: #7dff7d !important; }
     .error { color: #ffaa44 !important; }
 
+    /* ── Light mode overrides ── */
+    body.light {
+      background-color: #f5f5f5;
+      color: #111;
+    }
+    body.light .top-bar       { border-bottom-color: #ddd; }
+    body.light .stat-card     { background: #fff; border-color: #ddd; }
+    body.light .stat-card .label  { color: #666; }
+    body.light .stat-card .sub-stats { color: #555; }
+    body.light .stat-card .sub-stats span strong { color: #111; }
+    body.light .fan-card      { background: #fff; border-color: #ddd; }
+    body.light .fan-meta      { color: #555; }
+    body.light .fan-meta span strong { color: #111; }
+    body.light .tvoc-key      { background: #fff; border-color: #ddd; }
+    body.light .tvoc-key strong { color: #333; }
+    body.light .tvoc-level    { color: #555; }
+    body.light .health-card   { background: #fff; border-color: #ddd; }
+    body.light .health-card h3 { color: #444; border-bottom-color: #ddd; }
+    body.light .h-label       { color: #666; }
+    body.light .h-value       { color: #111; }
+    body.light .top-bar select { background: #fff; color: #111; border-color: #bbb; }
+    body.light .top-bar .btn  { background: #eee; color: #333; border-color: #bbb; }
+    body.light #last-updated  { color: #666; }
+    body.light dialog         { background: #fff; color: #111; border-color: #ccc; }
+    body.light dialog p       { color: #555; }
+    body.light dialog p strong { color: #111; }
+    body.light dialog textarea { background: #f5f5f5; color: #111; border-color: #bbb; }
+    body.light .dialog-buttons .btn-cancel { background: #eee; color: #555; }
+
     /* ── Annotation dialog ── */
     dialog {
       background: #1e1e1e;
@@ -227,6 +256,7 @@
       </select>
       <button class="btn" onclick="downloadCSV()">Download CSV</button>
       <a href="/admin" class="btn">Fan Settings</a>
+      <button class="btn" id="themeToggle" onclick="toggleTheme()">Light mode</button>
     </div>
     <p id="last-updated">Last updated: never</p>
   </div>
@@ -312,12 +342,24 @@
         <div class="h-value" id="sgp30Status">Checking…</div>
       </div>
       <div class="health-item">
+        <div class="h-label">Smart plug</div>
+        <div class="h-value" id="plugStatus">Checking…</div>
+      </div>
+      <div class="health-item">
         <div class="h-label">CPU usage</div>
         <div class="h-value" id="cpuUsage">--</div>
       </div>
       <div class="health-item">
         <div class="h-label">Memory</div>
         <div class="h-value" id="memoryUsage">--</div>
+      </div>
+      <div class="health-item">
+        <div class="h-label">Disk</div>
+        <div class="h-value" id="diskUsage">--</div>
+      </div>
+      <div class="health-item">
+        <div class="h-label">Database</div>
+        <div class="h-value" id="dbSize">--</div>
       </div>
       <div class="health-item">
         <div class="h-label">Uptime</div>
@@ -327,6 +369,16 @@
   </div>
 
   <script>
+    // ── Theme toggle ─────────────────────────────────────────────────────────
+    let isLight = false;
+    function toggleTheme() {
+      isLight = !isLight;
+      document.body.classList.toggle("light", isLight);
+      document.getElementById("themeToggle").textContent = isLight ? "Dark mode" : "Light mode";
+      // Re-render plots with updated theme
+      fetchData();
+    }
+
     // ── Shared Plotly dark layout ──────────────────────────────────────────────
     const DARK_LAYOUT = {
       paper_bgcolor: "rgba(0,0,0,0)",
@@ -338,10 +390,21 @@
       autosize: true,
     };
 
-    function darkLayout(overrides) {
-      return Object.assign({}, DARK_LAYOUT, overrides, {
-        xaxis: Object.assign({}, DARK_LAYOUT.xaxis, overrides.xaxis),
-        yaxis: Object.assign({}, DARK_LAYOUT.yaxis, overrides.yaxis),
+    const LIGHT_LAYOUT = {
+      paper_bgcolor: "rgba(0,0,0,0)",
+      plot_bgcolor: "#f9f9f9",
+      font: { color: "#111" },
+      xaxis: { gridcolor: "#ddd", zerolinecolor: "#ccc", title: "Time" },
+      yaxis: { gridcolor: "#ddd", zerolinecolor: "#ccc" },
+      margin: { t: 40, r: 20, b: 50, l: 55 },
+      autosize: true,
+    };
+
+    function themeLayout(overrides) {
+      const base = isLight ? LIGHT_LAYOUT : DARK_LAYOUT;
+      return Object.assign({}, base, overrides, {
+        xaxis: Object.assign({}, base.xaxis, overrides.xaxis),
+        yaxis: Object.assign({}, base.yaxis, overrides.yaxis),
       });
     }
 
@@ -478,7 +541,7 @@
         x: timestamps, y: temperatures,
         mode: "lines+markers", name: "Temperature",
         line: { color: "deeppink" }, customdata: ids
-      }], darkLayout({
+      }], themeLayout({
         title: { text: "🌡️ Temperature", font: { color: "#ccc" } },
         yaxis: { title: "°C" }
       }), { responsive: true }).then(() => attachAnnotationHandler("tempPlot"));
@@ -487,7 +550,7 @@
         x: timestamps, y: humidities,
         mode: "lines+markers", name: "Humidity",
         line: { color: "dodgerblue" }, customdata: ids
-      }], darkLayout({
+      }], themeLayout({
         title: { text: "💧 Humidity", font: { color: "#ccc" } },
         yaxis: { title: "%" }
       }), { responsive: true }).then(() => attachAnnotationHandler("humPlot"));
@@ -496,7 +559,7 @@
         x: timestamps, y: eco2,
         mode: "lines+markers", name: "eCO₂",
         line: { color: "yellowgreen" }, customdata: ids
-      }], darkLayout({
+      }], themeLayout({
         title: { text: "🫁 eCO₂", font: { color: "#ccc" } },
         yaxis: { title: "ppm" }
       }), { responsive: true }).then(() => attachAnnotationHandler("eco2Plot"));
@@ -526,7 +589,7 @@
           x: timestamps, y: rateOfChange, mode: "lines", name: "Rate of change",
           yaxis: "y2", line: { color: "cyan", width: 2 }
         }
-      ], darkLayout({
+      ], themeLayout({
         title: { text: "🧪 TVOC", font: { color: "#ccc" } },
         yaxis: { title: "ppb" },
         yaxis2: {
@@ -542,25 +605,30 @@
     }
 
     // ── System health ─────────────────────────────────────────────────────────
+    function setHealthStatus(id, value) {
+      const el = document.getElementById(id);
+      el.textContent = value;
+      el.className = "h-value " + (value === "OK" ? "ok" : "error");
+    }
+
     async function fetchHealth() {
       try {
         const res  = await fetch('/system_health');
         const stat = await res.json();
 
-        const aht = document.getElementById("aht20Status");
-        aht.textContent = stat.AHT20;
-        aht.className = "h-value " + (stat.AHT20 === "OK" ? "ok" : "error");
+        setHealthStatus("aht20Status", stat.AHT20);
+        setHealthStatus("sgp30Status", stat.SGP30);
+        setHealthStatus("plugStatus",  stat.smart_plug);
 
-        const sgp = document.getElementById("sgp30Status");
-        sgp.textContent = stat.SGP30;
-        sgp.className = "h-value " + (stat.SGP30 === "OK" ? "ok" : "error");
-
-        document.getElementById("cpuUsage").textContent   = stat.cpu_usage;
+        document.getElementById("cpuUsage").textContent    = stat.cpu_usage;
         document.getElementById("memoryUsage").textContent = `${stat.memory_used} / ${stat.memory_total} (${stat.memory_percent})`;
-        document.getElementById("uptime").textContent     = stat.uptime;
+        document.getElementById("diskUsage").textContent   = `${stat.disk_used} / ${stat.disk_total} (${stat.disk_percent})`;
+        document.getElementById("dbSize").textContent      = stat.db_size;
+        document.getElementById("uptime").textContent      = stat.uptime;
       } catch {
-        ["aht20Status","sgp30Status"].forEach(id => {
+        ["aht20Status", "sgp30Status", "plugStatus"].forEach(id => {
           document.getElementById(id).textContent = "Unavailable";
+          document.getElementById(id).className = "h-value error";
         });
       }
     }
