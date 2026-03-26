@@ -16,24 +16,24 @@ A lightweight environmental monitoring system for Raspberry Pi, designed as a pr
 
 ### Wiring — I2C sensors (daisy-chained)
 
-| Signal | Pi GPIO | Connected to |
-|---|---|---|
-| 3.3V | Pin 1 | AHT20 → SGP30 |
-| GND | Pin 6 | AHT20 → SGP30 |
-| SDA | Pin 3 (GPIO2) | AHT20 → SGP30 |
-| SCL | Pin 5 (GPIO3) | AHT20 → SGP30 |
+| Signal | Pi GPIO | Wire colour | Connected to |
+|---|---|---|---|
+| 3.3V | Pin 1 | Red | AHT20 → SGP30 |
+| GND | Pin 6 | Black | AHT20 → SGP30 |
+| SDA | Pin 3 (GPIO2) | Blue | AHT20 → SGP30 |
+| SCL | Pin 5 (GPIO3) | Yellow | AHT20 → SGP30 |
 
 ### Wiring — ST7735 LCD (SPI)
 
-| LCD pin | Pi pin | GPIO |
-|---|---|---|
-| GND | 6 | — |
-| VCC | 1 | 3.3V |
-| SCL | 23 | GPIO11 (SPI CLK) |
-| SDA | 19 | GPIO10 (SPI MOSI) |
-| RES | 22 | GPIO25 |
-| DC | 18 | GPIO24 |
-| CS | 24 | GPIO8 |
+| LCD pin | Pi pin | GPIO | Function |
+|---|---|---|---|
+| GND | 6 | — | Ground |
+| VCC | 1 | — | 3.3V power |
+| SCL | 23 | GPIO11 | SPI clock |
+| SDA | 19 | GPIO10 | SPI MOSI |
+| RES | 22 | GPIO25 | Reset |
+| DC | 18 | GPIO24 | Data/command |
+| CS | 24 | GPIO8 | Chip select |
 
 ---
 
