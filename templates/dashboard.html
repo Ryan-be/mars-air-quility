@@ -7,6 +7,8 @@
   <script src="https://cdn.plot.ly/plotly-2.24.2.min.js"></script>
 
   <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
     body {
       font-family: Arial, sans-serif;
       background-color: #121212;
@@ -14,243 +16,348 @@
       margin: 0;
       padding: 1em;
     }
+
+    /* ── Top bar ── */
     .top-bar {
       display: flex;
       justify-content: space-between;
       align-items: center;
       flex-wrap: wrap;
-      margin-bottom: 1em;
+      gap: 0.5em;
+      margin-bottom: 1.5em;
+      padding-bottom: 0.75em;
+      border-bottom: 1px solid #333;
     }
-    .top-bar select,
-    .top-bar button,
-    .top-bar label {
-      margin: 0.25em;
-    }
-    .sensor-table {
-      border-collapse: collapse;
-      width: 100%;
-      margin-bottom: 1em;
-    }
-    .sensor-table td {
-      padding: 0.5em 1em;
-      border-bottom: 1px solid #444;
-    }
-    .sensor-table td:first-child {
-      font-weight: bold;
-      white-space: nowrap;
-    }
-    .plot-container {
-      display: flex;
-      flex-direction: column;
-      gap: 1em;
-      width: 100%;
-    }
-    .plot-container > div {
-      width: 100%;
-      min-height: 300px;
-    }
-    .dark-mode {
-      background-color: #121212;
+    .top-bar h2 { margin: 0; font-size: 1.4em; }
+    .top-bar .controls { display: flex; align-items: center; gap: 0.5em; flex-wrap: wrap; }
+    .top-bar select {
+      background: #1e1e1e;
       color: #fff;
+      border: 1px solid #555;
+      border-radius: 4px;
+      padding: 0.35em 0.6em;
+      font-size: 0.9em;
     }
-    .light-mode {
-      background-color: #fff;
-      color: #000;
+    .top-bar .btn {
+      background: #2a2a2a;
+      color: #ccc;
+      border: 1px solid #555;
+      border-radius: 4px;
+      padding: 0.35em 0.8em;
+      font-size: 0.9em;
+      cursor: pointer;
+      text-decoration: none;
+      transition: background 0.15s;
     }
-    .ok { color: lightgreen; }
-    .error { color: orange; }
-    #health ul {
-      list-style-type: none;
-      padding: 0;
-    }
-    #health li {
-      margin: 0.25em 0;
-    }
-    .tvoc-key {
-      margin-top: 1em;
-      padding: 0.5em;
-      font-size: 14px;
-      background-color: #1e1e1e;
-      border-radius: 6px;
-      max-width: 95%;
-    }
+    .top-bar .btn:hover { background: #3a3a3a; color: #fff; }
+    #last-updated { margin: 0; font-size: 0.8em; color: #888; font-style: italic; }
 
-    .tvoc-level {
+    /* ── Sensor stat cards ── */
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 0.75em;
+      margin-bottom: 1.25em;
+    }
+    .stat-card {
+      background: #1e1e1e;
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 0.9em 1em;
+      border-top-width: 3px;
+    }
+    .stat-card .label {
+      font-size: 0.75em;
+      color: #999;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.3em;
+    }
+    .stat-card .current {
+      font-size: 1.9em;
+      font-weight: bold;
+      line-height: 1.1;
+      margin-bottom: 0.4em;
+    }
+    .stat-card .sub-stats {
+      display: flex;
+      gap: 0.75em;
+      font-size: 0.78em;
+      color: #aaa;
+    }
+    .stat-card .sub-stats span strong { color: #ddd; }
+    .stat-card.temp  { border-top-color: deeppink; }
+    .stat-card.hum   { border-top-color: dodgerblue; }
+    .stat-card.eco2  { border-top-color: yellowgreen; }
+    .stat-card.tvoc  { border-top-color: #e0a000; }
+
+    /* ── Fan control card ── */
+    .fan-card {
+      background: #1e1e1e;
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 1em 1.2em;
+      margin-bottom: 1.25em;
       display: flex;
       align-items: center;
-      margin-top: 0.25em;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 0.75em;
     }
+    .fan-card h3 { margin: 0; font-size: 1em; }
+    .fan-buttons { display: flex; gap: 0.5em; }
+    .fan-buttons button {
+      padding: 0.4em 1em;
+      border-radius: 4px;
+      border: 1px solid #555;
+      cursor: pointer;
+      font-size: 0.9em;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .fan-buttons .btn-on  { background: #1a3a1a; color: #7dff7d; border-color: #2a5a2a; }
+    .fan-buttons .btn-off { background: #3a1a1a; color: #ff7d7d; border-color: #5a2a2a; }
+    .fan-buttons .btn-auto{ background: #1a2a3a; color: #7db8ff; border-color: #2a4a6a; }
+    .fan-buttons .btn-on:hover  { background: #2a5a2a; }
+    .fan-buttons .btn-off:hover { background: #5a2a2a; }
+    .fan-buttons .btn-auto:hover{ background: #2a4a6a; }
+    .fan-meta { display: flex; gap: 1.5em; font-size: 0.85em; color: #aaa; }
+    .fan-meta span { display: flex; flex-direction: column; }
+    .fan-meta span strong { color: #fff; font-size: 1.1em; }
 
+    /* ── Plots ── */
+    .plot-container { display: flex; flex-direction: column; gap: 0.75em; margin-bottom: 1.25em; }
+    .plot-container > div { width: 100%; min-height: 300px; }
+
+    /* ── TVOC key ── */
+    .tvoc-key {
+      background: #1e1e1e;
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 0.75em 1em;
+      font-size: 0.85em;
+    }
+    .tvoc-key strong { color: #ccc; }
+    .tvoc-level { display: flex; align-items: center; margin-top: 0.3em; color: #aaa; }
     .color-box {
-      width: 1em;
-      height: 1em;
+      width: 0.9em; height: 0.9em;
       display: inline-block;
       margin-right: 0.5em;
       border-radius: 2px;
+      flex-shrink: 0;
     }
+    .color-box.green  { background: #2d8a2d; }
+    .color-box.orange { background: #c87800; }
+    .color-box.red    { background: #b03030; }
 
-    .color-box.green { background-color: green; }
-    .color-box.orange { background-color: orange; }
-    .color-box.red { background-color: red; }
-    .sensor-table th {
-      text-align: left;
-      padding: 0.5em 1em;
-      border-bottom: 2px solid #666;
+    /* ── System health card ── */
+    .health-card {
+      background: #1e1e1e;
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 1em 1.2em;
     }
-
-  .fan-card {
-    border: 1px solid #444;
-    border-radius: 6px;
-    padding: 1em;
-    margin-top: 1em;
-    margin-bottom: 20px;
-    background-color: #1e1e1e;
-    max-width: 95%; /* Match the width of plots and tables */
-    margin-left: auto; /* Center horizontally */
-    margin-right: auto; /* Center horizontally */
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-
-    .fan-card h3 {
-      margin: 0;
-      font-size: 1.1em;
-      display: flex;
-      align-items: center;
+    .health-card h3 {
+      margin: 0 0 0.8em;
+      font-size: 1em;
+      color: #ccc;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border-bottom: 1px solid #333;
+      padding-bottom: 0.5em;
     }
-
-    .fan-buttons {
-      display: flex;
-      gap: 0.5em;
+    .health-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 0.6em;
     }
+    .health-item .h-label { font-size: 0.75em; color: #888; text-transform: uppercase; letter-spacing: 0.04em; }
+    .health-item .h-value { font-size: 0.95em; color: #ddd; margin-top: 0.15em; }
+    .ok    { color: #7dff7d !important; }
+    .error { color: #ffaa44 !important; }
 
-    .fan-buttons button {
-      background-color: #333;
-      color: white;
+    /* ── Annotation dialog ── */
+    dialog {
+      background: #1e1e1e;
+      color: #fff;
+      border: 1px solid #444;
+      border-radius: 8px;
+      padding: 1.2em;
+      max-width: 400px;
+      width: 90vw;
+    }
+    dialog::backdrop { background: rgba(0,0,0,0.6); }
+    dialog p { margin: 0 0 0.5em; font-size: 0.9em; color: #bbb; }
+    dialog p strong { color: #fff; }
+    dialog textarea {
+      width: 100%;
+      background: #2a2a2a;
+      color: #fff;
       border: 1px solid #555;
       border-radius: 4px;
-      padding: 0.4em 1em;
+      padding: 0.5em;
+      font-size: 0.9em;
+      resize: vertical;
+    }
+    .dialog-buttons { display: flex; justify-content: flex-end; gap: 0.5em; margin-top: 0.8em; }
+    .dialog-buttons button {
+      padding: 0.35em 0.9em;
+      border-radius: 4px;
+      border: 1px solid #555;
       cursor: pointer;
-      transition: background-color 0.2s ease;
+      font-size: 0.9em;
     }
-
-    .fan-buttons button:hover {
-      background-color: #555;
-    }
+    .dialog-buttons .btn-save   { background: #1a3a5a; color: #7db8ff; border-color: #2a5a8a; }
+    .dialog-buttons .btn-delete { background: #3a1a1a; color: #ff7d7d; border-color: #5a2a2a; }
+    .dialog-buttons .btn-cancel { background: #2a2a2a; color: #aaa; }
   </style>
 </head>
 <body>
+
+  <!-- Top bar -->
   <div class="top-bar">
-    <p id="last-updated" style="margin: 0.5em 0; font-style: italic;">Last updated: never</p>
     <h2>MLSS</h2>
-    <div>
-      <label for="range">Time Range:</label>
+    <div class="controls">
       <select id="range">
-        <option value="15m">last 15 minuets</option>
-        <option value="1h">Last Hour</option>
-        <option value="6h">Last 6 Hours</option>
-        <option value="12h">Last 12 Hours</option>
-        <option value="24h">Last 24 Hours</option>
-        <option value="all">All Time</option>
+        <option value="15m">Last 15 minutes</option>
+        <option value="1h">Last hour</option>
+        <option value="6h">Last 6 hours</option>
+        <option value="12h">Last 12 hours</option>
+        <option value="24h">Last 24 hours</option>
+        <option value="all">All time</option>
       </select>
-      <button onclick="downloadCSV()">Download CSV</button>
-      <a href="/admin" style="color: #aaa; margin-left: 0.5em;">Fan Settings</a>
-      <label><input type="checkbox" id="darkToggle" checked> Dark Mode</label>
+      <button class="btn" onclick="downloadCSV()">Download CSV</button>
+      <a href="/admin" class="btn">Fan Settings</a>
+    </div>
+    <p id="last-updated">Last updated: never</p>
+  </div>
+
+  <!-- Sensor stat cards -->
+  <div class="stat-grid">
+    <div class="stat-card temp">
+      <div class="label">🌡️ Temperature</div>
+      <div class="current" id="tempValue">--</div>
+      <div class="sub-stats">
+        <span><strong id="tempMin">--</strong> min</span>
+        <span><strong id="tempAvg">--</strong> avg</span>
+        <span><strong id="tempMax">--</strong> max</span>
+      </div>
+    </div>
+    <div class="stat-card hum">
+      <div class="label">💧 Humidity</div>
+      <div class="current" id="humValue">--</div>
+      <div class="sub-stats">
+        <span><strong id="humMin">--</strong> min</span>
+        <span><strong id="humAvg">--</strong> avg</span>
+        <span><strong id="humMax">--</strong> max</span>
+      </div>
+    </div>
+    <div class="stat-card eco2">
+      <div class="label">🫁 eCO₂</div>
+      <div class="current" id="eco2Value">--</div>
+      <div class="sub-stats">
+        <span><strong id="eco2Min">--</strong> min</span>
+        <span><strong id="eco2Avg">--</strong> avg</span>
+        <span><strong id="eco2Max">--</strong> max</span>
+      </div>
+    </div>
+    <div class="stat-card tvoc">
+      <div class="label">🧪 TVOC</div>
+      <div class="current" id="tvocValue">--</div>
+      <div class="sub-stats">
+        <span><strong id="tvocMin">--</strong> min</span>
+        <span><strong id="tvocAvg">--</strong> avg</span>
+        <span><strong id="tvocMax">--</strong> max</span>
+      </div>
     </div>
   </div>
 
-  <table class="sensor-table" id="summary-table">
-    <thead>
-      <tr>
-        <th>Sensor</th>
-        <th>Current</th>
-        <th>Min</th>
-        <th>Max</th>
-        <th>Avg</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td>🌡️ <strong>Temperature (°C)</strong></td>
-        <td id="tempValue">--</td>
-        <td id="tempMin">--</td>
-        <td id="tempMax">--</td>
-        <td id="tempAvg">--</td>
-      </tr>
-      <tr>
-        <td>💧 <strong>Humidity (%)</strong></td>
-        <td id="humValue">--</td>
-        <td id="humMin">--</td>
-        <td id="humMax">--</td>
-        <td id="humAvg">--</td>
-      </tr>
-      <tr>
-        <td>🫁 <strong>eCO₂ (ppm)</strong></td>
-        <td id="eco2Value">--</td>
-        <td id="eco2Min">--</td>
-        <td id="eco2Max">--</td>
-        <td id="eco2Avg">--</td>
-      </tr>
-      <tr>
-        <td>🧪 <strong>TVOC (ppb)</strong></td>
-        <td id="tvocValue">--</td>
-        <td id="tvocMin">--</td>
-        <td id="tvocMax">--</td>
-        <td id="tvocAvg">--</td>
-      </tr>
-    </tbody>
-  </table>
-
+  <!-- Fan control -->
   <div class="fan-card">
-    <h3><span>🌀</span> Fan Control</h3>
+    <h3>🌀 Fan Control</h3>
     <div class="fan-buttons">
-      <button onclick="setFanControl('on')">Turn On</button>
-      <button onclick="setFanControl('off')">Turn Off</button>
-      <button onclick="setFanControl('auto')">Auto</button>
+      <button class="btn-on"   onclick="setFanControl('on')">On</button>
+      <button class="btn-off"  onclick="setFanControl('off')">Off</button>
+      <button class="btn-auto" onclick="setFanControl('auto')">Auto</button>
     </div>
-    <p id="fan-status">Status: Unknown</p>
-    <p id="fan-mode">Mode: Unknown</p>
+    <div class="fan-meta">
+      <span>Status<strong id="fan-status">--</strong></span>
+      <span>Mode<strong id="fan-mode">--</strong></span>
+    </div>
   </div>
 
+  <!-- Plots -->
   <div class="plot-container">
     <div id="tempPlot"></div>
     <div id="humPlot"></div>
     <div id="eco2Plot"></div>
     <div id="tvocPlot"></div>
-    <div id="tvocKey" class="tvoc-key">
-      <strong>TVOC Levels (WHO Guidance):</strong>
-      <div class="tvoc-level"><span class="color-box green"></span> 0–250 ppb (Good)</div>
-      <div class="tvoc-level"><span class="color-box orange"></span> 251–500 ppb (Moderate)</div>
-      <div class="tvoc-level"><span class="color-box red"></span> >500 ppb (High)</div>
+    <div class="tvoc-key">
+      <strong>TVOC levels (WHO guidance)</strong>
+      <div class="tvoc-level"><span class="color-box green"></span> 0–250 ppb — Good</div>
+      <div class="tvoc-level"><span class="color-box orange"></span> 251–500 ppb — Moderate</div>
+      <div class="tvoc-level"><span class="color-box red"></span> &gt;500 ppb — High</div>
     </div>
   </div>
 
-  <div id="health">
+  <!-- System health -->
+  <div class="health-card">
     <h3>🔧 System Health</h3>
-    <table class="sensor-table" id="health-table">
-      <tr><td><strong>AHT20:</strong></td><td id="aht20Status">Checking...</td></tr>
-      <tr><td><strong>SGP30:</strong></td><td id="sgp30Status">Checking...</td></tr>
-      <tr><td><strong>CPU Usage:</strong></td><td id="cpuUsage">--</td></tr>
-      <tr><td><strong>Memory:</strong></td><td id="memoryUsage">--</td></tr>
-      <tr><td><strong>Uptime:</strong></td><td id="uptime">--</td></tr>
-    </table>
+    <div class="health-grid">
+      <div class="health-item">
+        <div class="h-label">AHT20</div>
+        <div class="h-value" id="aht20Status">Checking…</div>
+      </div>
+      <div class="health-item">
+        <div class="h-label">SGP30</div>
+        <div class="h-value" id="sgp30Status">Checking…</div>
+      </div>
+      <div class="health-item">
+        <div class="h-label">CPU usage</div>
+        <div class="h-value" id="cpuUsage">--</div>
+      </div>
+      <div class="health-item">
+        <div class="h-label">Memory</div>
+        <div class="h-value" id="memoryUsage">--</div>
+      </div>
+      <div class="health-item">
+        <div class="h-label">Uptime</div>
+        <div class="h-value" id="uptime">--</div>
+      </div>
+    </div>
   </div>
 
   <script>
+    // ── Shared Plotly dark layout ──────────────────────────────────────────────
+    const DARK_LAYOUT = {
+      paper_bgcolor: "rgba(0,0,0,0)",
+      plot_bgcolor: "#1a1a1a",
+      font: { color: "#ccc" },
+      xaxis: { gridcolor: "#2a2a2a", zerolinecolor: "#333", title: "Time" },
+      yaxis: { gridcolor: "#2a2a2a", zerolinecolor: "#333" },
+      margin: { t: 40, r: 20, b: 50, l: 55 },
+      autosize: true,
+    };
+
+    function darkLayout(overrides) {
+      return Object.assign({}, DARK_LAYOUT, overrides, {
+        xaxis: Object.assign({}, DARK_LAYOUT.xaxis, overrides.xaxis),
+        yaxis: Object.assign({}, DARK_LAYOUT.yaxis, overrides.yaxis),
+      });
+    }
+
+    // ── Fan control ───────────────────────────────────────────────────────────
     async function setFanControl(state) {
       try {
         const res = await fetch(`/api/fan?state=${state}`, { method: "POST" });
         const result = await res.json();
-
         if (res.ok) {
-          document.getElementById("fan-status").textContent = `Status: ${result.message}`;
-          document.getElementById("fan-mode").textContent = `Mode: ${state === "auto" ? "Auto" : "Manual"}`;
+          document.getElementById("fan-status").textContent = result.message;
+          document.getElementById("fan-mode").textContent = state === "auto" ? "Auto" : "Manual";
         } else {
-          document.getElementById("fan-status").textContent = `Error: ${result.error || "Unknown error"}`;
+          document.getElementById("fan-status").textContent = result.error || "Error";
         }
-      } catch (err) {
-        document.getElementById("fan-status").textContent = "Error: Could not reach server";
+      } catch {
+        document.getElementById("fan-status").textContent = "Unreachable";
       }
     }
 
@@ -259,327 +366,213 @@
         const res = await fetch('/api/fan/status');
         const result = await res.json();
         if (res.ok) {
-          document.getElementById("fan-status").textContent = `Status: ${result.state}`;
-          document.getElementById("fan-mode").textContent = `Mode: ${result.mode}`;
-        } else {
-          document.getElementById("fan-status").textContent = `Error: ${result.error || "Unknown error"}`;
+          document.getElementById("fan-status").textContent = result.state;
+          document.getElementById("fan-mode").textContent = result.mode;
         }
-      } catch (err) {
-        document.getElementById("fan-status").textContent = "Error: Could not reach server";
-      }
+      } catch { /* silent */ }
     }
 
-    // Fetch fan status on page load
-    fetchFanStatus();
-
-    const darkToggle = document.getElementById("darkToggle");
-
-    darkToggle.addEventListener("change", () => {
-      document.body.className = darkToggle.checked ? "dark-mode" : "light-mode";
-    });
-
-    function getTrendSymbol(current, previous) {
-      if (current == null || previous == null) return "➖";
-      const diff = current - previous;
-      if (diff > 0.1) return "📈";
-      if (diff < -0.1) return "📉";
-      return "➖";
+    // ── Trend indicator ───────────────────────────────────────────────────────
+    function trend(current, previous) {
+      if (current == null || previous == null) return "";
+      const d = current - previous;
+      if (d > 0.1) return "↑ ";
+      if (d < -0.1) return "↓ ";
+      return "";
     }
 
-    document.getElementById("range").addEventListener("change", fetchData);
-
+    // ── Annotation dialog ─────────────────────────────────────────────────────
     function attachAnnotationHandler(plotId) {
-      const plot = document.getElementById(plotId);
-
-      plot.on('plotly_click', function(data) {
+      document.getElementById(plotId).on('plotly_click', function(data) {
         const dbId = data.points[0].customdata;
         const timestamp = data.points[0].x;
         const currentAnnotation = data.points[0].text || "";
 
-        const container = document.createElement("div");
-        container.innerHTML = `
-          <div style="font-family: sans-serif;">
-            <p><strong>Edit annotation for:</strong><br>${timestamp}</p>
-            <p>Current annotation:</p>
-            <textarea id="annotationInput" rows="4" style="width: 100%;">${currentAnnotation}</textarea>
-            <div style="margin-top: 1em; text-align: right;">
-              <button id="editBtn">Save</button>
-              <button id="deleteBtn">Delete</button>
-              <button id="cancelBtn">Cancel</button>
-            </div>
-          </div>
-        `;
-
         const dialog = document.createElement("dialog");
-        dialog.style.padding = "1em";
-        dialog.style.maxWidth = "400px";
-        dialog.appendChild(container);
+        dialog.innerHTML = `
+          <p><strong>Annotation</strong></p>
+          <p>${timestamp}</p>
+          <textarea id="annotationInput" rows="4">${currentAnnotation}</textarea>
+          <div class="dialog-buttons">
+            <button class="btn-save"   id="editBtn">Save</button>
+            <button class="btn-delete" id="deleteBtn">Delete</button>
+            <button class="btn-cancel" id="cancelBtn">Cancel</button>
+          </div>`;
         document.body.appendChild(dialog);
         dialog.showModal();
 
         dialog.querySelector("#editBtn").onclick = () => {
-          const newAnnotation = document.getElementById("annotationInput").value;
+          const newAnnotation = dialog.querySelector("#annotationInput").value;
           fetch(`/api/annotate?point=${dbId}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ annotation: newAnnotation })
-          }).then(res => {
-            dialog.close();
-            dialog.remove();
-            alert(res.ok ? "✅ Annotation updated!" : "❌ Failed to update annotation.");
-          });
+          }).then(() => { dialog.close(); dialog.remove(); });
         };
-
         dialog.querySelector("#deleteBtn").onclick = () => {
-          fetch(`/api/annotate?point=${dbId}`, {
-            method: "DELETE",
-          }).then(res => {
-            dialog.close();
-            dialog.remove();
-            alert(res.ok ? "🗑️ Annotation removed." : "❌ Failed to remove annotation.");
-          });
+          fetch(`/api/annotate?point=${dbId}`, { method: "DELETE" })
+            .then(() => { dialog.close(); dialog.remove(); });
         };
-
-        dialog.querySelector("#cancelBtn").onclick = () => {
-          dialog.close();
-          dialog.remove();
-        };
+        dialog.querySelector("#cancelBtn").onclick = () => { dialog.close(); dialog.remove(); };
       });
     }
+
+    // ── Main data fetch ───────────────────────────────────────────────────────
+    document.getElementById("range").addEventListener("change", fetchData);
 
     async function fetchData() {
       const range = document.getElementById("range").value;
       const res = await fetch(`/api/data?range=${range}`);
       const data = await res.json();
-      if (!Array.isArray(data)) return;
+      if (!Array.isArray(data) || data.length === 0) {
+        document.getElementById("last-updated").textContent = "No data for selected range.";
+        return;
+      }
 
-      // Sort by timestamp just in case (oldest to newest)
       data.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
-      const ids = data.map(d => d.id);
-      const timestamps = data.map(d => new Date(d.timestamp));
+      const ids         = data.map(d => d.id);
+      const timestamps  = data.map(d => new Date(d.timestamp));
       const temperatures = data.map(d => d.temperature);
-      const humidities = data.map(d => d.humidity);
-      const eco2 = data.map(d => d.eco2);
-      const tvoc = data.map(d => d.tvoc);
+      const humidities  = data.map(d => d.humidity);
+      const eco2        = data.map(d => d.eco2);
+      const tvoc        = data.map(d => d.tvoc);
       const annotations = data.map(d => d.annotation);
 
-      if (timestamps.length === 0) {
-          document.getElementById("last-updated").textContent = "No data available for the selected range.";
-          return;
-      }
       if (timestamps.length < 2) {
-          document.getElementById("last-updated").textContent = "Not enough data points to calculate trends.";
-          return;
+        document.getElementById("last-updated").textContent = "Not enough data points.";
+        return;
       }
+
+      const avg = arr => (arr.reduce((a, b) => a + b, 0) / arr.length).toFixed(1);
+      const min = arr => Math.min(...arr);
+      const max = arr => Math.max(...arr);
+
+      // Stat cards
+      const currentTemp = temperatures.at(-1);
+      document.getElementById("tempValue").textContent = `${trend(currentTemp, temperatures.at(-2))}${currentTemp?.toFixed(1) ?? "--"} °C`;
+      document.getElementById("tempMin").textContent = min(temperatures).toFixed(1);
+      document.getElementById("tempAvg").textContent = avg(temperatures);
+      document.getElementById("tempMax").textContent = max(temperatures).toFixed(1);
+
+      const currentHum = humidities.at(-1);
+      document.getElementById("humValue").textContent = `${trend(currentHum, humidities.at(-2))}${currentHum?.toFixed(1) ?? "--"} %`;
+      document.getElementById("humMin").textContent = min(humidities).toFixed(1);
+      document.getElementById("humAvg").textContent = avg(humidities);
+      document.getElementById("humMax").textContent = max(humidities).toFixed(1);
+
+      const currentEco2 = eco2.at(-1);
+      document.getElementById("eco2Value").textContent = `${trend(currentEco2, eco2.at(-2))}${currentEco2 ?? "--"} ppm`;
+      document.getElementById("eco2Min").textContent = min(eco2);
+      document.getElementById("eco2Avg").textContent = avg(eco2);
+      document.getElementById("eco2Max").textContent = max(eco2);
+
+      const currentTvoc = tvoc.at(-1);
+      document.getElementById("tvocValue").textContent = `${trend(currentTvoc, tvoc.at(-2))}${currentTvoc ?? "--"} ppb`;
+      document.getElementById("tvocMin").textContent = min(tvoc);
+      document.getElementById("tvocAvg").textContent = avg(tvoc);
+      document.getElementById("tvocMax").textContent = max(tvoc);
+
+      // Plots
+      Plotly.newPlot("tempPlot", [{
+        x: timestamps, y: temperatures,
+        mode: "lines+markers", name: "Temperature",
+        line: { color: "deeppink" }, customdata: ids
+      }], darkLayout({
+        title: { text: "🌡️ Temperature", font: { color: "#ccc" } },
+        yaxis: { title: "°C" }
+      }), { responsive: true }).then(() => attachAnnotationHandler("tempPlot"));
+
+      Plotly.newPlot("humPlot", [{
+        x: timestamps, y: humidities,
+        mode: "lines+markers", name: "Humidity",
+        line: { color: "dodgerblue" }, customdata: ids
+      }], darkLayout({
+        title: { text: "💧 Humidity", font: { color: "#ccc" } },
+        yaxis: { title: "%" }
+      }), { responsive: true }).then(() => attachAnnotationHandler("humPlot"));
+
+      Plotly.newPlot("eco2Plot", [{
+        x: timestamps, y: eco2,
+        mode: "lines+markers", name: "eCO₂",
+        line: { color: "yellowgreen" }, customdata: ids
+      }], darkLayout({
+        title: { text: "🫁 eCO₂", font: { color: "#ccc" } },
+        yaxis: { title: "ppm" }
+      }), { responsive: true }).then(() => attachAnnotationHandler("eco2Plot"));
 
       const rollingTVOC = tvoc.map((_, i, arr) => {
         const slice = arr.slice(Math.max(i - 5, 0), i + 1);
         return slice.reduce((a, b) => a + b, 0) / slice.length;
       });
-
       const rateOfChange = tvoc.map((v, i, arr) => i > 0 ? v - arr[i - 1] : 0);
-
-      const eventAnnotations = annotations.map((note, i) => {
-        if (note && note.trim()) {
-          return {
-            x: timestamps[i],
-            y: tvoc[i],
-            text: note,
-            showarrow: true,
-            arrowhead: 2,
-            ax: 0,
-            ay: -40,
-            bgcolor: "#444",
-            font: { color: "#fff" }
-          };
-        }
-        return null;
-      }).filter(Boolean);
-
-      // --- Add summary stats ---
-      const avg = arr => arr.length ? (arr.reduce((a, b) => a + b, 0) / arr.length).toFixed(2) : "--";
-      const min = arr => arr.length ? Math.min(...arr) : "--";
-      const max = arr => arr.length ? Math.max(...arr) : "--";
-
-      const prevTemp = temperatures.at(-2);
-      const currentTemp = temperatures.at(-1);
-      document.getElementById("tempValue").textContent =
-        `${getTrendSymbol(currentTemp, prevTemp)} ${currentTemp?.toFixed(2) ?? "--"}`;
-      document.getElementById("tempMin").textContent = min(temperatures);
-      document.getElementById("tempMax").textContent = max(temperatures);
-      document.getElementById("tempAvg").textContent = avg(temperatures);
-
-      const prevHum = humidities.at(-2);
-      const currentHum = humidities.at(-1);
-      document.getElementById("humValue").textContent =
-        `${getTrendSymbol(currentHum, prevHum)} ${currentHum?.toFixed(2) ?? "--"}`;
-      document.getElementById("humMin").textContent = min(humidities);
-      document.getElementById("humMax").textContent = max(humidities);
-      document.getElementById("humAvg").textContent = avg(humidities);
-
-      const prevEco2 = eco2.at(-2);
-      const currentEco2 = eco2.at(-1);
-      document.getElementById("eco2Value").textContent =
-        `${getTrendSymbol(currentEco2, prevEco2)} ${currentEco2 ?? "--"}`;
-      document.getElementById("eco2Min").textContent = min(eco2);
-      document.getElementById("eco2Max").textContent = max(eco2);
-      document.getElementById("eco2Avg").textContent = avg(eco2);
-
-      const prevTvoc = tvoc.at(-2);
-      const currentTvoc = tvoc.at(-1);
-      document.getElementById("tvocValue").textContent =
-        `${getTrendSymbol(currentTvoc, prevTvoc)} ${currentTvoc ?? "--"}`;
-      document.getElementById("tvocMin").textContent = min(tvoc);
-      document.getElementById("tvocMax").textContent = max(tvoc);
-      document.getElementById("tvocAvg").textContent = avg(tvoc);
-
-        // --- Plotting ---
-
-
-      Plotly.newPlot("tempPlot", [{
-        x: timestamps, y: temperatures,
-        mode: "lines+markers",
-        name: "Temperature",
-        line: { color: "deeppink" },
-        customdata: ids
-      }], {
-        title: { text: "🌡️ Temperature (°C)" },
-        xaxis: { title: "Time" },
-        yaxis: { title: "°C" },
-        autosize: true
-      }, { responsive: true }).then(() => attachAnnotationHandler("tempPlot"));
-
-      Plotly.newPlot("humPlot", [{
-        x: timestamps, y: humidities,
-        mode: "lines+markers",
-        name: "Humidity",
-        line: { color: "dodgerblue" },
-        customdata: ids
-      }], {
-        title: { text: "💧 Humidity (%)" },
-        xaxis: { title: "Time" },
-        yaxis: { title: "%" },
-        autosize: true
-      }, { responsive: true }).then(() => attachAnnotationHandler("humPlot"));
-
-      Plotly.newPlot("eco2Plot", [{
-        x: timestamps, y: eco2,
-        mode: "lines+markers",
-        name: "eCO₂",
-        line: { color: "yellowgreen" },
-        customdata: ids
-      }], {
-        title: { text: "🫁 eCO₂ (ppm)" },
-        xaxis: { title: "Time" },
-        yaxis: { title: "ppm" },
-        autosize: true
-      }, { responsive: true }).then(() => attachAnnotationHandler("eco2Plot"));
-
-      const tvocColors = tvoc.map(val => {
-        if (val <= 250) return "green";
-        if (val <= 500) return "orange";
-        return "red";
-      });
-
-      var tvoclayout = {
-        title: { text: "🧪 TVOC (ppb)" },
-        xaxis: { title: "Time" },
-        yaxis: { title: "TVOC (ppb)" },
-        yaxis2: {
-          title: "Rate of Change",
-          overlaying: "y",
-          side: "right",
-          showgrid: false
-        },
-        legend: {
-          x: 0.5,
-          y: 1.4,
-          bgcolor: "rgba(0,0,0,0)",
-          orientation: "h",
-          xanchor: 'center',
-          font: { size: 12 }
-        },
-        annotations: eventAnnotations,
-        autosize: true
-      };
+      const eventAnnotations = annotations.map((note, i) => note && note.trim() ? {
+        x: timestamps[i], y: tvoc[i], text: note,
+        showarrow: true, arrowhead: 2, ax: 0, ay: -40,
+        bgcolor: "#444", font: { color: "#fff" }
+      } : null).filter(Boolean);
 
       Plotly.newPlot("tvocPlot", [
         {
-          x: timestamps,
-          y: tvoc,
-          mode: "markers",
-          name: "TVOC",
-          marker: {
-                color: tvoc.map(val =>
-                  val <= 250 ? "green" :
-                  val <= 500 ? "orange" : "red"
-                ),
-                size: 6
-              },
-          customdata: ids,
-          text: annotations,
-          hoverinfo: "x+y+text"
+          x: timestamps, y: tvoc, mode: "markers", name: "TVOC",
+          marker: { color: tvoc.map(v => v <= 250 ? "#2d8a2d" : v <= 500 ? "#c87800" : "#b03030"), size: 6 },
+          customdata: ids, text: annotations, hoverinfo: "x+y+text"
         },
         {
-          x: timestamps,
-          y: rollingTVOC,
-          mode: "lines",
-          name: "Rolling Avg (TVOC)",
-          line: { dash: "dash", color: "grey", width: 2 }
+          x: timestamps, y: rollingTVOC, mode: "lines", name: "Rolling avg",
+          line: { dash: "dash", color: "#888", width: 2 }
         },
         {
-          x: timestamps,
-          y: rateOfChange,
-          mode: "lines",
-          name: "Rate of Change (TVOC)",
-          yaxis: "y2",
-          line: { color: "cyan", width: 2 }
+          x: timestamps, y: rateOfChange, mode: "lines", name: "Rate of change",
+          yaxis: "y2", line: { color: "cyan", width: 2 }
         }
-      ], tvoclayout, { responsive: true }).then(() => attachAnnotationHandler("tvocPlot"));
+      ], darkLayout({
+        title: { text: "🧪 TVOC", font: { color: "#ccc" } },
+        yaxis: { title: "ppb" },
+        yaxis2: {
+          title: "Rate of change", overlaying: "y", side: "right",
+          showgrid: false, gridcolor: "#2a2a2a", zerolinecolor: "#333", color: "#ccc"
+        },
+        legend: { x: 0.5, y: 1.15, bgcolor: "rgba(0,0,0,0)", orientation: "h", xanchor: "center" },
+        annotations: eventAnnotations,
+      }), { responsive: true }).then(() => attachAnnotationHandler("tvocPlot"));
 
-      const now = new Date();
       document.getElementById("last-updated").textContent =
-        "Last updated: " + now.toLocaleString();
+        "Last updated: " + new Date().toLocaleString();
     }
 
+    // ── System health ─────────────────────────────────────────────────────────
     async function fetchHealth() {
       try {
-        const res = await fetch('/system_health');
+        const res  = await fetch('/system_health');
         const stat = await res.json();
 
-        document.getElementById("aht20Status").textContent = stat.AHT20;
-        document.getElementById("aht20Status").className = stat.AHT20 === "OK" ? "ok" : "error";
+        const aht = document.getElementById("aht20Status");
+        aht.textContent = stat.AHT20;
+        aht.className = "h-value " + (stat.AHT20 === "OK" ? "ok" : "error");
 
-        document.getElementById("sgp30Status").textContent = stat.SGP30;
-        document.getElementById("sgp30Status").className = stat.SGP30 === "OK" ? "ok" : "error";
+        const sgp = document.getElementById("sgp30Status");
+        sgp.textContent = stat.SGP30;
+        sgp.className = "h-value " + (stat.SGP30 === "OK" ? "ok" : "error");
 
-        document.getElementById("cpuUsage").textContent = stat.cpu_usage;
-        document.getElementById("memoryUsage").textContent = `${stat.memory_used}/${stat.memory_total} (${stat.memory_percent})`;
-        document.getElementById("uptime").textContent = stat.uptime;
-      } catch (err) {
-        const errorMessage = "Unable to fetch system health.";
-        document.getElementById("aht20Status").textContent = errorMessage;
-        document.getElementById("sgp30Status").textContent = errorMessage;
-        document.getElementById("cpuUsage").textContent = "--";
-        document.getElementById("memoryUsage").textContent = "--";
-        document.getElementById("uptime").textContent = "--";
+        document.getElementById("cpuUsage").textContent   = stat.cpu_usage;
+        document.getElementById("memoryUsage").textContent = `${stat.memory_used} / ${stat.memory_total} (${stat.memory_percent})`;
+        document.getElementById("uptime").textContent     = stat.uptime;
+      } catch {
+        ["aht20Status","sgp30Status"].forEach(id => {
+          document.getElementById(id).textContent = "Unavailable";
+        });
       }
     }
 
     function downloadCSV() {
-      const range = document.getElementById("range").value;
-      window.open(`/api/download?range=${range}`, "_blank");
+      window.open(`/api/download?range=${document.getElementById("range").value}`, "_blank");
     }
 
     fetchData();
     fetchHealth();
-    setInterval(() => {
-      fetchData();
-      fetchHealth();
-    }, 15000);
-
-
+    fetchFanStatus();
+    setInterval(() => { fetchData(); fetchHealth(); fetchFanStatus(); }, 15000);
   </script>
 </body>
 </html>
