@@ -1,6 +1,8 @@
 import sqlite3
 
-DB_FILE = "data/sensor_data.db"
+from config import config
+
+DB_FILE = config.get("DB_FILE", "data/sensor_data.db")
 
 
 def create_db():

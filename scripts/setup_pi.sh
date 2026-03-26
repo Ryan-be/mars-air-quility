@@ -86,6 +86,7 @@ if [ ! -f .env ]; then
 ENV_FOR_DYNACONF=production
 LOG_INTERVAL=10
 LOG_FILE=data/log.csv
+DB_FILE=data/sensor_data.db
 FAN_KASA_SMART_PLUG_IP=192.168.1.63
 EOF
     warn "Edit .env and set FAN_KASA_SMART_PLUG_IP to your smart plug's IP address"

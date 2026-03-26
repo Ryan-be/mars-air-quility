@@ -3,44 +3,226 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Admin – Auto Fan Settings</title>
+  <title>MLSS – Fan Settings</title>
   <style>
-    body { font-family: Arial, sans-serif; background: #121212; color: white; padding: 1em; }
-    h2 { margin-bottom: 1em; }
-    label { display: block; margin: 0.6em 0 0.2em; }
-    input[type="number"] { padding: 0.3em; width: 120px; background: #1e1e1e; color: white; border: 1px solid #444; border-radius: 4px; }
-    .checkbox-row { display: flex; align-items: center; gap: 0.5em; margin-top: 0.8em; }
-    button { margin-top: 1.2em; padding: 0.5em 1.2em; background: #2a7aff; color: white; border: none; border-radius: 4px; cursor: pointer; }
-    button:hover { background: #1a5fcc; }
-    #status { margin-top: 0.8em; color: #7dff7d; }
-    a { color: #aaa; font-size: 0.9em; }
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #121212;
+      color: #fff;
+      margin: 0;
+      padding: 1em;
+    }
+
+    /* ── Top bar ── */
+    .top-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 1.5em;
+      border-bottom: 1px solid #333;
+      padding-bottom: 0.75em;
+    }
+    .top-bar h2 { margin: 0; font-size: 1.4em; }
+    .top-bar a {
+      color: #aaa;
+      font-size: 0.9em;
+      text-decoration: none;
+    }
+    .top-bar a:hover { color: #fff; }
+
+    /* ── Card ── */
+    .card {
+      background-color: #1e1e1e;
+      border: 1px solid #444;
+      border-radius: 8px;
+      padding: 1.5em;
+      max-width: 480px;
+    }
+    .card h3 {
+      margin: 0 0 1.2em;
+      font-size: 1.1em;
+      color: #ccc;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border-bottom: 1px solid #333;
+      padding-bottom: 0.5em;
+    }
+
+    /* ── Form layout ── */
+    .field-group {
+      margin-bottom: 1.2em;
+    }
+    .field-group legend {
+      font-size: 0.8em;
+      color: #999;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.5em;
+      display: block;
+    }
+    .field-row {
+      display: flex;
+      gap: 1em;
+    }
+    .field {
+      flex: 1;
+    }
+    .field label {
+      display: block;
+      font-size: 0.85em;
+      color: #bbb;
+      margin-bottom: 0.25em;
+    }
+    .field input[type="number"] {
+      width: 100%;
+      padding: 0.45em 0.6em;
+      background: #2a2a2a;
+      color: #fff;
+      border: 1px solid #555;
+      border-radius: 4px;
+      font-size: 0.95em;
+    }
+    .field input[type="number"]:focus {
+      outline: none;
+      border-color: #2a7aff;
+    }
+
+    /* ── Toggle switch ── */
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #2a2a2a;
+      border: 1px solid #555;
+      border-radius: 6px;
+      padding: 0.6em 0.8em;
+      margin-bottom: 1.4em;
+    }
+    .toggle-row span {
+      font-size: 0.95em;
+      color: #ddd;
+    }
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 44px;
+      height: 24px;
+      flex-shrink: 0;
+    }
+    .switch input { display: none; }
+    .slider {
+      position: absolute;
+      inset: 0;
+      background: #555;
+      border-radius: 24px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .slider::before {
+      content: "";
+      position: absolute;
+      width: 18px;
+      height: 18px;
+      left: 3px;
+      top: 3px;
+      background: #fff;
+      border-radius: 50%;
+      transition: transform 0.2s;
+    }
+    .switch input:checked + .slider { background: #2a7aff; }
+    .switch input:checked + .slider::before { transform: translateX(20px); }
+
+    /* ── Button ── */
+    .btn-save {
+      width: 100%;
+      padding: 0.6em;
+      background: #2a7aff;
+      color: #fff;
+      border: none;
+      border-radius: 5px;
+      font-size: 1em;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn-save:hover { background: #1a5fcc; }
+    .btn-save:active { background: #144db0; }
+
+    /* ── Status message ── */
+    #status {
+      margin-top: 0.9em;
+      font-size: 0.9em;
+      min-height: 1.2em;
+      text-align: center;
+    }
+    .status-ok  { color: #7dff7d; }
+    .status-err { color: #ff6b6b; }
   </style>
 </head>
 <body>
-  <h2>Auto Fan Settings</h2>
-  <form id="fanForm">
-    <label>TVOC Min:
-      <input type="number" id="tvocMin" min="0">
-    </label>
-    <label>TVOC Max:
-      <input type="number" id="tvocMax" min="0">
-    </label>
-    <label>Temp Min (°C):
-      <input type="number" id="tempMin" step="0.1">
-    </label>
-    <label>Temp Max (°C):
-      <input type="number" id="tempMax" step="0.1">
-    </label>
-    <div class="checkbox-row">
-      <input type="checkbox" id="enabled">
-      <label for="enabled" style="margin:0">Enable Auto Control</label>
-    </div>
-    <button type="submit">Save</button>
-  </form>
-  <p id="status"></p>
-  <a href="/">Back to dashboard</a>
+
+  <div class="top-bar">
+    <h2>MLSS</h2>
+    <a href="/">← Back to dashboard</a>
+  </div>
+
+  <div class="card">
+    <h3>🌀 Auto Fan Settings</h3>
+
+    <form id="fanForm">
+
+      <div class="field-group">
+        <legend>TVOC thresholds (ppb)</legend>
+        <div class="field-row">
+          <div class="field">
+            <label for="tvocMin">Minimum</label>
+            <input type="number" id="tvocMin" min="0" step="1">
+          </div>
+          <div class="field">
+            <label for="tvocMax">Maximum</label>
+            <input type="number" id="tvocMax" min="0" step="1">
+          </div>
+        </div>
+      </div>
+
+      <div class="field-group">
+        <legend>Temperature thresholds (°C)</legend>
+        <div class="field-row">
+          <div class="field">
+            <label for="tempMin">Minimum</label>
+            <input type="number" id="tempMin" step="0.1">
+          </div>
+          <div class="field">
+            <label for="tempMax">Maximum</label>
+            <input type="number" id="tempMax" step="0.1">
+          </div>
+        </div>
+      </div>
+
+      <div class="toggle-row">
+        <span>Enable auto fan control</span>
+        <label class="switch">
+          <input type="checkbox" id="enabled">
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <button class="btn-save" type="submit">Save settings</button>
+    </form>
+
+    <p id="status"></p>
+  </div>
 
   <script>
+    const statusEl = document.getElementById("status");
+
+    function setStatus(msg, ok) {
+      statusEl.textContent = msg;
+      statusEl.className = ok ? "status-ok" : "status-err";
+    }
+
     async function loadSettings() {
       try {
         const res = await fetch("/api/fan/settings");
@@ -51,8 +233,7 @@
         document.getElementById("tempMax").value = data.temp_max;
         document.getElementById("enabled").checked = data.enabled;
       } catch (e) {
-        document.getElementById("status").textContent = "Failed to load settings.";
-        document.getElementById("status").style.color = "#ff6b6b";
+        setStatus("Failed to load settings.", false);
       }
     }
 
@@ -72,12 +253,9 @@
           body: JSON.stringify(payload),
         });
         const data = await res.json();
-        const statusEl = document.getElementById("status");
-        statusEl.textContent = data.message || data.error;
-        statusEl.style.color = res.ok ? "#7dff7d" : "#ff6b6b";
+        setStatus(data.message || data.error, res.ok);
       } catch (e) {
-        document.getElementById("status").textContent = "Failed to save settings.";
-        document.getElementById("status").style.color = "#ff6b6b";
+        setStatus("Failed to save settings.", false);
       }
     });
 

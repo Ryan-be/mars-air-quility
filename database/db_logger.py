@@ -1,7 +1,9 @@
 import sqlite3
 from datetime import datetime
 
-DB_FILE = "data/sensor_data.db"
+from config import config
+
+DB_FILE = config.get("DB_FILE", "data/sensor_data.db")
 
 
 def log_sensor_data(temp, hum, eco2, tvoc, annotation=None):
