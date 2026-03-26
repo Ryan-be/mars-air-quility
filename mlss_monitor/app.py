@@ -15,6 +15,7 @@ from database.db_logger import (
     log_sensor_data, get_sensor_data_by_date, add_annotation, remove_annotation,
     get_fan_settings, update_fan_settings,
 )
+from database.init_db import create_db
 from datetime import datetime, timedelta
 import psutil
 import subprocess
@@ -393,6 +394,7 @@ def _background_log():
 
 
 def main():
+    create_db()
     Thread(target=_background_log, daemon=True).start()
     app.run(host="0.0.0.0", port=5000)
 
