@@ -1,0 +1,104 @@
+/* ── Admin card ── */
+.card {
+  padding: 1.5em;
+  max-width: 480px;
+}
+
+/* ── Form layout ── */
+.field-group { margin-bottom: 1.2em; }
+.field-group legend {
+  font-size: 0.8em;
+  color: #999;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.5em;
+  display: block;
+}
+.field-row { display: flex; gap: 1em; }
+.field { flex: 1; }
+.field label {
+  display: block;
+  font-size: 0.85em;
+  color: #bbb;
+  margin-bottom: 0.25em;
+}
+.field input[type="number"] {
+  width: 100%;
+  padding: 0.45em 0.6em;
+  background: #2a2a2a;
+  color: #fff;
+  border: 1px solid #555;
+  border-radius: 4px;
+  font-size: 0.95em;
+}
+.field input[type="number"]:focus {
+  outline: none;
+  border-color: #2a7aff;
+}
+
+/* ── Toggle switch ── */
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #2a2a2a;
+  border: 1px solid #555;
+  border-radius: 6px;
+  padding: 0.6em 0.8em;
+  margin-bottom: 1.4em;
+}
+.toggle-row span { font-size: 0.95em; color: #ddd; }
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  flex-shrink: 0;
+}
+.switch input { display: none; }
+.slider {
+  position: absolute;
+  inset: 0;
+  background: #555;
+  border-radius: 24px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.slider::before {
+  content: "";
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  left: 3px;
+  top: 3px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+.switch input:checked + .slider { background: #2a7aff; }
+.switch input:checked + .slider::before { transform: translateX(20px); }
+
+/* ── Save button ── */
+.btn-save {
+  width: 100%;
+  padding: 0.6em;
+  background: #2a7aff;
+  color: #fff;
+  border: none;
+  border-radius: 5px;
+  font-size: 1em;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.btn-save:hover  { background: #1a5fcc; }
+.btn-save:active { background: #144db0; }
+
+/* ── Status message ── */
+#status {
+  margin-top: 0.9em;
+  font-size: 0.9em;
+  min-height: 1.2em;
+  text-align: center;
+}
+.status-ok  { color: #7dff7d; }
+.status-err { color: #ff6b6b; }

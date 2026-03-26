@@ -1,0 +1,78 @@
+/* ── Reset ── */
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  font-family: Arial, sans-serif;
+  background-color: #121212;
+  color: #fff;
+  margin: 0;
+  padding: 1em;
+}
+
+/* ── Top bar ── */
+.top-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5em;
+  margin-bottom: 1.5em;
+  padding-bottom: 0.75em;
+  border-bottom: 1px solid #333;
+}
+.top-bar h2 { margin: 0; font-size: 1.4em; }
+.top-bar a {
+  color: #aaa;
+  font-size: 0.9em;
+  text-decoration: none;
+}
+.top-bar a:hover { color: #fff; }
+
+/* ── Shared button ── */
+.btn {
+  background: #2a2a2a;
+  color: #ccc;
+  border: 1px solid #555;
+  border-radius: 4px;
+  padding: 0.35em 0.8em;
+  font-size: 0.9em;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.15s;
+}
+.btn:hover { background: #3a3a3a; color: #fff; }
+
+/* ── Shared card base ── */
+.card {
+  background: #1e1e1e;
+  border: 1px solid #333;
+  border-radius: 8px;
+}
+.card h3 {
+  margin: 0 0 1.2em;
+  font-size: 1.1em;
+  color: #ccc;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid #333;
+  padding-bottom: 0.5em;
+}
+
+/* ── Colour utilities ── */
+.good     { color: #7dff7d; }
+.moderate { color: #ffcc44; }
+.poor     { color: #ff8844; }
+.danger   { color: #ff4444; }
+.neutral  { color: #aaa; }
+.ok       { color: #7dff7d !important; }
+.error    { color: #ffaa44 !important; }
+
+/* ── Light mode base overrides ── */
+body.light { background-color: #f5f5f5; color: #111; }
+body.light .top-bar            { border-bottom-color: #ddd; }
+body.light .top-bar a          { color: #555; }
+body.light .top-bar a:hover    { color: #111; }
+body.light .btn                { background: #eee; color: #333; border-color: #bbb; }
+body.light .btn:hover          { background: #ddd; color: #111; }
+body.light .card               { background: #fff; border-color: #ddd; }
+body.light .card h3            { color: #444; border-bottom-color: #ddd; }
