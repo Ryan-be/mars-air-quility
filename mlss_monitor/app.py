@@ -34,6 +34,7 @@ FAN_KASA_SMART_PLUG_IP = config.get("FAN_KASA_SMART_PLUG_IP", "192.168.1.63")
 # Global variables to store fan state and mode
 fan_mode = "auto"  # Default mode: auto
 fan_state = "off"  # Default state: off
+service_start_time = datetime.utcnow()
 
 i2c = busio.I2C(board.SCL, board.SDA)
 
@@ -328,6 +329,8 @@ def system_health():
     disk = psutil.disk_usage("/")
 
     status["uptime"] = uptime_str
+    service_uptime = datetime.utcnow() - service_start_time
+    status["service_uptime"] = str(timedelta(seconds=int(service_uptime.total_seconds())))
     status["cpu_usage"] = f"{cpu_percent:.1f}%"
     status["memory_used"] = f"{memory.used // (1024 ** 2)} MB"
     status["memory_total"] = f"{memory.total // (1024 ** 2)} MB"

@@ -133,15 +133,19 @@
       background: #1e1e1e;
       border: 1px solid #333;
       border-radius: 8px;
-      padding: 0.75em 1em;
-      font-size: 0.85em;
+      padding: 0.6em 1em;
+      display: flex;
+      align-items: center;
+      gap: 1.2em;
+      flex-wrap: wrap;
     }
-    .tvoc-key strong { color: #ccc; }
-    .tvoc-level { display: flex; align-items: center; margin-top: 0.3em; color: #aaa; }
+    .tvoc-key-title { font-size: 0.75em; color: #999; text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap; }
+    .tvoc-levels { display: flex; gap: 1em; flex-wrap: wrap; }
+    .tvoc-level { display: flex; align-items: center; gap: 0.4em; font-size: 0.8em; color: #aaa; }
+    .tvoc-level small { color: #777; font-size: 0.85em; }
     .color-box {
-      width: 0.9em; height: 0.9em;
+      width: 0.75em; height: 0.75em;
       display: inline-block;
-      margin-right: 0.5em;
       border-radius: 2px;
       flex-shrink: 0;
     }
@@ -188,9 +192,10 @@
     body.light .fan-card      { background: #fff; border-color: #ddd; }
     body.light .fan-meta      { color: #555; }
     body.light .fan-meta span strong { color: #111; }
-    body.light .tvoc-key      { background: #fff; border-color: #ddd; }
-    body.light .tvoc-key strong { color: #333; }
-    body.light .tvoc-level    { color: #555; }
+    body.light .tvoc-key       { background: #fff; border-color: #ddd; }
+    body.light .tvoc-key-title { color: #666; }
+    body.light .tvoc-level     { color: #555; }
+    body.light .tvoc-level small { color: #888; }
     body.light .health-card   { background: #fff; border-color: #ddd; }
     body.light .health-card h3 { color: #444; border-bottom-color: #ddd; }
     body.light .h-label       { color: #666; }
@@ -322,10 +327,12 @@
     <div id="eco2Plot"></div>
     <div id="tvocPlot"></div>
     <div class="tvoc-key">
-      <strong>TVOC levels (WHO guidance)</strong>
-      <div class="tvoc-level"><span class="color-box green"></span> 0–250 ppb — Good</div>
-      <div class="tvoc-level"><span class="color-box orange"></span> 251–500 ppb — Moderate</div>
-      <div class="tvoc-level"><span class="color-box red"></span> &gt;500 ppb — High</div>
+      <span class="tvoc-key-title">TVOC (WHO guidance)</span>
+      <div class="tvoc-levels">
+        <div class="tvoc-level"><span class="color-box green"></span><span>0–250 ppb<br><small>Good</small></span></div>
+        <div class="tvoc-level"><span class="color-box orange"></span><span>251–500 ppb<br><small>Moderate</small></span></div>
+        <div class="tvoc-level"><span class="color-box red"></span><span>&gt;500 ppb<br><small>High</small></span></div>
+      </div>
     </div>
   </div>
 
@@ -362,8 +369,12 @@
         <div class="h-value" id="dbSize">--</div>
       </div>
       <div class="health-item">
-        <div class="h-label">Uptime</div>
+        <div class="h-label">Pi uptime</div>
         <div class="h-value" id="uptime">--</div>
+      </div>
+      <div class="health-item">
+        <div class="h-label">Service uptime</div>
+        <div class="h-value" id="serviceUptime">--</div>
       </div>
     </div>
   </div>
@@ -624,7 +635,8 @@
         document.getElementById("memoryUsage").textContent = `${stat.memory_used} / ${stat.memory_total} (${stat.memory_percent})`;
         document.getElementById("diskUsage").textContent   = `${stat.disk_used} / ${stat.disk_total} (${stat.disk_percent})`;
         document.getElementById("dbSize").textContent      = stat.db_size;
-        document.getElementById("uptime").textContent      = stat.uptime;
+        document.getElementById("uptime").textContent        = stat.uptime;
+        document.getElementById("serviceUptime").textContent = stat.service_uptime;
       } catch {
         ["aht20Status", "sgp30Status", "plugStatus"].forEach(id => {
           document.getElementById(id).textContent = "Unavailable";
