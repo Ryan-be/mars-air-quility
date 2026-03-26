@@ -369,6 +369,16 @@
       <div class="value" id="co2AlertValue">--</div>
       <div class="sub" id="co2AlertSub">--</div>
     </div>
+    <div class="insight-card">
+      <div class="label">🌱 Vapour Pressure Deficit</div>
+      <div class="value neutral" id="vpdValue">--</div>
+      <div class="sub" id="vpdSub">--</div>
+    </div>
+    <div class="insight-card">
+      <div class="label">⏱️ Time to CO₂ Threshold</div>
+      <div class="value neutral" id="tttValue">--</div>
+      <div class="sub">At current rate of change</div>
+    </div>
   </div>
 
   <!-- Fan control -->
@@ -382,6 +392,8 @@
     <div class="fan-meta">
       <span>Status<strong id="fan-status">--</strong></span>
       <span>Mode<strong id="fan-mode">--</strong></span>
+      <span>Power<strong id="fan-power">--</strong></span>
+      <span>Today<strong id="fan-today">--</strong></span>
     </div>
   </div>
 
@@ -391,6 +403,7 @@
     <div id="humPlot"></div>
     <div id="eco2Plot"></div>
     <div id="tvocPlot"></div>
+    <div id="powerPlot"></div>
   </div>
 
   <!-- TVOC legend — single line -->
@@ -493,6 +506,25 @@
       return tempC + 0.33 * e - 4.00;
     }
 
+    function vpdKpa(tempC, rh) {
+      // Tetens formula for saturation vapour pressure (kPa)
+      const svp = 0.6108 * Math.exp(17.27 * tempC / (tempC + 237.3));
+      return svp * (1 - rh / 100);
+    }
+
+    function timeToThreshold(values, thresholdPpm, intervalSecs) {
+      // Linear extrapolation from last 6 readings
+      const n = Math.min(values.length, 6);
+      if (n < 2) return null;
+      const recent = values.slice(-n);
+      const rate = (recent[recent.length - 1] - recent[0]) / (n - 1); // ppm per interval
+      if (rate <= 0) return null; // not rising
+      const current = recent[recent.length - 1];
+      if (current >= thresholdPpm) return 0;
+      const intervalsLeft = (thresholdPpm - current) / rate;
+      return Math.round(intervalsLeft * intervalSecs / 60); // minutes
+    }
+
     function airQuality(tvoc, eco2) {
       if (tvoc <= 250 && eco2 <= 800)  return { label: "Good",     cls: "good",     border: "#2d8a2d" };
       if (tvoc <= 500 && eco2 <= 1500) return { label: "Moderate", cls: "moderate", border: "#c87800" };
@@ -506,7 +538,7 @@
       return                   { label: "Dangerous", cls: "danger",   sub: "Evacuate or ventilate now" };
     }
 
-    function updateInsights(temp, hum, tvoc, eco2) {
+    function updateInsights(temp, hum, tvoc, eco2, eco2Series) {
       // Air quality
       const aq = airQuality(tvoc, eco2);
       const aqEl = document.getElementById("aqValue");
@@ -534,6 +566,29 @@
       document.getElementById("co2Card").style.borderTopColor =
         co2.cls === "good" ? "#2d8a2d" : co2.cls === "moderate" ? "#c87800" : "#b03030";
       document.getElementById("co2AlertSub").textContent = co2.sub;
+
+      // VPD
+      const vpd = vpdKpa(temp, hum);
+      const vpdEl = document.getElementById("vpdValue");
+      vpdEl.textContent = `${vpd.toFixed(2)} kPa`;
+      let vpdCls = "neutral", vpdSub = "";
+      if      (vpd < 0.4)              { vpdCls = "moderate"; vpdSub = "Too humid — mould risk"; }
+      else if (vpd <= 0.8)             { vpdCls = "good";     vpdSub = "Good — seedlings/clones"; }
+      else if (vpd <= 1.2)             { vpdCls = "good";     vpdSub = "Ideal — vegetative growth"; }
+      else if (vpd <= 1.6)             { vpdCls = "moderate"; vpdSub = "High — increase humidity"; }
+      else                             { vpdCls = "poor";     vpdSub = "Too dry — plant stress"; }
+      vpdEl.className = `value ${vpdCls}`;
+      document.getElementById("vpdSub").textContent = vpdSub;
+
+      // Time to CO₂ threshold (1000 ppm = cognitive impairment level)
+      const LOG_INTERVAL_S = 10; // matches app LOG_INTERVAL default
+      const mins = timeToThreshold(eco2Series, 1000, LOG_INTERVAL_S);
+      const tttEl = document.getElementById("tttValue");
+      if (mins === null)       { tttEl.textContent = "Stable"; tttEl.className = "value good"; }
+      else if (mins === 0)     { tttEl.textContent = "Now";    tttEl.className = "value danger"; }
+      else if (mins < 10)      { tttEl.textContent = `~${mins} min`; tttEl.className = "value poor"; }
+      else if (mins < 30)      { tttEl.textContent = `~${mins} min`; tttEl.className = "value moderate"; }
+      else                     { tttEl.textContent = `~${mins} min`; tttEl.className = "value neutral"; }
     }
 
     // ── Fan control ───────────────────────────────────────────────────────────
@@ -558,7 +613,11 @@
         const result = await res.json();
         if (res.ok) {
           document.getElementById("fan-status").textContent = result.state;
-          document.getElementById("fan-mode").textContent = result.mode;
+          document.getElementById("fan-mode").textContent = result.mode ?? "--";
+          document.getElementById("fan-power").textContent =
+            result.power_w != null ? `${result.power_w.toFixed(1)} W` : "N/A";
+          document.getElementById("fan-today").textContent =
+            result.today_kwh != null ? `${result.today_kwh.toFixed(3)} kWh` : "N/A";
         }
       } catch { /* silent */ }
     }
@@ -665,7 +724,7 @@
       document.getElementById("tvocMax").textContent = max(tvoc);
 
       // Insight cards (use latest reading)
-      updateInsights(currentTemp, currentHum, currentTvoc, currentEco2);
+      updateInsights(currentTemp, currentHum, currentTvoc, currentEco2, eco2);
 
       // Plots
       Plotly.newPlot("tempPlot", [{
@@ -730,6 +789,23 @@
         legend: { x: 0.5, y: 1.15, bgcolor: "rgba(0,0,0,0)", orientation: "h", xanchor: "center" },
         annotations: eventAnnotations,
       }), { responsive: true }).then(() => attachAnnotationHandler("tvocPlot"));
+
+      // Fan power plot (only if data contains power readings)
+      const powerValues = data.map(d => d.fan_power_w);
+      if (powerValues.some(v => v != null)) {
+        Plotly.newPlot("powerPlot", [{
+          x: timestamps, y: powerValues,
+          mode: "lines", name: "Fan power",
+          line: { color: "#a78bfa" },
+          connectgaps: false,
+        }], themeLayout({
+          title: { text: "⚡ Fan Power (W)", font: { color: isLight ? "#111" : "#ccc" } },
+          yaxis: { title: "Watts", rangemode: "tozero" }
+        }), { responsive: true });
+      } else {
+        document.getElementById("powerPlot").innerHTML =
+          `<p style="color:#666;padding:1em;font-size:0.85em">⚡ Fan power — no energy meter data yet (plug may not support it)</p>`;
+      }
 
       document.getElementById("last-updated").textContent =
         "Last updated: " + new Date().toLocaleString();

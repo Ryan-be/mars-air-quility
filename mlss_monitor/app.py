@@ -107,7 +107,17 @@ thread.start()
 def log_data():
     global fan_state
     _, temp, hum, eco2, tvoc = read_sensors()
-    log_sensor_data(temp, hum, eco2, tvoc)
+
+    # Read fan power consumption (fire-and-forget friendly; falls back to None)
+    fan_power_w = None
+    try:
+        power_future = asyncio.run_coroutine_threadsafe(fan_smart_plug.get_power(), thread_loop)
+        power_data = power_future.result(timeout=5)
+        fan_power_w = power_data.get("power_w")
+    except Exception:
+        pass
+
+    log_sensor_data(temp, hum, eco2, tvoc, fan_power_w=fan_power_w)
 
     settings = get_fan_settings()
     if settings["enabled"]:
@@ -195,8 +205,17 @@ def get_fan_state():
 
         # Schedule the get_state coroutine in the thread's event loop
         state_task = asyncio.run_coroutine_threadsafe(fan_smart_plug.get_state(), thread_loop)
-        plug_state = state_task.result()  # Wait for the state retrieval to complete
+        plug_state = state_task.result()
 
+        # Append power data if available
+        try:
+            power_task = asyncio.run_coroutine_threadsafe(fan_smart_plug.get_power(), thread_loop)
+            plug_state.update(power_task.result(timeout=5))
+        except Exception:
+            plug_state["power_w"] = None
+            plug_state["today_kwh"] = None
+
+        plug_state["mode"] = fan_mode
         return jsonify(plug_state), 200
     except Exception as e:
         return jsonify({"error": f"Error retrieving fan state: {str(e)}"}), 500
@@ -231,6 +250,7 @@ def get_data():
                 "eco2": row[4],
                 "tvoc": row[5],
                 "annotation": row[6],
+                "fan_power_w": row[7] if len(row) > 7 else None,
             }
             for row in rows
         ]

@@ -38,6 +38,22 @@ class KasaSmartPlug:
         except Exception as e:
             print(f"Failed to switch plug state: {e}")
 
+    async def get_power(self):
+        """
+        Returns current power consumption in watts and today's usage in kWh.
+        Returns None values if the plug does not have an energy meter.
+        """
+        await self.plug.update()
+        if not self.plug.has_emeter:
+            return {"power_w": None, "today_kwh": None}
+        emeter = self.plug.modules.get("Emeter")
+        if emeter is None:
+            return {"power_w": None, "today_kwh": None}
+        return {
+            "power_w": emeter.current_consumption,
+            "today_kwh": emeter.consumption_today,
+        }
+
     async def get_state(self):
         """
         Returns the state of the smart plug for serialization.

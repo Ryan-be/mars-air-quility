@@ -32,6 +32,12 @@ def create_db():
     );
     """)
 
+    # Migration: add fan_power_w column if it doesn't exist yet
+    try:
+        cur.execute("ALTER TABLE sensor_data ADD COLUMN fan_power_w REAL")
+    except Exception:
+        pass  # column already exists
+
     cur.execute("SELECT COUNT(*) FROM fan_settings")
     if cur.fetchone()[0] == 0:
         cur.execute("""

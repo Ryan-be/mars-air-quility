@@ -6,7 +6,7 @@ from config import config
 DB_FILE = config.get("DB_FILE", "data/sensor_data.db")
 
 
-def log_sensor_data(temp, hum, eco2, tvoc, annotation=None):
+def log_sensor_data(temp, hum, eco2, tvoc, annotation=None, fan_power_w=None):
     """
     Log sensor data into the SQLite database.
     :param temp:
@@ -14,15 +14,16 @@ def log_sensor_data(temp, hum, eco2, tvoc, annotation=None):
     :param eco2:
     :param tvoc:
     :param annotation:
+    :param fan_power_w: current fan power consumption in watts (None if unavailable)
     :return:
     """
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
 
     cur.execute("""
-        INSERT INTO sensor_data (timestamp, temperature, humidity, eco2, tvoc, annotation)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (datetime.utcnow().isoformat(), temp, hum, eco2, tvoc, annotation))
+        INSERT INTO sensor_data (timestamp, temperature, humidity, eco2, tvoc, annotation, fan_power_w)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (datetime.utcnow().isoformat(), temp, hum, eco2, tvoc, annotation, fan_power_w))
 
     conn.commit()
     conn.close()
