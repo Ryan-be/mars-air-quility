@@ -3,11 +3,12 @@ Description=MLSS Monitor Flask App
 After=network.target
 
 [Service]
+# Edit User and WorkingDirectory to match your installation
 User=masadmin
-WorkingDirectory=/home/masadmin/projects/mlss-monitor/mlss_monitor-project
-ExecStart=poetry run mlss_monitor
-Environment="PATH=/home/masadmin/.local/bin/poetry:/home/masadmin/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-Restart=always
+WorkingDirectory=/home/masadmin/projects/git_versions/mars-air-quility
+ExecStart=/home/masadmin/.local/bin/poetry run python mlss_monitor/app.py
+Restart=on-failure
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
