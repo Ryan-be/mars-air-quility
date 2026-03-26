@@ -5,7 +5,7 @@ description = "Mars Life Support Sensor Monitor"
 authors = ["Your Name <your.email@example.com>"]
 
 [tool.poetry.dependencies]
-python = "^3.9"
+python = "^3.11"
 flask = "^2.3"
 pandas = "^2.0"
 matplotlib = "^3.7"
@@ -17,6 +17,9 @@ Pillow = "^10.0"
 adafruit-circuitpython-rgb-display = "^3.14.1"
 psutil = "==7.0.0"
 python-kasa = "==0.10.2"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0"
 
 [tool.poetry.scripts]
 mlss-monitor = "app:main"
