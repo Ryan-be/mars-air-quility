@@ -67,6 +67,9 @@ fi
 # Skip 'dev' (pytest — not needed in production)
 info "Installing Python dependencies (this may take a few minutes)..."
 poetry install --without visualization --without dev
+# RPi.GPIO is a Pi-only hardware package not listed in pyproject.toml
+# (it fails to build on non-Pi platforms) — install it directly
+poetry run pip install RPi.GPIO
 success "Dependencies installed"
 
 # ── 6. Create data directory ──────────────────────────────────────────────────
