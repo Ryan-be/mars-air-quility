@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin – Auto Fan Settings</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #121212; color: white; padding: 1em; }
+    h2 { margin-bottom: 1em; }
+    label { display: block; margin: 0.6em 0 0.2em; }
+    input[type="number"] { padding: 0.3em; width: 120px; background: #1e1e1e; color: white; border: 1px solid #444; border-radius: 4px; }
+    .checkbox-row { display: flex; align-items: center; gap: 0.5em; margin-top: 0.8em; }
+    button { margin-top: 1.2em; padding: 0.5em 1.2em; background: #2a7aff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+    button:hover { background: #1a5fcc; }
+    #status { margin-top: 0.8em; color: #7dff7d; }
+    a { color: #aaa; font-size: 0.9em; }
+  </style>
+</head>
+<body>
+  <h2>Auto Fan Settings</h2>
+  <form id="fanForm">
+    <label>TVOC Min:
+      <input type="number" id="tvocMin" min="0">
+    </label>
+    <label>TVOC Max:
+      <input type="number" id="tvocMax" min="0">
+    </label>
+    <label>Temp Min (°C):
+      <input type="number" id="tempMin" step="0.1">
+    </label>
+    <label>Temp Max (°C):
+      <input type="number" id="tempMax" step="0.1">
+    </label>
+    <div class="checkbox-row">
+      <input type="checkbox" id="enabled">
+      <label for="enabled" style="margin:0">Enable Auto Control</label>
+    </div>
+    <button type="submit">Save</button>
+  </form>
+  <p id="status"></p>
+  <a href="/">Back to dashboard</a>
+
+  <script>
+    async function loadSettings() {
+      try {
+        const res = await fetch("/api/fan/settings");
+        const data = await res.json();
+        document.getElementById("tvocMin").value = data.tvoc_min;
+        document.getElementById("tvocMax").value = data.tvoc_max;
+        document.getElementById("tempMin").value = data.temp_min;
+        document.getElementById("tempMax").value = data.temp_max;
+        document.getElementById("enabled").checked = data.enabled;
+      } catch (e) {
+        document.getElementById("status").textContent = "Failed to load settings.";
+        document.getElementById("status").style.color = "#ff6b6b";
+      }
+    }
+
+    document.getElementById("fanForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const payload = {
+        tvoc_min: parseInt(document.getElementById("tvocMin").value),
+        tvoc_max: parseInt(document.getElementById("tvocMax").value),
+        temp_min: parseFloat(document.getElementById("tempMin").value),
+        temp_max: parseFloat(document.getElementById("tempMax").value),
+        enabled: document.getElementById("enabled").checked,
+      };
+      try {
+        const res = await fetch("/api/fan/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        const statusEl = document.getElementById("status");
+        statusEl.textContent = data.message || data.error;
+        statusEl.style.color = res.ok ? "#7dff7d" : "#ff6b6b";
+      } catch (e) {
+        document.getElementById("status").textContent = "Failed to save settings.";
+        document.getElementById("status").style.color = "#ff6b6b";
+      }
+    });
+
+    loadSettings();
+  </script>
+</body>
+</html>

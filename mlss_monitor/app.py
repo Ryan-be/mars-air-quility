@@ -11,7 +11,10 @@ from adafruit_sgp30 import Adafruit_SGP30
 from config import config
 from sensors.aht20 import read_aht20
 from sensors.sgp30 import read_sgp30
-from database.db_logger import log_sensor_data, get_sensor_data_by_date, add_annotation, remove_annotation
+from database.db_logger import (
+    log_sensor_data, get_sensor_data_by_date, add_annotation, remove_annotation,
+    get_fan_settings, update_fan_settings,
+)
 from datetime import datetime, timedelta
 import psutil
 import subprocess
@@ -101,13 +104,14 @@ thread = Thread(target=start_thread_event_loop, daemon=True)
 thread.start()
 
 def log_data():
+    global fan_state
     ts, temp, hum, eco2, tvoc = read_sensors()
     log_sensor_data(temp, hum, eco2, tvoc)
 
-    # Control the fan automatically if in auto mode
-    if fan_mode == "auto":
+    settings = get_fan_settings()
+    if settings["enabled"]:
         try:
-            if temp > 20 or tvoc > 500:
+            if temp > settings["temp_max"] or tvoc > settings["tvoc_max"]:
                 fan_state = "on"
                 asyncio.run_coroutine_threadsafe(fan_smart_plug.switch(True), thread_loop)
             else:
@@ -162,21 +166,19 @@ def download_data():
 
 @app.route("/api/fan", methods=["POST"])
 def control_fan():
+    global fan_mode, fan_state
     try:
-        # Get the 'state' query parameter
         state = request.args.get("state")
         if state not in ["on", "off", "auto"]:
             return jsonify({"error": "'state' must be 'on', 'off', or 'auto'."}), 400
 
         if state == "auto":
-            # Set to auto mode
             fan_mode = "auto"
-            fan_state = "off"  # Default state when switching to auto
+            fan_state = "off"
         else:
-            # Set to manual mode and update state
             fan_mode = "manual"
             fan_state = state
-            asyncio.run(fan_smart_plug.switch(state == "on"))
+            asyncio.run_coroutine_threadsafe(fan_smart_plug.switch(state == "on"), thread_loop).result()
 
         return jsonify({"message": f"Fan set to {state} successfully.", "mode": fan_mode}), 200
     except Exception as e:
@@ -273,6 +275,29 @@ def remove_annotation_query():
         return jsonify({"message": "Annotation removed successfully."}), 200
     except Exception as e:
         return jsonify({"error": f"Error removing annotation: {str(e)}"}), 500
+
+
+@app.route("/admin")
+def admin():
+    return render_template("admin.html")
+
+
+@app.route("/api/fan/settings", methods=["GET"])
+def get_fan_settings_route():
+    return jsonify(get_fan_settings())
+
+
+@app.route("/api/fan/settings", methods=["POST"])
+def update_fan_settings_route():
+    data = request.get_json()
+    update_fan_settings(
+        tvoc_min=data.get("tvoc_min", 0),
+        tvoc_max=data.get("tvoc_max", 500),
+        temp_min=data.get("temp_min", 0.0),
+        temp_max=data.get("temp_max", 20.0),
+        enabled=data.get("enabled", False),
+    )
+    return jsonify({"message": "Fan settings updated"})
 
 
 @app.route("/system_health")
