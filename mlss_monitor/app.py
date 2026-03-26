@@ -24,7 +24,8 @@ from threading import Thread
 
 app = Flask(
     __name__,
-    template_folder=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "templates")
+    template_folder=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "templates"),
+    static_folder=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "static"),
 )
 
 LOG_INTERVAL = int(config.get("LOG_INTERVAL", "10"))
