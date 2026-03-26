@@ -335,14 +335,18 @@ def system_health():
     return jsonify(status)
 
 
-def main():
-    def background_log():
-        asyncio.set_event_loop(thread_loop)
-        while True:
+def _background_log():
+    asyncio.set_event_loop(thread_loop)
+    while True:
+        try:
             log_data()
-            time.sleep(LOG_INTERVAL)
+        except Exception as e:
+            print(f"Error in background log loop: {e}")
+        time.sleep(LOG_INTERVAL)
 
-    Thread(target=background_log, daemon=True).start()
+
+def main():
+    Thread(target=_background_log, daemon=True).start()
     app.run(host="0.0.0.0", port=5000)
 
 if __name__ == "__main__":

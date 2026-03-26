@@ -7,8 +7,6 @@ authors = ["Your Name <your.email@example.com>"]
 [tool.poetry.dependencies]
 python = "^3.11"
 flask = "^2.3"
-pandas = "^2.0"
-matplotlib = "^3.7"
 dynaconf = "^3.2"
 adafruit-circuitpython-ahtx0 = "^1.0.27"
 adafruit-circuitpython-sgp30 = "^2.0.4"
@@ -20,6 +18,18 @@ python-kasa = "==0.10.2"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0"
+
+[tool.poetry.group.visualization]
+optional = true
+
+[tool.poetry.group.visualization.dependencies]
+pandas = "^2.0"
+matplotlib = "^3.7"
+
+[[tool.poetry.source]]
+name = "piwheels"
+url = "https://www.piwheels.org/simple"
+priority = "supplemental"
 
 [tool.poetry.scripts]
 mlss-monitor = "app:main"

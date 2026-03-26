@@ -275,16 +275,38 @@ class TestSystemHealth:
 # ---------------------------------------------------------------------------
 
 class TestBackgroundThreadResilience:
-    def test_db_error_in_log_data_propagates_and_kills_thread(self, db, monkeypatch):
+    def test_background_log_survives_log_data_exception(self, monkeypatch):
         """
-        KNOWN RISK: if log_sensor_data() raises (e.g. DB locked or data/
-        directory missing), log_data() propagates the exception uncaught.
-        The background_log while-loop has no try/except, so the logging
-        thread will silently die.
+        _background_log() wraps log_data() in try/except so a transient
+        failure (DB locked, data/ missing, sensor error) does not kill
+        the logging thread — it logs the error and continues.
+        """
+        import mlss_monitor.app as app_module
 
-        This test documents the current behaviour. If this test ever fails
-        it means the resilience has been improved (which is desirable).
-        """
+        log_calls = [0]
+
+        def flaky_log_data():
+            log_calls[0] += 1
+            if log_calls[0] == 1:
+                raise OSError("data/ directory missing")
+
+        sleep_calls = [0]
+
+        def stop_after_two_sleeps(_interval):
+            sleep_calls[0] += 1
+            if sleep_calls[0] >= 2:
+                raise KeyboardInterrupt
+
+        monkeypatch.setattr(app_module, "log_data", flaky_log_data)
+        monkeypatch.setattr(app_module.time, "sleep", stop_after_two_sleeps)
+
+        with pytest.raises(KeyboardInterrupt):
+            app_module._background_log()  # pylint: disable=protected-access
+
+        assert log_calls[0] == 2, "Second log_data() call must run despite first raising"
+
+    def test_log_data_exception_propagates_to_caller(self, db, monkeypatch):
+        """log_data() itself still raises on error — _background_log catches it."""
         import mlss_monitor.app as app_module
 
         monkeypatch.setattr(app_module, "read_sensors", lambda: (0, 15.0, 50, 300, 100))
