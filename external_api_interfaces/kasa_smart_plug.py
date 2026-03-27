@@ -42,17 +42,45 @@ class KasaSmartPlug:
         """
         Returns current power consumption in watts and today's usage in kWh.
         Returns None values if the plug does not have an energy meter.
+
+        Handles python-kasa API changes across versions:
+        - ≤ 0.6: modules["Emeter"], .current_consumption / .consumption_today
+        - ≥ 0.7: modules["IotEmeter"], same attrs; also exposes emeter_realtime
         """
         await self.plug.update()
+
         if not self.plug.has_emeter:
+            print(f"[kasa] Plug has no emeter. "
+                  f"Available modules: {list(self.plug.modules.keys())}")
             return {"power_w": None, "today_kwh": None}
-        emeter = self.plug.modules.get("Emeter")
-        if emeter is None:
-            return {"power_w": None, "today_kwh": None}
-        return {
-            "power_w": emeter.current_consumption,
-            "today_kwh": emeter.consumption_today,
-        }
+
+        # ── Strategy 1: module-based access (key name changed in kasa ≥ 0.7) ──
+        for key in ("IotEmeter", "Emeter"):
+            emeter = self.plug.modules.get(key)
+            if emeter is None:
+                continue
+            power_w   = (getattr(emeter, "current_consumption", None)
+                         or getattr(emeter, "current_power_w", None)
+                         or getattr(emeter, "power", None))
+            today_kwh = (getattr(emeter, "consumption_today", None)
+                         or getattr(emeter, "consumption_today_kwh", None)
+                         or getattr(emeter, "today_kwh", None))
+            print(f"[kasa] Power via module '{key}': {power_w} W, {today_kwh} kWh")
+            return {"power_w": power_w, "today_kwh": today_kwh}
+
+        # ── Strategy 2: high-level emeter_realtime property (kasa ≥ 0.7) ──
+        try:
+            realtime  = self.plug.emeter_realtime          # EmeterStatus dict
+            power_w   = realtime.get("power") or realtime.get("power_mw", 0) / 1000
+            today_kwh = getattr(self.plug, "emeter_today", None)
+            print(f"[kasa] Power via emeter_realtime: {power_w} W, {today_kwh} kWh")
+            return {"power_w": power_w, "today_kwh": today_kwh}
+        except Exception as exc:
+            print(f"[kasa] emeter_realtime fallback failed: {exc}")
+
+        print(f"[kasa] Could not read energy data. "
+              f"Modules: {list(self.plug.modules.keys())}")
+        return {"power_w": None, "today_kwh": None}
 
     async def get_state(self):
         """
