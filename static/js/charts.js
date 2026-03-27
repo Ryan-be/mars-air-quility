@@ -7,8 +7,7 @@ export function renderCharts(timestamps, temperatures, humidities, eco2, tvoc, a
     mode: "lines+markers", name: "Temperature",
     line: { color: "deeppink" }, customdata: ids
   }], themeLayout({
-    title: { text: "🌡️ Temperature", font: { color: isLight ? "#111" : "#ccc" } },
-    yaxis: { title: "°C" }
+    title: { text: "🌡️ Temperature (°C)", font: { color: isLight ? "#111" : "#ccc" } },
   }), { responsive: true }).then(() => attachAnnotationHandler("tempPlot"));
 
   Plotly.newPlot("humPlot", [{
@@ -16,8 +15,7 @@ export function renderCharts(timestamps, temperatures, humidities, eco2, tvoc, a
     mode: "lines+markers", name: "Humidity",
     line: { color: "dodgerblue" }, customdata: ids
   }], themeLayout({
-    title: { text: "💧 Humidity", font: { color: isLight ? "#111" : "#ccc" } },
-    yaxis: { title: "%" }
+    title: { text: "💧 Humidity (%)", font: { color: isLight ? "#111" : "#ccc" } },
   }), { responsive: true }).then(() => attachAnnotationHandler("humPlot"));
 
   Plotly.newPlot("eco2Plot", [{
@@ -25,8 +23,7 @@ export function renderCharts(timestamps, temperatures, humidities, eco2, tvoc, a
     mode: "lines+markers", name: "eCO₂",
     line: { color: "yellowgreen" }, customdata: ids
   }], themeLayout({
-    title: { text: "🫁 eCO₂", font: { color: isLight ? "#111" : "#ccc" } },
-    yaxis: { title: "ppm" }
+    title: { text: "🫁 eCO₂ (ppm)", font: { color: isLight ? "#111" : "#ccc" } },
   }), { responsive: true }).then(() => attachAnnotationHandler("eco2Plot"));
 
   const rollingTVOC = tvoc.map((_, i, arr) => {
@@ -55,11 +52,11 @@ export function renderCharts(timestamps, temperatures, humidities, eco2, tvoc, a
       yaxis: "y2", line: { color: "cyan", width: 2 }
     }
   ], themeLayout({
-    title: { text: "🧪 TVOC", font: { color: isLight ? "#111" : "#ccc" } },
-    yaxis: { title: "ppb" },
+    title: { text: "🧪 TVOC (ppb)", font: { color: isLight ? "#111" : "#ccc" } },
     yaxis2: {
-      title: "Rate of change", overlaying: "y", side: "right",
-      showgrid: false, gridcolor: "#2a2a2a", zerolinecolor: "#333", color: "#ccc"
+      title: "Δppb", overlaying: "y", side: "right",
+      showgrid: false, gridcolor: "#2a2a2a", zerolinecolor: "#333", color: "#ccc",
+      automargin: true,
     },
     legend: { x: 0.5, y: 1.15, bgcolor: "rgba(0,0,0,0)", orientation: "h", xanchor: "center" },
     annotations: eventAnnotations,
@@ -73,7 +70,7 @@ export function renderCharts(timestamps, temperatures, humidities, eco2, tvoc, a
       connectgaps: false,
     }], themeLayout({
       title: { text: "⚡ Fan Power (W)", font: { color: isLight ? "#111" : "#ccc" } },
-      yaxis: { title: "Watts", rangemode: "tozero" }
+      yaxis: { rangemode: "tozero" }
     }), { responsive: true });
   } else {
     document.getElementById("powerPlot").innerHTML =
@@ -83,7 +80,6 @@ export function renderCharts(timestamps, temperatures, humidities, eco2, tvoc, a
   // ── VPD chart ─────────────────────────────────────────────────────────────
   // VPD zones (kPa): <0.4 too humid | 0.4–0.8 seedlings | 0.8–1.2 ideal
   //                  1.2–1.6 high | >1.6 plant stress
-  const bg = isLight ? "rgba(0,0,0,0.04)" : "rgba(255,255,255,0.03)";
   const vpdShapes = [
     { y0: 0,   y1: 0.4, color: "rgba(30,120,255,0.10)",  label: "Too humid"    },
     { y0: 0.4, y1: 0.8, color: "rgba(80,200,120,0.12)",  label: "Seedlings"    },
@@ -129,7 +125,7 @@ export function renderCharts(timestamps, temperatures, humidities, eco2, tvoc, a
       connectgaps: false,
     }], themeLayout({
       title: { text: "🌱 Vapour Pressure Deficit (kPa)", font: { color: isLight ? "#111" : "#ccc" } },
-      yaxis: { title: "kPa", rangemode: "tozero" },
+      yaxis: { rangemode: "tozero" },
       shapes: vpdShapes,
       annotations: zoneAnnotations,
     }), { responsive: true });

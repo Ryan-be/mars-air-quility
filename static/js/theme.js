@@ -3,17 +3,17 @@ export let isLight = false;
 export const DARK_LAYOUT = {
   paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "#1a1a1a",
   font: { color: "#ccc" },
-  xaxis: { gridcolor: "#2a2a2a", zerolinecolor: "#333", title: "Time" },
-  yaxis: { gridcolor: "#2a2a2a", zerolinecolor: "#333" },
-  margin: { t: 40, r: 20, b: 50, l: 55 }, autosize: true,
+  xaxis: { gridcolor: "#2a2a2a", zerolinecolor: "#333", automargin: true },
+  yaxis: { gridcolor: "#2a2a2a", zerolinecolor: "#333", automargin: true },
+  margin: { t: 40, r: 20, b: 40, l: 45 }, autosize: true,
 };
 
 export const LIGHT_LAYOUT = {
   paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "#f9f9f9",
   font: { color: "#111" },
-  xaxis: { gridcolor: "#ddd", zerolinecolor: "#ccc", title: "Time" },
-  yaxis: { gridcolor: "#ddd", zerolinecolor: "#ccc" },
-  margin: { t: 40, r: 20, b: 50, l: 55 }, autosize: true,
+  xaxis: { gridcolor: "#ddd", zerolinecolor: "#ccc", automargin: true },
+  yaxis: { gridcolor: "#ddd", zerolinecolor: "#ccc", automargin: true },
+  margin: { t: 40, r: 20, b: 40, l: 45 }, autosize: true,
 };
 
 export function themeLayout(overrides) {
