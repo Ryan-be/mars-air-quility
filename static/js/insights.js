@@ -124,25 +124,66 @@ export function updateWeather(w, indoorTemp, indoorHum) {
 }
 
 // ── Forecast strip ─────────────────────────────────────────────────────────────
+let _forecastData = [];   // retained so dialog can look up any slot
+
 export function updateForecast(hours) {
   const strip = document.getElementById("forecastStrip");
   if (!strip) return;
   if (!hours || !hours.length) { strip.innerHTML = ""; return; }
 
-  strip.innerHTML = hours.map(h => {
-    const icon  = WMO_EMOJI[h.weather_code] ?? "🌡️";
-    const temp  = h.temp  != null ? `${Math.round(h.temp)}°` : "--";
-    const rain  = h.precip_prob != null
+  _forecastData = hours;
+  strip.innerHTML = hours.map((h, idx) => {
+    const icon = WMO_EMOJI[h.weather_code] ?? "🌡️";
+    const temp = h.temp != null ? `${Math.round(h.temp)}°` : "--";
+    const rain = h.precip_prob != null
       ? `<div class="fc-rain">💧 ${h.precip_prob}%</div>`
       : "";
     return `
-      <div class="forecast-slot">
+      <button class="forecast-slot" data-idx="${idx}"
+              aria-label="Forecast at ${h.time}" title="Tap for details">
         <div class="fc-time">${h.time}</div>
         <div class="fc-icon">${icon}</div>
         <div class="fc-temp">${temp}</div>
         ${rain}
-      </div>`;
+      </button>`;
   }).join("");
+
+  // Single delegated click listener on the strip
+  strip.onclick = (e) => {
+    const slot = e.target.closest(".forecast-slot");
+    if (!slot) return;
+    _openForecastDialog(parseInt(slot.dataset.idx, 10));
+  };
+}
+
+function _openForecastDialog(idx) {
+  const h      = _forecastData[idx];
+  const dialog = document.getElementById("forecastDialog");
+  if (!h || !dialog) return;
+
+  const icon = WMO_EMOJI[h.weather_code] ?? "🌡️";
+  const cond = WMO[h.weather_code]       ?? `Code ${h.weather_code}`;
+
+  document.getElementById("fdIcon").textContent  = icon;
+  document.getElementById("fdTitle").textContent = `${h.time} — ${cond}`;
+  document.getElementById("fdTemp").textContent  =
+    h.temp != null ? `${h.temp.toFixed(1)} °C` : "--";
+  document.getElementById("fdRain").textContent  =
+    h.precip_prob != null ? `${h.precip_prob}%` : "--";
+  document.getElementById("fdWindSpd").textContent =
+    h.wind_speed != null ? `${h.wind_speed.toFixed(1)} mph` : "--";
+  // Feels-like not in hourly data — show wind impact label instead
+  document.getElementById("fdWind").textContent  =
+    h.wind_speed != null
+      ? (h.wind_speed < 5 ? "Calm" : h.wind_speed < 15 ? "Breezy" : h.wind_speed < 25 ? "Windy" : "Very windy")
+      : "--";
+
+  dialog.showModal();
+
+  // Close when clicking outside the dialog box
+  dialog.onclick = (e) => {
+    if (e.target === dialog) dialog.close();
+  };
 }
 
 export function updateInsights(temp, hum, tvoc, eco2, eco2Series) {

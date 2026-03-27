@@ -152,6 +152,55 @@ body.light .forecast-slot             { background: #fff; border-color: #ddd; }
 body.light .forecast-slot .fc-time   { color: #999; }
 body.light .forecast-slot .fc-temp   { color: #111; }
 body.light .forecast-slot .fc-rain   { color: #2266cc; }
+/* Hover/focus state on forecast slots (they are buttons now) */
+.forecast-slot { cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+.forecast-slot:hover, .forecast-slot:focus-visible {
+  border-color: #7db8ff;
+  background: #252535;
+  outline: none;
+}
+body.light .forecast-slot:hover,
+body.light .forecast-slot:focus-visible { background: #f0f4ff; border-color: #6699dd; }
+
+/* ── Forecast detail dialog ── */
+#forecastDialog {
+  background: #1e1e1e;
+  color: #fff;
+  border: 1px solid #444;
+  border-radius: 12px;
+  padding: 1.4em 1.6em;
+  max-width: 340px;
+  width: 90vw;
+}
+#forecastDialog::backdrop { background: rgba(0,0,0,0.65); }
+.fd-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75em;
+  margin-bottom: 1em;
+}
+.fd-header > div { display: flex; align-items: center; gap: 0.5em; }
+.fd-icon  { font-size: 2em; line-height: 1; }
+.fd-header h3 { margin: 0; font-size: 1em; color: #ddd; }
+.fd-close { padding: 0.25em 0.6em; font-size: 0.95em; flex-shrink: 0; }
+.fd-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75em;
+}
+.fd-item {
+  background: #2a2a2a;
+  border-radius: 8px;
+  padding: 0.6em 0.75em;
+}
+.fd-label { font-size: 0.7em; color: #888; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.2em; }
+.fd-value { font-size: 1.1em; font-weight: bold; color: #ddd; }
+body.light #forecastDialog   { background: #fff; color: #111; border-color: #ccc; }
+body.light .fd-header h3     { color: #222; }
+body.light .fd-item          { background: #f5f5f5; }
+body.light .fd-label         { color: #888; }
+body.light .fd-value         { color: #111; }
 
 /* ── Fan control card ── */
 .fan-card {

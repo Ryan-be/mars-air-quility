@@ -146,6 +146,23 @@
     </div>
   </div>
 
+  <!-- Forecast detail dialog -->
+  <dialog id="forecastDialog" aria-modal="true" aria-labelledby="fdTitle">
+    <div class="fd-header">
+      <div>
+        <div class="fd-icon" id="fdIcon"></div>
+        <h3 id="fdTitle"></h3>
+      </div>
+      <button class="fd-close btn" aria-label="Close" onclick="document.getElementById('forecastDialog').close()">✕</button>
+    </div>
+    <div class="fd-grid">
+      <div class="fd-item"><div class="fd-label">🌡️ Temperature</div><div class="fd-value" id="fdTemp"></div></div>
+      <div class="fd-item"><div class="fd-label">🥶 Feels Like</div><div class="fd-value" id="fdWind"></div></div>
+      <div class="fd-item"><div class="fd-label">💧 Rain Chance</div><div class="fd-value" id="fdRain"></div></div>
+      <div class="fd-item"><div class="fd-label">💨 Wind Speed</div><div class="fd-value" id="fdWindSpd"></div></div>
+    </div>
+  </dialog>
+
   <!-- Fan control -->
   <div class="section-heading">⚙️ Controls</div>
   <div class="fan-card">
