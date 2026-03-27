@@ -9,9 +9,7 @@ auth_bp = Blueprint("auth", __name__)
 
 @auth_bp.route("/login", methods=["GET", "POST"])
 def login():
-    if not state.AUTH_USERNAME or not state.AUTH_PASSWORD:
-        return redirect(url_for("pages.dashboard"))
-    if request.method == "POST":
+    if request.method == "POST" and state.AUTH_USERNAME and state.AUTH_PASSWORD:
         if (request.form.get("username") == state.AUTH_USERNAME and
                 request.form.get("password") == state.AUTH_PASSWORD):
             session["logged_in"] = True
