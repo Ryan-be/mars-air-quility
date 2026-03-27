@@ -108,7 +108,9 @@ body.light .top-bar a          { color: #555; }
 body.light .top-bar a:hover    { color: #111; }
 body.light .btn                { background: #eee; color: #333; border-color: #bbb; }
 body.light .btn:hover          { background: #ddd; color: #111; }
-.btn-logout { color: #ff8888; border-color: #663333; margin-left: auto; }
+.session-user { font-size: 0.82em; color: #666; margin-left: auto; }
+body.light .session-user { color: #999; }
+.btn-logout { color: #ff8888; border-color: #663333; }
 .btn-logout:hover { background: #3a1a1a; color: #ffaaaa; }
 body.light .btn-logout { color: #cc3333; border-color: #cc3333; background: #fff; }
 body.light .btn-logout:hover { background: #ffeeee; }

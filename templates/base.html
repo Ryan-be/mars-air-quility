@@ -13,6 +13,7 @@
     <h2>🚀 MLSS</h2>
     {% block topbar_controls %}{% endblock %}
     {% if auth_enabled %}
+      {% if session_user %}<span class="session-user">{{ session_user }}</span>{% endif %}
       <a href="/logout" class="btn btn-logout">Sign out</a>
     {% endif %}
   </div>

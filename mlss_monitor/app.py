@@ -1,4 +1,5 @@
 from flask import Flask, send_file, render_template, jsonify, request, Response, session, redirect, url_for
+from authlib.integrations.flask_client import OAuth
 
 import csv
 import os
@@ -31,13 +32,14 @@ app = Flask(
     static_folder=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "static"),
 )
 
+_PUBLIC_ENDPOINTS = {"login", "logout", "github_login", "github_callback", "static"}
+
 @app.before_request
 def check_auth():
-    """Session-based auth guard — only active when AUTH_USERNAME/PASSWORD are set in config."""
-    if not AUTH_USERNAME or not AUTH_PASSWORD:
-        return  # auth disabled; open access on local network
-    # Login page and static files are always public
-    if request.endpoint in ("login", "logout", "static"):
+    """Session guard — active when any auth method is configured."""
+    if not _auth_configured():
+        return  # no auth configured; open access on local network
+    if request.endpoint in _PUBLIC_ENDPOINTS:
         return
     if not session.get("logged_in"):
         return redirect(url_for("login"))
@@ -46,19 +48,42 @@ def check_auth():
 LOG_INTERVAL = int(config.get("LOG_INTERVAL", "10"))
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # one level up from mlss_monitor
 FAN_KASA_SMART_PLUG_IP = config.get("FAN_KASA_SMART_PLUG_IP", "192.168.1.63")
-AUTH_USERNAME = config.get("AUTH_USERNAME", None)
-AUTH_PASSWORD = config.get("AUTH_PASSWORD", None)
-SECRET_KEY    = config.get("SECRET_KEY", "mlss-dev-key-change-me-in-production")
+AUTH_USERNAME        = config.get("AUTH_USERNAME", None)
+AUTH_PASSWORD        = config.get("AUTH_PASSWORD", None)
+GITHUB_CLIENT_ID     = config.get("GITHUB_CLIENT_ID", None)
+GITHUB_CLIENT_SECRET = config.get("GITHUB_CLIENT_SECRET", None)
+ALLOWED_GITHUB_USER  = config.get("ALLOWED_GITHUB_USER", None)
+SECRET_KEY           = config.get("SECRET_KEY", "mlss-dev-key-change-me-in-production")
 
 app.secret_key = SECRET_KEY
 
+# ── GitHub OAuth (authlib) ────────────────────────────────────────────────────
+_oauth = OAuth(app)
+github_oauth = None
+if GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET:
+    github_oauth = _oauth.register(
+        name="github",
+        client_id=GITHUB_CLIENT_ID,
+        client_secret=GITHUB_CLIENT_SECRET,
+        access_token_url="https://github.com/login/oauth/access_token",
+        authorize_url="https://github.com/login/oauth/authorize",
+        api_base_url="https://api.github.com/",
+        client_kwargs={"scope": "read:user"},
+    )
+
 open_meteo = OpenMeteoClient()
 
+def _auth_configured():
+    return bool((AUTH_USERNAME and AUTH_PASSWORD) or github_oauth)
 
 @app.context_processor
 def inject_auth_state():
-    """Make auth_enabled available in every template."""
-    return {"auth_enabled": bool(AUTH_USERNAME and AUTH_PASSWORD)}
+    return {
+        "auth_enabled":        _auth_configured(),
+        "github_oauth_enabled": bool(github_oauth),
+        "local_auth_enabled":   bool(AUTH_USERNAME and AUTH_PASSWORD),
+        "session_user":         session.get("user", ""),
+    }
 
 # Global variables to store fan state and mode
 fan_mode = "auto"  # Default mode: auto
@@ -177,6 +202,34 @@ def login():
 def logout():
     session.clear()
     return redirect(url_for("login"))
+
+
+@app.route("/auth/github")
+def github_login():
+    if not github_oauth:
+        return redirect(url_for("login"))
+    redirect_uri = url_for("github_callback", _external=True)
+    return github_oauth.authorize_redirect(redirect_uri)
+
+
+@app.route("/auth/callback")
+def github_callback():
+    if not github_oauth:
+        return redirect(url_for("login"))
+    try:
+        token    = github_oauth.authorize_access_token()
+        userinfo = github_oauth.get("user", token=token).json()
+        username = userinfo.get("login", "")
+    except Exception as e:
+        app.logger.error(f"GitHub OAuth callback error: {e}")
+        return render_template("login.html", error="GitHub authentication failed. Please try again.")
+
+    if ALLOWED_GITHUB_USER and username.lower() != ALLOWED_GITHUB_USER.lower():
+        return render_template("login.html", error=f"GitHub user '{username}' is not authorised.")
+
+    session["logged_in"] = True
+    session["user"]      = username
+    return redirect(url_for("dashboard"))
 
 
 @app.route("/")
@@ -505,10 +558,12 @@ def _weather_log_loop():
 
 def main():
     create_db()
-    if AUTH_USERNAME and AUTH_PASSWORD:
-        print(f"🔒 Auth ENABLED — login required (user: {AUTH_USERNAME})")
+    if github_oauth:
+        print(f"🔒 Auth ENABLED — GitHub OAuth (allowed user: {ALLOWED_GITHUB_USER or 'any'})")
+    elif AUTH_USERNAME and AUTH_PASSWORD:
+        print(f"🔒 Auth ENABLED — local login (user: {AUTH_USERNAME})")
     else:
-        print("⚠️  Auth DISABLED — set AUTH_USERNAME and AUTH_PASSWORD in .env to enable")
+        print("⚠️  Auth DISABLED — configure MLSS_GITHUB_CLIENT_ID or MLSS_AUTH_USERNAME in .env")
     Thread(target=_background_log, daemon=True).start()
     Thread(target=_weather_log_loop, daemon=True).start()
     app.run(host="0.0.0.0", port=5000)
