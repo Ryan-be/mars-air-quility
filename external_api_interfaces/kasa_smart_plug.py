@@ -102,22 +102,27 @@ class KasaSmartPlug:
                     stats = await usage.get_daystat(now.year, now.month)
                 log.info("usage.get_daystat raw response: %s", stats)
                 today_kwh = None
-                day_list = (
-                    stats.get("day_list", []) if isinstance(stats, dict)
-                    else getattr(stats, "day_list", [])
-                )
-                for entry in day_list:
-                    entry_day = (
-                        entry.get("day") if isinstance(entry, dict)
-                        else getattr(entry, "day", None)
+                # kasa 0.10 returns {day_int: wh_int} e.g. {27: 21}
+                if isinstance(stats, dict) and now.day in stats:
+                    today_kwh = round(stats[now.day] / 1000, 4)
+                else:
+                    # Older kasa: {"day_list": [{"day": 27, "energy_wh": 21}, ...]}
+                    day_list = (
+                        stats.get("day_list", []) if isinstance(stats, dict)
+                        else getattr(stats, "day_list", [])
                     )
-                    energy = (
-                        entry.get("energy_wh", 0) if isinstance(entry, dict)
-                        else getattr(entry, "energy_wh", 0)
-                    )
-                    if entry_day == now.day:
-                        today_kwh = round(energy / 1000, 4)
-                        break
+                    for entry in day_list:
+                        entry_day = (
+                            entry.get("day") if isinstance(entry, dict)
+                            else getattr(entry, "day", None)
+                        )
+                        energy = (
+                            entry.get("energy_wh", 0) if isinstance(entry, dict)
+                            else getattr(entry, "energy_wh", 0)
+                        )
+                        if entry_day == now.day:
+                            today_kwh = round(energy / 1000, 4)
+                            break
                 log.info("Usage module: today_kwh=%s (no real-time watts on this model)",
                          today_kwh)
                 return {"power_w": None, "today_kwh": today_kwh}
