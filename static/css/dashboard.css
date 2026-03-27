@@ -82,6 +82,29 @@
   color: #888;
 }
 
+/* ── Outdoor weather section ── */
+.weather-section {
+  margin-bottom: 1.25em;
+}
+.weather-heading {
+  font-size: 0.8em;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 0.5em;
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+}
+.weather-updated { color: #444; font-size: 0.9em; margin-left: auto; }
+.weather-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.75em;
+}
+body.light .weather-heading { color: #999; }
+body.light .weather-updated { color: #bbb; }
+
 /* ── Fan control card ── */
 .fan-card {
   background: #1e1e1e;

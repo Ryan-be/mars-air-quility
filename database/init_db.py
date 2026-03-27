@@ -32,6 +32,13 @@ def create_db():
     );
     """)
 
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS app_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT
+    );
+    """)
+
     # Migration: add fan_power_w column if it doesn't exist yet
     try:
         cur.execute("ALTER TABLE sensor_data ADD COLUMN fan_power_w REAL")

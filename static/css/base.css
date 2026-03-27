@@ -28,6 +28,40 @@ body {
 }
 .top-bar a:hover { color: #fff; }
 
+/* ── Theme toggle switch ── */
+.theme-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45em;
+  cursor: pointer;
+  user-select: none;
+}
+.theme-switch input { display: none; }
+.ts-track {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  background: #555;
+  border-radius: 11px;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+.ts-track::before {
+  content: "";
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  left: 3px;
+  top: 3px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+.theme-switch input:checked + .ts-track { background: #f0a000; }
+.theme-switch input:checked + .ts-track::before { transform: translateX(18px); }
+.ts-label { font-size: 0.85em; color: #aaa; }
+body.light .ts-label { color: #555; }
+
 /* ── Shared button ── */
 .btn {
   background: #2a2a2a;

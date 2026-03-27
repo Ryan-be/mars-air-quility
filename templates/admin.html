@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}MLSS – Fan Settings{% endblock %}
+{% block title %}MLSS – Settings{% endblock %}
 
 {% block extra_css %}
   <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
@@ -59,6 +59,39 @@
     <p id="status"></p>
   </div>
 
+  <!-- Location card -->
+  <div class="card location-card">
+    <h3>📍 Location</h3>
+    <p class="card-desc">Used to fetch outdoor weather data for comparison insights on the dashboard.</p>
+
+    <div class="field-group">
+      <legend>Search for a location</legend>
+      <div class="search-row">
+        <input type="text" id="locationSearch" placeholder="e.g. London or a postcode">
+        <button class="btn-search" type="button" onclick="searchLocation()">Find</button>
+      </div>
+      <ul class="search-results" id="searchResults"></ul>
+    </div>
+
+    <div class="field-group">
+      <legend>Selected location</legend>
+      <p class="selected-name" id="selectedName">None saved</p>
+      <div class="field-row">
+        <div class="field">
+          <label for="locLat">Latitude</label>
+          <input type="number" id="locLat" step="0.0001" placeholder="e.g. 51.5074">
+        </div>
+        <div class="field">
+          <label for="locLon">Longitude</label>
+          <input type="number" id="locLon" step="0.0001" placeholder="e.g. -0.1278">
+        </div>
+      </div>
+    </div>
+
+    <button class="btn-save" type="button" onclick="saveLocation()">Save location</button>
+    <p id="locStatus"></p>
+  </div>
+
 {% endblock %}
 
 {% block scripts %}
@@ -107,5 +140,63 @@
     });
 
     loadSettings();
+
+    // ── Location ─────────────────────────────────────────────────────────────
+    const locStatusEl = document.getElementById("locStatus");
+
+    async function loadLocation() {
+      try {
+        const res = await fetch("/api/settings/location");
+        if (!res.ok) return;
+        const d = await res.json();
+        if (d.name) {
+          document.getElementById("selectedName").textContent = d.name;
+          document.getElementById("locLat").value = d.lat ?? "";
+          document.getElementById("locLon").value = d.lon ?? "";
+        }
+      } catch {}
+    }
+
+    async function searchLocation() {
+      const q = document.getElementById("locationSearch").value.trim();
+      if (!q) return;
+      const res = await fetch(`/api/geocode?q=${encodeURIComponent(q)}`);
+      const results = await res.json();
+      const ul = document.getElementById("searchResults");
+      ul.innerHTML = "";
+      if (!results.length) { ul.innerHTML = "<li class='no-result'>No results found</li>"; return; }
+      results.forEach(r => {
+        const li = document.createElement("li");
+        li.textContent = r.display;
+        li.onclick = () => {
+          document.getElementById("locLat").value = r.lat;
+          document.getElementById("locLon").value = r.lon;
+          document.getElementById("selectedName").textContent = r.display;
+          ul.innerHTML = "";
+          document.getElementById("locationSearch").value = "";
+        };
+        ul.appendChild(li);
+      });
+    }
+
+    async function saveLocation() {
+      const lat  = parseFloat(document.getElementById("locLat").value);
+      const lon  = parseFloat(document.getElementById("locLon").value);
+      const name = document.getElementById("selectedName").textContent;
+      if (isNaN(lat) || isNaN(lon)) { locStatusEl.textContent = "Enter valid coordinates."; locStatusEl.className = "status-err"; return; }
+      const res = await fetch("/api/settings/location", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lat, lon, name }),
+      });
+      const d = await res.json();
+      locStatusEl.textContent = d.message || d.error;
+      locStatusEl.className = res.ok ? "status-ok" : "status-err";
+    }
+
+    // Allow pressing Enter in search box
+    document.getElementById("locationSearch").addEventListener("keydown", e => { if (e.key === "Enter") searchLocation(); });
+
+    loadLocation();
   </script>
 {% endblock %}

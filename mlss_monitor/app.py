@@ -1,8 +1,11 @@
 from flask import Flask, send_file, render_template, jsonify, request
 
 import csv
+import json
 import os
 import time
+import urllib.request
+import urllib.parse
 import board
 import io
 import busio
@@ -13,7 +16,7 @@ from sensors.aht20 import read_aht20
 from sensors.sgp30 import read_sgp30
 from database.db_logger import (
     log_sensor_data, get_sensor_data_by_date, add_annotation, remove_annotation,
-    get_fan_settings, update_fan_settings,
+    get_fan_settings, update_fan_settings, get_location, save_location,
 )
 from database.init_db import create_db
 from datetime import datetime, timedelta
@@ -32,6 +35,7 @@ app = Flask(
 LOG_INTERVAL = int(config.get("LOG_INTERVAL", "10"))
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # one level up from mlss_monitor
 FAN_KASA_SMART_PLUG_IP = config.get("FAN_KASA_SMART_PLUG_IP", "192.168.1.63")
+MET_OFFICE_API_KEY = config.get("MET_OFFICE_API_KEY", None)
 
 # Global variables to store fan state and mode
 fan_mode = "auto"  # Default mode: auto
@@ -381,6 +385,100 @@ def system_health():
         status["smart_plug"] = "UNAVAILABLE"
 
     return jsonify(status)
+
+
+@app.route("/api/settings/location", methods=["GET"])
+def get_location_route():
+    return jsonify(get_location())
+
+
+@app.route("/api/settings/location", methods=["POST"])
+def save_location_route():
+    data = request.get_json()
+    save_location(data.get("lat"), data.get("lon"), data.get("name", ""))
+    return jsonify({"message": "Location saved"})
+
+
+@app.route("/api/geocode")
+def geocode_route():
+    q = request.args.get("q", "").strip()
+    if not q:
+        return jsonify([])
+    url = f"https://geocoding-api.open-meteo.com/v1/search?name={urllib.parse.quote(q)}&count=5&language=en&format=json"
+    try:
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            data = json.loads(resp.read())
+        results = [
+            {
+                "name": r.get("name", ""),
+                "lat": r["latitude"],
+                "lon": r["longitude"],
+                "display": ", ".join(filter(None, [r.get("name"), r.get("admin1"), r.get("country")])),
+            }
+            for r in data.get("results", [])
+        ]
+        return jsonify(results)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/weather")
+def weather_route():
+    loc = get_location()
+    if not loc or loc.get("lat") is None:
+        return jsonify({"error": "Location not configured"}), 404
+
+    lat, lon = loc["lat"], loc["lon"]
+
+    # Met Office DataHub (atmospheric model) if API key is configured
+    if MET_OFFICE_API_KEY:
+        try:
+            url = (
+                f"https://data.hub.api.metoffice.gov.uk/sitespecific/v0/point/hourly"
+                f"?latitude={lat}&longitude={lon}&includeLocationName=true"
+            )
+            req = urllib.request.Request(url, headers={"apikey": MET_OFFICE_API_KEY, "Accept": "application/json"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                raw = json.loads(resp.read())
+            # Extract the first (current) hourly timeseries entry
+            ts = raw["features"][0]["properties"]["timeSeries"][0]
+            return jsonify({
+                "temp":          ts.get("screenTemperature"),
+                "humidity":      ts.get("screenRelativeHumidity"),
+                "feels_like":    ts.get("feelsLikeTemperature"),
+                "wind_speed":    ts.get("windSpeed10m"),
+                "weather_code":  ts.get("significantWeatherCode"),
+                "uv_index":      ts.get("uvIndex"),
+                "source":        "Met Office",
+                "location":      loc["name"],
+            })
+        except Exception as e:
+            app.logger.warning(f"Met Office weather fetch failed, falling back to Open-Meteo: {e}")
+
+    # Open-Meteo fallback (free, no API key required)
+    try:
+        url = (
+            f"https://api.open-meteo.com/v1/forecast"
+            f"?latitude={lat}&longitude={lon}"
+            f"&current=temperature_2m,relative_humidity_2m,apparent_temperature,"
+            f"weather_code,wind_speed_10m,uv_index"
+            f"&wind_speed_unit=mph&temperature_unit=celsius"
+        )
+        with urllib.request.urlopen(url, timeout=8) as resp:
+            data = json.loads(resp.read())
+        c = data["current"]
+        return jsonify({
+            "temp":         c.get("temperature_2m"),
+            "humidity":     c.get("relative_humidity_2m"),
+            "feels_like":   c.get("apparent_temperature"),
+            "wind_speed":   c.get("wind_speed_10m"),
+            "weather_code": c.get("weather_code"),
+            "uv_index":     c.get("uv_index"),
+            "source":       "Open-Meteo",
+            "location":     loc["name"],
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 def _background_log():

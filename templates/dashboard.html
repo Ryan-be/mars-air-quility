@@ -17,8 +17,12 @@
       <option value="all">All time</option>
     </select>
     <button class="btn" onclick="downloadCSV()">Download CSV</button>
-    <a href="/admin" class="btn">Fan Settings</a>
-    <button class="btn" id="themeToggle" onclick="toggleTheme()">Light mode</button>
+    <a href="/admin" class="btn">Settings</a>
+    <label class="theme-switch" title="Toggle light/dark mode">
+      <input type="checkbox" id="themeToggle" onchange="toggleTheme()">
+      <span class="ts-track"></span>
+      <span class="ts-label">Light</span>
+    </label>
   </div>
   <p id="last-updated">Last updated: never</p>
 {% endblock %}
@@ -96,6 +100,41 @@
       <div class="label">⏱️ Time to CO₂ Threshold</div>
       <div class="value neutral" id="tttValue">--</div>
       <div class="sub">At current rate of change</div>
+    </div>
+  </div>
+
+  <!-- Outdoor weather (shown only when location is configured) -->
+  <div class="weather-section" id="weatherSection" style="display:none">
+    <div class="weather-heading">
+      🌍 Outdoor — <span id="weatherLoc"></span>
+      <span class="weather-updated" id="weatherUpdated"></span>
+    </div>
+    <div class="weather-grid">
+      <div class="insight-card">
+        <div class="label">🌡️ Outdoor Temp</div>
+        <div class="value neutral" id="outTemp">--</div>
+        <div class="sub" id="outTempDelta">--</div>
+      </div>
+      <div class="insight-card">
+        <div class="label">💧 Outdoor Humidity</div>
+        <div class="value neutral" id="outHum">--</div>
+        <div class="sub" id="outHumDelta">--</div>
+      </div>
+      <div class="insight-card">
+        <div class="label">☀️ UV Index</div>
+        <div class="value neutral" id="uvIdx">--</div>
+        <div class="sub" id="uvSub">--</div>
+      </div>
+      <div class="insight-card">
+        <div class="label">💨 Wind Speed</div>
+        <div class="value neutral" id="windSpd">--</div>
+        <div class="sub" id="weatherCond">--</div>
+      </div>
+      <div class="insight-card" id="ventCard">
+        <div class="label">🔄 Ventilation</div>
+        <div class="value neutral" id="ventVal">--</div>
+        <div class="sub" id="ventSub">--</div>
+      </div>
     </div>
   </div>
 

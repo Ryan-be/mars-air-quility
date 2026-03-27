@@ -141,6 +141,30 @@ def get_fan_settings():
     }
 
 
+def get_location():
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    cur.execute("SELECT key, value FROM app_settings WHERE key IN ('location_lat','location_lon','location_name')")
+    rows = {r[0]: r[1] for r in cur.fetchall()}
+    conn.close()
+    lat = rows.get("location_lat")
+    lon = rows.get("location_lon")
+    return {
+        "lat": float(lat) if lat else None,
+        "lon": float(lon) if lon else None,
+        "name": rows.get("location_name", ""),
+    }
+
+
+def save_location(lat, lon, name=""):
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    for key, val in [("location_lat", str(lat)), ("location_lon", str(lon)), ("location_name", name)]:
+        cur.execute("INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, val))
+    conn.commit()
+    conn.close()
+
+
 def update_fan_settings(tvoc_min, tvoc_max, temp_min, temp_max, enabled):
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()

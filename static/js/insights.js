@@ -45,6 +45,71 @@ export function co2Alert(eco2) {
   return                   { label: "Dangerous", cls: "danger",   sub: "Evacuate or ventilate now" };
 }
 
+// ── WMO weather code descriptions ─────────────────────────────────────────────
+const WMO = {
+  0:"Clear sky", 1:"Mainly clear", 2:"Partly cloudy", 3:"Overcast",
+  45:"Fog", 48:"Icy fog",
+  51:"Light drizzle", 53:"Drizzle", 55:"Heavy drizzle",
+  61:"Light rain", 63:"Rain", 65:"Heavy rain",
+  71:"Light snow", 73:"Snow", 75:"Heavy snow",
+  80:"Rain showers", 81:"Showers", 82:"Heavy showers",
+  95:"Thunderstorm", 96:"Thunderstorm + hail", 99:"Thunderstorm + heavy hail",
+};
+
+export function updateWeather(w, indoorTemp, indoorHum) {
+  const sec = document.getElementById("weatherSection");
+  if (!w || w.error) { if (sec) sec.style.display = "none"; return; }
+  sec.style.display = "";
+
+  document.getElementById("weatherLoc").textContent = w.location || "";
+  document.getElementById("weatherUpdated").textContent = "· " + new Date().toLocaleTimeString();
+
+  // Outdoor temp
+  const tEl = document.getElementById("outTemp");
+  tEl.textContent = w.temp != null ? `${w.temp.toFixed(1)} °C` : "--";
+  if (indoorTemp != null && w.temp != null) {
+    const d = (indoorTemp - w.temp).toFixed(1);
+    document.getElementById("outTempDelta").textContent =
+      d > 0 ? `${d}°C warmer indoors` : d < 0 ? `${Math.abs(d)}°C cooler indoors` : "Same as indoors";
+  }
+
+  // Outdoor humidity
+  const hEl = document.getElementById("outHum");
+  hEl.textContent = w.humidity != null ? `${w.humidity} %` : "--";
+  if (indoorHum != null && w.humidity != null) {
+    const d = (indoorHum - w.humidity).toFixed(0);
+    document.getElementById("outHumDelta").textContent =
+      d > 0 ? `${d}% more humid indoors` : d < 0 ? `${Math.abs(d)}% less humid indoors` : "Same as indoors";
+  }
+
+  // UV Index
+  const uvEl = document.getElementById("uvIdx");
+  const uv = w.uv_index ?? null;
+  uvEl.textContent = uv != null ? uv.toFixed(1) : "--";
+  uvEl.className = "value " + (uv == null ? "neutral" : uv < 3 ? "good" : uv < 6 ? "moderate" : uv < 8 ? "poor" : "danger");
+  document.getElementById("uvSub").textContent =
+    uv == null ? "--" : uv < 3 ? "Low" : uv < 6 ? "Moderate" : uv < 8 ? "High" : uv < 11 ? "Very high" : "Extreme";
+
+  // Wind speed + weather condition
+  document.getElementById("windSpd").textContent = w.wind_speed != null ? `${w.wind_speed.toFixed(1)} mph` : "--";
+  document.getElementById("weatherCond").textContent = WMO[w.weather_code] ?? `Code ${w.weather_code}`;
+
+  // Ventilation opportunity
+  const ventEl = document.getElementById("ventVal");
+  const ventSub = document.getElementById("ventSub");
+  const ventCard = document.getElementById("ventCard");
+  if (indoorTemp != null && indoorHum != null && w.temp != null && w.humidity != null) {
+    const cooler = w.temp < indoorTemp - 1;
+    const drier  = w.humidity < indoorHum - 5;
+    if (cooler && drier)  { ventEl.textContent = "Good"; ventEl.className = "value good";     ventSub.textContent = "Cooler & drier outside — ventilate"; ventCard.style.borderTopColor = "#2d8a2d"; }
+    else if (cooler)      { ventEl.textContent = "Partial"; ventEl.className = "value moderate"; ventSub.textContent = "Cooler outside but similar humidity"; ventCard.style.borderTopColor = "#c87800"; }
+    else if (drier)       { ventEl.textContent = "Partial"; ventEl.className = "value moderate"; ventSub.textContent = "Drier outside but similar temperature"; ventCard.style.borderTopColor = "#c87800"; }
+    else                  { ventEl.textContent = "Poor"; ventEl.className = "value neutral";   ventSub.textContent = "Outside conditions not favourable"; ventCard.style.borderTopColor = "#555"; }
+  } else {
+    ventEl.textContent = "--"; ventEl.className = "value neutral"; ventSub.textContent = "Awaiting data";
+  }
+}
+
 export function updateInsights(temp, hum, tvoc, eco2, eco2Series) {
   // Air quality
   const aq = airQuality(tvoc, eco2);

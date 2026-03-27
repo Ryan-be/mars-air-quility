@@ -1,5 +1,5 @@
 import { toggleTheme } from './theme.js';
-import { updateInsights } from './insights.js';
+import { updateInsights, updateWeather } from './insights.js';
 import { renderCharts } from './charts.js';
 import { setFanControl, fetchFanStatus } from './fan.js';
 import { fetchHealth } from './health.js';
@@ -77,6 +77,10 @@ async function fetchData() {
   document.getElementById("tvocAvg").textContent = avg(tvoc);
   document.getElementById("tvocMax").textContent = max(tvoc);
 
+  // Cache current indoor values for weather comparison
+  _lastIndoorTemp = currentTemp;
+  _lastIndoorHum  = currentHum;
+
   // Insight cards
   updateInsights(currentTemp, currentHum, currentTvoc, currentEco2, eco2);
 
@@ -86,8 +90,24 @@ async function fetchData() {
   document.getElementById("last-updated").textContent = "Last updated: " + new Date().toLocaleString();
 }
 
+// ── Weather fetch ─────────────────────────────────────────────────────────────
+let _lastIndoorTemp = null;
+let _lastIndoorHum  = null;
+
+async function fetchWeather() {
+  try {
+    const res = await fetch("/api/weather");
+    const w   = await res.json();
+    updateWeather(w, _lastIndoorTemp, _lastIndoorHum);
+  } catch {
+    updateWeather(null, null, null);
+  }
+}
+
 // ── Boot ─────────────────────────────────────────────────────────────────────
 fetchData();
 fetchHealth();
 fetchFanStatus();
+fetchWeather();
 setInterval(() => { fetchData(); fetchHealth(); fetchFanStatus(); }, 15000);
+setInterval(fetchWeather, 5 * 60 * 1000);  // weather every 5 minutes

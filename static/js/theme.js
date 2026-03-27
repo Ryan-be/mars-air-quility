@@ -27,6 +27,7 @@ export function themeLayout(overrides) {
 export function toggleTheme(onToggle) {
   isLight = !isLight;
   document.body.classList.toggle("light", isLight);
-  document.getElementById("themeToggle").textContent = isLight ? "Dark mode" : "Light mode";
+  const cb = document.getElementById("themeToggle");
+  if (cb) cb.checked = isLight;
   if (onToggle) onToggle();
 }

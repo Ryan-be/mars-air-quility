@@ -78,6 +78,57 @@
 .switch input:checked + .slider { background: #2a7aff; }
 .switch input:checked + .slider::before { transform: translateX(20px); }
 
+/* ── Location card ── */
+.location-card { margin-top: 1.2em; }
+.card-desc { font-size: 0.85em; color: #888; margin: -0.8em 0 1.2em; }
+.search-row { display: flex; gap: 0.5em; margin-bottom: 0.5em; }
+.search-row input[type="text"] {
+  flex: 1;
+  padding: 0.45em 0.6em;
+  background: #2a2a2a;
+  color: #fff;
+  border: 1px solid #555;
+  border-radius: 4px;
+  font-size: 0.95em;
+}
+.search-row input[type="text"]:focus { outline: none; border-color: #2a7aff; }
+.btn-search {
+  padding: 0.45em 1em;
+  background: #2a3a5a;
+  color: #7db8ff;
+  border: 1px solid #2a5a8a;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9em;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+.btn-search:hover { background: #2a4a7a; }
+.search-results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: #222;
+  border: 1px solid #444;
+  border-radius: 4px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+.search-results:empty { display: none; }
+.search-results li {
+  padding: 0.5em 0.75em;
+  font-size: 0.9em;
+  cursor: pointer;
+  color: #ccc;
+  border-bottom: 1px solid #333;
+}
+.search-results li:last-child { border-bottom: none; }
+.search-results li:hover { background: #2a3a5a; color: #fff; }
+.search-results li.no-result { cursor: default; color: #666; }
+.selected-name { font-size: 0.9em; color: #7db8ff; margin: 0 0 0.75em; }
+.field input[type="number"]:focus { outline: none; border-color: #2a7aff; }
+#locStatus { margin-top: 0.9em; font-size: 0.9em; min-height: 1.2em; text-align: center; }
+
 /* ── Save button ── */
 .btn-save {
   width: 100%;
