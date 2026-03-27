@@ -82,6 +82,17 @@
   color: #888;
 }
 
+/* ── Section headings ── */
+.section-heading {
+  font-size: 0.78em;
+  color: #555;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  margin: 1em 0 0.45em;
+  padding-left: 2px;
+}
+body.light .section-heading { color: #aaa; }
+
 /* ── Outdoor weather section ── */
 .weather-section {
   margin-bottom: 1.25em;

@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>MLSS – Sign in</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
+  <style>
+    .login-wrap {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 80vh;
+    }
+    .login-card {
+      background: #1e1e1e;
+      border: 1px solid #333;
+      border-top: 3px solid deeppink;
+      border-radius: 10px;
+      padding: 2em 2.5em;
+      width: 100%;
+      max-width: 360px;
+    }
+    .login-card h2 { margin: 0 0 0.25em; font-size: 1.4em; }
+    .login-card .sub { margin: 0 0 1.8em; color: #666; font-size: 0.85em; }
+    .login-field { margin-bottom: 1em; }
+    .login-field label { display: block; font-size: 0.85em; color: #bbb; margin-bottom: 0.3em; }
+    .login-field input {
+      width: 100%;
+      padding: 0.55em 0.7em;
+      background: #2a2a2a;
+      color: #fff;
+      border: 1px solid #555;
+      border-radius: 4px;
+      font-size: 1em;
+      box-sizing: border-box;
+    }
+    .login-field input:focus { outline: none; border-color: #2a7aff; }
+    .btn-login {
+      width: 100%;
+      padding: 0.65em;
+      background: #2a7aff;
+      color: #fff;
+      border: none;
+      border-radius: 5px;
+      font-size: 1em;
+      cursor: pointer;
+      margin-top: 0.25em;
+      transition: background 0.15s;
+    }
+    .btn-login:hover  { background: #1a5fcc; }
+    .btn-login:active { background: #144db0; }
+    .error-msg { color: #ff6b6b; font-size: 0.88em; margin-top: 0.8em; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="top-bar">
+    <h2>🚀 MLSS</h2>
+  </div>
+
+  <div class="login-wrap">
+    <div class="login-card">
+      <h2>Sign in</h2>
+      <p class="sub">Mars Life Support Sensor Monitor</p>
+
+      <form method="post" action="/login">
+        <div class="login-field">
+          <label for="username">Username</label>
+          <input type="text" id="username" name="username"
+                 autocomplete="username" autofocus>
+        </div>
+        <div class="login-field">
+          <label for="password">Password</label>
+          <input type="password" id="password" name="password"
+                 autocomplete="current-password">
+        </div>
+        <button type="submit" class="btn-login">Sign in</button>
+        {% if error %}
+          <p class="error-msg">{{ error }}</p>
+        {% endif %}
+      </form>
+    </div>
+  </div>
+</body>
+</html>

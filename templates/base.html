@@ -10,8 +10,11 @@
 <body>
 
   <div class="top-bar">
-    <h2>MLSS</h2>
+    <h2>🚀 MLSS</h2>
     {% block topbar_controls %}{% endblock %}
+    {% if auth_enabled %}
+      <a href="/logout" class="btn btn-logout">Sign out</a>
+    {% endif %}
   </div>
 
   {% block content %}{% endblock %}

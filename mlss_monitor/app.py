@@ -1,7 +1,6 @@
-from flask import Flask, send_file, render_template, jsonify, request, Response
+from flask import Flask, send_file, render_template, jsonify, request, Response, session, redirect, url_for
 
 import csv
-import functools
 import os
 import time
 import board
@@ -34,16 +33,14 @@ app = Flask(
 
 @app.before_request
 def check_auth():
-    """HTTP Basic Auth guard — only active when AUTH_USERNAME/PASSWORD are set in config."""
+    """Session-based auth guard — only active when AUTH_USERNAME/PASSWORD are set in config."""
     if not AUTH_USERNAME or not AUTH_PASSWORD:
         return  # auth disabled; open access on local network
-    auth = request.authorization
-    if not auth or auth.username != AUTH_USERNAME or auth.password != AUTH_PASSWORD:
-        return Response(
-            "Authentication required",
-            401,
-            {"WWW-Authenticate": 'Basic realm="MLSS Monitor"'},
-        )
+    # Login page and static files are always public
+    if request.endpoint in ("login", "logout", "static"):
+        return
+    if not session.get("logged_in"):
+        return redirect(url_for("login"))
 
 
 LOG_INTERVAL = int(config.get("LOG_INTERVAL", "10"))
@@ -51,8 +48,17 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # one le
 FAN_KASA_SMART_PLUG_IP = config.get("FAN_KASA_SMART_PLUG_IP", "192.168.1.63")
 AUTH_USERNAME = config.get("AUTH_USERNAME", None)
 AUTH_PASSWORD = config.get("AUTH_PASSWORD", None)
+SECRET_KEY    = config.get("SECRET_KEY", "mlss-dev-key-change-me-in-production")
+
+app.secret_key = SECRET_KEY
 
 open_meteo = OpenMeteoClient()
+
+
+@app.context_processor
+def inject_auth_state():
+    """Make auth_enabled available in every template."""
+    return {"auth_enabled": bool(AUTH_USERNAME and AUTH_PASSWORD)}
 
 # Global variables to store fan state and mode
 fan_mode = "auto"  # Default mode: auto
@@ -153,6 +159,25 @@ def log_data():
                 asyncio.run_coroutine_threadsafe(fan_smart_plug.switch(False), thread_loop)
         except Exception as e:
             print(f"Error controlling smart plug fan: {e}")
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if not AUTH_USERNAME or not AUTH_PASSWORD:
+        return redirect(url_for("dashboard"))  # auth disabled
+    if request.method == "POST":
+        if (request.form.get("username") == AUTH_USERNAME and
+                request.form.get("password") == AUTH_PASSWORD):
+            session["logged_in"] = True
+            return redirect(url_for("dashboard"))
+        return render_template("login.html", error="Invalid username or password")
+    return render_template("login.html", error=None)
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
+
 
 @app.route("/")
 def dashboard():

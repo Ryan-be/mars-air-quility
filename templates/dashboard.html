@@ -30,6 +30,7 @@
 {% block content %}
 
   <!-- Sensor stat cards -->
+  <div class="section-heading">🏠 Indoor Sensors</div>
   <div class="stat-grid">
     <div class="stat-card temp">
       <div class="label">🌡️ Temperature</div>
@@ -70,6 +71,7 @@
   </div>
 
   <!-- Insight cards -->
+  <div class="section-heading">🧠 Derived Insights</div>
   <div class="insight-grid">
     <div class="insight-card" id="aqCard">
       <div class="label">🌿 Air Quality</div>
@@ -105,7 +107,7 @@
 
   <!-- Outdoor weather (shown only when location is configured) -->
   <div class="weather-section" id="weatherSection" style="display:none">
-    <div class="weather-heading">
+    <div class="section-heading">
       🌍 Outdoor — <span id="weatherLoc"></span>
       <span class="weather-updated" id="weatherUpdated"></span>
     </div>
@@ -139,6 +141,7 @@
   </div>
 
   <!-- Fan control -->
+  <div class="section-heading">⚙️ Controls</div>
   <div class="fan-card">
     <h3>🌀 Fan Control</h3>
     <div class="fan-buttons">
@@ -155,6 +158,7 @@
   </div>
 
   <!-- Plots -->
+  <div class="section-heading">📈 History</div>
   <div class="plot-container">
     <div id="tempPlot"></div>
     <div id="humPlot"></div>
