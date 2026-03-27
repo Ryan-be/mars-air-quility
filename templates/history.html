@@ -42,7 +42,6 @@
       <div id="humPlot"></div>
       <div id="eco2Plot"></div>
       <div id="tvocPlot"></div>
-      <div id="vpdPlot"></div>
     </div>
     <div class="tvoc-key">
       <span class="tvoc-key-title">TVOC · WHO</span>
@@ -91,6 +90,13 @@
         </div>
         <div id="fanStatePlot"></div>
       </div>
+      <div class="chart-wrapper">
+        <div class="chart-header" style="position:relative">
+          <button class="chart-info-btn" data-info="vpd" aria-label="Chart info">i</button>
+          <div class="chart-info-popup" id="info-vpd">Vapour Pressure Deficit (VPD) measures the drying power of air. It combines temperature and humidity into a single metric critical for plant health. Low VPD (&lt; 0.4 kPa) means high mould risk; ideal vegetative growth is 0.8–1.2 kPa; above 1.6 kPa causes plant stress.</div>
+        </div>
+        <div id="vpdPlot"></div>
+      </div>
     </div>
   </div>
 
@@ -99,7 +105,7 @@
       <div class="chart-wrapper">
         <div class="chart-header" style="position:relative">
           <button class="chart-info-btn" data-info="tvocEco2" aria-label="Chart info">i</button>
-          <div class="chart-info-popup" id="info-tvocEco2">Scatter plot of TVOC against eCO₂, coloured by time (early readings are dark, recent are bright). A tight linear cluster suggests both pollutants share a common source. Scattered points may indicate multiple pollution sources.</div>
+          <div class="chart-info-popup" id="info-tvocEco2">Scatter plot of TVOC against eCO₂, coloured by time (early → dark, recent → bright). The dashed line is a linear best-fit and the R² value (top-left) indicates correlation strength. <strong>R² &gt; 0.7</strong> = pollutants likely share a common source (e.g. occupants, cooking). <strong>R² &lt; 0.4</strong> = multiple independent sources (e.g. off-gassing furniture + human CO₂).</div>
         </div>
         <div id="tvocEco2ScatterPlot"></div>
       </div>

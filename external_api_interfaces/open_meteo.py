@@ -166,7 +166,7 @@ class OpenMeteoClient:
             f"{self.FORECAST_URL}"
             f"?latitude={lat}&longitude={lon}"
             f"&hourly=temperature_2m,precipitation_probability,"
-            f"weather_code,wind_speed_10m"
+            f"weather_code,wind_speed_10m,relative_humidity_2m,cloud_cover"
             f"&wind_speed_unit=mph&temperature_unit=celsius"
             f"&forecast_days=2&timezone=auto"
         )
@@ -188,6 +188,8 @@ class OpenMeteoClient:
                 "precip_prob":  hourly["precipitation_probability"][i],
                 "weather_code": hourly["weather_code"][i],
                 "wind_speed":   hourly["wind_speed_10m"][i],
+                "humidity":     hourly["relative_humidity_2m"][i],
+                "cloud_cover":  hourly["cloud_cover"][i],
             }
             for i in range(start, min(start + hours, len(times)))
         ]
@@ -200,7 +202,9 @@ class OpenMeteoClient:
             f"{self.FORECAST_URL}"
             f"?latitude={lat}&longitude={lon}"
             f"&daily=temperature_2m_max,temperature_2m_min,"
-            f"precipitation_probability_max,weather_code,wind_speed_10m_max"
+            f"precipitation_probability_max,precipitation_sum,"
+            f"weather_code,wind_speed_10m_max,"
+            f"uv_index_max,sunrise,sunset"
             f"&wind_speed_unit=mph&temperature_unit=celsius"
             f"&forecast_days={days}&timezone=auto"
         )
@@ -214,8 +218,12 @@ class OpenMeteoClient:
                     "temp_max":     daily["temperature_2m_max"][i],
                     "temp_min":     daily["temperature_2m_min"][i],
                     "precip_prob":  daily["precipitation_probability_max"][i],
+                    "precip_sum":   daily["precipitation_sum"][i],
                     "weather_code": daily["weather_code"][i],
                     "wind_speed":   daily["wind_speed_10m_max"][i],
+                    "uv_index":     daily["uv_index_max"][i],
+                    "sunrise":      daily["sunrise"][i][11:16] if daily["sunrise"][i] else None,
+                    "sunset":       daily["sunset"][i][11:16] if daily["sunset"][i] else None,
                 }
                 for i in range(len(daily["time"]))
             ]
