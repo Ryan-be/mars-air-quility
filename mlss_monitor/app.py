@@ -1,6 +1,7 @@
 import asyncio
 import csv
 import io
+import logging
 import os
 import subprocess
 import time
@@ -29,6 +30,8 @@ from external_api_interfaces.kasa_smart_plug import KasaSmartPlug
 from external_api_interfaces.open_meteo import OpenMeteoClient
 from sensors.aht20 import read_aht20
 from sensors.sgp30 import read_sgp30
+
+log = logging.getLogger(__name__)
 
 app = Flask(
     __name__,
@@ -100,19 +103,19 @@ i2c = busio.I2C(board.SCL, board.SDA)
 try:
     aht20 = AHTx0(i2c)
 except (OSError, ValueError) as e:
-    print(f"Failed to initialize AHT20 sensor (I2C error or device not found): {e}")
+    log.error("Failed to initialize AHT20 sensor: %s", e)
     sgp30 = None
-except Exception as e:
-    print(f"Unexpected error initializing AHT30 sensor: {e}")
+except Exception as e:  # pylint: disable=broad-except
+    log.error("Unexpected error initializing AHT20 sensor: %s", e)
     sgp30 = None
 
 try:
     sgp30 = Adafruit_SGP30(i2c)
 except (OSError, ValueError) as e:
-    print(f"Failed to initialize SGP30 sensor (I2C error or device not found): {e}")
+    log.error("Failed to initialize SGP30 sensor: %s", e)
     sgp30 = None
-except Exception as e:
-    print(f"Unexpected error initializing SGP30 sensor: {e}")
+except Exception as e:  # pylint: disable=broad-except
+    log.error("Unexpected error initializing SGP30 sensor: %s", e)
     sgp30 = None
 
 
@@ -123,26 +126,25 @@ def read_sensors():
     # Read AHT20 sensor data if available
     if aht20:
         try:
-            print("reading aht20")
             temperature, humidity = read_aht20()
-            print(f" temperature and humidity = {temperature}, {humidity}")
-        except Exception as e:
-            print(f"Error reading AHT20 sensor: {e}")
+            log.debug("AHT20: %.1f °C, %.1f %%RH", temperature, humidity)
+        except Exception as e:  # pylint: disable=broad-except
+            log.error("Error reading AHT20 sensor: %s", e)
 
     # Update SGP30 humidity compensation if available
     if sgp30 and humidity > 0:
         try:
             sgp30.set_iaq_relative_humidity(celcius=temperature, relative_humidity=humidity)
-        except Exception as e:
-            print(f"Error setting SGP30 humidity compensation: {e}")
+        except Exception as e:  # pylint: disable=broad-except
+            log.error("Error setting SGP30 humidity compensation: %s", e)
 
     # Read SGP30 sensor data if available
     if sgp30:
         try:
             eco2, tvoc = read_sgp30()
-            print(f"eco2: {eco2}, tvoc: {tvoc}")
-        except Exception as e:
-            print(f"Error reading SGP30 sensor: {e}")
+            log.debug("SGP30: eCO2=%d ppm, TVOC=%d ppb", eco2, tvoc)
+        except Exception as e:  # pylint: disable=broad-except
+            log.error("Error reading SGP30 sensor: %s", e)
 
     # Return the timestamp and sensor data
     return ts, temperature, humidity, eco2, tvoc
@@ -173,8 +175,8 @@ def log_data():
         power_future = asyncio.run_coroutine_threadsafe(fan_smart_plug.get_power(), thread_loop)
         power_data = power_future.result(timeout=5)
         fan_power_w = power_data.get("power_w")
-    except Exception as exc:
-        print(f"[log_data] get_power failed: {exc}")
+    except Exception as exc:  # pylint: disable=broad-except
+        log.error("[log_data] get_power failed: %s", exc)
 
     log_sensor_data(temp, hum, eco2, tvoc, fan_power_w=fan_power_w)
 
@@ -187,8 +189,8 @@ def log_data():
             else:
                 fan_state = "off"
                 asyncio.run_coroutine_threadsafe(fan_smart_plug.switch(False), thread_loop)
-        except Exception as e:
-            print(f"Error controlling smart plug fan: {e}")
+        except Exception as e:  # pylint: disable=broad-except
+            log.error("Error controlling smart plug fan: %s", e)
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -318,7 +320,7 @@ def get_fan_state():
             power_task = asyncio.run_coroutine_threadsafe(fan_smart_plug.get_power(), thread_loop)
             plug_state.update(power_task.result(timeout=5))
         except Exception as exc:
-            print(f"[get_fan_state] get_power failed: {exc}")
+            log.error("[get_fan_state] get_power failed: %s", exc)
             plug_state["power_w"] = None
             plug_state["today_kwh"] = None
 
@@ -551,8 +553,8 @@ def _background_log():
     while True:
         try:
             log_data()
-        except Exception as e:
-            print(f"Error in background log loop: {e}")
+        except Exception as e:  # pylint: disable=broad-except
+            log.error("Error in background log loop: %s", e)
         time.sleep(LOG_INTERVAL)
 
 
@@ -567,20 +569,27 @@ def _weather_log_loop():
                 log_weather(w["temp"], w["humidity"], w["feels_like"],
                             w["wind_speed"], w["weather_code"], w["uv_index"])
                 cleanup_old_weather(days=7)
-                print(f"Weather logged: {w['temp']}°C, {w['humidity']}% RH")
-        except Exception as e:
-            print(f"Weather log error: {e}")
+                log.info("Weather logged: %.1f°C, %d%%RH", w["temp"], w["humidity"])
+        except Exception as e:  # pylint: disable=broad-except
+            log.error("Weather log error: %s", e)
         time.sleep(3600)  # every hour
 
 
 def main():
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
     create_db()
     if github_oauth:
-        print(f"🔒 Auth ENABLED — GitHub OAuth (allowed user: {ALLOWED_GITHUB_USER or 'any'})")
+        log.info("🔒 Auth ENABLED — GitHub OAuth (allowed user: %s)",
+                 ALLOWED_GITHUB_USER or "any")
     elif AUTH_USERNAME and AUTH_PASSWORD:
-        print(f"🔒 Auth ENABLED — local login (user: {AUTH_USERNAME})")
+        log.info("🔒 Auth ENABLED — local login (user: %s)", AUTH_USERNAME)
     else:
-        print("⚠️  Auth DISABLED — configure MLSS_GITHUB_CLIENT_ID or MLSS_AUTH_USERNAME in .env")
+        log.warning("⚠️  Auth DISABLED — configure MLSS_GITHUB_CLIENT_ID "
+                    "or MLSS_AUTH_USERNAME in .env")
     Thread(target=_background_log, daemon=True).start()
     Thread(target=_weather_log_loop, daemon=True).start()
     app.run(host="0.0.0.0", port=5000)

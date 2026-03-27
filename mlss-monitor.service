@@ -9,6 +9,7 @@ WorkingDirectory=/home/masadmin/projects/git_versions/mars-air-quility
 ExecStart=/home/masadmin/.local/bin/poetry run python mlss_monitor/app.py
 Restart=on-failure
 RestartSec=5
+Environment=PYTHONUNBUFFERED=1
 
 [Install]
 WantedBy=multi-user.target

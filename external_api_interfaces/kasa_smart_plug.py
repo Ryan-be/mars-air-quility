@@ -1,4 +1,8 @@
+import logging
+
 from kasa import SmartPlug
+
+log = logging.getLogger(__name__)
 
 
 class KasaSmartPlug:
@@ -36,7 +40,7 @@ class KasaSmartPlug:
             else:
                 await self.plug.turn_off()
         except Exception as e:
-            print(f"Failed to switch plug state: {e}")
+            log.error("Failed to switch plug state: %s", e)
 
     async def get_power(self):
         """
@@ -51,20 +55,21 @@ class KasaSmartPlug:
         before dispatching this coroutine, so we skip a redundant update here
         to avoid a second round-trip and potential concurrency issues.
         """
-        print(f"[kasa] get_power called — has_emeter={self.plug.has_emeter} "
-              f"modules={list(self.plug.modules.keys())}")
+        log.info("get_power called — has_emeter=%s modules=%s",
+                 self.plug.has_emeter, list(self.plug.modules.keys()))
 
         if not self.plug.has_emeter:
             # Some plugs need a fresh update to populate emeter; try once.
             try:
                 await self.plug.update()
-                print(f"[kasa] After update — has_emeter={self.plug.has_emeter} "
-                      f"modules={list(self.plug.modules.keys())}")
+                log.info("After update — has_emeter=%s modules=%s",
+                         self.plug.has_emeter, list(self.plug.modules.keys()))
             except Exception as exc:
-                print(f"[kasa] update() in get_power failed: {exc}")
+                log.error("update() inside get_power failed: %s", exc)
                 return {"power_w": None, "today_kwh": None}
 
         if not self.plug.has_emeter:
+            log.warning("Plug reports no emeter after update — power unavailable")
             return {"power_w": None, "today_kwh": None}
 
         # ── Strategy 1: module-based access (key name changed in kasa ≥ 0.7) ──
@@ -78,7 +83,7 @@ class KasaSmartPlug:
             today_kwh = (getattr(emeter, "consumption_today", None)
                          or getattr(emeter, "consumption_today_kwh", None)
                          or getattr(emeter, "today_kwh", None))
-            print(f"[kasa] Power via module '{key}': {power_w} W, {today_kwh} kWh")
+            log.info("Power via module '%s': %s W, %s kWh", key, power_w, today_kwh)
             return {"power_w": power_w, "today_kwh": today_kwh}
 
         # ── Strategy 2: high-level emeter_realtime property (kasa ≥ 0.7) ──
@@ -86,12 +91,12 @@ class KasaSmartPlug:
             realtime  = self.plug.emeter_realtime          # EmeterStatus dict
             power_w   = realtime.get("power") or realtime.get("power_mw", 0) / 1000
             today_kwh = getattr(self.plug, "emeter_today", None)
-            print(f"[kasa] Power via emeter_realtime: {power_w} W, {today_kwh} kWh")
+            log.info("Power via emeter_realtime: %s W, %s kWh", power_w, today_kwh)
             return {"power_w": power_w, "today_kwh": today_kwh}
         except Exception as exc:
-            print(f"[kasa] emeter_realtime fallback failed: {exc}")
+            log.error("emeter_realtime fallback failed: %s", exc)
 
-        print(f"[kasa] All strategies exhausted — returning None")
+        log.error("All strategies exhausted — power data unavailable")
         return {"power_w": None, "today_kwh": None}
 
     async def get_state(self):
