@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 
 from kasa import SmartPlug
 
@@ -51,52 +52,63 @@ class KasaSmartPlug:
         - ≤ 0.6: modules["Emeter"], .current_consumption / .consumption_today
         - ≥ 0.7: modules["IotEmeter"], same attrs; also exposes emeter_realtime
 
-        Note: callers (log_data / get_fan_state) already call plug.update()
-        before dispatching this coroutine, so we skip a redundant update here
-        to avoid a second round-trip and potential concurrency issues.
+        Always calls update() first so properties are populated regardless
+        of whether the caller has already done so.
         """
-        log.info("get_power called — has_emeter=%s modules=%s",
-                 self.plug.has_emeter, list(self.plug.modules.keys()))
-
-        if not self.plug.has_emeter:
-            # Some plugs need a fresh update to populate emeter; try once.
-            try:
-                await self.plug.update()
-                log.info("After update — has_emeter=%s modules=%s",
-                         self.plug.has_emeter, list(self.plug.modules.keys()))
-            except Exception as exc:
-                log.error("update() inside get_power failed: %s", exc)
-                return {"power_w": None, "today_kwh": None}
-
-        if not self.plug.has_emeter:
-            log.warning("Plug reports no emeter after update — power unavailable")
+        try:
+            await self.plug.update()
+        except Exception as exc:
+            log.error("update() in get_power failed: %s", exc)
             return {"power_w": None, "today_kwh": None}
 
-        # ── Strategy 1: module-based access (key name changed in kasa ≥ 0.7) ──
-        for key in ("IotEmeter", "Emeter"):
-            emeter = self.plug.modules.get(key)
-            if emeter is None:
-                continue
-            power_w   = (getattr(emeter, "current_consumption", None)
-                         or getattr(emeter, "current_power_w", None)
-                         or getattr(emeter, "power", None))
-            today_kwh = (getattr(emeter, "consumption_today", None)
-                         or getattr(emeter, "consumption_today_kwh", None)
-                         or getattr(emeter, "today_kwh", None))
-            log.info("Power via module '%s': %s W, %s kWh", key, power_w, today_kwh)
-            return {"power_w": power_w, "today_kwh": today_kwh}
+        log.info("get_power — has_emeter=%s modules=%s",
+                 self.plug.has_emeter, list(self.plug.modules.keys()))
 
-        # ── Strategy 2: high-level emeter_realtime property (kasa ≥ 0.7) ──
-        try:
-            realtime  = self.plug.emeter_realtime          # EmeterStatus dict
-            power_w   = realtime.get("power") or realtime.get("power_mw", 0) / 1000
-            today_kwh = getattr(self.plug, "emeter_today", None)
-            log.info("Power via emeter_realtime: %s W, %s kWh", power_w, today_kwh)
-            return {"power_w": power_w, "today_kwh": today_kwh}
-        except Exception as exc:
-            log.error("emeter_realtime fallback failed: %s", exc)
+        # ── Strategy 1: real-time emeter (KP115, EP25, KP125 …) ─────────────
+        if self.plug.has_emeter:
+            for key in ("IotEmeter", "Emeter"):
+                emeter = self.plug.modules.get(key)
+                if emeter is None:
+                    continue
+                power_w   = (getattr(emeter, "current_consumption", None)
+                             or getattr(emeter, "current_power_w", None)
+                             or getattr(emeter, "power", None))
+                today_kwh = (getattr(emeter, "consumption_today", None)
+                             or getattr(emeter, "consumption_today_kwh", None)
+                             or getattr(emeter, "today_kwh", None))
+                log.info("Power via module '%s': %s W, %s kWh", key, power_w, today_kwh)
+                return {"power_w": power_w, "today_kwh": today_kwh}
 
-        log.error("All strategies exhausted — power data unavailable")
+            # High-level emeter_realtime fallback (kasa ≥ 0.7)
+            try:
+                realtime  = self.plug.emeter_realtime
+                power_w   = realtime.get("power") or realtime.get("power_mw", 0) / 1000
+                today_kwh = getattr(self.plug, "emeter_today", None)
+                log.info("Power via emeter_realtime: %s W, %s kWh", power_w, today_kwh)
+                return {"power_w": power_w, "today_kwh": today_kwh}
+            except Exception as exc:
+                log.error("emeter_realtime fallback failed: %s", exc)
+
+        # ── Strategy 2: usage module (HS100/HS103/EP10 — no real-time watts) ─
+        # These plugs track daily kWh but cannot report live power draw.
+        usage = self.plug.modules.get("usage")
+        if usage is not None:
+            try:
+                now = datetime.now()
+                stats = await usage.get_daystat(now.year, now.month)
+                today_day = now.day
+                today_kwh = None
+                for entry in stats.get("day_list", []):
+                    if entry.get("day") == today_day:
+                        today_kwh = round(entry.get("energy_wh", 0) / 1000, 4)
+                        break
+                log.info("Usage module: today_kwh=%s (no real-time watts on this model)",
+                         today_kwh)
+                return {"power_w": None, "today_kwh": today_kwh}
+            except Exception as exc:
+                log.error("usage module fallback failed: %s", exc)
+
+        log.warning("No energy data available for this plug model")
         return {"power_w": None, "today_kwh": None}
 
     async def get_state(self):
