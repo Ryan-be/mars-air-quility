@@ -1,5 +1,5 @@
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from config import config
 
@@ -139,6 +139,51 @@ def get_fan_settings():
         "temp_max": row[3],
         "enabled": bool(row[4]),
     }
+
+
+def log_weather(temp, humidity, feels_like, wind_speed, weather_code, uv_index):
+    """Store one hourly weather snapshot."""
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO weather_log (timestamp, temp, humidity, feels_like, wind_speed, weather_code, uv_index)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (datetime.utcnow().isoformat(), temp, humidity, feels_like, wind_speed, weather_code, uv_index))
+    conn.commit()
+    conn.close()
+
+
+def get_latest_weather(max_age_minutes: int = 90):
+    """Return the most recent weather row if it is newer than max_age_minutes, else None."""
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    since = (datetime.utcnow() - timedelta(minutes=max_age_minutes)).isoformat()
+    cur.execute("""
+        SELECT temp, humidity, feels_like, wind_speed, weather_code, uv_index, timestamp
+        FROM weather_log
+        WHERE timestamp >= ?
+        ORDER BY timestamp DESC
+        LIMIT 1
+    """, (since,))
+    row = cur.fetchone()
+    conn.close()
+    if row is None:
+        return None
+    return {
+        "temp": row[0], "humidity": row[1], "feels_like": row[2],
+        "wind_speed": row[3], "weather_code": row[4], "uv_index": row[5],
+        "fetched_at": row[6],
+    }
+
+
+def cleanup_old_weather(days: int = 7):
+    """Delete weather rows older than `days` days."""
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+    cur.execute("DELETE FROM weather_log WHERE timestamp < ?", (cutoff,))
+    conn.commit()
+    conn.close()
 
 
 def get_location():

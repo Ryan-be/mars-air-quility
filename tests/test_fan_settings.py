@@ -82,7 +82,7 @@ class TestFanSettingsAPI:
         client, _ = app_client
         res = client.get("/admin")
         assert res.status_code == 200
-        assert b"Fan Settings" in res.data
+        assert b"Settings" in res.data
 
 
 # ---------------------------------------------------------------------------
@@ -93,14 +93,18 @@ class TestLogDataAutoFan:
     def _run_log_data(self, monkeypatch, temp, tvoc):
         import mlss_monitor.app as app_module
 
-        monkeypatch.setattr(app_module, "fan_smart_plug", MagicMock())
+        mock_plug = MagicMock()
+        # get_power() future returns a dict so fan_power_w resolves cleanly
+        power_future = MagicMock()
+        power_future.result.return_value = {"power_w": None, "today_kwh": None}
+        monkeypatch.setattr(app_module, "fan_smart_plug", mock_plug)
         monkeypatch.setattr(app_module, "read_sensors", lambda: (0, temp, 50, 300, tvoc))
         monkeypatch.setattr(app_module, "log_sensor_data", lambda *a, **kw: None)
 
         captured = []
         def fake_threadsafe(coro, loop):
             captured.append(coro)
-            return MagicMock()
+            return power_future  # same mock is fine; switch() doesn't call .result()
 
         monkeypatch.setattr(app_module.asyncio, "run_coroutine_threadsafe", fake_threadsafe)
         app_module.log_data()
@@ -109,20 +113,21 @@ class TestLogDataAutoFan:
     def test_fan_on_when_temp_exceeds_max(self, db, monkeypatch):
         update_fan_settings(0, 500, 0.0, 20.0, True)  # enabled, temp_max=20
         captured = self._run_log_data(monkeypatch, temp=25.0, tvoc=100)
-        assert len(captured) == 1
-        assert "switch" in str(captured[0])
+        # calls[0] = get_power, calls[1] = switch(True)
+        assert len(captured) == 2
+        assert "switch" in str(captured[1])
 
     def test_fan_off_when_below_thresholds(self, db, monkeypatch):
         update_fan_settings(0, 500, 0.0, 20.0, True)
         captured = self._run_log_data(monkeypatch, temp=18.0, tvoc=100)
-        assert len(captured) == 1
+        assert len(captured) == 2  # get_power + switch(False)
 
     def test_no_fan_control_when_disabled(self, db, monkeypatch):
         update_fan_settings(0, 500, 0.0, 20.0, False)  # disabled
         captured = self._run_log_data(monkeypatch, temp=30.0, tvoc=1000)
-        assert len(captured) == 0
+        assert len(captured) == 1  # only get_power; switch is never dispatched
 
     def test_fan_on_when_tvoc_exceeds_max(self, db, monkeypatch):
         update_fan_settings(0, 500, 0.0, 20.0, True)
         captured = self._run_log_data(monkeypatch, temp=15.0, tvoc=600)
-        assert len(captured) == 1
+        assert len(captured) == 2  # get_power + switch(True)

@@ -39,6 +39,19 @@ def create_db():
     );
     """)
 
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS weather_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp DATETIME NOT NULL,
+        temp REAL,
+        humidity REAL,
+        feels_like REAL,
+        wind_speed REAL,
+        weather_code INTEGER,
+        uv_index REAL
+    );
+    """)
+
     # Migration: add fan_power_w column if it doesn't exist yet
     try:
         cur.execute("ALTER TABLE sensor_data ADD COLUMN fan_power_w REAL")
