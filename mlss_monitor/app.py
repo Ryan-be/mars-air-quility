@@ -505,6 +505,10 @@ def _weather_log_loop():
 
 def main():
     create_db()
+    if AUTH_USERNAME and AUTH_PASSWORD:
+        print(f"🔒 Auth ENABLED — login required (user: {AUTH_USERNAME})")
+    else:
+        print("⚠️  Auth DISABLED — set AUTH_USERNAME and AUTH_PASSWORD in .env to enable")
     Thread(target=_background_log, daemon=True).start()
     Thread(target=_weather_log_loop, daemon=True).start()
     app.run(host="0.0.0.0", port=5000)
