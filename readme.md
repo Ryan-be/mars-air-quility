@@ -238,7 +238,22 @@ erDiagram
 
 These steps are required before safely exposing MLSS to the internet.
 
-### 🔐 Authentication & secrets
+### ✅ Application-level safeguards (implemented in code)
+
+| Feature | Status |
+|---|---|
+| GitHub OAuth login flow (`/auth/github`, `/auth/callback`) | ✅ Implemented |
+| Local username/password login (`/login`) | ✅ Implemented |
+| Session guard — redirects unauthenticated users | ✅ Implemented |
+| `MLSS_ALLOWED_GITHUB_USER` filtering | ✅ Implemented |
+| `MLSS_SECRET_KEY` loaded from config/env | ✅ Implemented |
+| Startup log confirms auth status (`🔒 Auth ENABLED`) | ✅ Implemented |
+| Weather log rolling window (auto-purge > 7 days) | ✅ Implemented |
+| CI pipeline — separate lint + test workflows | ✅ Implemented |
+| Pylint 10/10 score enforced in CI | ✅ Implemented |
+| Unit test suite (fan settings, async, resilience, open-meteo, forecasts, weather history) | ✅ Implemented |
+
+### 🔐 Authentication & secrets (deployment)
 
 - [ ] **Set `MLSS_SECRET_KEY`** to a cryptographically random value.
   ```bash
@@ -398,6 +413,8 @@ Tests are organised into four files:
 | `tests/test_async.py` | thread_loop integration, async dispatch patterns, error handling |
 | `tests/test_pi_resilience.py` | Sensor failures, DB init idempotency, `/proc/uptime` fallback, background thread survival |
 | `tests/test_open_meteo.py` | Geocoding (UK postcode, outcode, place name), current weather, forecast |
+| `tests/test_daily_forecast.py` | 14-day daily forecast API — keys, URL params, error propagation |
+| `tests/test_weather_history.py` | Weather history DB function — filtering, ordering, required keys |
 
 Hardware libraries (`board`, `busio`, `adafruit_*`) are stubbed in `tests/conftest.py` so all tests run on any machine.
 
@@ -422,12 +439,22 @@ poetry install --with visualization
 
 ```
 mlss_monitor/
-  app.py                      Flask app, sensor loop, fan control, API routes
+  app.py                      Flask app factory, hardware init, background loops
+  state.py                    Shared mutable state (fan mode, hardware refs, event loop)
+  routes/
+    __init__.py               Blueprint registration
+    auth.py                   Login, logout, GitHub OAuth
+    pages.py                  Page routes (dashboard, history, controls, admin)
+    api_data.py               Sensor data API (fetch, CSV download, annotations)
+    api_fan.py                Fan control API (toggle, status, settings)
+    api_weather.py            Weather API (current, hourly/daily forecast, history, geocode)
+    api_settings.py           Settings API (location, energy rate)
+    system.py                 System health endpoint
 database/
   db_logger.py                SQLite read/write helpers
   init_db.py                  Schema creation — safe to re-run on existing DB
   import_csv_to_db.py         One-off CSV import utility
-sensors/
+sensor_interfaces/
   aht20.py                    AHT20 temperature/humidity driver
   sgp30.py                    SGP30 eCO2/TVOC driver (15 s warm-up on startup)
   display.py                  ST7735 TFT display driver
@@ -436,30 +463,41 @@ external_api_interfaces/
   kasa_smart_plug.py          Async TP-Link Kasa plug control
   open_meteo.py               Open-Meteo weather + forecast + UK geocoding client
 templates/
-  base.html                   Shared layout (top bar, auth controls)
-  dashboard.html              Live sensor dashboard
-  admin.html                  Settings — fan thresholds, location
+  base.html                   Shared layout (nav bar, auth controls)
+  dashboard.html              Live sensor dashboard with forecasts
+  history.html                Tabbed historical charts (sensors, environment, correlation, patterns)
+  controls.html               Device control hub (fan, future devices)
+  admin.html                  Settings — fan thresholds, energy rate, location
   login.html                  Sign-in page (GitHub OAuth + local credentials)
 static/
   css/
-    base.css                  Shared reset, top bar, cards, light/dark toggle
+    base.css                  Shared reset, nav, cards, light/dark toggle, mobile fixes
     dashboard.css             Dashboard-specific layout and components
+    history.css               Tab bar, chart info popups, correlation brush/inference styles
+    controls.css              Device grid and control card styles
     admin.css                 Settings page styles
   js/
-    dashboard.js              Boot, data polling, weather/forecast fetch
+    dashboard.js              Boot, data polling, weather/forecast fetch, sensor popups
+    history.js                Tab switching, lazy chart rendering, data fetch
     insights.js               Derived calculations, weather + forecast rendering
-    charts.js                 Plotly chart rendering
+    charts.js                 Plotly sensor chart rendering (temp, hum, eco2, tvoc)
+    charts_env.js             Environment charts (indoor/outdoor overlay, abs humidity, dew point, fan state, VPD)
+    charts_correlation.js     Time-brush, scatter plots, regression, inference engine
+    charts_patterns.js        Pattern analysis (hour-of-day heatmap, daily temp range)
+    controls.js               Device control page (fan polling, status dot)
     fan.js                    Fan control API calls
     health.js                 System health polling
     theme.js                  Light/dark mode toggle
 scripts/
   setup_pi.sh                 First-run setup script for Raspberry Pi
 tests/
-  conftest.py                 Pytest fixtures and hardware stubs
+  conftest.py                 Pytest fixtures, hardware + auth stubs
   test_fan_settings.py        Fan settings DB and API tests
   test_async.py               Async dispatch and thread-loop tests
   test_pi_resilience.py       Pi-specific resilience tests
   test_open_meteo.py          Open-Meteo client unit tests
+  test_daily_forecast.py      Daily forecast API tests
+  test_weather_history.py     Weather history DB function tests
 config.py                     Dynaconf configuration loader
 mlss-monitor.service          systemd unit file
 .env.example                  Template for environment variables

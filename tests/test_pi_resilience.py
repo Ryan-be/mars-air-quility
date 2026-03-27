@@ -28,7 +28,7 @@ class TestSensorFailures:
         monkeypatch.setattr(app_module, "aht20", None)
         monkeypatch.setattr(app_module, "sgp30", None)
 
-        _, temp, hum, eco2, tvoc = app_module.read_sensors()
+        temp, hum, eco2, tvoc = app_module.read_sensors()
 
         assert temp == 0
         assert hum == 0
@@ -48,7 +48,7 @@ class TestSensorFailures:
             MagicMock(side_effect=OSError("I2C read failed"))
         )
 
-        _, temp, hum, _, _ = app_module.read_sensors()
+        temp, hum, _, _ = app_module.read_sensors()
 
         assert temp == 0
         assert hum == 0
@@ -66,7 +66,7 @@ class TestSensorFailures:
             MagicMock(side_effect=OSError("I2C read failed"))
         )
 
-        _, _, _, eco2, tvoc = app_module.read_sensors()
+        _, _, eco2, tvoc = app_module.read_sensors()
 
         assert eco2 == 0
         assert tvoc == 0
@@ -86,7 +86,7 @@ class TestSensorFailures:
             MagicMock(side_effect=OSError("I2C timeout"))
         )
 
-        _, temp, hum, eco2, tvoc = app_module.read_sensors()
+        temp, hum, eco2, tvoc = app_module.read_sensors()
 
         assert temp == 22.5
         assert hum == 55.0
@@ -97,7 +97,7 @@ class TestSensorFailures:
         """log_data must complete without exception when all sensor reads return 0."""
         import mlss_monitor.app as app_module
 
-        monkeypatch.setattr(app_module, "read_sensors", lambda: (0, 0, 0, 0, 0))
+        monkeypatch.setattr(app_module, "read_sensors", lambda: (0, 0, 0, 0))
         monkeypatch.setattr(app_module, "log_sensor_data", lambda *a, **kw: None)
         monkeypatch.setattr(
             app_module.asyncio, "run_coroutine_threadsafe",
@@ -119,17 +119,18 @@ class TestFanZeroValueEdgeCase:
         0°C and 0 TVOC are both below any reasonable threshold.
         """
         import mlss_monitor.app as app_module
+        import mlss_monitor.state as app_state
         from unittest.mock import MagicMock
 
         update_fan_settings(0, 500, 0.0, 20.0, True)
 
         switch_args = []
-        original_switch = app_module.fan_smart_plug.switch
+        original_switch = app_state.fan_smart_plug.switch
         monkeypatch.setattr(
-            app_module.fan_smart_plug, "switch",
+            app_state.fan_smart_plug, "switch",
             lambda state: switch_args.append(state) or original_switch(state)
         )
-        monkeypatch.setattr(app_module, "read_sensors", lambda: (0, 0.0, 0.0, 0, 0))
+        monkeypatch.setattr(app_module, "read_sensors", lambda: (0.0, 0.0, 0, 0))
         monkeypatch.setattr(app_module, "log_sensor_data", lambda *a, **kw: None)
         monkeypatch.setattr(
             app_module.asyncio, "run_coroutine_threadsafe",
@@ -143,17 +144,18 @@ class TestFanZeroValueEdgeCase:
     def test_fan_on_overrides_zero_humidity(self, db, monkeypatch):
         """Temp above threshold with zero humidity — fan must still turn on."""
         import mlss_monitor.app as app_module
+        import mlss_monitor.state as app_state
         from unittest.mock import MagicMock
 
         update_fan_settings(0, 500, 0.0, 20.0, True)
 
         switch_args = []
-        original_switch = app_module.fan_smart_plug.switch
+        original_switch = app_state.fan_smart_plug.switch
         monkeypatch.setattr(
-            app_module.fan_smart_plug, "switch",
+            app_state.fan_smart_plug, "switch",
             lambda state: switch_args.append(state) or original_switch(state)
         )
-        monkeypatch.setattr(app_module, "read_sensors", lambda: (0, 25.0, 0.0, 0, 0))
+        monkeypatch.setattr(app_module, "read_sensors", lambda: (25.0, 0.0, 0, 0))
         monkeypatch.setattr(app_module, "log_sensor_data", lambda *a, **kw: None)
         monkeypatch.setattr(
             app_module.asyncio, "run_coroutine_threadsafe",
@@ -203,11 +205,6 @@ class TestDatabaseInit:
         assert {"timestamp", "temperature", "humidity", "eco2", "tvoc", "annotation"}.issubset(cols)
 
     def test_create_db_fails_clearly_when_directory_missing(self, tmp_path, monkeypatch):
-        """
-        If the data/ directory does not exist sqlite3 raises OperationalError.
-        This test documents the known first-run risk — the directory must be
-        created before starting the app (e.g. via systemd or a setup script).
-        """
         missing = str(tmp_path / "nonexistent_dir" / "sensor_data.db")
         monkeypatch.setattr(dbi, "DB_FILE", missing)
         monkeypatch.setattr(dbl, "DB_FILE", missing)
@@ -232,10 +229,10 @@ class TestSystemHealth:
 
     def test_uptime_is_unknown_when_proc_uptime_missing(self, app_client, monkeypatch):
         """/proc/uptime does not exist on non-Linux — must fall back to 'Unknown'."""
-        import mlss_monitor.app as app_module
+        import mlss_monitor.routes.system as system_module
 
         monkeypatch.setattr(
-            app_module.subprocess, "check_output",
+            system_module.subprocess, "check_output",
             lambda *a, **kw: (_ for _ in ()).throw(FileNotFoundError("/proc/uptime"))
         )
         client, _ = app_client
@@ -245,10 +242,10 @@ class TestSystemHealth:
 
     def test_sensor_status_unavailable_when_not_initialised(self, app_client, monkeypatch):
         """Sensors that failed to init must show UNAVAILABLE, not crash."""
-        import mlss_monitor.app as app_module
+        import mlss_monitor.state as app_state
 
-        monkeypatch.setattr(app_module, "aht20", None)
-        monkeypatch.setattr(app_module, "sgp30", None)
+        monkeypatch.setattr(app_state, "aht20", None)
+        monkeypatch.setattr(app_state, "sgp30", None)
         client, _ = app_client
         res = client.get("/system_health")
         data = res.get_json()
@@ -257,11 +254,11 @@ class TestSystemHealth:
         assert data["SGP30"] == "UNAVAILABLE"
 
     def test_sensor_status_ok_when_initialised(self, app_client, monkeypatch):
-        import mlss_monitor.app as app_module
+        import mlss_monitor.state as app_state
         from unittest.mock import MagicMock
 
-        monkeypatch.setattr(app_module, "aht20", MagicMock())
-        monkeypatch.setattr(app_module, "sgp30", MagicMock())
+        monkeypatch.setattr(app_state, "aht20", MagicMock())
+        monkeypatch.setattr(app_state, "sgp30", MagicMock())
         client, _ = app_client
         res = client.get("/system_health")
         data = res.get_json()
@@ -276,11 +273,6 @@ class TestSystemHealth:
 
 class TestBackgroundThreadResilience:
     def test_background_log_survives_log_data_exception(self, monkeypatch):
-        """
-        _background_log() wraps log_data() in try/except so a transient
-        failure (DB locked, data/ missing, sensor error) does not kill
-        the logging thread — it logs the error and continues.
-        """
         import mlss_monitor.app as app_module
 
         log_calls = [0]
@@ -309,7 +301,7 @@ class TestBackgroundThreadResilience:
         """log_data() itself still raises on error — _background_log catches it."""
         import mlss_monitor.app as app_module
 
-        monkeypatch.setattr(app_module, "read_sensors", lambda: (0, 15.0, 50, 300, 100))
+        monkeypatch.setattr(app_module, "read_sensors", lambda: (15.0, 50, 300, 100))
         monkeypatch.setattr(
             app_module, "log_sensor_data",
             lambda *a, **kw: (_ for _ in ()).throw(OSError("data/ directory missing"))

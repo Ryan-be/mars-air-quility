@@ -92,13 +92,14 @@ class TestFanSettingsAPI:
 class TestLogDataAutoFan:
     def _run_log_data(self, monkeypatch, temp, tvoc):
         import mlss_monitor.app as app_module
+        import mlss_monitor.state as app_state
 
         mock_plug = MagicMock()
         # get_power() future returns a dict so fan_power_w resolves cleanly
         power_future = MagicMock()
         power_future.result.return_value = {"power_w": None, "today_kwh": None}
-        monkeypatch.setattr(app_module, "fan_smart_plug", mock_plug)
-        monkeypatch.setattr(app_module, "read_sensors", lambda: (0, temp, 50, 300, tvoc))
+        monkeypatch.setattr(app_state, "fan_smart_plug", mock_plug)
+        monkeypatch.setattr(app_module, "read_sensors", lambda: (temp, 50, 300, tvoc))
         monkeypatch.setattr(app_module, "log_sensor_data", lambda *a, **kw: None)
 
         captured = []

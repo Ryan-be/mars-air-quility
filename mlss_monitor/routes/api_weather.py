@@ -1,0 +1,84 @@
+"""Weather API routes: current, forecast (hourly & daily), history, geocode."""
+
+from datetime import datetime, timedelta
+
+from flask import Blueprint, jsonify, request
+
+from database.db_logger import (
+    cleanup_old_weather, get_latest_weather, get_location,
+    get_weather_history, log_weather,
+)
+from mlss_monitor import state
+
+api_weather_bp = Blueprint("api_weather", __name__)
+
+
+@api_weather_bp.route("/api/weather")
+def weather():
+    loc = get_location()
+    if not loc or loc.get("lat") is None:
+        return jsonify({"error": "Location not configured"}), 404
+
+    cached = get_latest_weather(max_age_minutes=90)
+    if cached:
+        cached["location"] = loc["name"]
+        cached["source"] = "Open-Meteo (cached)"
+        return jsonify(cached)
+
+    try:
+        w = state.open_meteo.get_current_weather(loc["lat"], loc["lon"])
+        log_weather(w["temp"], w["humidity"], w["feels_like"],
+                    w["wind_speed"], w["weather_code"], w["uv_index"])
+        cleanup_old_weather(days=7)
+        w["location"] = loc["name"]
+        return jsonify(w)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@api_weather_bp.route("/api/weather/forecast")
+def forecast():
+    loc = get_location()
+    if not loc or loc.get("lat") is None:
+        return jsonify({"error": "Location not configured"}), 404
+    try:
+        return jsonify(state.open_meteo.get_forecast(loc["lat"], loc["lon"]))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@api_weather_bp.route("/api/weather/forecast/daily")
+def daily_forecast():
+    loc = get_location()
+    if not loc or loc.get("lat") is None:
+        return jsonify({"error": "Location not configured"}), 404
+    try:
+        return jsonify(state.open_meteo.get_daily_forecast(loc["lat"], loc["lon"], days=14))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@api_weather_bp.route("/api/weather/history")
+def weather_history():
+    range_param = request.args.get("range", "24h")
+    now = datetime.utcnow()
+    range_map = {
+        "15m": timedelta(minutes=15),
+        "1h":  timedelta(hours=1),
+        "6h":  timedelta(hours=6),
+        "12h": timedelta(hours=12),
+        "24h": timedelta(hours=24),
+    }
+    since = now - range_map.get(range_param, timedelta(hours=24))
+    return jsonify(get_weather_history(since.isoformat()))
+
+
+@api_weather_bp.route("/api/geocode")
+def geocode():
+    q = request.args.get("q", "").strip()
+    if not q:
+        return jsonify([])
+    try:
+        return jsonify(state.open_meteo.geocode(q))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500

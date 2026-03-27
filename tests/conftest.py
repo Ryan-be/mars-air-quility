@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 _hw_mocks = [
     "board", "busio",
     "adafruit_ahtx0", "adafruit_sgp30",
+    "authlib", "authlib.integrations", "authlib.integrations.flask_client",
 ]
 for _mod in _hw_mocks:
     sys.modules[_mod] = MagicMock()
@@ -32,13 +33,14 @@ def db(tmp_path):
 def app_client(db, monkeypatch):  # pylint: disable=redefined-outer-name
     """Flask test client with hardware and smart plug stubbed out."""
     import mlss_monitor.app as app_module
+    import mlss_monitor.state as app_state
 
     # Prevent the background logging thread from starting
     monkeypatch.setattr(app_module, "LOG_INTERVAL", 99999)
 
     # Stub the smart plug so no real network calls happen
     mock_plug = MagicMock()
-    monkeypatch.setattr(app_module, "fan_smart_plug", mock_plug)
+    monkeypatch.setattr(app_state, "fan_smart_plug", mock_plug)
 
     app_module.app.config["TESTING"] = True
     with app_module.app.test_client() as client:
