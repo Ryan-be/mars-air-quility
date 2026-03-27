@@ -173,8 +173,8 @@ def log_data():
         power_future = asyncio.run_coroutine_threadsafe(fan_smart_plug.get_power(), thread_loop)
         power_data = power_future.result(timeout=5)
         fan_power_w = power_data.get("power_w")
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"[log_data] get_power failed: {exc}")
 
     log_sensor_data(temp, hum, eco2, tvoc, fan_power_w=fan_power_w)
 
@@ -317,7 +317,8 @@ def get_fan_state():
         try:
             power_task = asyncio.run_coroutine_threadsafe(fan_smart_plug.get_power(), thread_loop)
             plug_state.update(power_task.result(timeout=5))
-        except Exception:
+        except Exception as exc:
+            print(f"[get_fan_state] get_power failed: {exc}")
             plug_state["power_w"] = None
             plug_state["today_kwh"] = None
 

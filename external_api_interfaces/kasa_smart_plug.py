@@ -46,12 +46,25 @@ class KasaSmartPlug:
         Handles python-kasa API changes across versions:
         - ≤ 0.6: modules["Emeter"], .current_consumption / .consumption_today
         - ≥ 0.7: modules["IotEmeter"], same attrs; also exposes emeter_realtime
+
+        Note: callers (log_data / get_fan_state) already call plug.update()
+        before dispatching this coroutine, so we skip a redundant update here
+        to avoid a second round-trip and potential concurrency issues.
         """
-        await self.plug.update()
+        print(f"[kasa] get_power called — has_emeter={self.plug.has_emeter} "
+              f"modules={list(self.plug.modules.keys())}")
 
         if not self.plug.has_emeter:
-            print(f"[kasa] Plug has no emeter. "
-                  f"Available modules: {list(self.plug.modules.keys())}")
+            # Some plugs need a fresh update to populate emeter; try once.
+            try:
+                await self.plug.update()
+                print(f"[kasa] After update — has_emeter={self.plug.has_emeter} "
+                      f"modules={list(self.plug.modules.keys())}")
+            except Exception as exc:
+                print(f"[kasa] update() in get_power failed: {exc}")
+                return {"power_w": None, "today_kwh": None}
+
+        if not self.plug.has_emeter:
             return {"power_w": None, "today_kwh": None}
 
         # ── Strategy 1: module-based access (key name changed in kasa ≥ 0.7) ──
@@ -78,8 +91,7 @@ class KasaSmartPlug:
         except Exception as exc:
             print(f"[kasa] emeter_realtime fallback failed: {exc}")
 
-        print(f"[kasa] Could not read energy data. "
-              f"Modules: {list(self.plug.modules.keys())}")
+        print(f"[kasa] All strategies exhausted — returning None")
         return {"power_w": None, "today_kwh": None}
 
     async def get_state(self):
