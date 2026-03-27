@@ -204,8 +204,12 @@ def get_location():
 def save_location(lat, lon, name=""):
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
+    upsert = (
+        "INSERT INTO app_settings (key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value"
+    )
     for key, val in [("location_lat", str(lat)), ("location_lon", str(lon)), ("location_name", name)]:
-        cur.execute("INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, val))
+        cur.execute(upsert, (key, val))
     conn.commit()
     conn.close()
 

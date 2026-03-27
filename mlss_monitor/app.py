@@ -1,30 +1,34 @@
-from flask import Flask, send_file, render_template, jsonify, request, Response, session, redirect, url_for
-from authlib.integrations.flask_client import OAuth
-
+import asyncio
 import csv
-import os
-import time
-import board
 import io
+import os
+import subprocess
+import time
+from datetime import datetime, timedelta
+from threading import Thread
+
+import board
 import busio
+import psutil
 from adafruit_ahtx0 import AHTx0
 from adafruit_sgp30 import Adafruit_SGP30
+from authlib.integrations.flask_client import OAuth
+from flask import (
+    Flask, jsonify, redirect, render_template, request,
+    send_file, session, url_for,
+)
+
 from config import config
-from sensors.aht20 import read_aht20
-from sensors.sgp30 import read_sgp30
 from database.db_logger import (
-    log_sensor_data, get_sensor_data_by_date, add_annotation, remove_annotation,
-    get_fan_settings, update_fan_settings, get_location, save_location,
-    log_weather, get_latest_weather, cleanup_old_weather,
+    add_annotation, cleanup_old_weather, get_fan_settings, get_latest_weather,
+    get_location, get_sensor_data_by_date, log_sensor_data, log_weather,
+    remove_annotation, save_location, update_fan_settings,
 )
 from database.init_db import create_db
-from external_api_interfaces.open_meteo import OpenMeteoClient
-from datetime import datetime, timedelta
-import psutil
-import subprocess
 from external_api_interfaces.kasa_smart_plug import KasaSmartPlug
-import asyncio
-from threading import Thread
+from external_api_interfaces.open_meteo import OpenMeteoClient
+from sensors.aht20 import read_aht20
+from sensors.sgp30 import read_sgp30
 
 app = Flask(
     __name__,
@@ -37,12 +41,13 @@ _PUBLIC_ENDPOINTS = {"login", "logout", "github_login", "github_callback", "stat
 @app.before_request
 def check_auth():
     """Session guard — active when any auth method is configured."""
-    if not _auth_configured():
-        return  # no auth configured; open access on local network
-    if request.endpoint in _PUBLIC_ENDPOINTS:
-        return
-    if not session.get("logged_in"):
+    if (
+        _auth_configured()
+        and request.endpoint not in _PUBLIC_ENDPOINTS
+        and not session.get("logged_in")
+    ):
         return redirect(url_for("login"))
+    return None
 
 
 LOG_INTERVAL = int(config.get("LOG_INTERVAL", "10"))

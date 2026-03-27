@@ -173,28 +173,24 @@ class OpenMeteoClient:
         with urllib.request.urlopen(url, timeout=timeout) as resp:
             d = json.loads(resp.read())
 
-        times   = d["hourly"]["time"]            # "YYYY-MM-DDTHH:MM"
-        temps   = d["hourly"]["temperature_2m"]
-        precips = d["hourly"]["precipitation_probability"]
-        codes   = d["hourly"]["weather_code"]
-        winds   = d["hourly"]["wind_speed_10m"]
-
+        hourly  = d["hourly"]
+        times   = hourly["time"]                 # "YYYY-MM-DDTHH:MM"
         now_str = datetime.now().strftime("%Y-%m-%dT%H:00")
         try:
             start = next(i for i, t in enumerate(times) if t >= now_str)
         except StopIteration:
             start = 0
 
-        result = []
-        for i in range(start, min(start + hours, len(times))):
-            result.append({
-                "time":         times[i][11:16],   # "HH:MM"
-                "temp":         temps[i],
-                "precip_prob":  precips[i],
-                "weather_code": codes[i],
-                "wind_speed":   winds[i],
-            })
-
+        result = [
+            {
+                "time":         hourly["time"][i][11:16],   # "HH:MM"
+                "temp":         hourly["temperature_2m"][i],
+                "precip_prob":  hourly["precipitation_probability"][i],
+                "weather_code": hourly["weather_code"][i],
+                "wind_speed":   hourly["wind_speed_10m"][i],
+            }
+            for i in range(start, min(start + hours, len(times)))
+        ]
         return {"hours": result}
 
     # ------------------------------------------------------------------ #

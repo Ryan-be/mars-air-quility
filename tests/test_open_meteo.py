@@ -15,8 +15,8 @@ Coverage:
   - get_forecast() propagates network errors
   - Regex patterns accept / reject representative strings
 """
+# pylint: disable=redefined-outer-name   # pytest fixtures intentionally shadow outer names
 import json
-from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
 import pytest
