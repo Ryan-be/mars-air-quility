@@ -46,11 +46,9 @@ def check_auth():
 LOG_INTERVAL = int(config.get("LOG_INTERVAL", "10"))
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # one level up from mlss_monitor
 FAN_KASA_SMART_PLUG_IP = config.get("FAN_KASA_SMART_PLUG_IP", "192.168.1.63")
-# Auth vars are read directly from the environment (not via dynaconf's prefixed
-# config) so plain AUTH_USERNAME=... in .env works without an MLSS_ prefix.
-AUTH_USERNAME = os.environ.get("AUTH_USERNAME")
-AUTH_PASSWORD = os.environ.get("AUTH_PASSWORD")
-SECRET_KEY    = os.environ.get("SECRET_KEY", "mlss-dev-key-change-me-in-production")
+AUTH_USERNAME = config.get("AUTH_USERNAME", None)
+AUTH_PASSWORD = config.get("AUTH_PASSWORD", None)
+SECRET_KEY    = config.get("SECRET_KEY", "mlss-dev-key-change-me-in-production")
 
 app.secret_key = SECRET_KEY
 
