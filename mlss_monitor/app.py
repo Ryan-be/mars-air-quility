@@ -23,8 +23,8 @@ from flask import (
 from config import config
 from database.db_logger import (
     add_annotation, cleanup_old_weather, get_fan_settings, get_latest_weather,
-    get_location, get_sensor_data_by_date, get_unit_rate, log_sensor_data,
-    log_weather, remove_annotation, save_location, save_unit_rate,
+    get_location, get_sensor_data_by_date, get_unit_rate, get_weather_history,
+    log_sensor_data, log_weather, remove_annotation, save_location, save_unit_rate,
     update_fan_settings,
 )
 from database.init_db import create_db
@@ -535,6 +535,42 @@ def save_energy_settings_route():
         return jsonify({"error": "unit_rate_pence must be a number"}), 400
     save_unit_rate(rate)
     return jsonify({"message": "Energy rate saved"})
+
+
+@app.route("/history")
+def history_page():
+    return render_template("history.html")
+
+
+@app.route("/controls")
+def controls_page():
+    return render_template("controls.html")
+
+
+@app.route("/api/weather/forecast/daily")
+def daily_forecast_route():
+    loc = get_location()
+    if not loc or loc.get("lat") is None:
+        return jsonify({"error": "Location not configured"}), 404
+    try:
+        return jsonify(open_meteo.get_daily_forecast(loc["lat"], loc["lon"]))
+    except Exception as e:  # pylint: disable=broad-except
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/weather/history")
+def weather_history_route():
+    range_param = request.args.get("range", "24h")
+    now = datetime.utcnow()
+    range_map = {
+        "15m": timedelta(minutes=15),
+        "1h":  timedelta(hours=1),
+        "6h":  timedelta(hours=6),
+        "12h": timedelta(hours=12),
+        "24h": timedelta(hours=24),
+    }
+    since = now - range_map.get(range_param, timedelta(hours=24))
+    return jsonify(get_weather_history(since.isoformat()))
 
 
 @app.route("/api/geocode")

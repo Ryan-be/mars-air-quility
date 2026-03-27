@@ -116,3 +116,30 @@ body.light .btn-logout { color: #cc3333; border-color: #cc3333; background: #fff
 body.light .btn-logout:hover { background: #ffeeee; }
 body.light .card               { background: #fff; border-color: #ddd; }
 body.light .card h3            { color: #444; border-bottom-color: #ddd; }
+
+/* ── Main nav ── */
+.main-nav {
+  display: flex;
+  gap: 0.25em;
+  margin-bottom: 1.25em;
+  flex-wrap: wrap;
+}
+.main-nav a {
+  padding: 0.4em 0.9em;
+  border-radius: 6px;
+  font-size: 0.9em;
+  color: #888;
+  text-decoration: none;
+  transition: background 0.15s, color 0.15s;
+  border: 1px solid transparent;
+}
+.main-nav a:hover     { background: #1e1e1e; color: #ddd; border-color: #333; }
+.main-nav a.nav-active { background: #1e1e1e; color: #fff; border-color: #555; font-weight: 600; }
+body.light .main-nav a            { color: #666; }
+body.light .main-nav a:hover      { background: #f0f0f0; color: #333; border-color: #ddd; }
+body.light .main-nav a.nav-active  { background: #e8eeff; color: #2244aa; border-color: #aabbee; }
+
+/* ── Hide Plotly modebar on mobile (overlaps chart title on narrow screens) ── */
+@media (max-width: 600px) {
+  .modebar-container { display: none !important; }
+}

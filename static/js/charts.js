@@ -1,7 +1,17 @@
 import { isLight, themeLayout } from './theme.js';
 import { attachAnnotationHandler } from './annotations.js';
 
-export function renderCharts(timestamps, temperatures, humidities, eco2, tvoc, annotations, ids, vpdValues) {
+export function renderSensorCharts(data) {
+  if (!data || data.length === 0) return;
+  const timestamps   = data.map(d => new Date(d.timestamp));
+  const temperatures = data.map(d => d.temperature);
+  const humidities   = data.map(d => d.humidity);
+  const eco2         = data.map(d => d.eco2);
+  const tvoc         = data.map(d => d.tvoc);
+  const annotations  = data.map(d => d.annotation);
+  const ids          = data.map(d => d.id);
+  const vpdValues    = data.map(d => d.vpd_kpa);
+
   Plotly.newPlot("tempPlot", [{
     x: timestamps, y: temperatures,
     mode: "lines+markers", name: "Temperature",

@@ -8,16 +8,6 @@
 
 {% block topbar_controls %}
   <div class="controls">
-    <select id="range">
-      <option value="15m">Last 15 minutes</option>
-      <option value="1h">Last hour</option>
-      <option value="6h">Last 6 hours</option>
-      <option value="12h">Last 12 hours</option>
-      <option value="24h">Last 24 hours</option>
-      <option value="all">All time</option>
-    </select>
-    <button class="btn" onclick="downloadCSV()">Download CSV</button>
-    <a href="/admin" class="btn">Settings</a>
     <label class="theme-switch" title="Toggle light/dark mode">
       <input type="checkbox" id="themeToggle" onchange="toggleTheme()">
       <span class="ts-track"></span>
@@ -35,38 +25,18 @@
     <div class="stat-card temp">
       <div class="label">🌡️ Temperature</div>
       <div class="current" id="tempValue">--</div>
-      <div class="sub-stats">
-        <span><strong id="tempMin">--</strong> min</span>
-        <span><strong id="tempAvg">--</strong> avg</span>
-        <span><strong id="tempMax">--</strong> max</span>
-      </div>
     </div>
     <div class="stat-card hum">
       <div class="label">💧 Humidity</div>
       <div class="current" id="humValue">--</div>
-      <div class="sub-stats">
-        <span><strong id="humMin">--</strong> min</span>
-        <span><strong id="humAvg">--</strong> avg</span>
-        <span><strong id="humMax">--</strong> max</span>
-      </div>
     </div>
     <div class="stat-card eco2">
       <div class="label">🫁 eCO₂</div>
       <div class="current" id="eco2Value">--</div>
-      <div class="sub-stats">
-        <span><strong id="eco2Min">--</strong> min</span>
-        <span><strong id="eco2Avg">--</strong> avg</span>
-        <span><strong id="eco2Max">--</strong> max</span>
-      </div>
     </div>
     <div class="stat-card tvoc">
       <div class="label">🧪 TVOC</div>
       <div class="current" id="tvocValue">--</div>
-      <div class="sub-stats">
-        <span><strong id="tvocMin">--</strong> min</span>
-        <span><strong id="tvocAvg">--</strong> avg</span>
-        <span><strong id="tvocMax">--</strong> max</span>
-      </div>
     </div>
   </div>
 
@@ -144,6 +114,12 @@
     <div class="forecast-strip" id="forecastStrip">
       <!-- slots populated by JS -->
     </div>
+
+    <!-- 7-day forecast strip -->
+    <div class="forecast-heading">📆 7-Day Forecast</div>
+    <div class="forecast-strip" id="forecastDailyStrip">
+      <!-- slots populated by JS -->
+    </div>
   </div>
 
   <!-- Forecast detail dialog -->
@@ -163,43 +139,23 @@
     </div>
   </dialog>
 
-  <!-- Fan control -->
-  <div class="section-heading">⚙️ Controls</div>
-  <div class="fan-card">
-    <h3>🌀 Fan Control</h3>
-    <div class="fan-buttons">
-      <button class="btn-on"   onclick="setFanControl('on')">On</button>
-      <button class="btn-off"  onclick="setFanControl('off')">Off</button>
-      <button class="btn-auto" onclick="setFanControl('auto')">Auto</button>
+  <!-- Daily forecast detail dialog -->
+  <dialog id="forecastDailyDialog" aria-modal="true" aria-labelledby="fddTitle">
+    <div class="fd-header">
+      <div>
+        <div class="fd-icon" id="fddIcon"></div>
+        <h3 id="fddTitle"></h3>
+      </div>
+      <button class="fd-close btn" aria-label="Close"
+              onclick="document.getElementById('forecastDailyDialog').close()">✕</button>
     </div>
-    <div class="fan-meta">
-      <span>Status<strong id="fan-status">--</strong></span>
-      <span>Mode<strong id="fan-mode">--</strong></span>
-      <span>Power<strong id="fan-power">--</strong></span>
-      <span>Today<strong id="fan-today">--</strong></span>
-      <span>Est. cost<strong id="fan-cost">--</strong></span>
+    <div class="fd-grid">
+      <div class="fd-item"><div class="fd-label">🌡️ High</div><div class="fd-value" id="fddHigh"></div></div>
+      <div class="fd-item"><div class="fd-label">🥶 Low</div><div class="fd-value" id="fddLow"></div></div>
+      <div class="fd-item"><div class="fd-label">💧 Rain Chance</div><div class="fd-value" id="fddRain"></div></div>
+      <div class="fd-item"><div class="fd-label">💨 Wind (max)</div><div class="fd-value" id="fddWind"></div></div>
     </div>
-  </div>
-
-  <!-- Plots -->
-  <div class="section-heading">📈 History</div>
-  <div class="plot-container">
-    <div id="tempPlot"></div>
-    <div id="humPlot"></div>
-    <div id="eco2Plot"></div>
-    <div id="tvocPlot"></div>
-    <div id="vpdPlot"></div>
-  </div>
-
-  <!-- TVOC legend -->
-  <div class="tvoc-key">
-    <span class="tvoc-key-title">TVOC · WHO</span>
-    <div class="tvoc-levels">
-      <div class="tvoc-level"><span class="color-dot green"></span>0–250 ppb Good</div>
-      <div class="tvoc-level"><span class="color-dot orange"></span>251–500 ppb Moderate</div>
-      <div class="tvoc-level"><span class="color-dot red"></span>&gt;500 ppb High</div>
-    </div>
-  </div>
+  </dialog>
 
   <!-- System health -->
   <div class="health-card">
@@ -247,6 +203,5 @@
 {% endblock %}
 
 {% block scripts %}
-  <script src="https://cdn.plot.ly/plotly-2.24.2.min.js"></script>
   <script type="module" src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
 {% endblock %}

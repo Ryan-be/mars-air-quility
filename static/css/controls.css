@@ -1,0 +1,74 @@
+.devices-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1em;
+}
+.device-card {
+  background: #1e1e1e;
+  border: 1px solid #333;
+  border-radius: 10px;
+  padding: 1.2em 1.4em;
+}
+.device-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75em;
+  margin-bottom: 1em;
+}
+.device-icon            { font-size: 1.8em; line-height: 1; }
+.device-title h3        { margin: 0; font-size: 1em; color: #ddd; }
+.device-subtitle        { font-size: 0.75em; color: #666; }
+.status-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-left: auto;
+  background: #444;
+  transition: background 0.3s, box-shadow 0.3s;
+}
+.status-dot.dot-on  { background: #22c55e; box-shadow: 0 0 6px #22c55e88; }
+.status-dot.dot-off { background: #555; }
+.device-controls {
+  display: flex;
+  gap: 0.5em;
+  margin-bottom: 1em;
+}
+.device-controls button {
+  flex: 1;
+  padding: 0.45em 0.5em;
+  border-radius: 4px;
+  border: 1px solid #555;
+  cursor: pointer;
+  font-size: 0.9em;
+  transition: background 0.15s, border-color 0.15s;
+}
+.device-controls .btn-on   { background: #1a3a1a; color: #7dff7d; border-color: #2a5a2a; }
+.device-controls .btn-off  { background: #3a1a1a; color: #ff7d7d; border-color: #5a2a2a; }
+.device-controls .btn-auto { background: #1a2a3a; color: #7db8ff; border-color: #2a6a8a; }
+.device-controls .btn-on:hover   { background: #2a5a2a; }
+.device-controls .btn-off:hover  { background: #5a2a2a; }
+.device-controls .btn-auto:hover { background: #2a5a7a; }
+.device-meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6em;
+}
+.meta-item {
+  background: #2a2a2a;
+  border-radius: 6px;
+  padding: 0.5em 0.7em;
+}
+.meta-label {
+  display: block;
+  font-size: 0.7em;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.15em;
+}
+.meta-item strong { font-size: 0.95em; color: #ddd; }
+body.light .device-card      { background: #fff; border-color: #ddd; }
+body.light .device-title h3  { color: #222; }
+body.light .meta-item        { background: #f5f5f5; }
+body.light .meta-label       { color: #999; }
+body.light .meta-item strong { color: #111; }

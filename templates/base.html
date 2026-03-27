@@ -18,6 +18,13 @@
     {% endif %}
   </div>
 
+  <nav class="main-nav">
+    <a href="/" class="{{ 'nav-active' if request.path == '/' else '' }}">📊 Dashboard</a>
+    <a href="/history" class="{{ 'nav-active' if request.path == '/history' else '' }}">📈 History</a>
+    <a href="/controls" class="{{ 'nav-active' if request.path == '/controls' else '' }}">⚙️ Controls</a>
+    <a href="/admin" class="{{ 'nav-active' if request.path == '/admin' else '' }}">🔧 Settings</a>
+  </nav>
+
   {% block content %}{% endblock %}
 
   {% block scripts %}{% endblock %}

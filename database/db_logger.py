@@ -178,6 +178,28 @@ def get_latest_weather(max_age_minutes: int = 90):
     }
 
 
+def get_weather_history(since_iso: str) -> list:
+    """Return weather_log rows newer than since_iso, oldest first."""
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT timestamp, temp, humidity, feels_like, wind_speed, weather_code, uv_index
+        FROM weather_log
+        WHERE timestamp >= ?
+        ORDER BY timestamp ASC
+    """, (since_iso,))
+    rows = cur.fetchall()
+    conn.close()
+    return [
+        {
+            "timestamp": r[0], "temp": r[1], "humidity": r[2],
+            "feels_like": r[3], "wind_speed": r[4],
+            "weather_code": r[5], "uv_index": r[6],
+        }
+        for r in rows
+    ]
+
+
 def cleanup_old_weather(days: int = 7):
     """Delete weather rows older than `days` days."""
     conn = sqlite3.connect(DB_FILE)

@@ -193,6 +193,34 @@ class OpenMeteoClient:
         ]
         return {"hours": result}
 
+    def get_daily_forecast(self, lat: float, lon: float, days: int = 7,
+                           timeout: int = 8) -> dict:
+        """Fetch 7-day daily forecast from Open-Meteo."""
+        url = (
+            f"{self.FORECAST_URL}"
+            f"?latitude={lat}&longitude={lon}"
+            f"&daily=temperature_2m_max,temperature_2m_min,"
+            f"precipitation_probability_max,weather_code,wind_speed_10m_max"
+            f"&wind_speed_unit=mph&temperature_unit=celsius"
+            f"&forecast_days={days}&timezone=auto"
+        )
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            d = json.loads(resp.read())
+        daily = d["daily"]
+        return {
+            "days": [
+                {
+                    "date":         daily["time"][i],
+                    "temp_max":     daily["temperature_2m_max"][i],
+                    "temp_min":     daily["temperature_2m_min"][i],
+                    "precip_prob":  daily["precipitation_probability_max"][i],
+                    "weather_code": daily["weather_code"][i],
+                    "wind_speed":   daily["wind_speed_10m_max"][i],
+                }
+                for i in range(len(daily["time"]))
+            ]
+        }
+
     # ------------------------------------------------------------------ #
     # Current weather
     # ------------------------------------------------------------------ #

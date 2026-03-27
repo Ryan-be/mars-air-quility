@@ -186,6 +186,66 @@ function _openForecastDialog(idx) {
   };
 }
 
+// ── Daily forecast strip ────────────────────────────────────────────────────
+let _dailyForecastData = [];
+
+export function updateDailyForecast(days) {
+  const strip = document.getElementById("forecastDailyStrip");
+  if (!strip) return;
+  if (!days || !days.length) { strip.innerHTML = ""; return; }
+
+  _dailyForecastData = days;
+  const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  strip.innerHTML = days.map((d, idx) => {
+    const date    = new Date(d.date + "T12:00:00");
+    const dayName = idx === 0 ? "Today" : DAY_NAMES[date.getDay()];
+    const icon    = WMO_EMOJI[d.weather_code] ?? "🌡️";
+    const hi      = d.temp_max != null ? `${Math.round(d.temp_max)}°` : "--";
+    const lo      = d.temp_min != null ? `${Math.round(d.temp_min)}°` : "--";
+    return `
+      <button class="forecast-slot forecast-day-slot" data-didx="${idx}"
+              aria-label="Forecast for ${dayName}" title="Tap for details">
+        <div class="fc-time">${dayName}</div>
+        <div class="fc-icon">${icon}</div>
+        <div class="fc-temp">${hi}<span class="fc-lo"> / ${lo}</span></div>
+        ${d.precip_prob != null ? `<div class="fc-rain">💧 ${d.precip_prob}%</div>` : ""}
+      </button>`;
+  }).join("");
+
+  strip.onclick = (e) => {
+    const slot = e.target.closest(".forecast-day-slot");
+    if (!slot) return;
+    _openDailyDialog(parseInt(slot.dataset.didx, 10));
+  };
+}
+
+function _openDailyDialog(idx) {
+  const d      = _dailyForecastData[idx];
+  const dialog = document.getElementById("forecastDailyDialog");
+  if (!d || !dialog) return;
+
+  const FULL_DAYS = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+  const date     = new Date(d.date + "T12:00:00");
+  const dayLabel = FULL_DAYS[date.getDay()] + " " +
+    date.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  const icon = WMO_EMOJI[d.weather_code] ?? "🌡️";
+  const cond = WMO[d.weather_code] ?? `Code ${d.weather_code}`;
+
+  document.getElementById("fddIcon").textContent  = icon;
+  document.getElementById("fddTitle").textContent = `${dayLabel} — ${cond}`;
+  document.getElementById("fddHigh").textContent  =
+    d.temp_max != null ? `${d.temp_max.toFixed(1)} °C` : "--";
+  document.getElementById("fddLow").textContent   =
+    d.temp_min != null ? `${d.temp_min.toFixed(1)} °C` : "--";
+  document.getElementById("fddRain").textContent  =
+    d.precip_prob != null ? `${d.precip_prob}%` : "--";
+  document.getElementById("fddWind").textContent  =
+    d.wind_speed != null ? `${d.wind_speed.toFixed(1)} mph` : "--";
+
+  dialog.showModal();
+  dialog.onclick = (e) => { if (e.target === dialog) dialog.close(); };
+}
+
 export function updateInsights(temp, hum, tvoc, eco2, eco2Series) {
   // Air quality
   const aq = airQuality(tvoc, eco2);
