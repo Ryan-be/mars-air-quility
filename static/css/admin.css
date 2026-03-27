@@ -78,8 +78,8 @@
 .switch input:checked + .slider { background: #2a7aff; }
 .switch input:checked + .slider::before { transform: translateX(20px); }
 
-/* ── Location card ── */
-.location-card { margin-top: 1.2em; }
+/* ── Card spacing ── */
+.card + .card { margin-top: 1.2em; }
 .card-desc { font-size: 0.85em; color: #888; margin: -0.8em 0 1.2em; }
 .search-row { display: flex; gap: 0.5em; margin-bottom: 0.5em; }
 .search-row input[type="text"] {

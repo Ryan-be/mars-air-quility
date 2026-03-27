@@ -29,7 +29,8 @@ export function renderEnvCharts(sensorData, weatherData) {
       line: { color: "#f59e0b", dash: "dash" } },
   ], themeLayout({
     title: { text: "🌡️ Indoor vs Outdoor Temperature (°C)", font: titleFont },
-    legend: { orientation: "h", x: 0.5, xanchor: "center", y: 1.15, bgcolor: "rgba(0,0,0,0)" },
+    legend: { orientation: "h", x: 0.5, xanchor: "center", y: 1.22, bgcolor: "rgba(0,0,0,0)" },
+    margin: { t: 60 },
   }), { responsive: true });
 
   Plotly.newPlot("humOverlayPlot", [
@@ -39,7 +40,8 @@ export function renderEnvCharts(sensorData, weatherData) {
       line: { color: "#38bdf8", dash: "dash" } },
   ], themeLayout({
     title: { text: "💧 Indoor vs Outdoor Humidity (%)", font: titleFont },
-    legend: { orientation: "h", x: 0.5, xanchor: "center", y: 1.15, bgcolor: "rgba(0,0,0,0)" },
+    legend: { orientation: "h", x: 0.5, xanchor: "center", y: 1.22, bgcolor: "rgba(0,0,0,0)" },
+    margin: { t: 60 },
   }), { responsive: true });
 
   const ahValues = sensorData.map(d =>
@@ -64,7 +66,8 @@ export function renderEnvCharts(sensorData, weatherData) {
       line: { color: "#34d399", dash: "dot" }, connectgaps: false },
   ], themeLayout({
     title: { text: "🌡️ Dew Point vs Air Temperature (°C)", font: titleFont },
-    legend: { orientation: "h", x: 0.5, xanchor: "center", y: 1.15, bgcolor: "rgba(0,0,0,0)" },
+    legend: { orientation: "h", x: 0.5, xanchor: "center", y: 1.22, bgcolor: "rgba(0,0,0,0)" },
+    margin: { t: 60 },
   }), { responsive: true });
 
   const fanState = fanW.map(w => (w == null ? null : w > 0 ? 1 : 0));

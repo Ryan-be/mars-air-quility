@@ -30,8 +30,8 @@ from database.db_logger import (
 from database.init_db import create_db
 from external_api_interfaces.kasa_smart_plug import KasaSmartPlug
 from external_api_interfaces.open_meteo import OpenMeteoClient
-from sensors.aht20 import read_aht20
-from sensors.sgp30 import read_sgp30
+from sensor_interfaces.aht20 import read_aht20
+from sensor_interfaces.sgp30 import read_sgp30
 
 log = logging.getLogger(__name__)
 
@@ -553,7 +553,7 @@ def daily_forecast_route():
     if not loc or loc.get("lat") is None:
         return jsonify({"error": "Location not configured"}), 404
     try:
-        return jsonify(open_meteo.get_daily_forecast(loc["lat"], loc["lon"]))
+        return jsonify(open_meteo.get_daily_forecast(loc["lat"], loc["lon"], days=14))
     except Exception as e:  # pylint: disable=broad-except
         return jsonify({"error": str(e)}), 500
 

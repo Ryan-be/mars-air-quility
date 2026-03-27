@@ -56,26 +56,80 @@
 
   <div class="tab-panel tab-hidden" id="tab-environment">
     <div class="plot-container">
-      <div id="tempOverlayPlot"></div>
-      <div id="humOverlayPlot"></div>
-      <div id="absHumPlot"></div>
-      <div id="dewPointPlot"></div>
-      <div id="fanStatePlot"></div>
+      <div class="chart-wrapper">
+        <div class="chart-header" style="position:relative">
+          <button class="chart-info-btn" data-info="tempOverlay" aria-label="Chart info">i</button>
+          <div class="chart-info-popup" id="info-tempOverlay">Compares indoor sensor temperature against outdoor weather data. Large gaps suggest poor insulation or ventilation. The outdoor trace is dashed and comes from your configured weather location.</div>
+        </div>
+        <div id="tempOverlayPlot"></div>
+      </div>
+      <div class="chart-wrapper">
+        <div class="chart-header" style="position:relative">
+          <button class="chart-info-btn" data-info="humOverlay" aria-label="Chart info">i</button>
+          <div class="chart-info-popup" id="info-humOverlay">Compares indoor and outdoor humidity. If indoor humidity stays high while outdoor is low, your room may lack ventilation. Conversely, indoor humidity dropping below outdoor suggests dehumidification or heating effects.</div>
+        </div>
+        <div id="humOverlayPlot"></div>
+      </div>
+      <div class="chart-wrapper">
+        <div class="chart-header" style="position:relative">
+          <button class="chart-info-btn" data-info="absHum" aria-label="Chart info">i</button>
+          <div class="chart-info-popup" id="info-absHum">Absolute humidity measures the actual water content in grams per cubic metre of air. Unlike relative humidity, it doesn't depend on temperature. Values above 12 g/m³ may encourage mould growth.</div>
+        </div>
+        <div id="absHumPlot"></div>
+      </div>
+      <div class="chart-wrapper">
+        <div class="chart-header" style="position:relative">
+          <button class="chart-info-btn" data-info="dewPoint" aria-label="Chart info">i</button>
+          <div class="chart-info-popup" id="info-dewPoint">The dew point is the temperature at which moisture will condense. When the air temperature drops close to the dew point (margin &lt; 3°C), condensation can form on cold surfaces — risking mould and water damage.</div>
+        </div>
+        <div id="dewPointPlot"></div>
+      </div>
+      <div class="chart-wrapper">
+        <div class="chart-header" style="position:relative">
+          <button class="chart-info-btn" data-info="fanState" aria-label="Chart info">i</button>
+          <div class="chart-info-popup" id="info-fanState">Shows when the fan was on (1) or off (0), derived from smart plug power readings. Correlate this with temperature and TVOC charts to verify the fan is activating when needed.</div>
+        </div>
+        <div id="fanStatePlot"></div>
+      </div>
     </div>
   </div>
 
   <div class="tab-panel tab-hidden" id="tab-correlation">
     <div class="plot-container">
-      <div id="tvocEco2ScatterPlot"></div>
-      <div id="tempHumScatterPlot"></div>
+      <div class="chart-wrapper">
+        <div class="chart-header" style="position:relative">
+          <button class="chart-info-btn" data-info="tvocEco2" aria-label="Chart info">i</button>
+          <div class="chart-info-popup" id="info-tvocEco2">Scatter plot of TVOC against eCO₂, coloured by time (early readings are dark, recent are bright). A tight linear cluster suggests both pollutants share a common source. Scattered points may indicate multiple pollution sources.</div>
+        </div>
+        <div id="tvocEco2ScatterPlot"></div>
+      </div>
+      <div class="chart-wrapper">
+        <div class="chart-header" style="position:relative">
+          <button class="chart-info-btn" data-info="tempHum" aria-label="Chart info">i</button>
+          <div class="chart-info-popup" id="info-tempHum">Temperature vs humidity coloured by VPD zone. Blue = too humid, green = ideal for plants, amber = getting dry, red = plant stress. For a grow room, aim for clusters in the green zone.</div>
+        </div>
+        <div id="tempHumScatterPlot"></div>
+      </div>
     </div>
   </div>
 
   <div class="tab-panel tab-hidden" id="tab-patterns">
     <p class="patterns-note">📊 Pattern analysis works best with at least 24 hours of data.</p>
     <div class="plot-container">
-      <div id="hourHeatmapPlot"></div>
-      <div id="dailyBandPlot"></div>
+      <div class="chart-wrapper">
+        <div class="chart-header" style="position:relative">
+          <button class="chart-info-btn" data-info="heatmap" aria-label="Chart info">i</button>
+          <div class="chart-info-popup" id="info-heatmap">Heatmap of average TVOC by hour of day and day of week. Green cells are low (good air quality), red are high. Use this to spot recurring pollution patterns — e.g. cooking times, rush hours, or when the room is occupied.</div>
+        </div>
+        <div id="hourHeatmapPlot"></div>
+      </div>
+      <div class="chart-wrapper">
+        <div class="chart-header" style="position:relative">
+          <button class="chart-info-btn" data-info="dailyBand" aria-label="Chart info">i</button>
+          <div class="chart-info-popup" id="info-dailyBand">Shows the daily temperature range as a shaded band (min to max) with the daily average as a solid line. Wider bands indicate larger daily temperature swings, which may stress plants or indicate poor climate control.</div>
+        </div>
+        <div id="dailyBandPlot"></div>
+      </div>
     </div>
   </div>
 

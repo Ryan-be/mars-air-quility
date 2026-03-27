@@ -68,7 +68,8 @@ export function renderSensorCharts(data) {
       showgrid: false, gridcolor: "#2a2a2a", zerolinecolor: "#333", color: "#ccc",
       automargin: true,
     },
-    legend: { x: 0.5, y: 1.15, bgcolor: "rgba(0,0,0,0)", orientation: "h", xanchor: "center" },
+    legend: { x: 0.5, y: 1.22, bgcolor: "rgba(0,0,0,0)", orientation: "h", xanchor: "center" },
+    margin: { t: 60 },
     annotations: eventAnnotations,
   }), { responsive: true }).then(() => attachAnnotationHandler("tvocPlot"));
 

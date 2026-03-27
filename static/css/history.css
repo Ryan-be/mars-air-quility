@@ -30,3 +30,56 @@ body.light .tab-btn           { color: #888; }
 body.light .tab-btn:hover     { color: #333; background: #f0f0f0; }
 body.light .tab-btn.tab-active { color: #111; border-bottom-color: #2266cc; }
 body.light .patterns-note     { color: #aaa; }
+
+/* ── Chart info buttons ── */
+.chart-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  margin-bottom: 0.25em;
+}
+.chart-header h4 {
+  margin: 0;
+  font-size: 0.85em;
+  color: #888;
+  font-weight: 400;
+}
+.chart-info-btn {
+  background: none;
+  border: 1px solid #444;
+  color: #888;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  font-size: 0.7em;
+  font-weight: bold;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s;
+}
+.chart-info-btn:hover { background: #2a2a2a; color: #ddd; }
+body.light .chart-header h4       { color: #999; }
+body.light .chart-info-btn        { border-color: #bbb; color: #999; }
+body.light .chart-info-btn:hover  { background: #eee; color: #333; }
+
+/* ── Chart info popup ── */
+.chart-info-popup {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 100;
+  background: #2a2a2a;
+  border: 1px solid #555;
+  border-radius: 8px;
+  padding: 0.8em 1em;
+  max-width: 340px;
+  font-size: 0.82em;
+  color: #ccc;
+  line-height: 1.5;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  display: none;
+}
+.chart-info-popup.visible { display: block; }
+body.light .chart-info-popup { background: #fff; border-color: #ddd; color: #555; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }

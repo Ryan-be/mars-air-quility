@@ -38,11 +38,18 @@ def _cm(n=7):
 
 
 @patch("urllib.request.urlopen")
-def test_returns_seven_days(mock_urlopen, client):
+def test_returns_default_days(mock_urlopen, client):
     mock_urlopen.return_value = _cm(7)
     result = client.get_daily_forecast(51.5, -0.1)
     assert "days" in result
     assert len(result["days"]) == 7
+
+
+@patch("urllib.request.urlopen")
+def test_returns_fourteen_days(mock_urlopen, client):
+    mock_urlopen.return_value = _cm(14)
+    result = client.get_daily_forecast(51.5, -0.1, days=14)
+    assert len(result["days"]) == 14
 
 
 @patch("urllib.request.urlopen")

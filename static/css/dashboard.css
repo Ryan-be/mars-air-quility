@@ -110,7 +110,7 @@ body.light .section-heading { color: #aaa; }
 .weather-updated { color: #444; font-size: 0.9em; margin-left: auto; }
 .weather-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 0.75em;
 }
 body.light .weather-heading { color: #999; }
@@ -371,3 +371,40 @@ body.light .fc-lo { color: #aaa; }
 }
 #forecastDailyDialog::backdrop { background: rgba(0,0,0,0.65); }
 body.light #forecastDailyDialog { background: #fff; color: #111; border-color: #ccc; }
+
+/* ── Clickable stat cards ── */
+button.stat-card {
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  transition: border-color 0.15s, background 0.15s;
+}
+button.stat-card:hover, button.stat-card:focus-visible {
+  border-color: #7db8ff;
+  background: #252535;
+  outline: none;
+}
+body.light button.stat-card:hover,
+body.light button.stat-card:focus-visible { background: #f0f4ff; border-color: #6699dd; }
+
+/* ── Sensor detail dialog ── */
+#sensorDialog { max-width: 360px; }
+.sd-body { display: flex; flex-direction: column; gap: 0.6em; }
+.sd-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #2a2a2a;
+  border-radius: 8px;
+  padding: 0.5em 0.75em;
+}
+.sd-row .fd-label { font-size: 0.75em; }
+.sd-row .fd-value { font-size: 0.95em; }
+.sd-desc {
+  font-size: 0.82em;
+  color: #aaa;
+  line-height: 1.5;
+  margin-top: 0.25em;
+}
+body.light .sd-row    { background: #f5f5f5; }
+body.light .sd-desc   { color: #666; }

@@ -74,6 +74,55 @@ async function fetchDailyForecast() {
   } catch { /* location not set */ }
 }
 
+// ── Sensor card detail popups ────────────────────────────────────────────────
+const SENSOR_INFO = {
+  temp: {
+    title: "🌡️ Temperature",
+    sensor: "AHT20 (I²C)",
+    unit: "°C",
+    range: "18 – 26 °C (comfort zone)",
+    desc: "Measured by the AHT20 sensor via I²C. Readings outside the comfort zone can affect plant health, sleep quality, and cognitive performance. Sustained temperatures above 28°C may stress plants; below 15°C can slow growth.",
+  },
+  hum: {
+    title: "💧 Humidity",
+    sensor: "AHT20 (I²C)",
+    unit: "%",
+    range: "40 – 60 % RH (ideal)",
+    desc: "Relative humidity from the AHT20 sensor. Below 30% can cause dry skin and irritation; above 70% promotes mould growth. For a grow room, pair this with VPD on the insights panel for a more accurate picture.",
+  },
+  eco2: {
+    title: "🫁 eCO₂",
+    sensor: "SGP30 (I²C)",
+    unit: "ppm",
+    range: "400 – 800 ppm (normal indoor)",
+    desc: "Equivalent CO₂ estimated by the SGP30 metal-oxide sensor. Above 1000 ppm cognitive function declines. Above 2000 ppm consider immediate ventilation. The sensor needs ~15s warm-up after power-on; first readings may be inaccurate.",
+  },
+  tvoc: {
+    title: "🧪 TVOC",
+    sensor: "SGP30 (I²C)",
+    unit: "ppb",
+    range: "0 – 250 ppb (WHO good)",
+    desc: "Total Volatile Organic Compounds from the SGP30 sensor. Sources include paint, cleaning products, cooking, and off-gassing furniture. Levels above 500 ppb are considered high by WHO guidelines and warrant ventilation.",
+  },
+};
+
+document.querySelectorAll(".stat-card[data-sensor]").forEach(card => {
+  card.addEventListener("click", () => {
+    const key  = card.dataset.sensor;
+    const info = SENSOR_INFO[key];
+    if (!info) return;
+    const dialog = document.getElementById("sensorDialog");
+    document.getElementById("sdTitle").textContent   = info.title;
+    document.getElementById("sdSensor").textContent  = info.sensor;
+    document.getElementById("sdCurrent").textContent =
+      card.querySelector(".current").textContent;
+    document.getElementById("sdRange").textContent   = info.range;
+    document.getElementById("sdDesc").textContent    = info.desc;
+    dialog.showModal();
+    dialog.onclick = (e) => { if (e.target === dialog) dialog.close(); };
+  });
+});
+
 fetchData();
 fetchHealth();
 fetchWeather();
