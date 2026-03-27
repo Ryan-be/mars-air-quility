@@ -59,6 +59,23 @@
     <p id="status"></p>
   </div>
 
+  <!-- Energy rate card -->
+  <div class="card">
+    <h3>⚡ Energy Rate</h3>
+    <p class="card-desc">Used to calculate estimated fan running costs from daily kWh usage.</p>
+    <div class="field-group">
+      <legend>Unit rate</legend>
+      <div class="field-row">
+        <div class="field">
+          <label for="unitRate">Rate (p/kWh)</label>
+          <input type="number" id="unitRate" min="0" step="0.01" placeholder="e.g. 28.50">
+        </div>
+      </div>
+    </div>
+    <button class="btn-save" type="button" onclick="saveEnergyRate()">Save rate</button>
+    <p id="energyStatus"></p>
+  </div>
+
   <!-- Location card -->
   <div class="card location-card">
     <h3>📍 Location</h3>
@@ -140,6 +157,38 @@
     });
 
     loadSettings();
+
+    // ── Energy rate ──────────────────────────────────────────────────────────
+    const energyStatusEl = document.getElementById("energyStatus");
+
+    async function loadEnergyRate() {
+      try {
+        const res = await fetch("/api/settings/energy");
+        const d = await res.json();
+        if (d.unit_rate_pence != null) {
+          document.getElementById("unitRate").value = d.unit_rate_pence;
+        }
+      } catch {}
+    }
+
+    async function saveEnergyRate() {
+      const rate = parseFloat(document.getElementById("unitRate").value);
+      if (isNaN(rate) || rate < 0) {
+        energyStatusEl.textContent = "Enter a valid rate (e.g. 28.50).";
+        energyStatusEl.className = "status-err";
+        return;
+      }
+      const res = await fetch("/api/settings/energy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ unit_rate_pence: rate }),
+      });
+      const d = await res.json();
+      energyStatusEl.textContent = d.message || d.error;
+      energyStatusEl.className = res.ok ? "status-ok" : "status-err";
+    }
+
+    loadEnergyRate();
 
     // ── Location ─────────────────────────────────────────────────────────────
     const locStatusEl = document.getElementById("locStatus");

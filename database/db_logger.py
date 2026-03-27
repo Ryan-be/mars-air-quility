@@ -216,6 +216,34 @@ def save_location(lat, lon, name=""):
     conn.close()
 
 
+def get_unit_rate() -> float | None:
+    """Return the energy unit rate in p/kWh, or None if not set."""
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    cur.execute("SELECT value FROM app_settings WHERE key = 'energy_unit_rate_pence'")
+    row = cur.fetchone()
+    conn.close()
+    if row is None:
+        return None
+    try:
+        return float(row[0])
+    except (TypeError, ValueError):
+        return None
+
+
+def save_unit_rate(rate_pence: float) -> None:
+    """Upsert the energy unit rate (p/kWh) in app_settings."""
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO app_settings (key, value) VALUES ('energy_unit_rate_pence', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (str(rate_pence),),
+    )
+    conn.commit()
+    conn.close()
+
+
 def update_fan_settings(tvoc_min, tvoc_max, temp_min, temp_max, enabled):
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()

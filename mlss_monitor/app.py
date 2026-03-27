@@ -23,8 +23,9 @@ from flask import (
 from config import config
 from database.db_logger import (
     add_annotation, cleanup_old_weather, get_fan_settings, get_latest_weather,
-    get_location, get_sensor_data_by_date, log_sensor_data, log_weather,
-    remove_annotation, save_location, update_fan_settings,
+    get_location, get_sensor_data_by_date, get_unit_rate, log_sensor_data,
+    log_weather, remove_annotation, save_location, save_unit_rate,
+    update_fan_settings,
 )
 from database.init_db import create_db
 from external_api_interfaces.kasa_smart_plug import KasaSmartPlug
@@ -341,6 +342,7 @@ def get_fan_state():
             plug_state["today_kwh"] = None
 
         plug_state["mode"] = fan_mode
+        plug_state["unit_rate_pence"] = get_unit_rate()
         return jsonify(plug_state), 200
     except Exception as e:
         return jsonify({"error": f"Error retrieving fan state: {str(e)}"}), 500
@@ -517,6 +519,22 @@ def save_location_route():
     data = request.get_json()
     save_location(data.get("lat"), data.get("lon"), data.get("name", ""))
     return jsonify({"message": "Location saved"})
+
+
+@app.route("/api/settings/energy", methods=["GET"])
+def get_energy_settings_route():
+    return jsonify({"unit_rate_pence": get_unit_rate()})
+
+
+@app.route("/api/settings/energy", methods=["POST"])
+def save_energy_settings_route():
+    data = request.get_json()
+    try:
+        rate = float(data.get("unit_rate_pence", 0))
+    except (TypeError, ValueError):
+        return jsonify({"error": "unit_rate_pence must be a number"}), 400
+    save_unit_rate(rate)
+    return jsonify({"message": "Energy rate saved"})
 
 
 @app.route("/api/geocode")

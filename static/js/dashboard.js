@@ -41,7 +41,6 @@ async function fetchData() {
   const eco2         = data.map(d => d.eco2);
   const tvoc         = data.map(d => d.tvoc);
   const annotations  = data.map(d => d.annotation);
-  const powerValues  = data.map(d => d.fan_power_w);
   const vpdValues    = data.map(d => d.vpd_kpa);
 
   if (timestamps.length < 2) {
@@ -86,7 +85,7 @@ async function fetchData() {
   updateInsights(currentTemp, currentHum, currentTvoc, currentEco2, eco2);
 
   // Charts
-  renderCharts(timestamps, temperatures, humidities, eco2, tvoc, annotations, ids, powerValues, vpdValues);
+  renderCharts(timestamps, temperatures, humidities, eco2, tvoc, annotations, ids, vpdValues);
 
   document.getElementById("last-updated").textContent = "Last updated: " + new Date().toLocaleString();
 }

@@ -24,6 +24,15 @@ export async function fetchFanStatus() {
         result.power_w != null ? `${result.power_w.toFixed(1)} W` : "N/A";
       document.getElementById("fan-today").textContent =
         result.today_kwh != null ? `${result.today_kwh.toFixed(3)} kWh` : "N/A";
+      const costEl = document.getElementById("fan-cost");
+      if (result.today_kwh != null && result.unit_rate_pence != null) {
+        const pence = result.today_kwh * result.unit_rate_pence;
+        costEl.textContent = pence < 100 ? `${pence.toFixed(1)}p` : `£${(pence / 100).toFixed(2)}`;
+      } else if (result.unit_rate_pence == null) {
+        costEl.textContent = "set rate in settings";
+      } else {
+        costEl.textContent = "N/A";
+      }
     }
   } catch { /* silent */ }
 }

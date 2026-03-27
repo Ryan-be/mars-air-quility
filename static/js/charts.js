@@ -1,7 +1,7 @@
 import { isLight, themeLayout } from './theme.js';
 import { attachAnnotationHandler } from './annotations.js';
 
-export function renderCharts(timestamps, temperatures, humidities, eco2, tvoc, annotations, ids, powerValues, vpdValues) {
+export function renderCharts(timestamps, temperatures, humidities, eco2, tvoc, annotations, ids, vpdValues) {
   Plotly.newPlot("tempPlot", [{
     x: timestamps, y: temperatures,
     mode: "lines+markers", name: "Temperature",
@@ -61,21 +61,6 @@ export function renderCharts(timestamps, temperatures, humidities, eco2, tvoc, a
     legend: { x: 0.5, y: 1.15, bgcolor: "rgba(0,0,0,0)", orientation: "h", xanchor: "center" },
     annotations: eventAnnotations,
   }), { responsive: true }).then(() => attachAnnotationHandler("tvocPlot"));
-
-  if (powerValues.some(v => v != null)) {
-    Plotly.newPlot("powerPlot", [{
-      x: timestamps, y: powerValues,
-      mode: "lines", name: "Fan power",
-      line: { color: "#a78bfa" },
-      connectgaps: false,
-    }], themeLayout({
-      title: { text: "⚡ Fan Power (W)", font: { color: isLight ? "#111" : "#ccc" } },
-      yaxis: { rangemode: "tozero" }
-    }), { responsive: true });
-  } else {
-    document.getElementById("powerPlot").innerHTML =
-      `<p style="color:#666;padding:1em;font-size:0.85em">⚡ Fan power — no energy meter data yet (plug may not support it)</p>`;
-  }
 
   // ── VPD chart ─────────────────────────────────────────────────────────────
   // VPD zones (kPa): <0.4 too humid | 0.4–0.8 seedlings | 0.8–1.2 ideal
