@@ -1,7 +1,7 @@
 import { isLight, themeLayout } from './theme.js';
 import { attachAnnotationHandler } from './annotations.js';
 
-export function renderCharts(timestamps, temperatures, humidities, eco2, tvoc, annotations, ids, powerValues) {
+export function renderCharts(timestamps, temperatures, humidities, eco2, tvoc, annotations, ids, powerValues, vpdValues) {
   Plotly.newPlot("tempPlot", [{
     x: timestamps, y: temperatures,
     mode: "lines+markers", name: "Temperature",
@@ -78,5 +78,63 @@ export function renderCharts(timestamps, temperatures, humidities, eco2, tvoc, a
   } else {
     document.getElementById("powerPlot").innerHTML =
       `<p style="color:#666;padding:1em;font-size:0.85em">⚡ Fan power — no energy meter data yet (plug may not support it)</p>`;
+  }
+
+  // ── VPD chart ─────────────────────────────────────────────────────────────
+  // VPD zones (kPa): <0.4 too humid | 0.4–0.8 seedlings | 0.8–1.2 ideal
+  //                  1.2–1.6 high | >1.6 plant stress
+  const bg = isLight ? "rgba(0,0,0,0.04)" : "rgba(255,255,255,0.03)";
+  const vpdShapes = [
+    { y0: 0,   y1: 0.4, color: "rgba(30,120,255,0.10)",  label: "Too humid"    },
+    { y0: 0.4, y1: 0.8, color: "rgba(80,200,120,0.12)",  label: "Seedlings"    },
+    { y0: 0.8, y1: 1.2, color: "rgba(80,200,120,0.20)",  label: "Ideal veg"    },
+    { y0: 1.2, y1: 1.6, color: "rgba(255,180,0,0.12)",   label: "High"         },
+    { y0: 1.6, y1: 3.0, color: "rgba(220,60,60,0.12)",   label: "Plant stress" },
+  ].map(z => ({
+    type: "rect", xref: "paper", yref: "y",
+    x0: 0, x1: 1, y0: z.y0, y1: z.y1,
+    fillcolor: z.color, line: { width: 0 }, layer: "below",
+  }));
+
+  const zoneAnnotations = [
+    { y: 0.2,  label: "Too humid"    },
+    { y: 0.6,  label: "Seedlings"    },
+    { y: 1.0,  label: "Ideal"        },
+    { y: 1.4,  label: "High"         },
+    { y: 1.75, label: "Stress"       },
+  ].map(z => ({
+    xref: "paper", yref: "y", x: 1, y: z.y,
+    text: z.label, showarrow: false,
+    font: { size: 9, color: isLight ? "#888" : "#666" },
+    xanchor: "right",
+  }));
+
+  const hasVpd = vpdValues && vpdValues.some(v => v != null);
+  if (hasVpd) {
+    Plotly.newPlot("vpdPlot", [{
+      x: timestamps, y: vpdValues,
+      mode: "lines+markers", name: "VPD",
+      line: { color: "#38bdf8", width: 2 },
+      marker: {
+        color: vpdValues.map(v => {
+          if (v == null) return "#555";
+          if (v < 0.4)  return "#3b82f6";   // too humid — blue
+          if (v < 0.8)  return "#22c55e";   // seedlings — green
+          if (v < 1.2)  return "#16a34a";   // ideal — dark green
+          if (v < 1.6)  return "#f59e0b";   // high — amber
+          return "#ef4444";                  // stress — red
+        }),
+        size: 5,
+      },
+      connectgaps: false,
+    }], themeLayout({
+      title: { text: "🌱 Vapour Pressure Deficit (kPa)", font: { color: isLight ? "#111" : "#ccc" } },
+      yaxis: { title: "kPa", rangemode: "tozero" },
+      shapes: vpdShapes,
+      annotations: zoneAnnotations,
+    }), { responsive: true });
+  } else {
+    document.getElementById("vpdPlot").innerHTML =
+      `<p style="color:#666;padding:1em;font-size:0.85em">🌱 VPD — collecting data…</p>`;
   }
 }

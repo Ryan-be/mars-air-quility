@@ -2,6 +2,7 @@ import asyncio
 import csv
 import io
 import logging
+import math
 import os
 import subprocess
 import time
@@ -32,6 +33,20 @@ from sensors.aht20 import read_aht20
 from sensors.sgp30 import read_sgp30
 
 log = logging.getLogger(__name__)
+
+
+def _vpd_kpa(temp_c: float, rh: float) -> float:
+    """
+    Vapour Pressure Deficit using the Tetens formula (same as insights.js).
+
+    VPD (kPa) = SVP × (1 − RH/100)
+    SVP = 0.6108 × exp(17.27 × T / (T + 237.3))   [kPa]
+    """
+    if temp_c is None or rh is None or rh <= 0:
+        return None
+    svp = 0.6108 * math.exp(17.27 * temp_c / (temp_c + 237.3))
+    return round(svp * (1 - rh / 100), 4)
+
 
 app = Flask(
     __name__,
@@ -178,7 +193,8 @@ def log_data():
     except Exception as exc:  # pylint: disable=broad-except
         log.error("[log_data] get_power failed: %s", exc)
 
-    log_sensor_data(temp, hum, eco2, tvoc, fan_power_w=fan_power_w)
+    vpd = _vpd_kpa(temp, hum)
+    log_sensor_data(temp, hum, eco2, tvoc, fan_power_w=fan_power_w, vpd_kpa=vpd)
 
     settings = get_fan_settings()
     if settings["enabled"]:
@@ -360,6 +376,7 @@ def get_data():
                 "tvoc": row[5],
                 "annotation": row[6],
                 "fan_power_w": row[7] if len(row) > 7 else None,
+                "vpd_kpa": row[8] if len(row) > 8 else None,
             }
             for row in rows
         ]

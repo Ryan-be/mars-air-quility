@@ -52,11 +52,15 @@ def create_db():
     );
     """)
 
-    # Migration: add fan_power_w column if it doesn't exist yet
-    try:
-        cur.execute("ALTER TABLE sensor_data ADD COLUMN fan_power_w REAL")
-    except Exception:
-        pass  # column already exists
+    # Migrations: add columns introduced after initial release
+    for migration in [
+        "ALTER TABLE sensor_data ADD COLUMN fan_power_w REAL",
+        "ALTER TABLE sensor_data ADD COLUMN vpd_kpa REAL",
+    ]:
+        try:
+            cur.execute(migration)
+        except Exception:  # pylint: disable=broad-except
+            pass  # column already exists
 
     cur.execute("SELECT COUNT(*) FROM fan_settings")
     if cur.fetchone()[0] == 0:

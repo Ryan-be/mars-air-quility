@@ -6,24 +6,26 @@ from config import config
 DB_FILE = config.get("DB_FILE", "data/sensor_data.db")
 
 
-def log_sensor_data(temp, hum, eco2, tvoc, annotation=None, fan_power_w=None):
+def log_sensor_data(temp, hum, eco2, tvoc, annotation=None, fan_power_w=None, vpd_kpa=None):
     """
     Log sensor data into the SQLite database.
-    :param temp:
-    :param hum:
-    :param eco2:
-    :param tvoc:
-    :param annotation:
+
+    :param temp: temperature in °C
+    :param hum: relative humidity in %
+    :param eco2: equivalent CO₂ in ppm
+    :param tvoc: total VOC in ppb
+    :param annotation: optional text annotation
     :param fan_power_w: current fan power consumption in watts (None if unavailable)
-    :return:
+    :param vpd_kpa: vapour pressure deficit in kPa (None falls back to NULL in DB)
     """
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
 
     cur.execute("""
-        INSERT INTO sensor_data (timestamp, temperature, humidity, eco2, tvoc, annotation, fan_power_w)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, (datetime.utcnow().isoformat(), temp, hum, eco2, tvoc, annotation, fan_power_w))
+        INSERT INTO sensor_data
+            (timestamp, temperature, humidity, eco2, tvoc, annotation, fan_power_w, vpd_kpa)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (datetime.utcnow().isoformat(), temp, hum, eco2, tvoc, annotation, fan_power_w, vpd_kpa))
 
     conn.commit()
     conn.close()

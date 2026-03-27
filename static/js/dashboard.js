@@ -42,6 +42,7 @@ async function fetchData() {
   const tvoc         = data.map(d => d.tvoc);
   const annotations  = data.map(d => d.annotation);
   const powerValues  = data.map(d => d.fan_power_w);
+  const vpdValues    = data.map(d => d.vpd_kpa);
 
   if (timestamps.length < 2) {
     document.getElementById("last-updated").textContent = "Not enough data points.";
@@ -85,7 +86,7 @@ async function fetchData() {
   updateInsights(currentTemp, currentHum, currentTvoc, currentEco2, eco2);
 
   // Charts
-  renderCharts(timestamps, temperatures, humidities, eco2, tvoc, annotations, ids, powerValues);
+  renderCharts(timestamps, temperatures, humidities, eco2, tvoc, annotations, ids, powerValues, vpdValues);
 
   document.getElementById("last-updated").textContent = "Last updated: " + new Date().toLocaleString();
 }
