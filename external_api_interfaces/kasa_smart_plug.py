@@ -93,14 +93,30 @@ class KasaSmartPlug:
         # These plugs track daily kWh but cannot report live power draw.
         usage = self.plug.modules.get("usage")
         if usage is not None:
+            now = datetime.now()
             try:
-                now = datetime.now()
-                stats = await usage.get_daystat(now.year, now.month)
-                today_day = now.day
+                # kasa ≥ 0.7 uses keyword-only args; try both calling conventions
+                try:
+                    stats = await usage.get_daystat(year=now.year, month=now.month)
+                except TypeError:
+                    stats = await usage.get_daystat(now.year, now.month)
+                log.info("usage.get_daystat raw response: %s", stats)
                 today_kwh = None
-                for entry in stats.get("day_list", []):
-                    if entry.get("day") == today_day:
-                        today_kwh = round(entry.get("energy_wh", 0) / 1000, 4)
+                day_list = (
+                    stats.get("day_list", []) if isinstance(stats, dict)
+                    else getattr(stats, "day_list", [])
+                )
+                for entry in day_list:
+                    entry_day = (
+                        entry.get("day") if isinstance(entry, dict)
+                        else getattr(entry, "day", None)
+                    )
+                    energy = (
+                        entry.get("energy_wh", 0) if isinstance(entry, dict)
+                        else getattr(entry, "energy_wh", 0)
+                    )
+                    if entry_day == now.day:
+                        today_kwh = round(energy / 1000, 4)
                         break
                 log.info("Usage module: today_kwh=%s (no real-time watts on this model)",
                          today_kwh)
@@ -108,7 +124,8 @@ class KasaSmartPlug:
             except Exception as exc:
                 log.error("usage module fallback failed: %s", exc)
 
-        log.warning("No energy data available for this plug model")
+        log.warning("No energy data available for this plug model "
+                    "(no emeter, no usage module, or usage call failed)")
         return {"power_w": None, "today_kwh": None}
 
     async def get_state(self):
