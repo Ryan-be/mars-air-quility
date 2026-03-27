@@ -32,6 +32,36 @@ def create_db():
     );
     """)
 
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS app_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT
+    );
+    """)
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS weather_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp DATETIME NOT NULL,
+        temp REAL,
+        humidity REAL,
+        feels_like REAL,
+        wind_speed REAL,
+        weather_code INTEGER,
+        uv_index REAL
+    );
+    """)
+
+    # Migrations: add columns introduced after initial release
+    for migration in [
+        "ALTER TABLE sensor_data ADD COLUMN fan_power_w REAL",
+        "ALTER TABLE sensor_data ADD COLUMN vpd_kpa REAL",
+    ]:
+        try:
+            cur.execute(migration)
+        except Exception:  # pylint: disable=broad-except
+            pass  # column already exists
+
     cur.execute("SELECT COUNT(*) FROM fan_settings")
     if cur.fetchone()[0] == 0:
         cur.execute("""

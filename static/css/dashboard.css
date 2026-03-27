@@ -1,0 +1,373 @@
+/* ── Top bar extras (dashboard-specific) ── */
+.top-bar .controls { display: flex; align-items: center; gap: 0.5em; flex-wrap: wrap; }
+.top-bar select {
+  background: #1e1e1e;
+  color: #fff;
+  border: 1px solid #555;
+  border-radius: 4px;
+  padding: 0.35em 0.6em;
+  font-size: 0.9em;
+}
+#last-updated { margin: 0; font-size: 0.8em; color: #888; font-style: italic; }
+
+/* ── Sensor stat grid ── */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75em;
+  margin-bottom: 0.75em;
+}
+.stat-card {
+  background: #1e1e1e;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 0.9em 1em;
+  border-top-width: 3px;
+}
+.stat-card .label {
+  font-size: 0.75em;
+  color: #999;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.3em;
+}
+.stat-card .current {
+  font-size: 1.9em;
+  font-weight: bold;
+  line-height: 1.1;
+  margin-bottom: 0.4em;
+}
+.stat-card .sub-stats {
+  display: flex;
+  gap: 0.75em;
+  font-size: 0.78em;
+  color: #aaa;
+}
+.stat-card .sub-stats span strong { color: #ddd; }
+.stat-card.temp  { border-top-color: deeppink; }
+.stat-card.hum   { border-top-color: dodgerblue; }
+.stat-card.eco2  { border-top-color: yellowgreen; }
+.stat-card.tvoc  { border-top-color: #e0a000; }
+
+/* ── Insight grid ── */
+.insight-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75em;
+  margin-bottom: 1.25em;
+}
+.insight-card {
+  background: #1e1e1e;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 0.9em 1em;
+  border-top-width: 3px;
+  border-top-color: #555;
+}
+.insight-card .label {
+  font-size: 0.75em;
+  color: #999;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.3em;
+}
+.insight-card .value {
+  font-size: 1.6em;
+  font-weight: bold;
+  line-height: 1.1;
+  margin-bottom: 0.35em;
+}
+.insight-card .sub {
+  font-size: 0.78em;
+  color: #888;
+}
+
+/* ── Section headings ── */
+.section-heading {
+  font-size: 0.78em;
+  color: #555;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  margin: 1em 0 0.45em;
+  padding-left: 2px;
+}
+body.light .section-heading { color: #aaa; }
+
+/* ── Outdoor weather section ── */
+.weather-section {
+  margin-bottom: 1.25em;
+}
+.weather-heading {
+  font-size: 0.8em;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 0.5em;
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+}
+.weather-updated { color: #444; font-size: 0.9em; margin-left: auto; }
+.weather-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.75em;
+}
+body.light .weather-heading { color: #999; }
+body.light .weather-updated { color: #bbb; }
+
+/* ── Forecast strip ── */
+.forecast-heading {
+  font-size: 0.75em;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 1em 0 0.4em;
+}
+.forecast-strip {
+  display: flex;
+  gap: 0.5em;
+  overflow-x: auto;
+  padding-bottom: 0.4em;
+  scrollbar-width: thin;
+  scrollbar-color: #444 transparent;
+}
+.forecast-strip::-webkit-scrollbar       { height: 4px; }
+.forecast-strip::-webkit-scrollbar-thumb { background: #444; border-radius: 2px; }
+.forecast-slot {
+  flex: 0 0 auto;
+  background: #1e1e1e;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 0.55em 0.8em;
+  text-align: center;
+  min-width: 62px;
+}
+.forecast-slot .fc-time { font-size: 0.68em; color: #888; margin-bottom: 0.15em; }
+.forecast-slot .fc-icon { font-size: 1.35em; line-height: 1.3; }
+.forecast-slot .fc-temp { font-size: 0.9em; font-weight: bold; color: #ddd; margin-top: 0.1em; }
+.forecast-slot .fc-rain { font-size: 0.68em; color: #6ab4ff; margin-top: 0.1em; }
+body.light .forecast-heading          { color: #aaa; }
+body.light .forecast-slot             { background: #fff; border-color: #ddd; }
+body.light .forecast-slot .fc-time   { color: #999; }
+body.light .forecast-slot .fc-temp   { color: #111; }
+body.light .forecast-slot .fc-rain   { color: #2266cc; }
+/* Hover/focus state on forecast slots (they are buttons now) */
+.forecast-slot { cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+.forecast-slot:hover, .forecast-slot:focus-visible {
+  border-color: #7db8ff;
+  background: #252535;
+  outline: none;
+}
+body.light .forecast-slot:hover,
+body.light .forecast-slot:focus-visible { background: #f0f4ff; border-color: #6699dd; }
+
+/* ── Forecast detail dialog ── */
+#forecastDialog {
+  background: #1e1e1e;
+  color: #fff;
+  border: 1px solid #444;
+  border-radius: 12px;
+  padding: 1.4em 1.6em;
+  max-width: 340px;
+  width: 90vw;
+}
+#forecastDialog::backdrop { background: rgba(0,0,0,0.65); }
+.fd-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75em;
+  margin-bottom: 1em;
+}
+.fd-header > div { display: flex; align-items: center; gap: 0.5em; }
+.fd-icon  { font-size: 2em; line-height: 1; }
+.fd-header h3 { margin: 0; font-size: 1em; color: #ddd; }
+.fd-close { padding: 0.25em 0.6em; font-size: 0.95em; flex-shrink: 0; }
+.fd-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75em;
+}
+.fd-item {
+  background: #2a2a2a;
+  border-radius: 8px;
+  padding: 0.6em 0.75em;
+}
+.fd-label { font-size: 0.7em; color: #888; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.2em; }
+.fd-value { font-size: 1.1em; font-weight: bold; color: #ddd; }
+body.light #forecastDialog   { background: #fff; color: #111; border-color: #ccc; }
+body.light .fd-header h3     { color: #222; }
+body.light .fd-item          { background: #f5f5f5; }
+body.light .fd-label         { color: #888; }
+body.light .fd-value         { color: #111; }
+
+/* ── Fan control card ── */
+.fan-card {
+  background: #1e1e1e;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 1em 1.2em;
+  margin-bottom: 1.25em;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75em;
+}
+.fan-card h3 { margin: 0; font-size: 1em; }
+.fan-buttons { display: flex; gap: 0.5em; }
+.fan-buttons button {
+  padding: 0.4em 1em;
+  border-radius: 4px;
+  border: 1px solid #555;
+  cursor: pointer;
+  font-size: 0.9em;
+  transition: background 0.15s, border-color 0.15s;
+}
+.fan-buttons .btn-on   { background: #1a3a1a; color: #7dff7d; border-color: #2a5a2a; }
+.fan-buttons .btn-off  { background: #3a1a1a; color: #ff7d7d; border-color: #5a2a2a; }
+.fan-buttons .btn-auto { background: #1a2a3a; color: #7db8ff; border-color: #2a4a6a; }
+.fan-buttons .btn-on:hover   { background: #2a5a2a; }
+.fan-buttons .btn-off:hover  { background: #5a2a2a; }
+.fan-buttons .btn-auto:hover { background: #2a4a6a; }
+.fan-meta { display: flex; gap: 1.5em; font-size: 0.85em; color: #aaa; }
+.fan-meta span { display: flex; flex-direction: column; }
+.fan-meta span strong { color: #fff; font-size: 1.1em; }
+
+/* ── Plots ── */
+.plot-container { display: flex; flex-direction: column; gap: 0.75em; margin-bottom: 0.75em; }
+.plot-container > div { width: 100%; min-height: 300px; }
+
+/* ── TVOC legend — single compact line ── */
+.tvoc-key {
+  background: #1e1e1e;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 0.5em 1em;
+  display: flex;
+  align-items: center;
+  gap: 1.5em;
+  flex-wrap: wrap;
+  margin-bottom: 1.25em;
+  font-size: 0.8em;
+  color: #888;
+}
+.tvoc-key-title {
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.9em;
+  white-space: nowrap;
+}
+.tvoc-levels { display: flex; gap: 1.2em; flex-wrap: wrap; }
+.tvoc-level  { display: flex; align-items: center; gap: 0.35em; }
+.color-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.color-dot.green  { background: #2d8a2d; }
+.color-dot.orange { background: #c87800; }
+.color-dot.red    { background: #b03030; }
+
+/* ── System health card ── */
+.health-card {
+  background: #1e1e1e;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 1em 1.2em;
+}
+.health-card h3 {
+  margin: 0 0 0.8em;
+  font-size: 1em;
+  color: #ccc;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid #333;
+  padding-bottom: 0.5em;
+}
+.health-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.6em;
+}
+.health-item .h-label { font-size: 0.75em; color: #888; text-transform: uppercase; letter-spacing: 0.04em; }
+.health-item .h-value { font-size: 0.95em; color: #ddd; margin-top: 0.15em; }
+
+/* ── Annotation dialog ── */
+dialog {
+  background: #1e1e1e;
+  color: #fff;
+  border: 1px solid #444;
+  border-radius: 8px;
+  padding: 1.2em;
+  max-width: 400px;
+  width: 90vw;
+}
+dialog::backdrop { background: rgba(0,0,0,0.6); }
+dialog p { margin: 0 0 0.5em; font-size: 0.9em; color: #bbb; }
+dialog p strong { color: #fff; }
+dialog textarea {
+  width: 100%;
+  background: #2a2a2a;
+  color: #fff;
+  border: 1px solid #555;
+  border-radius: 4px;
+  padding: 0.5em;
+  font-size: 0.9em;
+  resize: vertical;
+}
+.dialog-buttons { display: flex; justify-content: flex-end; gap: 0.5em; margin-top: 0.8em; }
+.dialog-buttons button {
+  padding: 0.35em 0.9em;
+  border-radius: 4px;
+  border: 1px solid #555;
+  cursor: pointer;
+  font-size: 0.9em;
+}
+.dialog-buttons .btn-save   { background: #1a3a5a; color: #7db8ff; border-color: #2a5a8a; }
+.dialog-buttons .btn-delete { background: #3a1a1a; color: #ff7d7d; border-color: #5a2a2a; }
+.dialog-buttons .btn-cancel { background: #2a2a2a; color: #aaa; }
+
+/* ── Dashboard light mode ── */
+body.light .top-bar select   { background: #fff; color: #111; border-color: #bbb; }
+body.light #last-updated     { color: #666; }
+body.light .stat-card        { background: #fff; border-color: #ddd; }
+body.light .stat-card .label { color: #666; }
+body.light .stat-card .sub-stats       { color: #555; }
+body.light .stat-card .sub-stats span strong { color: #111; }
+body.light .insight-card     { background: #fff; border-color: #ddd; }
+body.light .insight-card .label { color: #666; }
+body.light .insight-card .sub  { color: #666; }
+body.light .fan-card         { background: #fff; border-color: #ddd; }
+body.light .fan-meta         { color: #555; }
+body.light .fan-meta span strong { color: #111; }
+body.light .tvoc-key         { background: #fff; border-color: #ddd; }
+body.light .tvoc-key-title   { color: #999; }
+body.light .tvoc-level       { color: #555; }
+body.light .health-card      { background: #fff; border-color: #ddd; }
+body.light .health-card h3   { color: #444; border-bottom-color: #ddd; }
+body.light .h-label          { color: #666; }
+body.light .h-value          { color: #111; }
+body.light dialog            { background: #fff; color: #111; border-color: #ccc; }
+body.light dialog p          { color: #555; }
+body.light dialog p strong   { color: #111; }
+body.light dialog textarea   { background: #f5f5f5; color: #111; border-color: #bbb; }
+body.light .dialog-buttons .btn-cancel { background: #eee; color: #555; }
+
+/* Daily forecast slot — high/low temps */
+.fc-lo { color: #777; font-weight: normal; }
+body.light .fc-lo { color: #aaa; }
+/* Daily forecast dialog */
+#forecastDailyDialog {
+  background: #1e1e1e;
+  color: #fff;
+  border: 1px solid #444;
+  border-radius: 12px;
+  padding: 1.4em 1.6em;
+  max-width: 340px;
+  width: 90vw;
+}
+#forecastDailyDialog::backdrop { background: rgba(0,0,0,0.65); }
+body.light #forecastDailyDialog { background: #fff; color: #111; border-color: #ccc; }

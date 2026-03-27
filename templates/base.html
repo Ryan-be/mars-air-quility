@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>{% block title %}MLSS{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
+  {% block extra_css %}{% endblock %}
+</head>
+<body>
+
+  <div class="top-bar">
+    <h2>🚀 MLSS</h2>
+    {% block topbar_controls %}{% endblock %}
+    {% if auth_enabled %}
+      {% if session_user %}<span class="session-user">{{ session_user }}</span>{% endif %}
+      <a href="/logout" class="btn btn-logout">Sign out</a>
+    {% endif %}
+  </div>
+
+  <nav class="main-nav">
+    <a href="/" class="{{ 'nav-active' if request.path == '/' else '' }}">📊 Dashboard</a>
+    <a href="/history" class="{{ 'nav-active' if request.path == '/history' else '' }}">📈 History</a>
+    <a href="/controls" class="{{ 'nav-active' if request.path == '/controls' else '' }}">⚙️ Controls</a>
+    <a href="/admin" class="{{ 'nav-active' if request.path == '/admin' else '' }}">🔧 Settings</a>
+  </nav>
+
+  {% block content %}{% endblock %}
+
+  {% block scripts %}{% endblock %}
+
+</body>
+</html>

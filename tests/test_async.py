@@ -112,26 +112,29 @@ class TestLogDataAsyncDispatch:
         return threadsafe_calls, mock_future
 
     def test_run_coroutine_threadsafe_is_called(self, db, monkeypatch):
+        # get_power() + switch() = 2 calls when auto is enabled
         calls, _ = self._run(monkeypatch, db)
-        assert len(calls) == 1
+        assert len(calls) == 2
 
     def test_dispatches_to_thread_loop(self, db, monkeypatch):
         import mlss_monitor.app as app_module
         calls, _ = self._run(monkeypatch, db)
-        assert calls[0]["loop"] is app_module.thread_loop
+        assert all(c["loop"] is app_module.thread_loop for c in calls)
 
     def test_asyncio_run_is_never_called(self, db, monkeypatch):
         # Would raise AssertionError if asyncio.run() is invoked — test passes if silent
         self._run(monkeypatch, db)
 
-    def test_fire_and_forget_result_not_called(self, db, monkeypatch):
-        """log_data() must not block the logging thread waiting for the plug."""
+    def test_get_power_result_is_awaited(self, db, monkeypatch):
+        """get_power() blocks (with timeout) so watts can be stored; switch() is fire-and-forget."""
         _, mock_future = self._run(monkeypatch, db)
-        mock_future.result.assert_not_called()
+        # .result() is called at least once (for get_power)
+        mock_future.result.assert_called()
 
-    def test_no_dispatch_when_auto_disabled(self, db, monkeypatch):
+    def test_no_switch_dispatch_when_auto_disabled(self, db, monkeypatch):
+        # get_power() is always dispatched; switch() is NOT when auto is disabled
         calls, _ = self._run(monkeypatch, db, enabled=False)
-        assert len(calls) == 0
+        assert len(calls) == 1  # only get_power
 
     def test_switch_true_when_temp_over_max(self, db, monkeypatch):
         import mlss_monitor.app as app_module

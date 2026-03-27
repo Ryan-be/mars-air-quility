@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block title %}MLSS – History{% endblock %}
+
+{% block extra_css %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/history.css') }}">
+{% endblock %}
+
+{% block topbar_controls %}
+  <div class="controls">
+    <select id="range">
+      <option value="15m">Last 15 minutes</option>
+      <option value="1h" selected>Last hour</option>
+      <option value="6h">Last 6 hours</option>
+      <option value="12h">Last 12 hours</option>
+      <option value="24h">Last 24 hours</option>
+      <option value="all">All time</option>
+    </select>
+    <button class="btn" onclick="downloadCSV()">Download CSV</button>
+    <label class="theme-switch" title="Toggle light/dark mode">
+      <input type="checkbox" id="themeToggle" onchange="toggleTheme()">
+      <span class="ts-track"></span>
+      <span class="ts-label">Light</span>
+    </label>
+  </div>
+  <p id="last-updated">Last updated: never</p>
+{% endblock %}
+
+{% block content %}
+
+  <div class="tab-bar">
+    <button class="tab-btn tab-active" data-tab="sensors">🌡️ Sensors</button>
+    <button class="tab-btn" data-tab="environment">🌿 Environment</button>
+    <button class="tab-btn" data-tab="correlation">🔍 Correlation</button>
+    <button class="tab-btn" data-tab="patterns">📅 Patterns</button>
+  </div>
+
+  <div class="tab-panel" id="tab-sensors">
+    <div class="plot-container">
+      <div id="tempPlot"></div>
+      <div id="humPlot"></div>
+      <div id="eco2Plot"></div>
+      <div id="tvocPlot"></div>
+      <div id="vpdPlot"></div>
+    </div>
+    <div class="tvoc-key">
+      <span class="tvoc-key-title">TVOC · WHO</span>
+      <div class="tvoc-levels">
+        <div class="tvoc-level"><span class="color-dot green"></span>0–250 ppb Good</div>
+        <div class="tvoc-level"><span class="color-dot orange"></span>251–500 ppb Moderate</div>
+        <div class="tvoc-level"><span class="color-dot red"></span>&gt;500 ppb High</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tab-panel tab-hidden" id="tab-environment">
+    <div class="plot-container">
+      <div id="tempOverlayPlot"></div>
+      <div id="humOverlayPlot"></div>
+      <div id="absHumPlot"></div>
+      <div id="dewPointPlot"></div>
+      <div id="fanStatePlot"></div>
+    </div>
+  </div>
+
+  <div class="tab-panel tab-hidden" id="tab-correlation">
+    <div class="plot-container">
+      <div id="tvocEco2ScatterPlot"></div>
+      <div id="tempHumScatterPlot"></div>
+    </div>
+  </div>
+
+  <div class="tab-panel tab-hidden" id="tab-patterns">
+    <p class="patterns-note">📊 Pattern analysis works best with at least 24 hours of data.</p>
+    <div class="plot-container">
+      <div id="hourHeatmapPlot"></div>
+      <div id="dailyBandPlot"></div>
+    </div>
+  </div>
+
+{% endblock %}
+
+{% block scripts %}
+  <script src="https://cdn.plot.ly/plotly-2.24.2.min.js"></script>
+  <script type="module" src="{{ url_for('static', filename='js/history.js') }}"></script>
+{% endblock %}

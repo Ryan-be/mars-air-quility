@@ -1,585 +1,207 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>MLSS</title>
-  <script src="https://cdn.plot.ly/plotly-2.24.2.min.js"></script>
+{% extends "base.html" %}
 
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      background-color: #121212;
-      color: #fff;
-      margin: 0;
-      padding: 1em;
-    }
-    .top-bar {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      flex-wrap: wrap;
-      margin-bottom: 1em;
-    }
-    .top-bar select,
-    .top-bar button,
-    .top-bar label {
-      margin: 0.25em;
-    }
-    .sensor-table {
-      border-collapse: collapse;
-      width: 100%;
-      margin-bottom: 1em;
-    }
-    .sensor-table td {
-      padding: 0.5em 1em;
-      border-bottom: 1px solid #444;
-    }
-    .sensor-table td:first-child {
-      font-weight: bold;
-      white-space: nowrap;
-    }
-    .plot-container {
-      display: flex;
-      flex-direction: column;
-      gap: 1em;
-      width: 100%;
-    }
-    .plot-container > div {
-      width: 100%;
-      min-height: 300px;
-    }
-    .dark-mode {
-      background-color: #121212;
-      color: #fff;
-    }
-    .light-mode {
-      background-color: #fff;
-      color: #000;
-    }
-    .ok { color: lightgreen; }
-    .error { color: orange; }
-    #health ul {
-      list-style-type: none;
-      padding: 0;
-    }
-    #health li {
-      margin: 0.25em 0;
-    }
-    .tvoc-key {
-      margin-top: 1em;
-      padding: 0.5em;
-      font-size: 14px;
-      background-color: #1e1e1e;
-      border-radius: 6px;
-      max-width: 95%;
-    }
+{% block title %}MLSS{% endblock %}
 
-    .tvoc-level {
-      display: flex;
-      align-items: center;
-      margin-top: 0.25em;
-    }
+{% block extra_css %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+{% endblock %}
 
-    .color-box {
-      width: 1em;
-      height: 1em;
-      display: inline-block;
-      margin-right: 0.5em;
-      border-radius: 2px;
-    }
+{% block topbar_controls %}
+  <div class="controls">
+    <label class="theme-switch" title="Toggle light/dark mode">
+      <input type="checkbox" id="themeToggle" onchange="toggleTheme()">
+      <span class="ts-track"></span>
+      <span class="ts-label">Light</span>
+    </label>
+  </div>
+  <p id="last-updated">Last updated: never</p>
+{% endblock %}
 
-    .color-box.green { background-color: green; }
-    .color-box.orange { background-color: orange; }
-    .color-box.red { background-color: red; }
-    .sensor-table th {
-      text-align: left;
-      padding: 0.5em 1em;
-      border-bottom: 2px solid #666;
-    }
+{% block content %}
 
-  .fan-card {
-    border: 1px solid #444;
-    border-radius: 6px;
-    padding: 1em;
-    margin-top: 1em;
-    margin-bottom: 20px;
-    background-color: #1e1e1e;
-    max-width: 95%; /* Match the width of plots and tables */
-    margin-left: auto; /* Center horizontally */
-    margin-right: auto; /* Center horizontally */
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-
-    .fan-card h3 {
-      margin: 0;
-      font-size: 1.1em;
-      display: flex;
-      align-items: center;
-    }
-
-    .fan-buttons {
-      display: flex;
-      gap: 0.5em;
-    }
-
-    .fan-buttons button {
-      background-color: #333;
-      color: white;
-      border: 1px solid #555;
-      border-radius: 4px;
-      padding: 0.4em 1em;
-      cursor: pointer;
-      transition: background-color 0.2s ease;
-    }
-
-    .fan-buttons button:hover {
-      background-color: #555;
-    }
-  </style>
-</head>
-<body>
-  <div class="top-bar">
-    <p id="last-updated" style="margin: 0.5em 0; font-style: italic;">Last updated: never</p>
-    <h2>MLSS</h2>
-    <div>
-      <label for="range">Time Range:</label>
-      <select id="range">
-        <option value="15m">last 15 minuets</option>
-        <option value="1h">Last Hour</option>
-        <option value="6h">Last 6 Hours</option>
-        <option value="12h">Last 12 Hours</option>
-        <option value="24h">Last 24 Hours</option>
-        <option value="all">All Time</option>
-      </select>
-      <button onclick="downloadCSV()">Download CSV</button>
-      <a href="/admin" style="color: #aaa; margin-left: 0.5em;">Fan Settings</a>
-      <label><input type="checkbox" id="darkToggle" checked> Dark Mode</label>
+  <!-- Sensor stat cards -->
+  <div class="section-heading">🏠 Indoor Sensors</div>
+  <div class="stat-grid">
+    <div class="stat-card temp">
+      <div class="label">🌡️ Temperature</div>
+      <div class="current" id="tempValue">--</div>
+    </div>
+    <div class="stat-card hum">
+      <div class="label">💧 Humidity</div>
+      <div class="current" id="humValue">--</div>
+    </div>
+    <div class="stat-card eco2">
+      <div class="label">🫁 eCO₂</div>
+      <div class="current" id="eco2Value">--</div>
+    </div>
+    <div class="stat-card tvoc">
+      <div class="label">🧪 TVOC</div>
+      <div class="current" id="tvocValue">--</div>
     </div>
   </div>
 
-  <table class="sensor-table" id="summary-table">
-    <thead>
-      <tr>
-        <th>Sensor</th>
-        <th>Current</th>
-        <th>Min</th>
-        <th>Max</th>
-        <th>Avg</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td>🌡️ <strong>Temperature (°C)</strong></td>
-        <td id="tempValue">--</td>
-        <td id="tempMin">--</td>
-        <td id="tempMax">--</td>
-        <td id="tempAvg">--</td>
-      </tr>
-      <tr>
-        <td>💧 <strong>Humidity (%)</strong></td>
-        <td id="humValue">--</td>
-        <td id="humMin">--</td>
-        <td id="humMax">--</td>
-        <td id="humAvg">--</td>
-      </tr>
-      <tr>
-        <td>🫁 <strong>eCO₂ (ppm)</strong></td>
-        <td id="eco2Value">--</td>
-        <td id="eco2Min">--</td>
-        <td id="eco2Max">--</td>
-        <td id="eco2Avg">--</td>
-      </tr>
-      <tr>
-        <td>🧪 <strong>TVOC (ppb)</strong></td>
-        <td id="tvocValue">--</td>
-        <td id="tvocMin">--</td>
-        <td id="tvocMax">--</td>
-        <td id="tvocAvg">--</td>
-      </tr>
-    </tbody>
-  </table>
-
-  <div class="fan-card">
-    <h3><span>🌀</span> Fan Control</h3>
-    <div class="fan-buttons">
-      <button onclick="setFanControl('on')">Turn On</button>
-      <button onclick="setFanControl('off')">Turn Off</button>
-      <button onclick="setFanControl('auto')">Auto</button>
+  <!-- Insight cards -->
+  <div class="section-heading">🧠 Derived Insights</div>
+  <div class="insight-grid">
+    <div class="insight-card" id="aqCard">
+      <div class="label">🌿 Air Quality</div>
+      <div class="value" id="aqValue">--</div>
+      <div class="sub" id="aqSub">--</div>
     </div>
-    <p id="fan-status">Status: Unknown</p>
-    <p id="fan-mode">Mode: Unknown</p>
-  </div>
-
-  <div class="plot-container">
-    <div id="tempPlot"></div>
-    <div id="humPlot"></div>
-    <div id="eco2Plot"></div>
-    <div id="tvocPlot"></div>
-    <div id="tvocKey" class="tvoc-key">
-      <strong>TVOC Levels (WHO Guidance):</strong>
-      <div class="tvoc-level"><span class="color-box green"></span> 0–250 ppb (Good)</div>
-      <div class="tvoc-level"><span class="color-box orange"></span> 251–500 ppb (Moderate)</div>
-      <div class="tvoc-level"><span class="color-box red"></span> >500 ppb (High)</div>
+    <div class="insight-card">
+      <div class="label">💦 Dew Point</div>
+      <div class="value neutral" id="dewValue">--</div>
+      <div class="sub" id="dewSub">--</div>
+    </div>
+    <div class="insight-card">
+      <div class="label">🌡️ Feels Like</div>
+      <div class="value neutral" id="hiValue">--</div>
+      <div class="sub">Apparent temperature (no wind)</div>
+    </div>
+    <div class="insight-card" id="co2Card">
+      <div class="label">🧠 CO₂ Alert</div>
+      <div class="value" id="co2AlertValue">--</div>
+      <div class="sub" id="co2AlertSub">--</div>
+    </div>
+    <div class="insight-card">
+      <div class="label">🌱 Vapour Pressure Deficit</div>
+      <div class="value neutral" id="vpdValue">--</div>
+      <div class="sub" id="vpdSub">--</div>
+    </div>
+    <div class="insight-card">
+      <div class="label">⏱️ Time to CO₂ Threshold</div>
+      <div class="value neutral" id="tttValue">--</div>
+      <div class="sub">At current rate of change</div>
     </div>
   </div>
 
-  <div id="health">
+  <!-- Outdoor weather (shown only when location is configured) -->
+  <div class="weather-section" id="weatherSection" style="display:none">
+    <div class="section-heading">
+      🌍 Outdoor — <span id="weatherLoc"></span>
+      <span class="weather-updated" id="weatherUpdated"></span>
+    </div>
+    <div class="weather-grid">
+      <div class="insight-card">
+        <div class="label">🌡️ Outdoor Temp</div>
+        <div class="value neutral" id="outTemp">--</div>
+        <div class="sub" id="outTempDelta">--</div>
+      </div>
+      <div class="insight-card">
+        <div class="label">💧 Outdoor Humidity</div>
+        <div class="value neutral" id="outHum">--</div>
+        <div class="sub" id="outHumDelta">--</div>
+      </div>
+      <div class="insight-card">
+        <div class="label">☀️ UV Index</div>
+        <div class="value neutral" id="uvIdx">--</div>
+        <div class="sub" id="uvSub">--</div>
+      </div>
+      <div class="insight-card">
+        <div class="label">💨 Wind Speed</div>
+        <div class="value neutral" id="windSpd">--</div>
+        <div class="sub" id="weatherCond">--</div>
+      </div>
+      <div class="insight-card" id="ventCard">
+        <div class="label">🔄 Ventilation</div>
+        <div class="value neutral" id="ventVal">--</div>
+        <div class="sub" id="ventSub">--</div>
+      </div>
+    </div>
+
+    <!-- 24-hour forecast strip -->
+    <div class="forecast-heading">📅 24-Hour Forecast</div>
+    <div class="forecast-strip" id="forecastStrip">
+      <!-- slots populated by JS -->
+    </div>
+
+    <!-- 7-day forecast strip -->
+    <div class="forecast-heading">📆 7-Day Forecast</div>
+    <div class="forecast-strip" id="forecastDailyStrip">
+      <!-- slots populated by JS -->
+    </div>
+  </div>
+
+  <!-- Forecast detail dialog -->
+  <dialog id="forecastDialog" aria-modal="true" aria-labelledby="fdTitle">
+    <div class="fd-header">
+      <div>
+        <div class="fd-icon" id="fdIcon"></div>
+        <h3 id="fdTitle"></h3>
+      </div>
+      <button class="fd-close btn" aria-label="Close" onclick="document.getElementById('forecastDialog').close()">✕</button>
+    </div>
+    <div class="fd-grid">
+      <div class="fd-item"><div class="fd-label">🌡️ Temperature</div><div class="fd-value" id="fdTemp"></div></div>
+      <div class="fd-item"><div class="fd-label">🥶 Feels Like</div><div class="fd-value" id="fdWind"></div></div>
+      <div class="fd-item"><div class="fd-label">💧 Rain Chance</div><div class="fd-value" id="fdRain"></div></div>
+      <div class="fd-item"><div class="fd-label">💨 Wind Speed</div><div class="fd-value" id="fdWindSpd"></div></div>
+    </div>
+  </dialog>
+
+  <!-- Daily forecast detail dialog -->
+  <dialog id="forecastDailyDialog" aria-modal="true" aria-labelledby="fddTitle">
+    <div class="fd-header">
+      <div>
+        <div class="fd-icon" id="fddIcon"></div>
+        <h3 id="fddTitle"></h3>
+      </div>
+      <button class="fd-close btn" aria-label="Close"
+              onclick="document.getElementById('forecastDailyDialog').close()">✕</button>
+    </div>
+    <div class="fd-grid">
+      <div class="fd-item"><div class="fd-label">🌡️ High</div><div class="fd-value" id="fddHigh"></div></div>
+      <div class="fd-item"><div class="fd-label">🥶 Low</div><div class="fd-value" id="fddLow"></div></div>
+      <div class="fd-item"><div class="fd-label">💧 Rain Chance</div><div class="fd-value" id="fddRain"></div></div>
+      <div class="fd-item"><div class="fd-label">💨 Wind (max)</div><div class="fd-value" id="fddWind"></div></div>
+    </div>
+  </dialog>
+
+  <!-- System health -->
+  <div class="health-card">
     <h3>🔧 System Health</h3>
-    <table class="sensor-table" id="health-table">
-      <tr><td><strong>AHT20:</strong></td><td id="aht20Status">Checking...</td></tr>
-      <tr><td><strong>SGP30:</strong></td><td id="sgp30Status">Checking...</td></tr>
-      <tr><td><strong>CPU Usage:</strong></td><td id="cpuUsage">--</td></tr>
-      <tr><td><strong>Memory:</strong></td><td id="memoryUsage">--</td></tr>
-      <tr><td><strong>Uptime:</strong></td><td id="uptime">--</td></tr>
-    </table>
+    <div class="health-grid">
+      <div class="health-item">
+        <div class="h-label">AHT20</div>
+        <div class="h-value" id="aht20Status">Checking…</div>
+      </div>
+      <div class="health-item">
+        <div class="h-label">SGP30</div>
+        <div class="h-value" id="sgp30Status">Checking…</div>
+      </div>
+      <div class="health-item">
+        <div class="h-label">Smart plug</div>
+        <div class="h-value" id="plugStatus">Checking…</div>
+      </div>
+      <div class="health-item">
+        <div class="h-label">CPU usage</div>
+        <div class="h-value" id="cpuUsage">--</div>
+      </div>
+      <div class="health-item">
+        <div class="h-label">Memory</div>
+        <div class="h-value" id="memoryUsage">--</div>
+      </div>
+      <div class="health-item">
+        <div class="h-label">Disk</div>
+        <div class="h-value" id="diskUsage">--</div>
+      </div>
+      <div class="health-item">
+        <div class="h-label">Database</div>
+        <div class="h-value" id="dbSize">--</div>
+      </div>
+      <div class="health-item">
+        <div class="h-label">Pi uptime</div>
+        <div class="h-value" id="uptime">--</div>
+      </div>
+      <div class="health-item">
+        <div class="h-label">Service uptime</div>
+        <div class="h-value" id="serviceUptime">--</div>
+      </div>
+    </div>
   </div>
 
-  <script>
-    async function setFanControl(state) {
-      try {
-        const res = await fetch(`/api/fan?state=${state}`, { method: "POST" });
-        const result = await res.json();
+{% endblock %}
 
-        if (res.ok) {
-          document.getElementById("fan-status").textContent = `Status: ${result.message}`;
-          document.getElementById("fan-mode").textContent = `Mode: ${state === "auto" ? "Auto" : "Manual"}`;
-        } else {
-          document.getElementById("fan-status").textContent = `Error: ${result.error || "Unknown error"}`;
-        }
-      } catch (err) {
-        document.getElementById("fan-status").textContent = "Error: Could not reach server";
-      }
-    }
-
-    async function fetchFanStatus() {
-      try {
-        const res = await fetch('/api/fan/status');
-        const result = await res.json();
-        if (res.ok) {
-          document.getElementById("fan-status").textContent = `Status: ${result.state}`;
-          document.getElementById("fan-mode").textContent = `Mode: ${result.mode}`;
-        } else {
-          document.getElementById("fan-status").textContent = `Error: ${result.error || "Unknown error"}`;
-        }
-      } catch (err) {
-        document.getElementById("fan-status").textContent = "Error: Could not reach server";
-      }
-    }
-
-    // Fetch fan status on page load
-    fetchFanStatus();
-
-    const darkToggle = document.getElementById("darkToggle");
-
-    darkToggle.addEventListener("change", () => {
-      document.body.className = darkToggle.checked ? "dark-mode" : "light-mode";
-    });
-
-    function getTrendSymbol(current, previous) {
-      if (current == null || previous == null) return "➖";
-      const diff = current - previous;
-      if (diff > 0.1) return "📈";
-      if (diff < -0.1) return "📉";
-      return "➖";
-    }
-
-    document.getElementById("range").addEventListener("change", fetchData);
-
-    function attachAnnotationHandler(plotId) {
-      const plot = document.getElementById(plotId);
-
-      plot.on('plotly_click', function(data) {
-        const dbId = data.points[0].customdata;
-        const timestamp = data.points[0].x;
-        const currentAnnotation = data.points[0].text || "";
-
-        const container = document.createElement("div");
-        container.innerHTML = `
-          <div style="font-family: sans-serif;">
-            <p><strong>Edit annotation for:</strong><br>${timestamp}</p>
-            <p>Current annotation:</p>
-            <textarea id="annotationInput" rows="4" style="width: 100%;">${currentAnnotation}</textarea>
-            <div style="margin-top: 1em; text-align: right;">
-              <button id="editBtn">Save</button>
-              <button id="deleteBtn">Delete</button>
-              <button id="cancelBtn">Cancel</button>
-            </div>
-          </div>
-        `;
-
-        const dialog = document.createElement("dialog");
-        dialog.style.padding = "1em";
-        dialog.style.maxWidth = "400px";
-        dialog.appendChild(container);
-        document.body.appendChild(dialog);
-        dialog.showModal();
-
-        dialog.querySelector("#editBtn").onclick = () => {
-          const newAnnotation = document.getElementById("annotationInput").value;
-          fetch(`/api/annotate?point=${dbId}`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ annotation: newAnnotation })
-          }).then(res => {
-            dialog.close();
-            dialog.remove();
-            alert(res.ok ? "✅ Annotation updated!" : "❌ Failed to update annotation.");
-          });
-        };
-
-        dialog.querySelector("#deleteBtn").onclick = () => {
-          fetch(`/api/annotate?point=${dbId}`, {
-            method: "DELETE",
-          }).then(res => {
-            dialog.close();
-            dialog.remove();
-            alert(res.ok ? "🗑️ Annotation removed." : "❌ Failed to remove annotation.");
-          });
-        };
-
-        dialog.querySelector("#cancelBtn").onclick = () => {
-          dialog.close();
-          dialog.remove();
-        };
-      });
-    }
-
-    async function fetchData() {
-      const range = document.getElementById("range").value;
-      const res = await fetch(`/api/data?range=${range}`);
-      const data = await res.json();
-      if (!Array.isArray(data)) return;
-
-      // Sort by timestamp just in case (oldest to newest)
-      data.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-
-      const ids = data.map(d => d.id);
-      const timestamps = data.map(d => new Date(d.timestamp));
-      const temperatures = data.map(d => d.temperature);
-      const humidities = data.map(d => d.humidity);
-      const eco2 = data.map(d => d.eco2);
-      const tvoc = data.map(d => d.tvoc);
-      const annotations = data.map(d => d.annotation);
-
-      if (timestamps.length === 0) {
-          document.getElementById("last-updated").textContent = "No data available for the selected range.";
-          return;
-      }
-      if (timestamps.length < 2) {
-          document.getElementById("last-updated").textContent = "Not enough data points to calculate trends.";
-          return;
-      }
-
-      const rollingTVOC = tvoc.map((_, i, arr) => {
-        const slice = arr.slice(Math.max(i - 5, 0), i + 1);
-        return slice.reduce((a, b) => a + b, 0) / slice.length;
-      });
-
-      const rateOfChange = tvoc.map((v, i, arr) => i > 0 ? v - arr[i - 1] : 0);
-
-      const eventAnnotations = annotations.map((note, i) => {
-        if (note && note.trim()) {
-          return {
-            x: timestamps[i],
-            y: tvoc[i],
-            text: note,
-            showarrow: true,
-            arrowhead: 2,
-            ax: 0,
-            ay: -40,
-            bgcolor: "#444",
-            font: { color: "#fff" }
-          };
-        }
-        return null;
-      }).filter(Boolean);
-
-      // --- Add summary stats ---
-      const avg = arr => arr.length ? (arr.reduce((a, b) => a + b, 0) / arr.length).toFixed(2) : "--";
-      const min = arr => arr.length ? Math.min(...arr) : "--";
-      const max = arr => arr.length ? Math.max(...arr) : "--";
-
-      const prevTemp = temperatures.at(-2);
-      const currentTemp = temperatures.at(-1);
-      document.getElementById("tempValue").textContent =
-        `${getTrendSymbol(currentTemp, prevTemp)} ${currentTemp?.toFixed(2) ?? "--"}`;
-      document.getElementById("tempMin").textContent = min(temperatures);
-      document.getElementById("tempMax").textContent = max(temperatures);
-      document.getElementById("tempAvg").textContent = avg(temperatures);
-
-      const prevHum = humidities.at(-2);
-      const currentHum = humidities.at(-1);
-      document.getElementById("humValue").textContent =
-        `${getTrendSymbol(currentHum, prevHum)} ${currentHum?.toFixed(2) ?? "--"}`;
-      document.getElementById("humMin").textContent = min(humidities);
-      document.getElementById("humMax").textContent = max(humidities);
-      document.getElementById("humAvg").textContent = avg(humidities);
-
-      const prevEco2 = eco2.at(-2);
-      const currentEco2 = eco2.at(-1);
-      document.getElementById("eco2Value").textContent =
-        `${getTrendSymbol(currentEco2, prevEco2)} ${currentEco2 ?? "--"}`;
-      document.getElementById("eco2Min").textContent = min(eco2);
-      document.getElementById("eco2Max").textContent = max(eco2);
-      document.getElementById("eco2Avg").textContent = avg(eco2);
-
-      const prevTvoc = tvoc.at(-2);
-      const currentTvoc = tvoc.at(-1);
-      document.getElementById("tvocValue").textContent =
-        `${getTrendSymbol(currentTvoc, prevTvoc)} ${currentTvoc ?? "--"}`;
-      document.getElementById("tvocMin").textContent = min(tvoc);
-      document.getElementById("tvocMax").textContent = max(tvoc);
-      document.getElementById("tvocAvg").textContent = avg(tvoc);
-
-        // --- Plotting ---
-
-
-      Plotly.newPlot("tempPlot", [{
-        x: timestamps, y: temperatures,
-        mode: "lines+markers",
-        name: "Temperature",
-        line: { color: "deeppink" },
-        customdata: ids
-      }], {
-        title: { text: "🌡️ Temperature (°C)" },
-        xaxis: { title: "Time" },
-        yaxis: { title: "°C" },
-        autosize: true
-      }, { responsive: true }).then(() => attachAnnotationHandler("tempPlot"));
-
-      Plotly.newPlot("humPlot", [{
-        x: timestamps, y: humidities,
-        mode: "lines+markers",
-        name: "Humidity",
-        line: { color: "dodgerblue" },
-        customdata: ids
-      }], {
-        title: { text: "💧 Humidity (%)" },
-        xaxis: { title: "Time" },
-        yaxis: { title: "%" },
-        autosize: true
-      }, { responsive: true }).then(() => attachAnnotationHandler("humPlot"));
-
-      Plotly.newPlot("eco2Plot", [{
-        x: timestamps, y: eco2,
-        mode: "lines+markers",
-        name: "eCO₂",
-        line: { color: "yellowgreen" },
-        customdata: ids
-      }], {
-        title: { text: "🫁 eCO₂ (ppm)" },
-        xaxis: { title: "Time" },
-        yaxis: { title: "ppm" },
-        autosize: true
-      }, { responsive: true }).then(() => attachAnnotationHandler("eco2Plot"));
-
-      const tvocColors = tvoc.map(val => {
-        if (val <= 250) return "green";
-        if (val <= 500) return "orange";
-        return "red";
-      });
-
-      var tvoclayout = {
-        title: { text: "🧪 TVOC (ppb)" },
-        xaxis: { title: "Time" },
-        yaxis: { title: "TVOC (ppb)" },
-        yaxis2: {
-          title: "Rate of Change",
-          overlaying: "y",
-          side: "right",
-          showgrid: false
-        },
-        legend: {
-          x: 0.5,
-          y: 1.4,
-          bgcolor: "rgba(0,0,0,0)",
-          orientation: "h",
-          xanchor: 'center',
-          font: { size: 12 }
-        },
-        annotations: eventAnnotations,
-        autosize: true
-      };
-
-      Plotly.newPlot("tvocPlot", [
-        {
-          x: timestamps,
-          y: tvoc,
-          mode: "markers",
-          name: "TVOC",
-          marker: {
-                color: tvoc.map(val =>
-                  val <= 250 ? "green" :
-                  val <= 500 ? "orange" : "red"
-                ),
-                size: 6
-              },
-          customdata: ids,
-          text: annotations,
-          hoverinfo: "x+y+text"
-        },
-        {
-          x: timestamps,
-          y: rollingTVOC,
-          mode: "lines",
-          name: "Rolling Avg (TVOC)",
-          line: { dash: "dash", color: "grey", width: 2 }
-        },
-        {
-          x: timestamps,
-          y: rateOfChange,
-          mode: "lines",
-          name: "Rate of Change (TVOC)",
-          yaxis: "y2",
-          line: { color: "cyan", width: 2 }
-        }
-      ], tvoclayout, { responsive: true }).then(() => attachAnnotationHandler("tvocPlot"));
-
-      const now = new Date();
-      document.getElementById("last-updated").textContent =
-        "Last updated: " + now.toLocaleString();
-    }
-
-    async function fetchHealth() {
-      try {
-        const res = await fetch('/system_health');
-        const stat = await res.json();
-
-        document.getElementById("aht20Status").textContent = stat.AHT20;
-        document.getElementById("aht20Status").className = stat.AHT20 === "OK" ? "ok" : "error";
-
-        document.getElementById("sgp30Status").textContent = stat.SGP30;
-        document.getElementById("sgp30Status").className = stat.SGP30 === "OK" ? "ok" : "error";
-
-        document.getElementById("cpuUsage").textContent = stat.cpu_usage;
-        document.getElementById("memoryUsage").textContent = `${stat.memory_used}/${stat.memory_total} (${stat.memory_percent})`;
-        document.getElementById("uptime").textContent = stat.uptime;
-      } catch (err) {
-        const errorMessage = "Unable to fetch system health.";
-        document.getElementById("aht20Status").textContent = errorMessage;
-        document.getElementById("sgp30Status").textContent = errorMessage;
-        document.getElementById("cpuUsage").textContent = "--";
-        document.getElementById("memoryUsage").textContent = "--";
-        document.getElementById("uptime").textContent = "--";
-      }
-    }
-
-    function downloadCSV() {
-      const range = document.getElementById("range").value;
-      window.open(`/api/download?range=${range}`, "_blank");
-    }
-
-    fetchData();
-    fetchHealth();
-    setInterval(() => {
-      fetchData();
-      fetchHealth();
-    }, 15000);
-
-
-  </script>
-</body>
-</html>
+{% block scripts %}
+  <script type="module" src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+{% endblock %}

@@ -1,58 +1,137 @@
-from flask import Flask, send_file, render_template, jsonify, request
-
+import asyncio
 import csv
-import os
-import time
-import board
 import io
+import logging
+import math
+import os
+import subprocess
+import time
+from datetime import datetime, timedelta
+from threading import Thread
+
+import board
 import busio
+import psutil
 from adafruit_ahtx0 import AHTx0
 from adafruit_sgp30 import Adafruit_SGP30
+from authlib.integrations.flask_client import OAuth
+from flask import (
+    Flask, jsonify, redirect, render_template, request,
+    send_file, session, url_for,
+)
+
 from config import config
+from database.db_logger import (
+    add_annotation, cleanup_old_weather, get_fan_settings, get_latest_weather,
+    get_location, get_sensor_data_by_date, get_unit_rate, get_weather_history,
+    log_sensor_data, log_weather, remove_annotation, save_location, save_unit_rate,
+    update_fan_settings,
+)
+from database.init_db import create_db
+from external_api_interfaces.kasa_smart_plug import KasaSmartPlug
+from external_api_interfaces.open_meteo import OpenMeteoClient
 from sensors.aht20 import read_aht20
 from sensors.sgp30 import read_sgp30
-from database.db_logger import (
-    log_sensor_data, get_sensor_data_by_date, add_annotation, remove_annotation,
-    get_fan_settings, update_fan_settings,
-)
-from datetime import datetime, timedelta
-import psutil
-import subprocess
-from external_api_interfaces.kasa_smart_plug import KasaSmartPlug
-import asyncio
-from threading import Thread
+
+log = logging.getLogger(__name__)
+
+
+def _vpd_kpa(temp_c: float, rh: float) -> float:
+    """
+    Vapour Pressure Deficit using the Tetens formula (same as insights.js).
+
+    VPD (kPa) = SVP × (1 − RH/100)
+    SVP = 0.6108 × exp(17.27 × T / (T + 237.3))   [kPa]
+    """
+    if temp_c is None or rh is None or rh <= 0:
+        return None
+    svp = 0.6108 * math.exp(17.27 * temp_c / (temp_c + 237.3))
+    return round(svp * (1 - rh / 100), 4)
+
 
 app = Flask(
     __name__,
-    template_folder=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "templates")
+    template_folder=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "templates"),
+    static_folder=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "static"),
 )
+
+_PUBLIC_ENDPOINTS = {"login", "logout", "github_login", "github_callback", "static"}
+
+@app.before_request
+def check_auth():
+    """Session guard — active when any auth method is configured."""
+    if (
+        _auth_configured()
+        and request.endpoint not in _PUBLIC_ENDPOINTS
+        and not session.get("logged_in")
+    ):
+        return redirect(url_for("login"))
+    return None
+
 
 LOG_INTERVAL = int(config.get("LOG_INTERVAL", "10"))
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # one level up from mlss_monitor
 FAN_KASA_SMART_PLUG_IP = config.get("FAN_KASA_SMART_PLUG_IP", "192.168.1.63")
+AUTH_USERNAME        = config.get("AUTH_USERNAME", None)
+AUTH_PASSWORD        = config.get("AUTH_PASSWORD", None)
+GITHUB_CLIENT_ID     = config.get("GITHUB_CLIENT_ID", None)
+GITHUB_CLIENT_SECRET = config.get("GITHUB_CLIENT_SECRET", None)
+ALLOWED_GITHUB_USER  = config.get("ALLOWED_GITHUB_USER", None)
+SECRET_KEY           = config.get("SECRET_KEY", "mlss-dev-key-change-me-in-production")
+
+app.secret_key = SECRET_KEY
+
+# ── GitHub OAuth (authlib) ────────────────────────────────────────────────────
+_oauth = OAuth(app)
+github_oauth = None
+if GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET:
+    github_oauth = _oauth.register(
+        name="github",
+        client_id=GITHUB_CLIENT_ID,
+        client_secret=GITHUB_CLIENT_SECRET,
+        access_token_url="https://github.com/login/oauth/access_token",
+        authorize_url="https://github.com/login/oauth/authorize",
+        api_base_url="https://api.github.com/",
+        client_kwargs={"scope": "read:user"},
+    )
+
+open_meteo = OpenMeteoClient()
+
+def _auth_configured():
+    return bool((AUTH_USERNAME and AUTH_PASSWORD) or github_oauth)
+
+@app.context_processor
+def inject_auth_state():
+    return {
+        "auth_enabled":        _auth_configured(),
+        "github_oauth_enabled": bool(github_oauth),
+        "local_auth_enabled":   bool(AUTH_USERNAME and AUTH_PASSWORD),
+        "session_user":         session.get("user", ""),
+    }
 
 # Global variables to store fan state and mode
 fan_mode = "auto"  # Default mode: auto
 fan_state = "off"  # Default state: off
+service_start_time = datetime.utcnow()
 
 i2c = busio.I2C(board.SCL, board.SDA)
 
 try:
     aht20 = AHTx0(i2c)
 except (OSError, ValueError) as e:
-    print(f"Failed to initialize AHT20 sensor (I2C error or device not found): {e}")
+    log.error("Failed to initialize AHT20 sensor: %s", e)
     sgp30 = None
-except Exception as e:
-    print(f"Unexpected error initializing AHT30 sensor: {e}")
+except Exception as e:  # pylint: disable=broad-except
+    log.error("Unexpected error initializing AHT20 sensor: %s", e)
     sgp30 = None
 
 try:
     sgp30 = Adafruit_SGP30(i2c)
 except (OSError, ValueError) as e:
-    print(f"Failed to initialize SGP30 sensor (I2C error or device not found): {e}")
+    log.error("Failed to initialize SGP30 sensor: %s", e)
     sgp30 = None
-except Exception as e:
-    print(f"Unexpected error initializing SGP30 sensor: {e}")
+except Exception as e:  # pylint: disable=broad-except
+    log.error("Unexpected error initializing SGP30 sensor: %s", e)
     sgp30 = None
 
 
@@ -63,26 +142,25 @@ def read_sensors():
     # Read AHT20 sensor data if available
     if aht20:
         try:
-            print("reading aht20")
             temperature, humidity = read_aht20()
-            print(f" temperature and humidity = {temperature}, {humidity}")
-        except Exception as e:
-            print(f"Error reading AHT20 sensor: {e}")
+            log.debug("AHT20: %.1f °C, %.1f %%RH", temperature, humidity)
+        except Exception as e:  # pylint: disable=broad-except
+            log.error("Error reading AHT20 sensor: %s", e)
 
     # Update SGP30 humidity compensation if available
     if sgp30 and humidity > 0:
         try:
             sgp30.set_iaq_relative_humidity(celcius=temperature, relative_humidity=humidity)
-        except Exception as e:
-            print(f"Error setting SGP30 humidity compensation: {e}")
+        except Exception as e:  # pylint: disable=broad-except
+            log.error("Error setting SGP30 humidity compensation: %s", e)
 
     # Read SGP30 sensor data if available
     if sgp30:
         try:
             eco2, tvoc = read_sgp30()
-            print(f"eco2: {eco2}, tvoc: {tvoc}")
-        except Exception as e:
-            print(f"Error reading SGP30 sensor: {e}")
+            log.debug("SGP30: eCO2=%d ppm, TVOC=%d ppb", eco2, tvoc)
+        except Exception as e:  # pylint: disable=broad-except
+            log.error("Error reading SGP30 sensor: %s", e)
 
     # Return the timestamp and sensor data
     return ts, temperature, humidity, eco2, tvoc
@@ -106,7 +184,18 @@ thread.start()
 def log_data():
     global fan_state
     _, temp, hum, eco2, tvoc = read_sensors()
-    log_sensor_data(temp, hum, eco2, tvoc)
+
+    # Read fan power consumption (fire-and-forget friendly; falls back to None)
+    fan_power_w = None
+    try:
+        power_future = asyncio.run_coroutine_threadsafe(fan_smart_plug.get_power(), thread_loop)
+        power_data = power_future.result(timeout=5)
+        fan_power_w = power_data.get("power_w")
+    except Exception as exc:  # pylint: disable=broad-except
+        log.error("[log_data] get_power failed: %s", exc)
+
+    vpd = _vpd_kpa(temp, hum)
+    log_sensor_data(temp, hum, eco2, tvoc, fan_power_w=fan_power_w, vpd_kpa=vpd)
 
     settings = get_fan_settings()
     if settings["enabled"]:
@@ -117,8 +206,55 @@ def log_data():
             else:
                 fan_state = "off"
                 asyncio.run_coroutine_threadsafe(fan_smart_plug.switch(False), thread_loop)
-        except Exception as e:
-            print(f"Error controlling smart plug fan: {e}")
+        except Exception as e:  # pylint: disable=broad-except
+            log.error("Error controlling smart plug fan: %s", e)
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if not AUTH_USERNAME or not AUTH_PASSWORD:
+        return redirect(url_for("dashboard"))  # auth disabled
+    if request.method == "POST":
+        if (request.form.get("username") == AUTH_USERNAME and
+                request.form.get("password") == AUTH_PASSWORD):
+            session["logged_in"] = True
+            return redirect(url_for("dashboard"))
+        return render_template("login.html", error="Invalid username or password")
+    return render_template("login.html", error=None)
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
+
+
+@app.route("/auth/github")
+def github_login():
+    if not github_oauth:
+        return redirect(url_for("login"))
+    redirect_uri = url_for("github_callback", _external=True)
+    return github_oauth.authorize_redirect(redirect_uri)
+
+
+@app.route("/auth/callback")
+def github_callback():
+    if not github_oauth:
+        return redirect(url_for("login"))
+    try:
+        token    = github_oauth.authorize_access_token()
+        userinfo = github_oauth.get("user", token=token).json()
+        username = userinfo.get("login", "")
+    except Exception as e:
+        app.logger.error(f"GitHub OAuth callback error: {e}")
+        return render_template("login.html", error="GitHub authentication failed. Please try again.")
+
+    if ALLOWED_GITHUB_USER and username.lower() != ALLOWED_GITHUB_USER.lower():
+        return render_template("login.html", error=f"GitHub user '{username}' is not authorised.")
+
+    session["logged_in"] = True
+    session["user"]      = username
+    return redirect(url_for("dashboard"))
+
 
 @app.route("/")
 def dashboard():
@@ -194,8 +330,19 @@ def get_fan_state():
 
         # Schedule the get_state coroutine in the thread's event loop
         state_task = asyncio.run_coroutine_threadsafe(fan_smart_plug.get_state(), thread_loop)
-        plug_state = state_task.result()  # Wait for the state retrieval to complete
+        plug_state = state_task.result()
 
+        # Append power data if available
+        try:
+            power_task = asyncio.run_coroutine_threadsafe(fan_smart_plug.get_power(), thread_loop)
+            plug_state.update(power_task.result(timeout=5))
+        except Exception as exc:
+            log.error("[get_fan_state] get_power failed: %s", exc)
+            plug_state["power_w"] = None
+            plug_state["today_kwh"] = None
+
+        plug_state["mode"] = fan_mode
+        plug_state["unit_rate_pence"] = get_unit_rate()
         return jsonify(plug_state), 200
     except Exception as e:
         return jsonify({"error": f"Error retrieving fan state: {str(e)}"}), 500
@@ -230,6 +377,8 @@ def get_data():
                 "eco2": row[4],
                 "tvoc": row[5],
                 "annotation": row[6],
+                "fan_power_w": row[7] if len(row) > 7 else None,
+                "vpd_kpa": row[8] if len(row) > 8 else None,
             }
             for row in rows
         ]
@@ -325,14 +474,149 @@ def system_health():
 
     cpu_percent = psutil.cpu_percent(interval=0.5)
     memory = psutil.virtual_memory()
+    disk = psutil.disk_usage("/")
 
     status["uptime"] = uptime_str
+    service_uptime = datetime.utcnow() - service_start_time
+    status["service_uptime"] = str(timedelta(seconds=int(service_uptime.total_seconds())))
     status["cpu_usage"] = f"{cpu_percent:.1f}%"
     status["memory_used"] = f"{memory.used // (1024 ** 2)} MB"
     status["memory_total"] = f"{memory.total // (1024 ** 2)} MB"
     status["memory_percent"] = f"{memory.percent:.1f}%"
+    status["disk_used"] = f"{disk.used // (1024 ** 3):.1f} GB"
+    status["disk_total"] = f"{disk.total // (1024 ** 3):.1f} GB"
+    status["disk_percent"] = f"{disk.percent:.1f}%"
+
+    # DB file size
+    db_path = config.get("DB_FILE", "data/sensor_data.db")
+    try:
+        db_bytes = os.path.getsize(db_path)
+        if db_bytes >= 1024 ** 2:
+            status["db_size"] = f"{db_bytes / (1024 ** 2):.1f} MB"
+        else:
+            status["db_size"] = f"{db_bytes / 1024:.1f} KB"
+    except OSError:
+        status["db_size"] = "Unknown"
+
+    # Smart plug connectivity
+    try:
+        future = asyncio.run_coroutine_threadsafe(fan_smart_plug.plug.update(), thread_loop)
+        future.result(timeout=5)
+        status["smart_plug"] = "OK"
+    except Exception:
+        status["smart_plug"] = "UNAVAILABLE"
 
     return jsonify(status)
+
+
+@app.route("/api/settings/location", methods=["GET"])
+def get_location_route():
+    return jsonify(get_location())
+
+
+@app.route("/api/settings/location", methods=["POST"])
+def save_location_route():
+    data = request.get_json()
+    save_location(data.get("lat"), data.get("lon"), data.get("name", ""))
+    return jsonify({"message": "Location saved"})
+
+
+@app.route("/api/settings/energy", methods=["GET"])
+def get_energy_settings_route():
+    return jsonify({"unit_rate_pence": get_unit_rate()})
+
+
+@app.route("/api/settings/energy", methods=["POST"])
+def save_energy_settings_route():
+    data = request.get_json()
+    try:
+        rate = float(data.get("unit_rate_pence", 0))
+    except (TypeError, ValueError):
+        return jsonify({"error": "unit_rate_pence must be a number"}), 400
+    save_unit_rate(rate)
+    return jsonify({"message": "Energy rate saved"})
+
+
+@app.route("/history")
+def history_page():
+    return render_template("history.html")
+
+
+@app.route("/controls")
+def controls_page():
+    return render_template("controls.html")
+
+
+@app.route("/api/weather/forecast/daily")
+def daily_forecast_route():
+    loc = get_location()
+    if not loc or loc.get("lat") is None:
+        return jsonify({"error": "Location not configured"}), 404
+    try:
+        return jsonify(open_meteo.get_daily_forecast(loc["lat"], loc["lon"]))
+    except Exception as e:  # pylint: disable=broad-except
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/weather/history")
+def weather_history_route():
+    range_param = request.args.get("range", "24h")
+    now = datetime.utcnow()
+    range_map = {
+        "15m": timedelta(minutes=15),
+        "1h":  timedelta(hours=1),
+        "6h":  timedelta(hours=6),
+        "12h": timedelta(hours=12),
+        "24h": timedelta(hours=24),
+    }
+    since = now - range_map.get(range_param, timedelta(hours=24))
+    return jsonify(get_weather_history(since.isoformat()))
+
+
+@app.route("/api/geocode")
+def geocode_route():
+    q = request.args.get("q", "").strip()
+    if not q:
+        return jsonify([])
+    try:
+        return jsonify(open_meteo.geocode(q))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/weather/forecast")
+def forecast_route():
+    loc = get_location()
+    if not loc or loc.get("lat") is None:
+        return jsonify({"error": "Location not configured"}), 404
+    try:
+        return jsonify(open_meteo.get_forecast(loc["lat"], loc["lon"]))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/weather")
+def weather_route():
+    loc = get_location()
+    if not loc or loc.get("lat") is None:
+        return jsonify({"error": "Location not configured"}), 404
+
+    # Serve from DB cache if a reading is < 90 minutes old
+    cached = get_latest_weather(max_age_minutes=90)
+    if cached:
+        cached["location"] = loc["name"]
+        cached["source"] = "Open-Meteo (cached)"
+        return jsonify(cached)
+
+    # Fetch fresh from Open-Meteo
+    try:
+        w = open_meteo.get_current_weather(loc["lat"], loc["lon"])
+        log_weather(w["temp"], w["humidity"], w["feels_like"], w["wind_speed"], w["weather_code"], w["uv_index"])
+        cleanup_old_weather(days=7)
+        w["location"] = loc["name"]
+        return jsonify(w)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 def _background_log():
@@ -340,13 +624,45 @@ def _background_log():
     while True:
         try:
             log_data()
-        except Exception as e:
-            print(f"Error in background log loop: {e}")
+        except Exception as e:  # pylint: disable=broad-except
+            log.error("Error in background log loop: %s", e)
         time.sleep(LOG_INTERVAL)
 
 
+def _weather_log_loop():
+    """Log outdoor weather once per hour; purge rows older than 7 days."""
+    time.sleep(30)  # let app fully start before first fetch
+    while True:
+        try:
+            loc = get_location()
+            if loc and loc.get("lat") is not None:
+                w = open_meteo.get_current_weather(loc["lat"], loc["lon"])
+                log_weather(w["temp"], w["humidity"], w["feels_like"],
+                            w["wind_speed"], w["weather_code"], w["uv_index"])
+                cleanup_old_weather(days=7)
+                log.info("Weather logged: %.1f°C, %d%%RH", w["temp"], w["humidity"])
+        except Exception as e:  # pylint: disable=broad-except
+            log.error("Weather log error: %s", e)
+        time.sleep(3600)  # every hour
+
+
 def main():
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    create_db()
+    if github_oauth:
+        log.info("🔒 Auth ENABLED — GitHub OAuth (allowed user: %s)",
+                 ALLOWED_GITHUB_USER or "any")
+    elif AUTH_USERNAME and AUTH_PASSWORD:
+        log.info("🔒 Auth ENABLED — local login (user: %s)", AUTH_USERNAME)
+    else:
+        log.warning("⚠️  Auth DISABLED — configure MLSS_GITHUB_CLIENT_ID "
+                    "or MLSS_AUTH_USERNAME in .env")
     Thread(target=_background_log, daemon=True).start()
+    Thread(target=_weather_log_loop, daemon=True).start()
     app.run(host="0.0.0.0", port=5000)
 
 if __name__ == "__main__":

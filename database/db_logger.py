@@ -1,28 +1,31 @@
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from config import config
 
 DB_FILE = config.get("DB_FILE", "data/sensor_data.db")
 
 
-def log_sensor_data(temp, hum, eco2, tvoc, annotation=None):
+def log_sensor_data(temp, hum, eco2, tvoc, annotation=None, fan_power_w=None, vpd_kpa=None):
     """
     Log sensor data into the SQLite database.
-    :param temp:
-    :param hum:
-    :param eco2:
-    :param tvoc:
-    :param annotation:
-    :return:
+
+    :param temp: temperature in °C
+    :param hum: relative humidity in %
+    :param eco2: equivalent CO₂ in ppm
+    :param tvoc: total VOC in ppb
+    :param annotation: optional text annotation
+    :param fan_power_w: current fan power consumption in watts (None if unavailable)
+    :param vpd_kpa: vapour pressure deficit in kPa (None falls back to NULL in DB)
     """
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
 
     cur.execute("""
-        INSERT INTO sensor_data (timestamp, temperature, humidity, eco2, tvoc, annotation)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (datetime.utcnow().isoformat(), temp, hum, eco2, tvoc, annotation))
+        INSERT INTO sensor_data
+            (timestamp, temperature, humidity, eco2, tvoc, annotation, fan_power_w, vpd_kpa)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (datetime.utcnow().isoformat(), temp, hum, eco2, tvoc, annotation, fan_power_w, vpd_kpa))
 
     conn.commit()
     conn.close()
@@ -138,6 +141,129 @@ def get_fan_settings():
         "temp_max": row[3],
         "enabled": bool(row[4]),
     }
+
+
+def log_weather(temp, humidity, feels_like, wind_speed, weather_code, uv_index):
+    """Store one hourly weather snapshot."""
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO weather_log (timestamp, temp, humidity, feels_like, wind_speed, weather_code, uv_index)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (datetime.utcnow().isoformat(), temp, humidity, feels_like, wind_speed, weather_code, uv_index))
+    conn.commit()
+    conn.close()
+
+
+def get_latest_weather(max_age_minutes: int = 90):
+    """Return the most recent weather row if it is newer than max_age_minutes, else None."""
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    since = (datetime.utcnow() - timedelta(minutes=max_age_minutes)).isoformat()
+    cur.execute("""
+        SELECT temp, humidity, feels_like, wind_speed, weather_code, uv_index, timestamp
+        FROM weather_log
+        WHERE timestamp >= ?
+        ORDER BY timestamp DESC
+        LIMIT 1
+    """, (since,))
+    row = cur.fetchone()
+    conn.close()
+    if row is None:
+        return None
+    return {
+        "temp": row[0], "humidity": row[1], "feels_like": row[2],
+        "wind_speed": row[3], "weather_code": row[4], "uv_index": row[5],
+        "fetched_at": row[6],
+    }
+
+
+def get_weather_history(since_iso: str) -> list:
+    """Return weather_log rows newer than since_iso, oldest first."""
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT timestamp, temp, humidity, feels_like, wind_speed, weather_code, uv_index
+        FROM weather_log
+        WHERE timestamp >= ?
+        ORDER BY timestamp ASC
+    """, (since_iso,))
+    rows = cur.fetchall()
+    conn.close()
+    return [
+        {
+            "timestamp": r[0], "temp": r[1], "humidity": r[2],
+            "feels_like": r[3], "wind_speed": r[4],
+            "weather_code": r[5], "uv_index": r[6],
+        }
+        for r in rows
+    ]
+
+
+def cleanup_old_weather(days: int = 7):
+    """Delete weather rows older than `days` days."""
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+    cur.execute("DELETE FROM weather_log WHERE timestamp < ?", (cutoff,))
+    conn.commit()
+    conn.close()
+
+
+def get_location():
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    cur.execute("SELECT key, value FROM app_settings WHERE key IN ('location_lat','location_lon','location_name')")
+    rows = {r[0]: r[1] for r in cur.fetchall()}
+    conn.close()
+    lat = rows.get("location_lat")
+    lon = rows.get("location_lon")
+    return {
+        "lat": float(lat) if lat else None,
+        "lon": float(lon) if lon else None,
+        "name": rows.get("location_name", ""),
+    }
+
+
+def save_location(lat, lon, name=""):
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    upsert = (
+        "INSERT INTO app_settings (key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value"
+    )
+    for key, val in [("location_lat", str(lat)), ("location_lon", str(lon)), ("location_name", name)]:
+        cur.execute(upsert, (key, val))
+    conn.commit()
+    conn.close()
+
+
+def get_unit_rate() -> float | None:
+    """Return the energy unit rate in p/kWh, or None if not set."""
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    cur.execute("SELECT value FROM app_settings WHERE key = 'energy_unit_rate_pence'")
+    row = cur.fetchone()
+    conn.close()
+    if row is None:
+        return None
+    try:
+        return float(row[0])
+    except (TypeError, ValueError):
+        return None
+
+
+def save_unit_rate(rate_pence: float) -> None:
+    """Upsert the energy unit rate (p/kWh) in app_settings."""
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO app_settings (key, value) VALUES ('energy_unit_rate_pence', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (str(rate_pence),),
+    )
+    conn.commit()
+    conn.close()
 
 
 def update_fan_settings(tvoc_min, tvoc_max, temp_min, temp_max, enabled):

@@ -1,172 +1,16 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MLSS – Fan Settings</title>
-  <style>
-    *, *::before, *::after { box-sizing: border-box; }
+{% extends "base.html" %}
 
-    body {
-      font-family: Arial, sans-serif;
-      background-color: #121212;
-      color: #fff;
-      margin: 0;
-      padding: 1em;
-    }
+{% block title %}MLSS – Settings{% endblock %}
 
-    /* ── Top bar ── */
-    .top-bar {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      flex-wrap: wrap;
-      margin-bottom: 1.5em;
-      border-bottom: 1px solid #333;
-      padding-bottom: 0.75em;
-    }
-    .top-bar h2 { margin: 0; font-size: 1.4em; }
-    .top-bar a {
-      color: #aaa;
-      font-size: 0.9em;
-      text-decoration: none;
-    }
-    .top-bar a:hover { color: #fff; }
+{% block extra_css %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+{% endblock %}
 
-    /* ── Card ── */
-    .card {
-      background-color: #1e1e1e;
-      border: 1px solid #444;
-      border-radius: 8px;
-      padding: 1.5em;
-      max-width: 480px;
-    }
-    .card h3 {
-      margin: 0 0 1.2em;
-      font-size: 1.1em;
-      color: #ccc;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      border-bottom: 1px solid #333;
-      padding-bottom: 0.5em;
-    }
+{% block topbar_controls %}
+  <a href="/">← Back to dashboard</a>
+{% endblock %}
 
-    /* ── Form layout ── */
-    .field-group {
-      margin-bottom: 1.2em;
-    }
-    .field-group legend {
-      font-size: 0.8em;
-      color: #999;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      margin-bottom: 0.5em;
-      display: block;
-    }
-    .field-row {
-      display: flex;
-      gap: 1em;
-    }
-    .field {
-      flex: 1;
-    }
-    .field label {
-      display: block;
-      font-size: 0.85em;
-      color: #bbb;
-      margin-bottom: 0.25em;
-    }
-    .field input[type="number"] {
-      width: 100%;
-      padding: 0.45em 0.6em;
-      background: #2a2a2a;
-      color: #fff;
-      border: 1px solid #555;
-      border-radius: 4px;
-      font-size: 0.95em;
-    }
-    .field input[type="number"]:focus {
-      outline: none;
-      border-color: #2a7aff;
-    }
-
-    /* ── Toggle switch ── */
-    .toggle-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      background: #2a2a2a;
-      border: 1px solid #555;
-      border-radius: 6px;
-      padding: 0.6em 0.8em;
-      margin-bottom: 1.4em;
-    }
-    .toggle-row span {
-      font-size: 0.95em;
-      color: #ddd;
-    }
-    .switch {
-      position: relative;
-      display: inline-block;
-      width: 44px;
-      height: 24px;
-      flex-shrink: 0;
-    }
-    .switch input { display: none; }
-    .slider {
-      position: absolute;
-      inset: 0;
-      background: #555;
-      border-radius: 24px;
-      cursor: pointer;
-      transition: background 0.2s;
-    }
-    .slider::before {
-      content: "";
-      position: absolute;
-      width: 18px;
-      height: 18px;
-      left: 3px;
-      top: 3px;
-      background: #fff;
-      border-radius: 50%;
-      transition: transform 0.2s;
-    }
-    .switch input:checked + .slider { background: #2a7aff; }
-    .switch input:checked + .slider::before { transform: translateX(20px); }
-
-    /* ── Button ── */
-    .btn-save {
-      width: 100%;
-      padding: 0.6em;
-      background: #2a7aff;
-      color: #fff;
-      border: none;
-      border-radius: 5px;
-      font-size: 1em;
-      cursor: pointer;
-      transition: background 0.2s;
-    }
-    .btn-save:hover { background: #1a5fcc; }
-    .btn-save:active { background: #144db0; }
-
-    /* ── Status message ── */
-    #status {
-      margin-top: 0.9em;
-      font-size: 0.9em;
-      min-height: 1.2em;
-      text-align: center;
-    }
-    .status-ok  { color: #7dff7d; }
-    .status-err { color: #ff6b6b; }
-  </style>
-</head>
-<body>
-
-  <div class="top-bar">
-    <h2>MLSS</h2>
-    <a href="/">← Back to dashboard</a>
-  </div>
+{% block content %}
 
   <div class="card">
     <h3>🌀 Auto Fan Settings</h3>
@@ -215,6 +59,59 @@
     <p id="status"></p>
   </div>
 
+  <!-- Energy rate card -->
+  <div class="card">
+    <h3>⚡ Energy Rate</h3>
+    <p class="card-desc">Used to calculate estimated fan running costs from daily kWh usage.</p>
+    <div class="field-group">
+      <legend>Unit rate</legend>
+      <div class="field-row">
+        <div class="field">
+          <label for="unitRate">Rate (p/kWh)</label>
+          <input type="number" id="unitRate" min="0" step="0.01" placeholder="e.g. 28.50">
+        </div>
+      </div>
+    </div>
+    <button class="btn-save" type="button" onclick="saveEnergyRate()">Save rate</button>
+    <p id="energyStatus"></p>
+  </div>
+
+  <!-- Location card -->
+  <div class="card location-card">
+    <h3>📍 Location</h3>
+    <p class="card-desc">Used to fetch outdoor weather data for comparison insights on the dashboard.</p>
+
+    <div class="field-group">
+      <legend>Search for a location</legend>
+      <div class="search-row">
+        <input type="text" id="locationSearch" placeholder="e.g. London or a postcode">
+        <button class="btn-search" type="button" onclick="searchLocation()">Find</button>
+      </div>
+      <ul class="search-results" id="searchResults"></ul>
+    </div>
+
+    <div class="field-group">
+      <legend>Selected location</legend>
+      <p class="selected-name" id="selectedName">None saved</p>
+      <div class="field-row">
+        <div class="field">
+          <label for="locLat">Latitude</label>
+          <input type="number" id="locLat" step="0.0001" placeholder="e.g. 51.5074">
+        </div>
+        <div class="field">
+          <label for="locLon">Longitude</label>
+          <input type="number" id="locLon" step="0.0001" placeholder="e.g. -0.1278">
+        </div>
+      </div>
+    </div>
+
+    <button class="btn-save" type="button" onclick="saveLocation()">Save location</button>
+    <p id="locStatus"></p>
+  </div>
+
+{% endblock %}
+
+{% block scripts %}
   <script>
     const statusEl = document.getElementById("status");
 
@@ -260,6 +157,95 @@
     });
 
     loadSettings();
+
+    // ── Energy rate ──────────────────────────────────────────────────────────
+    const energyStatusEl = document.getElementById("energyStatus");
+
+    async function loadEnergyRate() {
+      try {
+        const res = await fetch("/api/settings/energy");
+        const d = await res.json();
+        if (d.unit_rate_pence != null) {
+          document.getElementById("unitRate").value = d.unit_rate_pence;
+        }
+      } catch {}
+    }
+
+    async function saveEnergyRate() {
+      const rate = parseFloat(document.getElementById("unitRate").value);
+      if (isNaN(rate) || rate < 0) {
+        energyStatusEl.textContent = "Enter a valid rate (e.g. 28.50).";
+        energyStatusEl.className = "status-err";
+        return;
+      }
+      const res = await fetch("/api/settings/energy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ unit_rate_pence: rate }),
+      });
+      const d = await res.json();
+      energyStatusEl.textContent = d.message || d.error;
+      energyStatusEl.className = res.ok ? "status-ok" : "status-err";
+    }
+
+    loadEnergyRate();
+
+    // ── Location ─────────────────────────────────────────────────────────────
+    const locStatusEl = document.getElementById("locStatus");
+
+    async function loadLocation() {
+      try {
+        const res = await fetch("/api/settings/location");
+        if (!res.ok) return;
+        const d = await res.json();
+        if (d.name) {
+          document.getElementById("selectedName").textContent = d.name;
+          document.getElementById("locLat").value = d.lat ?? "";
+          document.getElementById("locLon").value = d.lon ?? "";
+        }
+      } catch {}
+    }
+
+    async function searchLocation() {
+      const q = document.getElementById("locationSearch").value.trim();
+      if (!q) return;
+      const res = await fetch(`/api/geocode?q=${encodeURIComponent(q)}`);
+      const results = await res.json();
+      const ul = document.getElementById("searchResults");
+      ul.innerHTML = "";
+      if (!results.length) { ul.innerHTML = "<li class='no-result'>No results found</li>"; return; }
+      results.forEach(r => {
+        const li = document.createElement("li");
+        li.textContent = r.display;
+        li.onclick = () => {
+          document.getElementById("locLat").value = r.lat;
+          document.getElementById("locLon").value = r.lon;
+          document.getElementById("selectedName").textContent = r.display;
+          ul.innerHTML = "";
+          document.getElementById("locationSearch").value = "";
+        };
+        ul.appendChild(li);
+      });
+    }
+
+    async function saveLocation() {
+      const lat  = parseFloat(document.getElementById("locLat").value);
+      const lon  = parseFloat(document.getElementById("locLon").value);
+      const name = document.getElementById("selectedName").textContent;
+      if (isNaN(lat) || isNaN(lon)) { locStatusEl.textContent = "Enter valid coordinates."; locStatusEl.className = "status-err"; return; }
+      const res = await fetch("/api/settings/location", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lat, lon, name }),
+      });
+      const d = await res.json();
+      locStatusEl.textContent = d.message || d.error;
+      locStatusEl.className = res.ok ? "status-ok" : "status-err";
+    }
+
+    // Allow pressing Enter in search box
+    document.getElementById("locationSearch").addEventListener("keydown", e => { if (e.key === "Enter") searchLocation(); });
+
+    loadLocation();
   </script>
-</body>
-</html>
+{% endblock %}

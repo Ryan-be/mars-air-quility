@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+
+{% block title %}MLSS – Controls{% endblock %}
+
+{% block extra_css %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/controls.css') }}">
+{% endblock %}
+
+{% block topbar_controls %}
+  <label class="theme-switch" title="Toggle light/dark mode">
+    <input type="checkbox" id="themeToggle" onchange="toggleTheme()">
+    <span class="ts-track"></span>
+    <span class="ts-label">Light</span>
+  </label>
+{% endblock %}
+
+{% block content %}
+
+  <div class="section-heading">⚙️ Devices</div>
+  <div class="devices-grid">
+
+    <div class="device-card" id="fanDeviceCard">
+      <div class="device-header">
+        <span class="device-icon">🌀</span>
+        <div class="device-title">
+          <h3>Fan</h3>
+          <span class="device-subtitle">Kasa smart plug</span>
+        </div>
+        <span class="status-dot" id="fanStatusDot"></span>
+      </div>
+      <div class="device-controls">
+        <button class="btn-on"   onclick="setFanControl('on')">On</button>
+        <button class="btn-off"  onclick="setFanControl('off')">Off</button>
+        <button class="btn-auto" onclick="setFanControl('auto')">Auto</button>
+      </div>
+      <div class="device-meta">
+        <div class="meta-item">
+          <span class="meta-label">Status</span>
+          <strong id="fan-status">--</strong>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">Mode</span>
+          <strong id="fan-mode">--</strong>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">Power</span>
+          <strong id="fan-power">--</strong>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">Today</span>
+          <strong id="fan-today">--</strong>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">Est. cost</span>
+          <strong id="fan-cost">--</strong>
+        </div>
+      </div>
+    </div>
+
+    <!-- Add new device cards here -->
+
+  </div>
+
+{% endblock %}
+
+{% block scripts %}
+  <script type="module" src="{{ url_for('static', filename='js/controls.js') }}"></script>
+{% endblock %}
