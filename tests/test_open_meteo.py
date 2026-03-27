@@ -11,6 +11,8 @@ Coverage:
   - Graceful fallback when postcodes.io raises a network error
   - get_current_weather() happy path
   - get_current_weather() propagates network errors (caller should wrap)
+  - get_forecast() returns next N hours starting from current hour
+  - get_forecast() propagates network errors
   - Regex patterns accept / reject representative strings
 """
 import json
@@ -242,3 +244,82 @@ class TestGetCurrentWeather:
         })
         w = client.get_current_weather(53.726, -1.500)
         assert w["uv_index"] is None  # .get() returns None for missing keys
+
+
+# --------------------------------------------------------------------------- #
+# 24-hour forecast
+# --------------------------------------------------------------------------- #
+
+def _make_forecast_response(start_hour: int = 12, count: int = 48) -> dict:
+    """Build a synthetic Open-Meteo hourly forecast payload."""
+    times, temps, precips, codes, winds = [], [], [], [], []
+    for i in range(count):
+        h = (start_hour + i) % 24
+        day_offset = (start_hour + i) // 24
+        times.append(f"2024-06-15T{h:02d}:00" if day_offset == 0
+                     else f"2024-06-16T{h:02d}:00")
+        temps.append(14.0 + i * 0.1)
+        precips.append(i % 100)
+        codes.append(1)
+        winds.append(8.0)
+    return {
+        "hourly": {
+            "time":                        times,
+            "temperature_2m":              temps,
+            "precipitation_probability":   precips,
+            "weather_code":                codes,
+            "wind_speed_10m":              winds,
+        }
+    }
+
+
+class TestGetForecast:
+
+    @patch("urllib.request.urlopen")
+    def test_returns_list_of_hour_dicts(self, mock_open, client):
+        mock_open.return_value = _urlopen_ctx(_make_forecast_response())
+        # Patch datetime so "now" lands at 12:00 and all entries are >= now
+        with patch(
+            "external_api_interfaces.open_meteo.datetime"
+        ) as mock_dt:
+            mock_dt.now.return_value.strftime.return_value = "2024-06-15T12:00"
+            result = client.get_forecast(53.726, -1.500, hours=24)
+
+        assert "hours" in result
+        hours = result["hours"]
+        assert len(hours) == 24
+        first = hours[0]
+        assert "time"         in first
+        assert "temp"         in first
+        assert "precip_prob"  in first
+        assert "weather_code" in first
+        assert "wind_speed"   in first
+
+    @patch("urllib.request.urlopen")
+    def test_time_format_is_HH_MM(self, mock_open, client):
+        mock_open.return_value = _urlopen_ctx(_make_forecast_response(start_hour=8))
+        with patch(
+            "external_api_interfaces.open_meteo.datetime"
+        ) as mock_dt:
+            mock_dt.now.return_value.strftime.return_value = "2024-06-15T08:00"
+            result = client.get_forecast(53.726, -1.500, hours=1)
+
+        assert result["hours"][0]["time"] == "08:00"
+
+    @patch("urllib.request.urlopen")
+    def test_request_url_contains_lat_lon(self, mock_open, client):
+        mock_open.return_value = _urlopen_ctx(_make_forecast_response())
+        with patch("external_api_interfaces.open_meteo.datetime") as mock_dt:
+            mock_dt.now.return_value.strftime.return_value = "2024-06-15T00:00"
+            client.get_forecast(53.726, -1.500)
+        called_url = mock_open.call_args[0][0]
+        assert "53.726" in called_url
+        assert "-1.5"   in called_url
+        assert "hourly" in called_url
+
+    @patch("urllib.request.urlopen")
+    def test_network_error_propagates(self, mock_open, client):
+        """Callers must wrap in try/except — the client does not swallow errors."""
+        mock_open.side_effect = OSError("unreachable")
+        with pytest.raises(OSError):
+            client.get_forecast(53.726, -1.500)

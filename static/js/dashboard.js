@@ -1,5 +1,5 @@
 import { toggleTheme } from './theme.js';
-import { updateInsights, updateWeather } from './insights.js';
+import { updateInsights, updateWeather, updateForecast } from './insights.js';
 import { renderCharts } from './charts.js';
 import { setFanControl, fetchFanStatus } from './fan.js';
 import { fetchHealth } from './health.js';
@@ -104,10 +104,22 @@ async function fetchWeather() {
   }
 }
 
+// ── Forecast fetch ────────────────────────────────────────────────────────────
+async function fetchForecast() {
+  try {
+    const res = await fetch("/api/weather/forecast");
+    if (!res.ok) return;
+    const data = await res.json();
+    updateForecast(data.hours);
+  } catch { /* location not set or offline — strip stays hidden */ }
+}
+
 // ── Boot ─────────────────────────────────────────────────────────────────────
 fetchData();
 fetchHealth();
 fetchFanStatus();
 fetchWeather();
+fetchForecast();
 setInterval(() => { fetchData(); fetchHealth(); fetchFanStatus(); }, 15000);
-setInterval(fetchWeather, 5 * 60 * 1000);  // weather every 5 minutes
+setInterval(fetchWeather,   5 * 60 * 1000);   // current weather every 5 min
+setInterval(fetchForecast,  60 * 60 * 1000);  // forecast every hour

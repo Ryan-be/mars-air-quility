@@ -505,6 +505,17 @@ def geocode_route():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/weather/forecast")
+def forecast_route():
+    loc = get_location()
+    if not loc or loc.get("lat") is None:
+        return jsonify({"error": "Location not configured"}), 404
+    try:
+        return jsonify(open_meteo.get_forecast(loc["lat"], loc["lon"]))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/weather")
 def weather_route():
     loc = get_location()

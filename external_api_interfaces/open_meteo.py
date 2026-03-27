@@ -20,6 +20,7 @@ import json
 import re
 import urllib.request
 import urllib.parse
+from datetime import datetime
 
 # --------------------------------------------------------------------------- #
 # UK postcode patterns
@@ -133,6 +134,68 @@ class OpenMeteoClient:
             ]
         except Exception:
             return []
+
+    # ------------------------------------------------------------------ #
+    # Hourly forecast
+    # ------------------------------------------------------------------ #
+
+    def get_forecast(self, lat: float, lon: float, hours: int = 24,
+                     timeout: int = 8) -> dict:
+        """
+        Fetch hourly forecast from Open-Meteo for the next ``hours`` hours,
+        starting from the current hour in the location's local timezone.
+
+        Returns::
+
+            {
+                "hours": [
+                    {
+                        "time":         "14:00",
+                        "temp":         12.5,
+                        "precip_prob":  30,
+                        "weather_code": 2,
+                        "wind_speed":   8.3,
+                    },
+                    ...
+                ]
+            }
+
+        Raises ``urllib.error.URLError`` on network failure.
+        """
+        url = (
+            f"{self.FORECAST_URL}"
+            f"?latitude={lat}&longitude={lon}"
+            f"&hourly=temperature_2m,precipitation_probability,"
+            f"weather_code,wind_speed_10m"
+            f"&wind_speed_unit=mph&temperature_unit=celsius"
+            f"&forecast_days=2&timezone=auto"
+        )
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            d = json.loads(resp.read())
+
+        times   = d["hourly"]["time"]            # "YYYY-MM-DDTHH:MM"
+        temps   = d["hourly"]["temperature_2m"]
+        precips = d["hourly"]["precipitation_probability"]
+        codes   = d["hourly"]["weather_code"]
+        winds   = d["hourly"]["wind_speed_10m"]
+
+        now_str = datetime.now().strftime("%Y-%m-%dT%H:00")
+        try:
+            start = next(i for i, t in enumerate(times) if t >= now_str)
+        except StopIteration:
+            start = 0
+
+        result = []
+        for i in range(start, min(start + hours, len(times))):
+            result.append({
+                "time":         times[i][11:16],   # "HH:MM"
+                "temp":         temps[i],
+                "precip_prob":  precips[i],
+                "weather_code": codes[i],
+                "wind_speed":   winds[i],
+            })
+
+        return {"hours": result}
 
     # ------------------------------------------------------------------ #
     # Current weather

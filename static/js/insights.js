@@ -45,6 +45,19 @@ export function co2Alert(eco2) {
   return                   { label: "Dangerous", cls: "danger",   sub: "Evacuate or ventilate now" };
 }
 
+// ── WMO helpers ───────────────────────────────────────────────────────────────
+const WMO_EMOJI = {
+  0: "☀️",  1: "🌤️", 2: "⛅",  3: "☁️",
+  45: "🌫️", 48: "🌫️",
+  51: "🌦️", 53: "🌦️", 55: "🌧️",
+  61: "🌧️", 63: "🌧️", 65: "🌧️",
+  71: "❄️",  73: "❄️",  75: "❄️",
+  77: "🌨️",
+  80: "🌦️", 81: "🌦️", 82: "⛈️",
+  85: "❄️",  86: "❄️",
+  95: "⛈️", 96: "⛈️", 99: "⛈️",
+};
+
 // ── WMO weather code descriptions ─────────────────────────────────────────────
 const WMO = {
   0:"Clear sky", 1:"Mainly clear", 2:"Partly cloudy", 3:"Overcast",
@@ -108,6 +121,28 @@ export function updateWeather(w, indoorTemp, indoorHum) {
   } else {
     ventEl.textContent = "--"; ventEl.className = "value neutral"; ventSub.textContent = "Awaiting data";
   }
+}
+
+// ── Forecast strip ─────────────────────────────────────────────────────────────
+export function updateForecast(hours) {
+  const strip = document.getElementById("forecastStrip");
+  if (!strip) return;
+  if (!hours || !hours.length) { strip.innerHTML = ""; return; }
+
+  strip.innerHTML = hours.map(h => {
+    const icon  = WMO_EMOJI[h.weather_code] ?? "🌡️";
+    const temp  = h.temp  != null ? `${Math.round(h.temp)}°` : "--";
+    const rain  = h.precip_prob != null
+      ? `<div class="fc-rain">💧 ${h.precip_prob}%</div>`
+      : "";
+    return `
+      <div class="forecast-slot">
+        <div class="fc-time">${h.time}</div>
+        <div class="fc-icon">${icon}</div>
+        <div class="fc-temp">${temp}</div>
+        ${rain}
+      </div>`;
+  }).join("");
 }
 
 export function updateInsights(temp, hum, tvoc, eco2, eco2Series) {
