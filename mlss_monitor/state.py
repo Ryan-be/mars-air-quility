@@ -20,9 +20,7 @@ open_meteo = None
 # Config values (set by app.py)
 service_start_time = None
 
-# Auth
-AUTH_USERNAME = None
-AUTH_PASSWORD = None
+# Auth (GitHub OAuth)
 GITHUB_CLIENT_ID = None
 GITHUB_CLIENT_SECRET = None
 ALLOWED_GITHUB_USER = None

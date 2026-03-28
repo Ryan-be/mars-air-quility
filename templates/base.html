@@ -13,7 +13,14 @@
     <h2>🚀 MLSS</h2>
     {% block topbar_controls %}{% endblock %}
     {% if auth_enabled %}
-      {% if session_user %}<span class="session-user">{{ session_user }}</span>{% endif %}
+      {% if session_user %}
+        <span class="session-user">
+          {{ session_user }}
+          {% if session_role %}
+            <span class="role-badge role-{{ session_role }}">{{ session_role }}</span>
+          {% endif %}
+        </span>
+      {% endif %}
       <a href="/logout" class="btn btn-logout">Sign out</a>
     {% endif %}
   </div>
@@ -22,7 +29,9 @@
     <a href="/" class="{{ 'nav-active' if request.path == '/' else '' }}">📊 Dashboard</a>
     <a href="/history" class="{{ 'nav-active' if request.path == '/history' else '' }}">📈 History</a>
     <a href="/controls" class="{{ 'nav-active' if request.path == '/controls' else '' }}">⚙️ Controls</a>
-    <a href="/admin" class="{{ 'nav-active' if request.path == '/admin' else '' }}">🔧 Settings</a>
+    {% if session_role == 'admin' %}
+      <a href="/admin" class="{{ 'nav-active' if request.path == '/admin' else '' }}">🔧 Settings</a>
+    {% endif %}
   </nav>
 
   {% block content %}{% endblock %}

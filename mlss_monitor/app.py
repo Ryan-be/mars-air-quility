@@ -52,8 +52,6 @@ SECRET_KEY = config.get("SECRET_KEY", "mlss-dev-key-change-me-in-production")
 app.secret_key = SECRET_KEY
 
 # Populate shared state with auth config
-state.AUTH_USERNAME        = config.get("AUTH_USERNAME", None)
-state.AUTH_PASSWORD        = config.get("AUTH_PASSWORD", None)
 state.GITHUB_CLIENT_ID     = config.get("GITHUB_CLIENT_ID", None)
 state.GITHUB_CLIENT_SECRET = config.get("GITHUB_CLIENT_SECRET", None)
 state.ALLOWED_GITHUB_USER  = config.get("ALLOWED_GITHUB_USER", None)
@@ -84,7 +82,7 @@ _PUBLIC_ENDPOINTS = {"auth.login", "auth.logout", "auth.github_login",
 
 
 def _auth_configured():
-    return bool((state.AUTH_USERNAME and state.AUTH_PASSWORD) or state.github_oauth)
+    return bool(state.github_oauth)
 
 
 @app.before_request
@@ -101,10 +99,10 @@ def check_auth():
 @app.context_processor
 def inject_auth_state():
     return {
-        "auth_enabled":        _auth_configured(),
+        "auth_enabled":         _auth_configured(),
         "github_oauth_enabled": bool(state.github_oauth),
-        "local_auth_enabled":   bool(state.AUTH_USERNAME and state.AUTH_PASSWORD),
         "session_user":         session.get("user", ""),
+        "session_role":         session.get("user_role", ""),
     }
 
 
@@ -283,13 +281,13 @@ def main():
     )
     create_db()
     if state.github_oauth:
-        log.info("🔒 Auth ENABLED — GitHub OAuth (allowed user: %s)",
-                 state.ALLOWED_GITHUB_USER or "any")
-    elif state.AUTH_USERNAME and state.AUTH_PASSWORD:
-        log.info("🔒 Auth ENABLED — local login (user: %s)", state.AUTH_USERNAME)
+        log.info("🔒 Auth ENABLED — GitHub OAuth")
+        if state.ALLOWED_GITHUB_USER:
+            log.info("   Bootstrap admin: %s (via MLSS_ALLOWED_GITHUB_USER)",
+                     state.ALLOWED_GITHUB_USER)
     else:
-        log.warning("⚠️  Auth DISABLED — configure MLSS_GITHUB_CLIENT_ID "
-                    "or MLSS_AUTH_USERNAME in .env")
+        log.warning("⚠️  Auth DISABLED — set MLSS_GITHUB_CLIENT_ID / "
+                    "MLSS_GITHUB_CLIENT_SECRET in .env")
     # Backfill any missing long-term inferences from historical data
     try:
         from mlss_monitor.inference_engine import run_startup_analysis

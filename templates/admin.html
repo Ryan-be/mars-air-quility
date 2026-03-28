@@ -126,6 +126,43 @@
     <p id="thresholdStatus"></p>
   </div>
 
+  <!-- User management card -->
+  <div class="card users-card">
+    <h3>👥 Users</h3>
+    <p class="card-desc">
+      All users authenticate via GitHub OAuth.
+      Add a GitHub username and choose their role.
+    </p>
+
+    <!-- Add user form -->
+    <form id="addUserForm" class="add-user-form">
+      <div class="field-row">
+        <div class="field">
+          <label for="newGithubUser">GitHub username</label>
+          <input type="text" id="newGithubUser" placeholder="e.g. octocat" autocomplete="off">
+        </div>
+        <div class="field field-role">
+          <label for="newUserRole">Role</label>
+          <select id="newUserRole">
+            <option value="viewer">viewer</option>
+            <option value="controller">controller</option>
+            <option value="admin">admin</option>
+          </select>
+        </div>
+        <div class="field field-btn">
+          <label>&nbsp;</label>
+          <button type="submit" class="btn-search">Add user</button>
+        </div>
+      </div>
+    </form>
+    <p id="userStatus" class="user-status"></p>
+
+    <!-- User list -->
+    <div class="user-list" id="userList">
+      <!-- populated by JS -->
+    </div>
+  </div>
+
 </div><!-- /.settings-grid -->
 {% endblock %}
 
@@ -333,5 +370,91 @@
     });
 
     loadThresholds();
+
+    // ── User management ───────────────────────────────────────────────────────
+    const userStatusEl = document.getElementById("userStatus");
+
+    function setUserStatus(msg, ok) {
+      userStatusEl.textContent = msg;
+      userStatusEl.className = "user-status " + (ok ? "status-ok" : "status-err");
+    }
+
+    const ROLE_LABELS = { admin: "admin", controller: "controller", viewer: "viewer" };
+
+    async function loadUsers() {
+      const list = document.getElementById("userList");
+      try {
+        const res = await fetch("/api/users");
+        if (!res.ok) { list.innerHTML = "<p class='status-err'>Failed to load users.</p>"; return; }
+        const users = await res.json();
+        if (!users.length) {
+          list.innerHTML = "<p class='no-users'>No users registered yet.</p>";
+          return;
+        }
+        list.innerHTML = users.map(u => `
+          <div class="user-row" data-id="${u.id}">
+            <span class="user-github">
+              <svg class="gh-icon" viewBox="0 0 98 96" fill="currentColor" xmlns="http://www.w3.org/2000/svg" width="14" height="14">
+                <path fill-rule="evenodd" clip-rule="evenodd" d="M48.854 0C21.839 0 0 22 0 49.217c0 21.756 13.993 40.172 33.405 46.69 2.427.49 3.316-1.059 3.316-2.362 0-1.141-.08-5.052-.08-9.127-13.59 2.934-16.42-5.867-16.42-5.867-2.184-5.704-5.42-7.17-5.42-7.17-4.448-3.015.324-3.015.324-3.015 4.934.326 7.523 5.052 7.523 5.052 4.367 7.496 11.404 5.378 14.235 4.074.404-3.178 1.699-5.378 3.074-6.6-10.839-1.141-22.243-5.378-22.243-24.283 0-5.378 1.94-9.778 5.014-13.2-.485-1.222-2.184-6.275.486-13.038 0 0 4.125-1.304 13.426 5.052a46.97 46.97 0 0 1 12.214-1.63c4.125 0 8.33.571 12.213 1.63 9.302-6.356 13.427-5.052 13.427-5.052 2.67 6.763.97 11.816.485 13.038 3.155 3.422 5.015 7.822 5.015 13.2 0 18.905-11.404 23.06-22.324 24.283 1.78 1.548 3.316 4.481 3.316 9.126 0 6.6-.08 11.897-.08 13.526 0 1.304.89 2.853 3.316 2.364 19.412-6.52 33.405-24.935 33.405-46.691C97.707 22 75.788 0 48.854 0z"/>
+              </svg>
+              ${u.github_username}
+              ${u.is_active ? '' : '<span class="badge-inactive">inactive</span>'}
+            </span>
+            <select class="role-select" data-id="${u.id}" onchange="changeRole(${u.id}, this.value)">
+              <option value="viewer"     ${u.role==='viewer'     ? 'selected' : ''}>viewer</option>
+              <option value="controller" ${u.role==='controller' ? 'selected' : ''}>controller</option>
+              <option value="admin"      ${u.role==='admin'      ? 'selected' : ''}>admin</option>
+            </select>
+            <span class="user-meta">${u.last_login ? 'Last login: ' + u.last_login.slice(0,10) : 'Never logged in'}</span>
+            <button class="btn-remove" onclick="removeUser(${u.id}, '${u.github_username}')" title="Remove user">✕</button>
+          </div>`).join("");
+      } catch {
+        list.innerHTML = "<p class='status-err'>Failed to load users.</p>";
+      }
+    }
+
+    document.getElementById("addUserForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const gh   = document.getElementById("newGithubUser").value.trim();
+      const role = document.getElementById("newUserRole").value;
+      if (!gh) { setUserStatus("Enter a GitHub username.", false); return; }
+      const res = await fetch("/api/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ github_username: gh, role }),
+      });
+      const d = await res.json();
+      if (res.ok) {
+        setUserStatus(`Added ${gh} as ${role}.`, true);
+        document.getElementById("newGithubUser").value = "";
+        loadUsers();
+      } else {
+        setUserStatus(d.error || "Failed to add user.", false);
+      }
+    });
+
+    async function changeRole(userId, role) {
+      const res = await fetch(`/api/users/${userId}/role`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role }),
+      });
+      const d = await res.json();
+      setUserStatus(res.ok ? `Role updated to ${role}.` : (d.error || "Failed."), res.ok);
+    }
+
+    async function removeUser(userId, username) {
+      if (!confirm(`Remove ${username}? They will no longer be able to log in.`)) return;
+      const res = await fetch(`/api/users/${userId}`, { method: "DELETE" });
+      const d = await res.json();
+      if (res.ok) {
+        setUserStatus(`Removed ${username}.`, true);
+        loadUsers();
+      } else {
+        setUserStatus(d.error || "Failed to remove user.", false);
+      }
+    }
+
+    loadUsers();
   </script>
 {% endblock %}

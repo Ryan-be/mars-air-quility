@@ -163,6 +163,19 @@ def create_db():
         except Exception:  # pylint: disable=broad-except
             pass  # column already exists
 
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        github_username TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+        display_name    TEXT    NOT NULL DEFAULT '',
+        role            TEXT    NOT NULL DEFAULT 'viewer'
+                            CHECK(role IN ('admin', 'controller', 'viewer')),
+        created_at      DATETIME NOT NULL,
+        last_login      DATETIME,
+        is_active       INTEGER NOT NULL DEFAULT 1
+    );
+    """)
+
     cur.execute("SELECT COUNT(*) FROM fan_settings")
     if cur.fetchone()[0] == 0:
         cur.execute("""
