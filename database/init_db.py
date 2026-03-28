@@ -71,6 +71,41 @@ def create_db():
     );
     """)
 
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS inference_thresholds (
+        key TEXT PRIMARY KEY,
+        default_value REAL NOT NULL,
+        user_value REAL,
+        unit TEXT NOT NULL,
+        label TEXT NOT NULL,
+        description TEXT
+    );
+    """)
+
+    # Seed default thresholds if table is empty
+    cur.execute("SELECT COUNT(*) FROM inference_thresholds")
+    if cur.fetchone()[0] == 0:
+        _defaults = [
+            ("tvoc_high",     500,  "ppb", "TVOC High",              "WHO 'high' threshold for total volatile organic compounds"),
+            ("tvoc_moderate", 250,  "ppb", "TVOC Moderate",          "WHO 'good' ceiling — above this triggers spike detection"),
+            ("eco2_cognitive",1000, "ppm", "eCO₂ Cognitive",         "CO₂ level where cognitive impairment begins"),
+            ("eco2_danger",   2000, "ppm", "eCO₂ Danger",            "CO₂ level causing headaches and drowsiness"),
+            ("temp_high",     28.0, "°C",  "Temperature High",       "Upper comfort zone boundary"),
+            ("temp_low",      15.0, "°C",  "Temperature Low",        "Lower comfort zone boundary"),
+            ("hum_high",      70.0, "%",   "Humidity High",          "Above this promotes mould and dust mites"),
+            ("hum_low",       30.0, "%",   "Humidity Low",           "Below this causes dry skin and irritation"),
+            ("vpd_low",       0.4,  "kPa", "VPD Low",               "Below this air is too saturated for plants"),
+            ("vpd_high",      1.6,  "kPa", "VPD High",              "Above this plants close stomata (stress)"),
+            ("spike_factor",  2.0,  "×",   "Spike Factor",          "Multiplier above rolling mean to detect spikes"),
+            ("min_readings",  6,    "count","Minimum Readings",      "Data points required before analysis runs"),
+        ]
+        for key, default, unit, label, desc in _defaults:
+            cur.execute(
+                "INSERT INTO inference_thresholds (key, default_value, unit, label, description) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (key, default, unit, label, desc),
+            )
+
     # Migrations: add columns introduced after initial release
     for migration in [
         "ALTER TABLE sensor_data ADD COLUMN fan_power_w REAL",

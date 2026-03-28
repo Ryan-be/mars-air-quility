@@ -351,6 +351,69 @@ def dismiss_inference(inference_id):
     conn.close()
 
 
+# ── Inference thresholds ──────────────────────────────────────────────────────
+
+def get_thresholds():
+    """Return all thresholds as a dict: key -> effective value (user override or default)."""
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute("SELECT key, default_value, user_value FROM inference_thresholds")
+    result = {}
+    for r in cur.fetchall():
+        result[r["key"]] = r["user_value"] if r["user_value"] is not None else r["default_value"]
+    conn.close()
+    return result
+
+
+def get_all_thresholds():
+    """Return full threshold rows for the settings UI."""
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM inference_thresholds ORDER BY key")
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return rows
+
+
+def update_threshold(key, user_value):
+    """Set or clear a user override for a threshold. Pass None to reset to default."""
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE inference_thresholds SET user_value = ? WHERE key = ?",
+        (user_value, key),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_thresholds_for_evidence(keys):
+    """Return threshold details for specific keys (for inference evidence)."""
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    placeholders = ",".join("?" for _ in keys)
+    cur.execute(
+        f"SELECT key, default_value, user_value, unit, label "
+        f"FROM inference_thresholds WHERE key IN ({placeholders})",
+        keys,
+    )
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return {
+        r["key"]: {
+            "label": r["label"],
+            "value": r["user_value"] if r["user_value"] is not None else r["default_value"],
+            "default": r["default_value"],
+            "is_custom": r["user_value"] is not None,
+            "unit": r["unit"],
+        }
+        for r in rows
+    }
+
+
 def get_recent_inference_by_type(event_type, hours=1):
     """Check if an inference of this type was created within the last N hours."""
     conn = sqlite3.connect(DB_FILE)

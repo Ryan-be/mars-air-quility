@@ -18,25 +18,41 @@ from config import config
 from database.db_logger import (
     DB_FILE,
     get_recent_inference_by_type,
+    get_thresholds,
+    get_thresholds_for_evidence,
     save_inference,
 )
 
 log = logging.getLogger(__name__)
 
-# ── Thresholds ────────────────────────────────────────────────────────────────
+# ── Thresholds (loaded from DB, with hardcoded fallbacks) ────────────────────
 
-TVOC_HIGH       = 500   # ppb — WHO "high"
-TVOC_MODERATE   = 250   # ppb — WHO "good" ceiling
-ECO2_COGNITIVE  = 1000  # ppm — cognitive impairment
-ECO2_DANGER     = 2000  # ppm — headaches / drowsiness
-TEMP_HIGH       = 28.0  # °C
-TEMP_LOW        = 15.0  # °C
-HUM_HIGH        = 70.0  # %
-HUM_LOW         = 30.0  # %
-VPD_LOW         = 0.4   # kPa — mould risk
-VPD_HIGH        = 1.6   # kPa — plant stress
-SPIKE_FACTOR    = 2.0   # multiplier above rolling mean for spike detection
-MIN_READINGS    = 6     # need at least this many points for analysis
+_DEFAULTS = {
+    "tvoc_high": 500, "tvoc_moderate": 250,
+    "eco2_cognitive": 1000, "eco2_danger": 2000,
+    "temp_high": 28.0, "temp_low": 15.0,
+    "hum_high": 70.0, "hum_low": 30.0,
+    "vpd_low": 0.4, "vpd_high": 1.6,
+    "spike_factor": 2.0, "min_readings": 6,
+}
+
+# Module-level cache, refreshed each analysis cycle
+_thresholds = dict(_DEFAULTS)
+
+
+def _refresh_thresholds():
+    """Reload thresholds from the database."""
+    global _thresholds
+    try:
+        db_vals = get_thresholds()
+        _thresholds = {**_DEFAULTS, **db_vals}
+    except Exception:
+        _thresholds = dict(_DEFAULTS)
+
+
+def _t(key):
+    """Get a threshold value by key."""
+    return _thresholds.get(key, _DEFAULTS.get(key))
 
 
 def _vpd_kpa(temp_c, rh):
@@ -105,10 +121,11 @@ def _slope(values):
 
 def _detect_tvoc_spike(rows):
     """Detect sudden TVOC spikes above the rolling mean."""
-    if len(rows) < MIN_READINGS:
+    min_readings = int(_t("min_readings"))
+    if len(rows) < min_readings:
         return
     tvocs = [r["tvoc"] for r in rows if r["tvoc"] is not None]
-    if len(tvocs) < MIN_READINGS:
+    if len(tvocs) < min_readings:
         return
 
     baseline = _mean(tvocs[:-3])  # mean excluding last 3
@@ -118,14 +135,20 @@ def _detect_tvoc_spike(rows):
     if baseline < 50:
         baseline = 50  # floor to avoid false positives on near-zero baselines
 
-    if recent > baseline * SPIKE_FACTOR and peak > TVOC_MODERATE:
+    spike_factor = _t("spike_factor")
+    tvoc_moderate = _t("tvoc_moderate")
+    tvoc_high = _t("tvoc_high")
+
+    if recent > baseline * spike_factor and peak > tvoc_moderate:
         if get_recent_inference_by_type("tvoc_spike", hours=1):
             return
-        confidence = min(0.95, 0.5 + (recent / baseline - SPIKE_FACTOR) * 0.15)
+        confidence = min(0.95, 0.5 + (recent / baseline - spike_factor) * 0.15)
         annotation_context = _get_annotation_context(rows[-6:])
+        thresholds_used = get_thresholds_for_evidence(
+            ["tvoc_high", "tvoc_moderate", "spike_factor"])
         save_inference(
             event_type="tvoc_spike",
-            severity="warning" if peak > TVOC_HIGH else "info",
+            severity="warning" if peak > tvoc_high else "info",
             title=f"TVOC spike detected — {int(peak)} ppb",
             description=(
                 f"TVOC rose sharply from a baseline of ~{int(baseline)} ppb to "
@@ -143,6 +166,7 @@ def _detect_tvoc_spike(rows):
                 "peak_tvoc": f"{int(peak)} ppb",
                 "spike_ratio": f"{recent / baseline:.1f}x baseline",
                 "readings_analysed": str(len(tvocs)),
+                "_thresholds": thresholds_used,
             },
             confidence=round(confidence, 2),
             start_id=rows[-6]["id"] if len(rows) >= 6 else rows[0]["id"],
@@ -153,32 +177,35 @@ def _detect_tvoc_spike(rows):
 
 def _detect_eco2_threshold(rows):
     """Detect eCO₂ crossing cognitive or danger thresholds."""
-    if len(rows) < MIN_READINGS:
+    min_readings = int(_t("min_readings"))
+    if len(rows) < min_readings:
         return
     eco2s = [r["eco2"] for r in rows if r["eco2"] is not None]
-    if len(eco2s) < MIN_READINGS:
+    if len(eco2s) < min_readings:
         return
 
     current = eco2s[-1]
     recent_mean = _mean(eco2s[-5:])
+    eco2_danger = _t("eco2_danger")
+    eco2_cognitive = _t("eco2_cognitive")
 
-    if recent_mean >= ECO2_DANGER:
+    if recent_mean >= eco2_danger:
         etype = "eco2_danger"
         sev = "critical"
         title = f"CO₂ dangerously high — {int(current)} ppm"
         desc = (
             f"eCO₂ has reached {int(current)} ppm (average {int(recent_mean)} ppm "
-            f"over last 5 readings). Above {ECO2_DANGER} ppm causes headaches, "
+            f"over last 5 readings). Above {int(eco2_danger)} ppm causes headaches, "
             f"drowsiness, and significant cognitive impairment."
         )
         action = "Ventilate immediately — open windows and doors. Leave the room if symptoms appear."
         confidence = 0.9
-    elif recent_mean >= ECO2_COGNITIVE:
+    elif recent_mean >= eco2_cognitive:
         etype = "eco2_elevated"
         sev = "warning"
         title = f"CO₂ elevated — {int(current)} ppm"
         desc = (
-            f"eCO₂ has reached {int(current)} ppm. Above {ECO2_COGNITIVE} ppm "
+            f"eCO₂ has reached {int(current)} ppm. Above {int(eco2_cognitive)} ppm "
             f"studies show measurable decline in decision-making and concentration. "
             f"The room likely needs better ventilation."
         )
@@ -191,6 +218,7 @@ def _detect_eco2_threshold(rows):
         return
 
     annotation_context = _get_annotation_context(rows[-6:])
+    thresholds_used = get_thresholds_for_evidence(["eco2_cognitive", "eco2_danger"])
     save_inference(
         event_type=etype,
         severity=sev,
@@ -200,8 +228,9 @@ def _detect_eco2_threshold(rows):
         evidence={
             "current_eco2": f"{int(current)} ppm",
             "5_reading_avg": f"{int(recent_mean)} ppm",
-            "threshold": f"{ECO2_DANGER if sev == 'critical' else ECO2_COGNITIVE} ppm",
+            "threshold": f"{int(eco2_danger) if sev == 'critical' else int(eco2_cognitive)} ppm",
             "trend": f"{'rising' if _slope(eco2s[-6:]) > 0 else 'stable/falling'}",
+            "_thresholds": thresholds_used,
         },
         confidence=round(confidence, 2),
         start_id=rows[-6]["id"] if len(rows) >= 6 else rows[0]["id"],
@@ -212,32 +241,35 @@ def _detect_eco2_threshold(rows):
 
 def _detect_temperature_extreme(rows):
     """Detect temperature outside comfort zone."""
-    if len(rows) < MIN_READINGS:
+    min_readings = int(_t("min_readings"))
+    if len(rows) < min_readings:
         return
     temps = [r["temperature"] for r in rows if r["temperature"] is not None]
-    if len(temps) < MIN_READINGS:
+    if len(temps) < min_readings:
         return
 
     recent_mean = _mean(temps[-5:])
     current = temps[-1]
+    temp_high = _t("temp_high")
+    temp_low = _t("temp_low")
 
-    if recent_mean > TEMP_HIGH:
+    if recent_mean > temp_high:
         etype = "temp_high"
         sev = "warning"
         title = f"Temperature high — {current:.1f}°C"
         desc = (
             f"Temperature has been averaging {recent_mean:.1f}°C over the last "
-            f"5 readings, above the {TEMP_HIGH}°C comfort threshold. This can "
+            f"5 readings, above the {temp_high}°C comfort threshold. This can "
             f"stress plants and reduce cognitive performance."
         )
         action = "Improve ventilation or use cooling. Check if heat sources (lights, equipment) can be reduced."
-    elif recent_mean < TEMP_LOW:
+    elif recent_mean < temp_low:
         etype = "temp_low"
         sev = "warning"
         title = f"Temperature low — {current:.1f}°C"
         desc = (
             f"Temperature has been averaging {recent_mean:.1f}°C, below the "
-            f"{TEMP_LOW}°C threshold. Low temperatures slow plant growth and "
+            f"{temp_low}°C threshold. Low temperatures slow plant growth and "
             f"can be uncomfortable for occupants."
         )
         action = "Consider heating the space or reducing ventilation to retain warmth."
@@ -247,6 +279,7 @@ def _detect_temperature_extreme(rows):
     if get_recent_inference_by_type(etype, hours=2):
         return
 
+    thresholds_used = get_thresholds_for_evidence(["temp_high", "temp_low"])
     save_inference(
         event_type=etype,
         severity=sev,
@@ -256,7 +289,8 @@ def _detect_temperature_extreme(rows):
         evidence={
             "current_temp": f"{current:.1f}°C",
             "5_reading_avg": f"{recent_mean:.1f}°C",
-            "threshold": f"{TEMP_HIGH if 'high' in etype else TEMP_LOW}°C",
+            "threshold": f"{temp_high if 'high' in etype else temp_low}°C",
+            "_thresholds": thresholds_used,
         },
         confidence=0.85,
         start_id=rows[-6]["id"] if len(rows) >= 6 else rows[0]["id"],
@@ -266,31 +300,34 @@ def _detect_temperature_extreme(rows):
 
 def _detect_humidity_extreme(rows):
     """Detect humidity outside ideal range."""
-    if len(rows) < MIN_READINGS:
+    min_readings = int(_t("min_readings"))
+    if len(rows) < min_readings:
         return
     hums = [r["humidity"] for r in rows if r["humidity"] is not None]
-    if len(hums) < MIN_READINGS:
+    if len(hums) < min_readings:
         return
 
     recent_mean = _mean(hums[-5:])
     current = hums[-1]
+    hum_high = _t("hum_high")
+    hum_low = _t("hum_low")
 
-    if recent_mean > HUM_HIGH:
+    if recent_mean > hum_high:
         etype = "humidity_high"
         title = f"Humidity high — {current:.0f}%"
         desc = (
             f"Humidity averaging {recent_mean:.0f}% over last 5 readings. "
-            f"Above {HUM_HIGH}% promotes mould growth and dust mites. "
+            f"Above {hum_high:.0f}% promotes mould growth and dust mites. "
             f"Combined with warm temperatures this creates ideal conditions "
             f"for fungal issues."
         )
         action = "Increase ventilation or use a dehumidifier. Check for water leaks or standing water."
-    elif recent_mean < HUM_LOW:
+    elif recent_mean < hum_low:
         etype = "humidity_low"
         title = f"Humidity low — {current:.0f}%"
         desc = (
             f"Humidity averaging {recent_mean:.0f}% over last 5 readings. "
-            f"Below {HUM_LOW}% causes dry skin, irritated airways, and static. "
+            f"Below {hum_low:.0f}% causes dry skin, irritated airways, and static. "
             f"Plants may show leaf curling and wilting."
         )
         action = "Use a humidifier, place water trays near heat sources, or mist plants."
@@ -300,6 +337,7 @@ def _detect_humidity_extreme(rows):
     if get_recent_inference_by_type(etype, hours=2):
         return
 
+    thresholds_used = get_thresholds_for_evidence(["hum_high", "hum_low"])
     save_inference(
         event_type=etype,
         severity="info",
@@ -309,7 +347,8 @@ def _detect_humidity_extreme(rows):
         evidence={
             "current_humidity": f"{current:.0f}%",
             "5_reading_avg": f"{recent_mean:.0f}%",
-            "threshold": f"{HUM_HIGH if 'high' in etype else HUM_LOW}%",
+            "threshold": f"{hum_high if 'high' in etype else hum_low}%",
+            "_thresholds": thresholds_used,
         },
         confidence=0.8,
         start_id=rows[-6]["id"] if len(rows) >= 6 else rows[0]["id"],
@@ -319,33 +358,36 @@ def _detect_humidity_extreme(rows):
 
 def _detect_vpd_extreme(rows):
     """Detect VPD outside optimal range for plants."""
-    if len(rows) < MIN_READINGS:
+    min_readings = int(_t("min_readings"))
+    if len(rows) < min_readings:
         return
     vpds = []
     for r in rows:
         v = _vpd_kpa(r.get("temperature"), r.get("humidity"))
         if v is not None:
             vpds.append(v)
-    if len(vpds) < MIN_READINGS:
+    if len(vpds) < min_readings:
         return
 
     recent_mean = _mean(vpds[-5:])
     current = vpds[-1]
+    vpd_low = _t("vpd_low")
+    vpd_high = _t("vpd_high")
 
-    if recent_mean < VPD_LOW:
+    if recent_mean < vpd_low:
         etype = "vpd_low"
         title = f"VPD too low — {current:.2f} kPa"
         desc = (
-            f"VPD averaging {recent_mean:.2f} kPa. Below {VPD_LOW} kPa the air "
+            f"VPD averaging {recent_mean:.2f} kPa. Below {vpd_low} kPa the air "
             f"is nearly saturated, slowing transpiration and creating conditions "
             f"for mould, powdery mildew, and root rot."
         )
         action = "Increase temperature or decrease humidity. Improve air circulation around plants."
-    elif recent_mean > VPD_HIGH:
+    elif recent_mean > vpd_high:
         etype = "vpd_high"
         title = f"VPD too high — {current:.2f} kPa"
         desc = (
-            f"VPD averaging {recent_mean:.2f} kPa. Above {VPD_HIGH} kPa plants "
+            f"VPD averaging {recent_mean:.2f} kPa. Above {vpd_high} kPa plants "
             f"close stomata to conserve water, halting photosynthesis and causing "
             f"leaf tip burn and wilting."
         )
@@ -356,6 +398,7 @@ def _detect_vpd_extreme(rows):
     if get_recent_inference_by_type(etype, hours=2):
         return
 
+    thresholds_used = get_thresholds_for_evidence(["vpd_low", "vpd_high"])
     save_inference(
         event_type=etype,
         severity="info",
@@ -365,7 +408,8 @@ def _detect_vpd_extreme(rows):
         evidence={
             "current_vpd": f"{current:.2f} kPa",
             "5_reading_avg": f"{recent_mean:.2f} kPa",
-            "threshold": f"{VPD_LOW if 'low' in etype else VPD_HIGH} kPa",
+            "threshold": f"{vpd_low if 'low' in etype else vpd_high} kPa",
+            "_thresholds": thresholds_used,
         },
         confidence=0.75,
         start_id=rows[-6]["id"] if len(rows) >= 6 else rows[0]["id"],
@@ -390,7 +434,7 @@ def _detect_correlated_pollution(rows):
     eco2_slope = _slope(eco2s)
 
     # Both rising significantly
-    if tvoc_slope > 5 and eco2_slope > 10 and tvocs[-1] > TVOC_MODERATE and eco2s[-1] > 800:
+    if tvoc_slope > 5 and eco2_slope > 10 and tvocs[-1] > _t("tvoc_moderate") and eco2s[-1] > 800:
         if get_recent_inference_by_type("correlated_pollution", hours=2):
             return
 
@@ -405,6 +449,8 @@ def _detect_correlated_pollution(rows):
             return
 
         annotation_context = _get_annotation_context(rows[-10:])
+        thresholds_used = get_thresholds_for_evidence(
+            ["tvoc_moderate", "eco2_cognitive"])
         save_inference(
             event_type="correlated_pollution",
             severity="warning",
@@ -426,6 +472,7 @@ def _detect_correlated_pollution(rows):
                 "correlation_r": f"{r:.2f}",
                 "tvoc_trend": f"+{tvoc_slope:.1f} ppb/reading",
                 "eco2_trend": f"+{eco2_slope:.1f} ppm/reading",
+                "_thresholds": thresholds_used,
             },
             confidence=round(min(0.95, 0.6 + r * 0.2), 2),
             start_id=rows[-10]["id"],
@@ -504,20 +551,23 @@ def _detect_sustained_poor_air(rows):
     window = rows[-12:]
     tvocs = [r["tvoc"] for r in window if r["tvoc"] is not None]
     eco2s = [r["eco2"] for r in window if r["eco2"] is not None]
+    tvoc_moderate = _t("tvoc_moderate")
 
-    tvoc_high_count = sum(1 for v in tvocs if v > TVOC_MODERATE)
+    tvoc_high_count = sum(1 for v in tvocs if v > tvoc_moderate)
     eco2_high_count = sum(1 for v in eco2s if v > 800)
 
     if tvoc_high_count >= 10 or eco2_high_count >= 10:
         if get_recent_inference_by_type("sustained_poor_air", hours=3):
             return
+        thresholds_used = get_thresholds_for_evidence(
+            ["tvoc_moderate", "eco2_cognitive"])
         save_inference(
             event_type="sustained_poor_air",
             severity="warning",
             title="Sustained poor air quality",
             description=(
                 f"Air quality has been degraded for an extended period: "
-                f"TVOC exceeded {TVOC_MODERATE} ppb in {tvoc_high_count}/{len(tvocs)} "
+                f"TVOC exceeded {int(tvoc_moderate)} ppb in {tvoc_high_count}/{len(tvocs)} "
                 f"readings, eCO₂ exceeded 800 ppm in {eco2_high_count}/{len(eco2s)} "
                 f"readings (last 12 data points). This is not a spike — it suggests "
                 f"a persistent source or insufficient ventilation."
@@ -533,6 +583,7 @@ def _detect_sustained_poor_air(rows):
                 "eco2_high_readings": f"{eco2_high_count}/{len(eco2s)}",
                 "avg_tvoc": f"{int(_mean(tvocs))} ppb",
                 "avg_eco2": f"{int(_mean(eco2s))} ppm",
+                "_thresholds": thresholds_used,
             },
             confidence=0.85,
             start_id=window[0]["id"],
@@ -556,15 +607,15 @@ def _detect_annotation_context_event(rows):
         temp = row.get("temperature", 0)
         annotation = row.get("annotation", "")
 
-        if tvoc > TVOC_MODERATE or eco2 > 800 or temp > TEMP_HIGH or temp < TEMP_LOW:
+        if tvoc > _t("tvoc_moderate") or eco2 > 800 or temp > _t("temp_high") or temp < _t("temp_low"):
             conditions = []
-            if tvoc > TVOC_MODERATE:
+            if tvoc > _t("tvoc_moderate"):
                 conditions.append(f"TVOC {tvoc} ppb")
             if eco2 > 800:
                 conditions.append(f"eCO₂ {eco2} ppm")
-            if temp > TEMP_HIGH:
+            if temp > _t("temp_high"):
                 conditions.append(f"temp {temp:.1f}°C")
-            if temp < TEMP_LOW:
+            if temp < _t("temp_low"):
                 conditions.append(f"temp {temp:.1f}°C")
 
             save_inference(
@@ -645,14 +696,14 @@ def _hourly_summary(rows):
 
     # Determine severity
     issues = []
-    if tvoc_mean > TVOC_MODERATE:
-        issues.append(f"avg TVOC {int(tvoc_mean)} ppb (above {TVOC_MODERATE})")
+    if tvoc_mean > _t("tvoc_moderate"):
+        issues.append(f"avg TVOC {int(tvoc_mean)} ppb (above {int(_t('tvoc_moderate'))})")
     if eco2_mean > 800:
         issues.append(f"avg eCO₂ {int(eco2_mean)} ppm (above 800)")
-    if temp_mean > TEMP_HIGH or temp_mean < TEMP_LOW:
-        issues.append(f"avg temp {temp_mean:.1f}°C (outside {TEMP_LOW}–{TEMP_HIGH})")
-    if hum_mean > HUM_HIGH or hum_mean < HUM_LOW:
-        issues.append(f"avg humidity {hum_mean:.0f}% (outside {HUM_LOW}–{HUM_HIGH})")
+    if temp_mean > _t("temp_high") or temp_mean < _t("temp_low"):
+        issues.append(f"avg temp {temp_mean:.1f}°C (outside {_t('temp_low')}–{_t('temp_high')})")
+    if hum_mean > _t("hum_high") or hum_mean < _t("hum_low"):
+        issues.append(f"avg humidity {hum_mean:.0f}% (outside {_t('hum_low'):.0f}–{_t('hum_high'):.0f})")
 
     sev = "warning" if len(issues) >= 2 else "info"
     quality = "Poor" if len(issues) >= 2 else "Fair" if issues else "Good"
@@ -735,10 +786,10 @@ def _daily_summary(rows):
     eco2_mean, eco2_peak = _mean(eco2s), max(eco2s)
 
     # Time in bad zones
-    tvoc_high_pct = sum(1 for v in tvocs if v > TVOC_MODERATE) / len(tvocs) * 100
+    tvoc_high_pct = sum(1 for v in tvocs if v > _t("tvoc_moderate")) / len(tvocs) * 100
     eco2_high_pct = sum(1 for v in eco2s if v > 800) / len(eco2s) * 100
-    temp_out_pct  = sum(1 for v in temps if v > TEMP_HIGH or v < TEMP_LOW) / len(temps) * 100
-    hum_out_pct   = sum(1 for v in hums if v > HUM_HIGH or v < HUM_LOW) / len(hums) * 100
+    temp_out_pct  = sum(1 for v in temps if v > _t("temp_high") or v < _t("temp_low")) / len(temps) * 100
+    hum_out_pct   = sum(1 for v in hums if v > _t("hum_high") or v < _t("hum_low")) / len(hums) * 100
 
     # VPD analysis
     vpds = [_vpd_kpa(r.get("temperature"), r.get("humidity")) for r in rows]
@@ -777,7 +828,7 @@ def _daily_summary(rows):
         f"Humidity: {hum_mean:.0f}% avg (range {hum_min:.0f}–{hum_max:.0f}%), "
         f"outside ideal range {hum_out_pct:.0f}% of the time. "
         f"TVOC: avg {int(tvoc_mean)} ppb, peak {int(tvoc_peak)} ppb, "
-        f"above moderate ({TVOC_MODERATE} ppb) for {tvoc_high_pct:.0f}% of readings. "
+        f"above moderate ({int(_t('tvoc_moderate'))} ppb) for {tvoc_high_pct:.0f}% of readings. "
         f"eCO₂: avg {int(eco2_mean)} ppm, peak {int(eco2_peak)} ppm, "
         f"above 800 ppm for {eco2_high_pct:.0f}% of readings."
     )
@@ -866,7 +917,7 @@ def _detect_daily_patterns(rows):
     for hour in sorted(hourly_tvoc.keys()):
         h_tvoc = _mean(hourly_tvoc.get(hour, []))
         h_eco2 = _mean(hourly_eco2.get(hour, []))
-        if (h_tvoc > overall_tvoc_mean * 1.5 and h_tvoc > TVOC_MODERATE) or \
+        if (h_tvoc > overall_tvoc_mean * 1.5 and h_tvoc > _t("tvoc_moderate")) or \
            (h_eco2 > overall_eco2_mean * 1.5 and h_eco2 > 800):
             problem_hours.append({
                 "hour": hour,
@@ -944,7 +995,7 @@ def _detect_overnight_trend(rows):
     if eco2_rise > 200 and eco2_end > 800:
         save_inference(
             event_type="overnight_buildup",
-            severity="warning" if eco2_end > ECO2_COGNITIVE else "info",
+            severity="warning" if eco2_end > _t("eco2_cognitive") else "info",
             title=f"Overnight CO₂ build-up — rose by {int(eco2_rise)} ppm",
             description=(
                 f"eCO₂ rose from ~{int(eco2_start)} ppm to ~{int(eco2_end)} ppm "
@@ -978,6 +1029,7 @@ def _detect_overnight_trend(rows):
 def run_analysis():
     """Run short-term detectors against recent data. Call every ~60s."""
     try:
+        _refresh_thresholds()
         rows = _fetch_recent(minutes=30)
         if len(rows) < MIN_READINGS:
             return
@@ -998,6 +1050,7 @@ def run_analysis():
 def run_hourly_analysis():
     """Run 1-hour detectors. Call every ~60 minutes."""
     try:
+        _refresh_thresholds()
         rows = _fetch_recent(minutes=60)
         if len(rows) < 20:
             return
@@ -1009,6 +1062,7 @@ def run_hourly_analysis():
 def run_daily_analysis():
     """Run 24-hour detectors. Call every ~24 hours."""
     try:
+        _refresh_thresholds()
         rows = _fetch_recent(minutes=1440)
         if len(rows) < 100:
             return
@@ -1023,6 +1077,7 @@ def run_startup_analysis():
     """Run on application startup — backfill any missing long-term analyses."""
     log.info("Inference engine: running startup analysis on historical data…")
     try:
+        _refresh_thresholds()
         # Hourly: run if no hourly summary exists in the last hour
         if not get_recent_inference_by_type("hourly_summary", hours=1):
             rows_1h = _fetch_recent(minutes=60)

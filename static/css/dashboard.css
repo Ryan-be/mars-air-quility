@@ -594,6 +594,62 @@ body.light button.health-item:focus-visible { background: #f0f4ff; border-color:
   border-color: #2a5a8a;
 }
 
+/* ── Inference threshold details (expandable) ── */
+.inf-thresholds-section {
+  margin-top: 0.3em;
+  border: 1px solid #333;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.inf-thresholds-section summary.inf-section-title {
+  cursor: pointer;
+  padding: 0.45em 0.65em;
+  margin-bottom: 0;
+  user-select: none;
+  list-style: none;
+}
+.inf-thresholds-section summary.inf-section-title::before {
+  content: "▸ ";
+}
+.inf-thresholds-section[open] summary.inf-section-title::before {
+  content: "▾ ";
+}
+.inf-thresholds-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25em;
+  padding: 0 0.65em 0.5em;
+}
+.inf-th-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #2a2a2a;
+  border-radius: 4px;
+  padding: 0.3em 0.55em;
+  font-size: 0.82em;
+}
+.inf-th-label { color: #bbb; }
+.inf-th-val { color: #ddd; display: flex; align-items: center; gap: 0.4em; }
+.inf-th-custom {
+  font-size: 0.7em;
+  padding: 0.1em 0.4em;
+  border-radius: 3px;
+  background: #3d2e0a;
+  color: #f59e0b;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.inf-th-default {
+  font-size: 0.7em;
+  padding: 0.1em 0.4em;
+  border-radius: 3px;
+  background: #1e3a5f;
+  color: #38bdf8;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
 /* ── Inference feed light mode ── */
 body.light .inference-card         { background: #fff; border-color: #ddd; }
 body.light .inference-card:hover   { background: #f0f4ff; }
@@ -612,3 +668,9 @@ body.light .inf-ev-row             { background: #f5f5f5; }
 body.light #inferenceDialog textarea { background: #f5f5f5; color: #111; border-color: #bbb; }
 body.light .inf-save-note          { background: #e0f2fe; color: #0369a1; border-color: #7dd3fc; }
 body.light .inference-empty        { color: #999; }
+body.light .inf-thresholds-section { border-color: #ddd; }
+body.light .inf-th-row             { background: #f5f5f5; }
+body.light .inf-th-label           { color: #555; }
+body.light .inf-th-val             { color: #222; }
+body.light .inf-th-custom          { background: #fef3c7; color: #92400e; }
+body.light .inf-th-default         { background: #e0f2fe; color: #0369a1; }

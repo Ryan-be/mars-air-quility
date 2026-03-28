@@ -301,14 +301,36 @@ function _openInferenceDialog(id) {
   document.getElementById("infDescription").textContent = inf.description;
   document.getElementById("infAction").textContent = inf.action || "No specific action needed.";
 
-  // Evidence
+  // Evidence (filter out _thresholds key)
   const evEl = document.getElementById("infEvidence");
+  const thSec = document.getElementById("infThresholdsSection");
+  const thGrid = document.getElementById("infThresholds");
   if (inf.evidence && typeof inf.evidence === "object") {
-    evEl.innerHTML = Object.entries(inf.evidence).map(([k, v]) =>
+    const thresholds = inf.evidence._thresholds;
+    const evidenceEntries = Object.entries(inf.evidence).filter(([k]) => k !== "_thresholds");
+    evEl.innerHTML = evidenceEntries.map(([k, v]) =>
       `<div class="inf-ev-row"><span class="fd-label">${k.replace(/_/g, " ")}</span><span class="fd-value">${v}</span></div>`
-    ).join("");
+    ).join("") || "No detailed evidence available.";
+
+    // Expandable thresholds section
+    if (thresholds && typeof thresholds === "object" && Object.keys(thresholds).length) {
+      thSec.style.display = "";
+      thSec.removeAttribute("open");
+      thGrid.innerHTML = Object.entries(thresholds).map(([k, th]) => {
+        const customTag = th.is_custom
+          ? '<span class="inf-th-custom">custom</span>'
+          : '<span class="inf-th-default">default</span>';
+        return `<div class="inf-th-row">
+          <span class="inf-th-label">${th.label || k.replace(/_/g, " ")}</span>
+          <span class="inf-th-val">${th.value} ${th.unit || ""} ${customTag}</span>
+        </div>`;
+      }).join("");
+    } else {
+      thSec.style.display = "none";
+    }
   } else {
     evEl.textContent = "No detailed evidence available.";
+    thSec.style.display = "none";
   }
 
   // Annotation section

@@ -109,6 +109,22 @@
     <p id="locStatus"></p>
   </div>
 
+  <!-- Inference thresholds card -->
+  <div class="card">
+    <h3>🔬 Inference Thresholds</h3>
+    <p class="card-desc">
+      Controls when the inference engine flags events.
+      Leave a field blank to use the default value.
+    </p>
+    <form id="thresholdForm">
+      <div class="threshold-grid" id="thresholdGrid">
+        <!-- populated by JS -->
+      </div>
+      <button class="btn-save" type="submit">Save thresholds</button>
+    </form>
+    <p id="thresholdStatus"></p>
+  </div>
+
 {% endblock %}
 
 {% block scripts %}
@@ -247,5 +263,73 @@
     document.getElementById("locationSearch").addEventListener("keydown", e => { if (e.key === "Enter") searchLocation(); });
 
     loadLocation();
+
+    // ── Inference thresholds ──────────────────────────────────────────────────
+    const thresholdStatusEl = document.getElementById("thresholdStatus");
+    let _thresholdKeys = [];
+
+    async function loadThresholds() {
+      try {
+        const res = await fetch("/api/settings/thresholds");
+        const rows = await res.json();
+        _thresholdKeys = rows.map(r => r.key);
+        const grid = document.getElementById("thresholdGrid");
+        grid.innerHTML = rows.map(r => {
+          const effective = r.user_value != null ? r.user_value : r.default_value;
+          const isCustom = r.user_value != null;
+          return `
+            <div class="threshold-item">
+              <div class="threshold-header">
+                <label for="th_${r.key}">${r.label}</label>
+                <span class="threshold-unit">${r.unit}</span>
+              </div>
+              <div class="threshold-inputs">
+                <input type="number" id="th_${r.key}" step="any"
+                       value="${isCustom ? r.user_value : ''}"
+                       placeholder="${r.default_value}"
+                       title="${r.description || ''}">
+                ${isCustom ? `<button type="button" class="btn-reset" title="Reset to default (${r.default_value})"
+                              onclick="resetThreshold('${r.key}', ${r.default_value}, this)">↩</button>` : ''}
+              </div>
+              <div class="threshold-default">Default: ${r.default_value} ${r.unit}</div>
+            </div>`;
+        }).join("");
+      } catch {
+        thresholdStatusEl.textContent = "Failed to load thresholds.";
+        thresholdStatusEl.className = "status-err";
+      }
+    }
+
+    function resetThreshold(key, defaultVal, btn) {
+      const input = document.getElementById("th_" + key);
+      input.value = "";
+      input.placeholder = defaultVal;
+      if (btn) btn.remove();
+    }
+
+    document.getElementById("thresholdForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const payload = {};
+      _thresholdKeys.forEach(key => {
+        const val = document.getElementById("th_" + key).value;
+        payload[key] = val === "" ? null : parseFloat(val);
+      });
+      try {
+        const res = await fetch("/api/settings/thresholds", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const d = await res.json();
+        thresholdStatusEl.textContent = d.message || d.error;
+        thresholdStatusEl.className = res.ok ? "status-ok" : "status-err";
+        if (res.ok) loadThresholds();
+      } catch {
+        thresholdStatusEl.textContent = "Failed to save thresholds.";
+        thresholdStatusEl.className = "status-err";
+      }
+    });
+
+    loadThresholds();
   </script>
 {% endblock %}

@@ -153,3 +153,74 @@
 }
 .status-ok  { color: #7dff7d; }
 .status-err { color: #ff6b6b; }
+
+/* ── Inference threshold grid ── */
+.threshold-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75em;
+  margin-bottom: 1.2em;
+}
+@media (max-width: 480px) {
+  .threshold-grid { grid-template-columns: 1fr; }
+}
+.threshold-item {
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 6px;
+  padding: 0.6em 0.75em;
+}
+.threshold-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 0.35em;
+}
+.threshold-header label {
+  font-size: 0.85em;
+  color: #ddd;
+  font-weight: 600;
+}
+.threshold-unit {
+  font-size: 0.75em;
+  color: #888;
+}
+.threshold-inputs {
+  display: flex;
+  gap: 0.4em;
+  align-items: center;
+}
+.threshold-inputs input[type="number"] {
+  flex: 1;
+  padding: 0.4em 0.55em;
+  background: #1e1e1e;
+  color: #fff;
+  border: 1px solid #555;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+.threshold-inputs input[type="number"]:focus {
+  outline: none;
+  border-color: #2a7aff;
+}
+.threshold-inputs input[type="number"]::placeholder {
+  color: #666;
+}
+.btn-reset {
+  padding: 0.3em 0.5em;
+  background: #3a2a1a;
+  color: #f59e0b;
+  border: 1px solid #5a3a1a;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.85em;
+  line-height: 1;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.btn-reset:hover { background: #5a3a1a; }
+.threshold-default {
+  font-size: 0.7em;
+  color: #666;
+  margin-top: 0.3em;
+}
