@@ -82,7 +82,16 @@ info "Initialising SQLite database..."
 poetry run python database/init_db.py
 success "Database initialised"
 
-# ── 8. Create .env if it doesn't exist ───────────────────────────────────────
+# ── 8. Generate self-signed TLS certificate ─────────────────────────────────
+if [ ! -f certs/cert.pem ] || [ ! -f certs/key.pem ]; then
+    info "Generating self-signed TLS certificate..."
+    poetry run python scripts/generate_certs.py
+    success "TLS certificate generated in certs/"
+else
+    success "TLS certificates already exist"
+fi
+
+# ── 9. Create .env if it doesn't exist ───────────────────────────────────────
 if [ ! -f .env ]; then
     info "Creating default .env..."
     cat > .env <<'EOF'

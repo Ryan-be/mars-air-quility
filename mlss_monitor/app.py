@@ -1,7 +1,9 @@
 import asyncio
 import logging
 import math
+import mimetypes
 import os
+import ssl
 import time
 from datetime import datetime
 from threading import Thread
@@ -51,6 +53,21 @@ LOG_INTERVAL = int(config.get("LOG_INTERVAL", "10"))
 FAN_KASA_SMART_PLUG_IP = config.get("FAN_KASA_SMART_PLUG_IP", "192.168.1.63")
 SECRET_KEY = config.get("SECRET_KEY", "mlss-dev-key-change-me-in-production")
 app.secret_key = SECRET_KEY
+
+# ── HTTPS / TLS ──────────────────────────────────────────────────────────────
+HTTPS_ENABLED = str(config.get("HTTPS_ENABLED", "true")).lower() == "true"
+SSL_CERT_FILE = config.get("SSL_CERT_FILE", "certs/cert.pem")
+SSL_KEY_FILE = config.get("SSL_KEY_FILE", "certs/key.pem")
+
+# Ensure MIME types are correct — browsers enforce strict checking over HTTPS
+# and will refuse to apply stylesheets served with the wrong Content-Type.
+mimetypes.add_type("text/css", ".css")
+mimetypes.add_type("application/javascript", ".js")
+mimetypes.add_type("application/json", ".json")
+
+if HTTPS_ENABLED:
+    app.config["PREFERRED_URL_SCHEME"] = "https"
+    app.config["SESSION_COOKIE_SECURE"] = True
 
 # Populate shared state with auth config
 state.GITHUB_CLIENT_ID     = config.get("GITHUB_CLIENT_ID", None)
@@ -279,6 +296,27 @@ def _weather_log_loop():
         time.sleep(3600)
 
 
+# ── HTTPS helpers ────────────────────────────────────────────────────────────
+
+def _build_ssl_context():
+    if not HTTPS_ENABLED:
+        return None
+
+    cert = os.path.abspath(SSL_CERT_FILE)
+    key = os.path.abspath(SSL_KEY_FILE)
+
+    if not os.path.isfile(cert) or not os.path.isfile(key):
+        log.warning("SSL cert/key not found (%s, %s) — falling back to HTTP. "
+                    "Run 'python scripts/generate_certs.py' to create a self-signed certificate.", cert, key)
+        return None
+
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    ctx.load_cert_chain(certfile=cert, keyfile=key)
+    log.info("TLS enabled — cert=%s key=%s", cert, key)
+    return ctx
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main():
@@ -309,7 +347,12 @@ def main():
 
     Thread(target=_background_log, daemon=True).start()
     Thread(target=_weather_log_loop, daemon=True).start()
-    app.run(host="0.0.0.0", port=5000)
+
+    ssl_ctx = _build_ssl_context()
+    port = 5000
+    protocol = "https" if ssl_ctx else "http"
+    log.info("Starting server on %s://0.0.0.0:%d", protocol, port)
+    app.run(host="0.0.0.0", port=port, ssl_context=ssl_ctx)
 
 
 if __name__ == "__main__":

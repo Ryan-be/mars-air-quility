@@ -11,5 +11,10 @@ Restart=on-failure
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
 
+# TLS certificate paths (self-signed or CA-issued).
+# Generate with: python scripts/generate_certs.py --cert-dir /etc/mlss/certs
+# Environment=MLSS_SSL_CERT_FILE=/etc/mlss/certs/cert.pem
+# Environment=MLSS_SSL_KEY_FILE=/etc/mlss/certs/key.pem
+
 [Install]
 WantedBy=multi-user.target
