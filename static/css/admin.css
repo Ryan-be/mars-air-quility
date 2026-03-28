@@ -1,7 +1,16 @@
+/* ── Settings grid ── */
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+  gap: 1.2em;
+}
+@media (max-width: 480px) {
+  .settings-grid { grid-template-columns: 1fr; }
+}
+
 /* ── Admin card ── */
 .card {
   padding: 1.5em;
-  max-width: 480px;
 }
 
 /* ── Form layout ── */
@@ -79,7 +88,6 @@
 .switch input:checked + .slider::before { transform: translateX(20px); }
 
 /* ── Card spacing ── */
-.card + .card { margin-top: 1.2em; }
 .card-desc { font-size: 0.85em; color: #888; margin: -0.8em 0 1.2em; }
 .search-row { display: flex; gap: 0.5em; margin-bottom: 0.5em; }
 .search-row input[type="text"] {
@@ -157,24 +165,23 @@
 /* ── Inference threshold grid ── */
 .threshold-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 0.75em;
   margin-bottom: 1.2em;
-}
-@media (max-width: 480px) {
-  .threshold-grid { grid-template-columns: 1fr; }
 }
 .threshold-item {
   background: #2a2a2a;
   border: 1px solid #444;
   border-radius: 6px;
-  padding: 0.6em 0.75em;
+  padding: 0.65em 0.75em;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35em;
 }
 .threshold-header {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  margin-bottom: 0.35em;
 }
 .threshold-header label {
   font-size: 0.85em;
@@ -222,5 +229,4 @@
 .threshold-default {
   font-size: 0.7em;
   color: #666;
-  margin-top: 0.3em;
 }
