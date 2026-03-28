@@ -1,12 +1,10 @@
 """User management API routes — admin only.
 
-All users authenticate via GitHub OAuth. These endpoints manage which GitHub
-accounts are authorised and what role each holds.
-
 GET    /api/users                   List all registered users
 POST   /api/users                   Add a GitHub user with a role
-PATCH  /api/users/<id>/role         Change a user's role
-DELETE /api/users/<id>              Deactivate a user
+PATCH  /api/users/<id>/role         Change role; use "inactive" to suspend
+GET    /api/users/<id>/logins       Login history (last 20)
+DELETE /api/users/<id>              Permanently delete user and login log
 """
 
 from flask import Blueprint, jsonify, request, session
@@ -16,8 +14,10 @@ from database.user_db import (
     admin_count,
     deactivate_user,
     get_login_log,
-    get_user_by_id,
+    get_user_by_id_any,
+    hard_delete_user,
     list_users,
+    reactivate_user,
     update_user_role,
 )
 from mlss_monitor.rbac import require_role
@@ -58,39 +58,45 @@ def create_user_route():
 def update_role(user_id: int):
     data = request.get_json(silent=True) or {}
     role = (data.get("role") or "").strip()
+
+    if not get_user_by_id_any(user_id):
+        return jsonify({"error": "User not found"}), 404
+
+    if role == "inactive":
+        deactivate_user(user_id)
+        return jsonify({"message": "User suspended"})
+
+    # Assigning a real role — reactivate if suspended, then set role
     try:
-        updated = update_user_role(user_id, role)
+        reactivate_user(user_id)
+        update_user_role(user_id, role)
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
-    if not updated:
-        return jsonify({"error": "User not found"}), 404
-    return jsonify({"message": "Role updated"})
+
+    return jsonify({"message": f"Role updated to {role}"})
 
 
 @api_users_bp.route("/api/users/<int:user_id>/logins", methods=["GET"])
 @require_role("admin")
 def get_user_logins(user_id: int):
-    user = get_user_by_id(user_id)
+    user = get_user_by_id_any(user_id)
     if not user:
         return jsonify({"error": "User not found"}), 404
-    logs = get_login_log(user["github_username"])
-    return jsonify(logs)
+    return jsonify(get_login_log(user["github_username"]))
 
 
 @api_users_bp.route("/api/users/<int:user_id>", methods=["DELETE"])
 @require_role("admin")
 def delete_user(user_id: int):
-    # Prevent self-deletion via DB user_id
     if session.get("user_id") == user_id:
-        return jsonify({"error": "Cannot remove your own account"}), 400
+        return jsonify({"error": "Cannot delete your own account"}), 400
 
-    user = get_user_by_id(user_id)
+    user = get_user_by_id_any(user_id)
     if not user:
         return jsonify({"error": "User not found"}), 404
 
-    # Prevent removing the last admin (env-var admin is always available as fallback)
-    if user["role"] == "admin" and admin_count() <= 1:
-        return jsonify({"error": "Cannot remove the last admin account"}), 400
+    if user["role"] == "admin" and user["is_active"] and admin_count() <= 1:
+        return jsonify({"error": "Cannot delete the last admin account"}), 400
 
-    deactivate_user(user_id)
-    return jsonify({"message": "User removed"})
+    hard_delete_user(user_id)
+    return jsonify({"message": "User permanently deleted"})

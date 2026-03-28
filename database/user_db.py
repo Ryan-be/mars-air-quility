@@ -43,9 +43,19 @@ _SELECT = (
 # ── Queries ───────────────────────────────────────────────────────────────────
 
 def get_user_by_id(user_id: int) -> Optional[dict]:
+    """Return user only if active."""
     with _conn() as conn:
         row = conn.execute(
             f"{_SELECT} WHERE id = ? AND is_active = 1", (user_id,)
+        ).fetchone()
+    return _row_to_dict(row) if row else None
+
+
+def get_user_by_id_any(user_id: int) -> Optional[dict]:
+    """Return user regardless of active status."""
+    with _conn() as conn:
+        row = conn.execute(
+            f"{_SELECT} WHERE id = ?", (user_id,)
         ).fetchone()
     return _row_to_dict(row) if row else None
 
@@ -111,10 +121,11 @@ def add_user(github_username: str, role: str, display_name: str = "") -> dict:
 
 
 def update_user_role(user_id: int, role: str) -> bool:
+    """Update role regardless of active status (reactivation is a separate step)."""
     _validate_role(role)
     with _conn() as conn:
         cur = conn.execute(
-            "UPDATE users SET role = ? WHERE id = ? AND is_active = 1",
+            "UPDATE users SET role = ? WHERE id = ?",
             (role, user_id),
         )
         conn.commit()
@@ -128,6 +139,29 @@ def deactivate_user(user_id: int) -> bool:
         )
         conn.commit()
         return cur.rowcount > 0
+
+
+def reactivate_user(user_id: int) -> bool:
+    with _conn() as conn:
+        cur = conn.execute(
+            "UPDATE users SET is_active = 1 WHERE id = ?", (user_id,)
+        )
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def hard_delete_user(user_id: int) -> bool:
+    """Permanently remove a user row and their login_log entries."""
+    with _conn() as conn:
+        user = conn.execute(
+            "SELECT github_username FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+        if not user:
+            return False
+        conn.execute("DELETE FROM login_log WHERE lower(github_username) = lower(?)", (user[0],))
+        conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+        conn.commit()
+        return True
 
 
 def record_login(github_username: str):

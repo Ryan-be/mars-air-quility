@@ -1,6 +1,6 @@
 """Page routes: dashboard, history, controls, admin."""
 
-from flask import Blueprint, redirect, render_template, url_for
+from flask import Blueprint, render_template
 
 from mlss_monitor.rbac import require_role
 

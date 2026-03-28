@@ -22,7 +22,7 @@ import logging
 
 from flask import Blueprint, redirect, render_template, session, url_for
 
-from database.user_db import get_user_by_github, get_login_log, record_login
+from database.user_db import get_user_by_github, record_login
 from mlss_monitor import state
 
 log = logging.getLogger(__name__)

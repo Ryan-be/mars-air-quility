@@ -47,7 +47,7 @@ def app_client(db, monkeypatch):  # pylint: disable=redefined-outer-name
     app_module.app.config["TESTING"] = True
     with app_module.app.test_client() as client:
         # Default to admin session so existing tests are unaffected by RBAC guards
-        with client.session_transaction() as sess:
+        with client.session_transaction() as sess:  # pylint: disable=contextmanager-generator-missing-cleanup
             sess["logged_in"] = True
             sess["user"] = "test-admin"
             sess["user_role"] = "admin"

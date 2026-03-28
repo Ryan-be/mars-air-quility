@@ -325,7 +325,7 @@ class TestUserManagementRBAC:
         udb.record_login("deleteme")
         resp = client.delete(f"/api/users/{user['id']}")
         assert resp.status_code == 200
-        assert udb.get_user_by_id_any(user["id"]) is None
+        assert udb.get_user_by_id_any(user["id"]) is None  # pylint: disable=no-member
         assert udb.get_login_log("deleteme") == []
 
     def test_cannot_delete_last_active_admin_via_hard_delete(self, app_client, db):
