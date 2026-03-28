@@ -1,4 +1,5 @@
 import logging
+import time
 import serial
 
 log = logging.getLogger(__name__)
@@ -8,6 +9,27 @@ _START1 = 0x42
 _START2 = 0x4D
 _FRAME_LEN = 32
 
+# SB Components Air Monitoring HAT uses GPIO27 (BCM) as the SET/sleep pin.
+# HIGH = active (sensor fan + laser on, streaming data)
+# LOW  = sleep  (sensor powered down, no data)
+_DEFAULT_SET_PIN = 27
+
+
+def _wake_sensor(set_pin):
+    """Pull the SET pin HIGH to wake the PMSA003 from sleep mode."""
+    try:
+        import RPi.GPIO as GPIO
+        GPIO.setwarnings(False)
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setup(set_pin, GPIO.OUT)
+        GPIO.output(set_pin, GPIO.HIGH)
+        log.info("PM sensor: SET pin (GPIO%d) pulled HIGH — waking sensor", set_pin)
+        time.sleep(3)  # sensor needs ~2-3s to spin up fan and stabilise
+    except ImportError:
+        log.warning("RPi.GPIO not available — cannot control PM sensor SET pin")
+    except Exception as e:
+        log.error("PM sensor: failed to set wake pin GPIO%d: %s", set_pin, e)
+
 
 class AirMonitoringHAT_PM:
     """
@@ -15,6 +37,7 @@ class AirMonitoringHAT_PM:
     Reads PM1.0, PM2.5, and PM10 values via UART (PMSA003 / PMS5003).
 
     Uses /dev/serial0 (hardware UART) — no I2C address conflict with other sensors.
+    The HAT's SET pin (GPIO27) must be held HIGH for the sensor to stream data.
     """
 
     def __init__(self, port="/dev/serial0", baudrate=9600, timeout=2):
@@ -97,9 +120,10 @@ class AirMonitoringHAT_PM:
 _sensor = None
 
 
-def init_pm_sensor(port="/dev/serial0"):
+def init_pm_sensor(port="/dev/serial0", set_pin=_DEFAULT_SET_PIN):
     global _sensor
     try:
+        _wake_sensor(set_pin)
         _sensor = AirMonitoringHAT_PM(port=port)
         # Do a test read to confirm sensor is responding
         result = _sensor.read_pm()
