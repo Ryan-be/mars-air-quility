@@ -75,8 +75,9 @@ export function renderCorrelationCharts(data) {
       resetBtn.textContent = "Resetting…";
       document.getElementById("corrRangeLabel").textContent = "Resetting to full range…";
 
-      // Let the browser paint the disabled state before the render blocks the thread
-      requestAnimationFrame(() => {
+      // Double-rAF: first frame applies disabled styles, browser paints them,
+      // then the heavy Plotly work starts so the visual feedback is immediate.
+      requestAnimationFrame(() => requestAnimationFrame(() => {
         _isSubset = false;
         _renderBrushChart(_fullData);
         _renderScatterCharts(_fullData);
@@ -84,7 +85,7 @@ export function renderCorrelationCharts(data) {
         document.getElementById("corrRangeLabel").textContent = "Showing: full range";
         resetBtn.textContent = "Reset to full range";
         resetBtn.disabled = false;
-      });
+      }));
     };
   }
 }
@@ -122,20 +123,25 @@ function _renderBrushChart(data) {
   // When PM2.5 is present we need two right-hand axes.  Give each its own
   // position so their tick labels don't collide, and shrink the xaxis domain
   // to leave room on the right edge.
-  const rightMargin  = hasPm ? 120 : 55;
-  const plotDomainX  = hasPm ? [0, 0.86] : [0, 1];
+  // Two right axes need: xaxis domain shrunk, yaxis2 anchored to x's right edge,
+  // yaxis3 free-positioned beyond that, and enough right margin for both label stacks.
+  const rightMargin = hasPm ? 110 : 55;
+  const xDomainEnd  = hasPm ? 0.78 : 1;
+  // yaxis2 sits at the right edge of xDomain (paper x = xDomainEnd)
+  // yaxis3 sits further right in the paper margin
+  const y3Position  = hasPm ? 0.88 : undefined;
 
   const layout = themeLayout({
-    height: 210,
-    margin: { t: 58, b: 30, l: 55, r: rightMargin },
+    height: 220,
+    margin: { t: 58, b: 50, l: 60, r: rightMargin },
     title: { text: "TVOC · eCO₂ · PM2.5 over time — drag to select a window", font: { ...titleFont, size: 12 }, x: 0.5, xanchor: "center" },
     legend: { orientation: "h", x: 0.5, xanchor: "center", y: 1.22, font: { size: 10 }, bgcolor: "rgba(0,0,0,0)" },
-    xaxis:  { type: "date", domain: plotDomainX },
+    xaxis:  { type: "date", domain: [0, xDomainEnd] },
     yaxis:  { title: "TVOC (ppb)",   side: "left",  showgrid: false, titlefont: { size: 10 }, tickfont: { size: 9 } },
     yaxis2: { title: "eCO₂ (ppm)",   side: "right", overlaying: "y", showgrid: false, titlefont: { size: 10 }, tickfont: { size: 9 }, anchor: "x" },
     yaxis3: hasPm ? {
       title: "PM2.5 (µg/m³)", side: "right", overlaying: "y",
-      anchor: "free", position: 0.94,
+      anchor: "free", position: y3Position,
       showgrid: false, titlefont: { size: 10 }, tickfont: { size: 9 },
     } : undefined,
     dragmode: "zoom",
