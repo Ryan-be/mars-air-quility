@@ -99,3 +99,20 @@ class TestGenerateCerts:
         time.sleep(0.1)  # ensure mtime difference
         generate_self_signed_cert(cert_dir=str(tmp_path), force=True)
         assert os.path.getmtime(tmp_path / "cert.pem") != first_mtime
+
+    def test_cert_contains_ip_san(self, tmp_path):
+        try:
+            subprocess.run(["openssl", "version"], check=True, capture_output=True)
+        except FileNotFoundError:
+            pytest.skip("openssl not available")
+
+        from scripts.generate_certs import generate_self_signed_cert
+
+        cert, _ = generate_self_signed_cert(
+            cert_dir=str(tmp_path), ip_addresses=["192.168.1.95"],
+        )
+        result = subprocess.run(
+            ["openssl", "x509", "-in", cert, "-noout", "-text"],
+            capture_output=True, text=True, check=True,
+        )
+        assert "IP Address:192.168.1.95" in result.stdout
