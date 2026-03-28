@@ -1,6 +1,6 @@
 import { toggleTheme } from './theme.js';
 import { updateInsights, updateWeather, updateForecast, updateDailyForecast } from './insights.js';
-import { fetchHealth } from './health.js';
+import { fetchHealth, applyHealth } from './health.js';
 
 window.toggleTheme = () => toggleTheme(fetchData);
 
@@ -467,15 +467,76 @@ function _openInferenceDialog(id) {
   dialog.onclick = (e) => { if (e.target === dialog) dialog.close(); };
 }
 
+// ── Server-Sent Events (real-time push) ─────────────────────────────────────
+
+let _evtSource = null;
+let _sseRetryMs = 1000;
+
+function connectSSE() {
+  if (_evtSource) _evtSource.close();
+  _evtSource = new EventSource("/api/stream");
+
+  _evtSource.addEventListener("sensor_update", (e) => {
+    const d = JSON.parse(e.data);
+    const t = d.temperature;
+    const h = d.humidity;
+    document.getElementById("tempValue").textContent =
+      `${trend(t, _lastIndoorTemp)}${t?.toFixed(1) ?? "--"} °C`;
+    document.getElementById("humValue").textContent =
+      `${trend(h, _lastIndoorHum)}${h?.toFixed(1) ?? "--"} %`;
+    document.getElementById("eco2Value").textContent =
+      `${trend(d.eco2, null)}${d.eco2 ?? "--"} ppm`;
+    document.getElementById("tvocValue").textContent =
+      `${trend(d.tvoc, null)}${d.tvoc ?? "--"} ppb`;
+    _lastIndoorTemp = t;
+    _lastIndoorHum  = h;
+    updateInsights(t, h, d.tvoc, d.eco2, [d.eco2]);
+    document.getElementById("last-updated").textContent =
+      "Last updated: " + new Date().toLocaleString();
+  });
+
+  _evtSource.addEventListener("inference_event", () => {
+    fetchInferences();
+  });
+
+  _evtSource.addEventListener("weather_update", (e) => {
+    const w = JSON.parse(e.data);
+    updateWeather(w, _lastIndoorTemp, _lastIndoorHum);
+  });
+
+  _evtSource.addEventListener("forecast_update", (e) => {
+    const d = JSON.parse(e.data);
+    if (d.hours) updateForecast(d.hours);
+  });
+
+  _evtSource.addEventListener("daily_forecast_update", (e) => {
+    const d = JSON.parse(e.data);
+    if (d.days) updateDailyForecast(d.days);
+  });
+
+  _evtSource.addEventListener("health_update", (e) => {
+    applyHealth(JSON.parse(e.data));
+  });
+
+  // fan_status doesn't carry full health data — the next health_update
+  // (arriving within LOG_INTERVAL seconds) will refresh the health panel.
+
+  _evtSource.onopen = () => { _sseRetryMs = 1000; };
+
+  _evtSource.onerror = () => {
+    _evtSource.close();
+    // Exponential back-off reconnect (max 30 s)
+    setTimeout(connectSSE, _sseRetryMs);
+    _sseRetryMs = Math.min(_sseRetryMs * 2, 30000);
+  };
+}
+
+// ── Initial data load then hand off to SSE for all subsequent updates ────────
+
 fetchData();
 fetchHealth();
 fetchWeather();
 fetchForecast();
 fetchDailyForecast();
 fetchInferences();
-setInterval(fetchData,          15000);
-setInterval(fetchHealth,        15000);
-setInterval(fetchWeather,   5 * 60 * 1000);
-setInterval(fetchForecast,  60 * 60 * 1000);
-setInterval(fetchDailyForecast, 6 * 60 * 60 * 1000);
-setInterval(fetchInferences,    60 * 1000);
+connectSSE();

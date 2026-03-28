@@ -99,6 +99,7 @@ class TestSensorFailures:
 
         monkeypatch.setattr(app_module, "read_sensors", lambda: (0, 0, 0, 0))
         monkeypatch.setattr(app_module, "log_sensor_data", lambda *a, **kw: None)
+        monkeypatch.setattr(app_module, "_collect_health", lambda: {})
         monkeypatch.setattr(
             app_module.asyncio, "run_coroutine_threadsafe",
             lambda coro, loop: __import__("unittest.mock", fromlist=["MagicMock"]).MagicMock()
@@ -132,6 +133,7 @@ class TestFanZeroValueEdgeCase:
         )
         monkeypatch.setattr(app_module, "read_sensors", lambda: (0.0, 0.0, 0, 0))
         monkeypatch.setattr(app_module, "log_sensor_data", lambda *a, **kw: None)
+        monkeypatch.setattr(app_module, "_collect_health", lambda: {})
         monkeypatch.setattr(
             app_module.asyncio, "run_coroutine_threadsafe",
             lambda coro, loop: MagicMock()
@@ -157,6 +159,7 @@ class TestFanZeroValueEdgeCase:
         )
         monkeypatch.setattr(app_module, "read_sensors", lambda: (25.0, 0.0, 0, 0))
         monkeypatch.setattr(app_module, "log_sensor_data", lambda *a, **kw: None)
+        monkeypatch.setattr(app_module, "_collect_health", lambda: {})
         monkeypatch.setattr(
             app_module.asyncio, "run_coroutine_threadsafe",
             lambda coro, loop: MagicMock()

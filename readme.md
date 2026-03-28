@@ -75,17 +75,21 @@ A lightweight environmental monitoring system for Raspberry Pi, designed as a pr
 - Login audit log -- per-user login history visible to admins
 - Environment inference engine -- continuously analyses sensor data to detect pollution events, threshold breaches, and trends
 - Interactive dashboard card popups -- tap any card for detailed information about the metric, sensor, or calculation
+- Real-time Server-Sent Events (SSE) -- sensor readings, fan status, inference alerts, and weather updates are pushed to the browser instantly via an in-process event bus, replacing most polling
 
 ---
 
 ## Architecture
 
-MLSS Monitor follows a layered architecture with background processing threads, a Flask web server, and hardware abstraction interfaces.
+MLSS Monitor follows a layered architecture with background processing threads, a Flask web server, hardware abstraction interfaces, and an in-process event bus for real-time push.
+
+### System overview
 
 ```mermaid
 flowchart TB
     subgraph Client["Browser Client"]
         UI["Vanilla JS + Plotly Charts"]
+        ES["EventSource API<br/>(SSE listener)"]
     end
 
     subgraph Flask["Flask Web Server"]
@@ -93,6 +97,11 @@ flowchart TB
         Auth["Auth Middleware<br/>(GitHub OAuth + RBAC)"]
         Pages["Page Routes<br/>(dashboard, history,<br/>controls, admin)"]
         API["REST API<br/>(data, fan, weather,<br/>settings, inferences, users)"]
+        SSE["/api/stream<br/>(Server-Sent Events)"]
+    end
+
+    subgraph EventBusBox["Event Bus"]
+        Bus["EventBus<br/>(in-process pub/sub)"]
     end
 
     subgraph Background["Background Threads"]
@@ -120,8 +129,15 @@ flowchart TB
     end
 
     UI <-->|HTTP/JSON| Flask
+    ES <-.->|SSE stream| SSE
     Auth --> Pages
     Auth --> API
+    Auth --> SSE
+    SensorLoop -->|publish: sensor_update| Bus
+    SensorLoop -->|publish: fan_status| Bus
+    WeatherLoop -->|publish: weather_update| Bus
+    InferenceEng -->|publish: inference_event| Bus
+    Bus -->|subscribe| SSE
     SensorLoop --> AHT20
     SensorLoop --> SGP30
     SensorLoop --> Display
@@ -139,12 +155,62 @@ flowchart TB
     Background --> Config
 ```
 
+### Real-time event flow (SSE)
+
+The event bus decouples producers (background threads) from consumers (browser clients) using an in-process pub/sub pattern:
+
+```mermaid
+sequenceDiagram
+    participant Sensor as Sensor Loop
+    participant Inference as Inference Engine
+    participant Weather as Weather Loop
+    participant Bus as EventBus
+    participant SSE as /api/stream
+    participant Browser as Browser (EventSource)
+
+    Browser->>SSE: GET /api/stream (opens persistent connection)
+    SSE->>Bus: subscribe(replay=True)
+    Bus-->>SSE: replay recent history
+
+    loop Every LOG_INTERVAL seconds
+        Sensor->>Bus: publish("sensor_update", {temp, humidity, eco2, tvoc, ...})
+        Bus-->>SSE: fan-out to all subscriber queues
+        SSE-->>Browser: id: 42\nevent: sensor_update\ndata: {...}
+    end
+
+    Sensor->>Inference: run_analysis() (every ~60s)
+    Inference->>Bus: publish("inference_event", {title, severity, ...})
+    Bus-->>SSE: fan-out
+    SSE-->>Browser: event: inference_event\ndata: {...}
+
+    loop Every 60 minutes
+        Weather->>Bus: publish("weather_update", {temp, humidity, ...})
+        Bus-->>SSE: fan-out
+        SSE-->>Browser: event: weather_update\ndata: {...}
+    end
+
+    Note over SSE,Browser: Heartbeat (": heartbeat\n\n") sent every 30s to keep connection alive
+    Note over Browser: On disconnect, EventSource auto-reconnects with exponential back-off
+```
+
+**Event types**:
+
+| Event | Producer | Frequency | Payload |
+|---|---|---|---|
+| `sensor_update` | Sensor loop | Every LOG_INTERVAL (10s) | `{temperature, humidity, eco2, tvoc, fan_power_w, vpd_kpa}` |
+| `fan_status` | Sensor loop (auto mode) | On state change | `{state, mode, power_w}` |
+| `inference_event` | Inference engine | When detected | `{id, event_type, severity, title, description, action, confidence}` |
+| `weather_update` | Weather loop | Every 60 min | `{temp, humidity, feels_like, wind_speed, weather_code, uv_index}` |
+
 ### Key design decisions
 
+- **SSE over WebSockets** -- the data flow is overwhelmingly server-to-client. SSE is natively supported by browsers (`EventSource` with auto-reconnect), requires no new dependencies, and works through HTTP proxies. Fan commands and settings remain REST — bidirectional sockets would be overkill.
+- **Event bus** (`event_bus.py`) -- a lightweight in-process pub/sub backed by per-subscriber `queue.Queue` instances. Thread-safe, zero dependencies, and decouples producers from the SSE transport. Maintains a rolling history (default 50 events) so late-joining clients receive recent state on connect.
+- **Graceful degradation** -- the frontend falls back to polling for health and weather data. If the SSE connection drops, `EventSource` reconnects automatically with exponential back-off (1s to 30s). The REST API remains fully functional.
 - **Background threads** -- two daemon threads run independently: one polls sensors and triggers the inference engine, the other fetches weather data hourly.
 - **Async event loop** -- the Kasa smart plug uses `python-kasa` which is async. A dedicated `asyncio` event loop runs in the sensor polling thread for non-blocking plug control.
-- **Shared state module** (`state.py`) -- holds mutable references to hardware objects, fan mode, and the async event loop, allowing routes and background threads to coordinate.
-- **Blueprint architecture** -- Flask routes are organised into nine blueprints for separation of concerns.
+- **Shared state module** (`state.py`) -- holds mutable references to hardware objects, fan mode, the event bus, and the async event loop, allowing routes and background threads to coordinate.
+- **Blueprint architecture** -- Flask routes are organised into ten blueprints for separation of concerns.
 - **RBAC decorator** (`rbac.py`) -- `@require_role()` decorator enforces per-endpoint permission checks based on the authenticated user's role.
 
 ---
@@ -594,6 +660,21 @@ The `MLSS_ALLOWED_GITHUB_USER` bootstrap account always has the **admin** role r
 | `GET` | `/api/users/<id>/logins` | admin | Login history (last 20 entries) |
 | `DELETE` | `/api/users/<id>` | admin | Deactivate a user |
 
+### Real-time stream (SSE)
+
+| Method | Endpoint | Min role | Description |
+|---|---|---|---|
+| `GET` | `/api/stream` | viewer | SSE stream -- persistent connection pushing `sensor_update`, `fan_status`, `inference_event`, `weather_update` events |
+| `GET` | `/api/stream/history` | viewer | JSON array of recent events (last 50). Optional `?event=sensor_update` filter. |
+
+**SSE wire format** (per the [SSE spec](https://html.spec.whatwg.org/multipage/server-sent-events.html)):
+```
+id: 42
+event: sensor_update
+data: {"temperature": 22.5, "humidity": 55.0, "eco2": 620, "tvoc": 85, "fan_power_w": 4.2, "vpd_kpa": 1.12}
+
+```
+
 ---
 
 ## Development
@@ -641,11 +722,12 @@ poetry install --with visualization
 ```
 mlss_monitor/
   app.py                      Flask app factory, hardware init, background loops
-  state.py                    Shared mutable state (fan mode, hardware refs, event loop)
+  state.py                    Shared mutable state (fan mode, hardware refs, event bus, event loop)
+  event_bus.py                In-process pub/sub for SSE -- thread-safe, rolling history
   rbac.py                     Role-Based Access Control -- require_role() decorator
   inference_engine.py         Environment analysis -- 9 detectors, pollution event flagging
   routes/
-    __init__.py               Blueprint registration (9 blueprints)
+    __init__.py               Blueprint registration (10 blueprints)
     auth.py                   GitHub OAuth login/logout, DB role lookup
     pages.py                  Page routes (dashboard, history, controls, admin)
     api_data.py               Sensor data API (fetch, CSV download, annotations)
@@ -654,6 +736,7 @@ mlss_monitor/
     api_settings.py           Settings API (location, energy rate, thresholds)
     api_inferences.py         Inference API (list, notes, dismiss)
     api_users.py              User management API (list, add, role change, login log, deactivate)
+    api_stream.py             SSE streaming endpoint + event history API
     system.py                 System health endpoint
 database/
   db_logger.py                SQLite read/write helpers
@@ -683,14 +766,14 @@ static/
     controls.css              Device grid and control card styles
     admin.css                 Settings page styles
   js/
-    dashboard.js              Boot, data polling, weather/forecast, card popups, inference feed
+    dashboard.js              Boot, SSE connection, weather/forecast, card popups, inference feed
     history.js                Tab switching, lazy chart rendering, data fetch
     insights.js               Derived calculations, weather + forecast rendering
     charts.js                 Plotly sensor chart rendering (temp, hum, eco2, tvoc)
     charts_env.js             Environment charts (indoor/outdoor overlay, VPD, fan state)
     charts_correlation.js     Time-brush, scatter plots, regression, inference engine
     charts_patterns.js        Pattern analysis (hour-of-day heatmap, daily temp range)
-    controls.js               Device control page (fan polling, status dot)
+    controls.js               Device control page (SSE fan status, status dot)
     fan.js                    Fan control API calls
     health.js                 System health polling
     theme.js                  Light/dark mode toggle
@@ -705,6 +788,8 @@ tests/
   test_daily_forecast.py      Daily forecast API tests
   test_weather_history.py     Weather history DB function tests
   test_rbac.py                RBAC -- user DB, login log, role enforcement on all write endpoints
+  test_event_bus.py           EventBus pub/sub, history, thread safety tests
+  test_sse.py                 SSE endpoint, wire format, auth, history API tests
 docs/
   CONFIGURATION.md            Full configuration reference
   PRODUCTION.md               Production deployment guide
