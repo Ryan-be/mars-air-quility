@@ -1,3 +1,4 @@
+import json
 import sqlite3
 from datetime import datetime, timedelta
 
@@ -276,3 +277,89 @@ def update_fan_settings(tvoc_min, tvoc_max, temp_min, temp_max, enabled):
     """, (tvoc_min, tvoc_max, temp_min, temp_max, int(enabled)))
     conn.commit()
     conn.close()
+
+
+# ── Inference CRUD ────────────────────────────────────────────────────────────
+
+def save_inference(event_type, severity, title, description, action,
+                   evidence, confidence, start_id=None, end_id=None,
+                   annotation=None):
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO inferences
+            (created_at, event_type, severity, title, description, action,
+             evidence, confidence, sensor_data_start_id, sensor_data_end_id,
+             annotation)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        datetime.utcnow().isoformat(), event_type, severity, title,
+        description, action, json.dumps(evidence) if evidence else None,
+        confidence, start_id, end_id, annotation,
+    ))
+    inf_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return inf_id
+
+
+def get_inferences(limit=50, include_dismissed=False):
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    if include_dismissed:
+        cur.execute(
+            "SELECT * FROM inferences ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        )
+    else:
+        cur.execute(
+            "SELECT * FROM inferences WHERE dismissed = 0 "
+            "ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        )
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    for r in rows:
+        if r.get("evidence"):
+            try:
+                r["evidence"] = json.loads(r["evidence"])
+            except (json.JSONDecodeError, TypeError):
+                pass
+    return rows
+
+
+def update_inference_notes(inference_id, notes):
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE inferences SET user_notes = ? WHERE id = ?",
+        (notes, inference_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def dismiss_inference(inference_id):
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE inferences SET dismissed = 1 WHERE id = ?",
+        (inference_id,),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_recent_inference_by_type(event_type, hours=1):
+    """Check if an inference of this type was created within the last N hours."""
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    since = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
+    cur.execute(
+        "SELECT id FROM inferences WHERE event_type = ? AND created_at >= ? LIMIT 1",
+        (event_type, since),
+    )
+    row = cur.fetchone()
+    conn.close()
+    return row is not None

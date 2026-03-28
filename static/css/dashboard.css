@@ -408,3 +408,207 @@ body.light button.stat-card:focus-visible { background: #f0f4ff; border-color: #
 }
 body.light .sd-row    { background: #f5f5f5; }
 body.light .sd-desc   { color: #666; }
+
+/* ── Clickable insight cards ── */
+button.insight-card {
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  transition: border-color 0.15s, background 0.15s;
+}
+button.insight-card:hover, button.insight-card:focus-visible {
+  border-color: #7db8ff;
+  background: #252535;
+  outline: none;
+}
+body.light button.insight-card:hover,
+body.light button.insight-card:focus-visible { background: #f0f4ff; border-color: #6699dd; }
+
+/* ── Clickable health items ── */
+button.health-item {
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 0.4em 0.5em;
+  transition: border-color 0.15s, background 0.15s;
+}
+button.health-item:hover, button.health-item:focus-visible {
+  border-color: #555;
+  background: #252535;
+  outline: none;
+}
+body.light button.health-item:hover,
+body.light button.health-item:focus-visible { background: #f0f4ff; border-color: #ccc; }
+
+/* ── Insight detail dialog ── */
+#insightDialog { max-width: 380px; }
+
+/* ── Inference feed ── */
+.inference-feed {
+  max-height: 320px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35em;
+  margin-bottom: 1.25em;
+  scrollbar-width: thin;
+  scrollbar-color: #444 transparent;
+}
+.inference-feed::-webkit-scrollbar       { width: 4px; }
+.inference-feed::-webkit-scrollbar-thumb { background: #444; border-radius: 2px; }
+.inference-empty {
+  font-size: 0.85em;
+  color: #555;
+  padding: 1em;
+  text-align: center;
+}
+.inference-count { font-size: 0.85em; color: #666; margin-left: 0.4em; }
+
+.inference-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #1e1e1e;
+  border: 1px solid #333;
+  border-left: 3px solid #555;
+  border-radius: 6px;
+  padding: 0.55em 0.85em;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s;
+}
+.inference-card:hover { background: #252535; border-color: #555; }
+.inference-card.dismissed { opacity: 0.5; }
+.inference-card.inf-info     { border-left-color: #38bdf8; }
+.inference-card.inf-warning  { border-left-color: #f59e0b; }
+.inference-card.inf-critical { border-left-color: #ef4444; }
+
+.inf-card-left {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15em;
+  min-width: 0;
+  flex: 1;
+}
+.inf-card-type {
+  font-size: 0.65em;
+  color: #777;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.inf-card-summary {
+  font-size: 0.85em;
+  color: #ddd;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.inf-card-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.1em;
+  flex-shrink: 0;
+  margin-left: 0.75em;
+}
+.inf-card-time { font-size: 0.65em; color: #666; }
+.inf-card-conf { font-size: 0.7em; color: #888; }
+
+/* ── Inference detail dialog ── */
+#inferenceDialog {
+  max-width: 440px;
+  width: 92vw;
+}
+.inf-body { display: flex; flex-direction: column; gap: 0.8em; }
+.inf-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  flex-wrap: wrap;
+  font-size: 0.8em;
+}
+.inf-badge {
+  padding: 0.2em 0.6em;
+  border-radius: 4px;
+  font-size: 0.8em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.inf-badge.inf-info     { background: #1e3a5f; color: #38bdf8; }
+.inf-badge.inf-warning  { background: #3d2e0a; color: #f59e0b; }
+.inf-badge.inf-critical { background: #3b1111; color: #ef4444; }
+.inf-time       { color: #888; }
+.inf-confidence { color: #aaa; }
+
+.inf-section { margin-top: 0.3em; }
+.inf-section-title {
+  font-size: 0.7em;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.3em;
+}
+.inf-section > div:not(.inf-section-title):not(.inf-evidence) {
+  font-size: 0.88em;
+  color: #ccc;
+  line-height: 1.5;
+}
+.inf-evidence {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3em;
+}
+.inf-ev-row {
+  display: flex;
+  justify-content: space-between;
+  background: #2a2a2a;
+  border-radius: 6px;
+  padding: 0.4em 0.65em;
+}
+.inf-ev-row .fd-label { font-size: 0.7em; }
+.inf-ev-row .fd-value { font-size: 0.85em; }
+
+#inferenceDialog textarea {
+  width: 100%;
+  background: #2a2a2a;
+  color: #fff;
+  border: 1px solid #555;
+  border-radius: 4px;
+  padding: 0.45em;
+  font-size: 0.85em;
+  resize: vertical;
+  box-sizing: border-box;
+}
+.inf-save-note {
+  margin-top: 0.35em;
+  padding: 0.3em 0.8em;
+  font-size: 0.8em;
+  background: #1a3a5a;
+  color: #7db8ff;
+  border-color: #2a5a8a;
+}
+
+/* ── Inference feed light mode ── */
+body.light .inference-card         { background: #fff; border-color: #ddd; }
+body.light .inference-card:hover   { background: #f0f4ff; }
+body.light .inf-card-type          { color: #999; }
+body.light .inf-card-summary       { color: #222; }
+body.light .inf-card-time          { color: #aaa; }
+body.light .inf-card-conf          { color: #999; }
+body.light .inf-badge.inf-info     { background: #e0f2fe; color: #0369a1; }
+body.light .inf-badge.inf-warning  { background: #fef3c7; color: #92400e; }
+body.light .inf-badge.inf-critical { background: #fee2e2; color: #991b1b; }
+body.light .inf-time               { color: #888; }
+body.light .inf-confidence         { color: #666; }
+body.light .inf-section-title      { color: #999; }
+body.light .inf-section > div:not(.inf-section-title):not(.inf-evidence) { color: #333; }
+body.light .inf-ev-row             { background: #f5f5f5; }
+body.light #inferenceDialog textarea { background: #f5f5f5; color: #111; border-color: #bbb; }
+body.light .inf-save-note          { background: #e0f2fe; color: #0369a1; border-color: #7dd3fc; }
+body.light .inference-empty        { color: #999; }

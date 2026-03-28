@@ -58,36 +58,36 @@
   <!-- Insight cards -->
   <div class="section-heading">🧠 Derived Insights</div>
   <div class="insight-grid">
-    <div class="insight-card" id="aqCard">
+    <button class="insight-card" id="aqCard" data-insight="aq">
       <div class="label">🌿 Air Quality</div>
       <div class="value" id="aqValue">--</div>
       <div class="sub" id="aqSub">--</div>
-    </div>
-    <div class="insight-card">
+    </button>
+    <button class="insight-card" data-insight="dew">
       <div class="label">💦 Dew Point</div>
       <div class="value neutral" id="dewValue">--</div>
       <div class="sub" id="dewSub">--</div>
-    </div>
-    <div class="insight-card">
+    </button>
+    <button class="insight-card" data-insight="feels">
       <div class="label">🌡️ Feels Like</div>
       <div class="value neutral" id="hiValue">--</div>
       <div class="sub">Apparent temperature (no wind)</div>
-    </div>
-    <div class="insight-card" id="co2Card">
+    </button>
+    <button class="insight-card" id="co2Card" data-insight="co2">
       <div class="label">🧠 CO₂ Alert</div>
       <div class="value" id="co2AlertValue">--</div>
       <div class="sub" id="co2AlertSub">--</div>
-    </div>
-    <div class="insight-card">
+    </button>
+    <button class="insight-card" data-insight="vpd">
       <div class="label">🌱 Vapour Pressure Deficit</div>
       <div class="value neutral" id="vpdValue">--</div>
       <div class="sub" id="vpdSub">--</div>
-    </div>
-    <div class="insight-card">
+    </button>
+    <button class="insight-card" data-insight="ttt">
       <div class="label">⏱️ Time to CO₂ Threshold</div>
       <div class="value neutral" id="tttValue">--</div>
       <div class="sub">At current rate of change</div>
-    </div>
+    </button>
   </div>
 
   <!-- Outdoor weather (shown only when location is configured) -->
@@ -97,31 +97,31 @@
       <span class="weather-updated" id="weatherUpdated"></span>
     </div>
     <div class="weather-grid">
-      <div class="insight-card">
+      <button class="insight-card" data-insight="outTemp">
         <div class="label">🌡️ Outdoor Temp</div>
         <div class="value neutral" id="outTemp">--</div>
         <div class="sub" id="outTempDelta">--</div>
-      </div>
-      <div class="insight-card">
+      </button>
+      <button class="insight-card" data-insight="outHum">
         <div class="label">💧 Outdoor Humidity</div>
         <div class="value neutral" id="outHum">--</div>
         <div class="sub" id="outHumDelta">--</div>
-      </div>
-      <div class="insight-card">
+      </button>
+      <button class="insight-card" data-insight="uv">
         <div class="label">☀️ UV Index</div>
         <div class="value neutral" id="uvIdx">--</div>
         <div class="sub" id="uvSub">--</div>
-      </div>
-      <div class="insight-card">
+      </button>
+      <button class="insight-card" data-insight="wind">
         <div class="label">💨 Wind Speed</div>
         <div class="value neutral" id="windSpd">--</div>
         <div class="sub" id="weatherCond">--</div>
-      </div>
-      <div class="insight-card" id="ventCard">
+      </button>
+      <button class="insight-card" id="ventCard" data-insight="vent">
         <div class="label">🔄 Ventilation</div>
         <div class="value neutral" id="ventVal">--</div>
         <div class="sub" id="ventSub">--</div>
-      </div>
+      </button>
     </div>
 
     <!-- 24-hour forecast strip -->
@@ -178,46 +178,105 @@
     </div>
   </dialog>
 
+  <!-- Insight detail dialog -->
+  <dialog id="insightDialog" aria-modal="true" aria-labelledby="idTitle">
+    <div class="fd-header">
+      <div><h3 id="idTitle"></h3></div>
+      <button class="fd-close btn" aria-label="Close"
+              onclick="document.getElementById('insightDialog').close()">✕</button>
+    </div>
+    <div class="sd-body">
+      <div class="sd-row"><span class="fd-label">Current</span><span class="fd-value" id="idCurrent"></span></div>
+      <div class="sd-row"><span class="fd-label">Range</span><span class="fd-value" id="idRange"></span></div>
+      <div class="sd-desc" id="idDesc"></div>
+    </div>
+  </dialog>
+
+  <!-- Environment inference feed -->
+  <div class="section-heading">🔬 Environment Insights
+    <span class="inference-count" id="inferenceCount"></span>
+  </div>
+  <div class="inference-feed" id="inferenceFeed">
+    <div class="inference-empty">Analysing environment data…</div>
+  </div>
+
+  <!-- Inference detail dialog -->
+  <dialog id="inferenceDialog" aria-modal="true" aria-labelledby="infTitle">
+    <div class="fd-header">
+      <div><h3 id="infTitle"></h3></div>
+      <button class="fd-close btn" aria-label="Close"
+              onclick="document.getElementById('inferenceDialog').close()">✕</button>
+    </div>
+    <div class="inf-body">
+      <div class="inf-meta">
+        <span class="inf-badge" id="infSeverity"></span>
+        <span class="inf-time" id="infTime"></span>
+        <span class="inf-confidence" id="infConfidence"></span>
+      </div>
+      <div class="inf-section">
+        <div class="inf-section-title">What was detected</div>
+        <div id="infDescription"></div>
+      </div>
+      <div class="inf-section">
+        <div class="inf-section-title">Evidence</div>
+        <div class="inf-evidence" id="infEvidence"></div>
+      </div>
+      <div class="inf-section">
+        <div class="inf-section-title">Recommended action</div>
+        <div id="infAction"></div>
+      </div>
+      <div class="inf-section" id="infAnnotationSection" style="display:none">
+        <div class="inf-section-title">Your annotation</div>
+        <div id="infAnnotationText"></div>
+      </div>
+      <div class="inf-section">
+        <div class="inf-section-title">Notes</div>
+        <textarea id="infNotes" rows="2" placeholder="Add your own notes to this inference…"></textarea>
+        <button class="btn inf-save-note" id="infSaveNote">Save note</button>
+      </div>
+    </div>
+  </dialog>
+
   <!-- System health -->
   <div class="health-card">
     <h3>🔧 System Health</h3>
     <div class="health-grid">
-      <div class="health-item">
+      <button class="health-item" data-health="aht20">
         <div class="h-label">AHT20</div>
         <div class="h-value" id="aht20Status">Checking…</div>
-      </div>
-      <div class="health-item">
+      </button>
+      <button class="health-item" data-health="sgp30">
         <div class="h-label">SGP30</div>
         <div class="h-value" id="sgp30Status">Checking…</div>
-      </div>
-      <div class="health-item">
+      </button>
+      <button class="health-item" data-health="plug">
         <div class="h-label">Smart plug</div>
         <div class="h-value" id="plugStatus">Checking…</div>
-      </div>
-      <div class="health-item">
+      </button>
+      <button class="health-item" data-health="cpu">
         <div class="h-label">CPU usage</div>
         <div class="h-value" id="cpuUsage">--</div>
-      </div>
-      <div class="health-item">
+      </button>
+      <button class="health-item" data-health="mem">
         <div class="h-label">Memory</div>
         <div class="h-value" id="memoryUsage">--</div>
-      </div>
-      <div class="health-item">
+      </button>
+      <button class="health-item" data-health="disk">
         <div class="h-label">Disk</div>
         <div class="h-value" id="diskUsage">--</div>
-      </div>
-      <div class="health-item">
+      </button>
+      <button class="health-item" data-health="db">
         <div class="h-label">Database</div>
         <div class="h-value" id="dbSize">--</div>
-      </div>
-      <div class="health-item">
+      </button>
+      <button class="health-item" data-health="uptime">
         <div class="h-label">Pi uptime</div>
         <div class="h-value" id="uptime">--</div>
-      </div>
-      <div class="health-item">
+      </button>
+      <button class="health-item" data-health="service">
         <div class="h-label">Service uptime</div>
         <div class="h-value" id="serviceUptime">--</div>
-      </div>
+      </button>
     </div>
   </div>
 

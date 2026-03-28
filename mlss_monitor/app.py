@@ -213,13 +213,27 @@ def log_data():
             log.error("Error controlling smart plug fan: %s", e)
 
 
+_log_cycle = 0
+
+
 def _background_log():
+    global _log_cycle
     asyncio.set_event_loop(thread_loop)
     while True:
         try:
             log_data()
         except Exception as e:
             log.error("Error in background log loop: %s", e)
+
+        # Run inference engine every ~60s (every 6th cycle at 10s intervals)
+        _log_cycle += 1
+        if _log_cycle % max(1, 60 // LOG_INTERVAL) == 0:
+            try:
+                from mlss_monitor.inference_engine import run_analysis
+                run_analysis()
+            except Exception as e:
+                log.error("Inference engine error: %s", e)
+
         time.sleep(LOG_INTERVAL)
 
 

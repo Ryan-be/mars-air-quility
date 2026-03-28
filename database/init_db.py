@@ -52,6 +52,25 @@ def create_db():
     );
     """)
 
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS inferences (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at DATETIME NOT NULL,
+        event_type TEXT NOT NULL,
+        severity TEXT NOT NULL DEFAULT 'info',
+        title TEXT NOT NULL,
+        description TEXT,
+        action TEXT,
+        evidence TEXT,
+        confidence REAL NOT NULL DEFAULT 0.5,
+        sensor_data_start_id INTEGER,
+        sensor_data_end_id INTEGER,
+        annotation TEXT,
+        user_notes TEXT,
+        dismissed INTEGER DEFAULT 0
+    );
+    """)
+
     # Migrations: add columns introduced after initial release
     for migration in [
         "ALTER TABLE sensor_data ADD COLUMN fan_power_w REAL",
