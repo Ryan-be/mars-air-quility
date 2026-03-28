@@ -1,6 +1,6 @@
 import { toggleTheme } from './theme.js';
 import { updateInsights, updateWeather, updateForecast, updateDailyForecast } from './insights.js';
-import { fetchHealth } from './health.js';
+import { fetchHealth, applyHealth } from './health.js';
 
 window.toggleTheme = () => toggleTheme(fetchData);
 
@@ -496,17 +496,30 @@ function connectSSE() {
   });
 
   _evtSource.addEventListener("inference_event", () => {
-    // New inference detected — refresh the full feed from the API
     fetchInferences();
   });
 
-  _evtSource.addEventListener("weather_update", () => {
-    fetchWeather();
+  _evtSource.addEventListener("weather_update", (e) => {
+    const w = JSON.parse(e.data);
+    updateWeather(w, _lastIndoorTemp, _lastIndoorHum);
   });
 
-  _evtSource.addEventListener("fan_status", () => {
-    fetchHealth();
+  _evtSource.addEventListener("forecast_update", (e) => {
+    const d = JSON.parse(e.data);
+    if (d.hours) updateForecast(d.hours);
   });
+
+  _evtSource.addEventListener("daily_forecast_update", (e) => {
+    const d = JSON.parse(e.data);
+    if (d.days) updateDailyForecast(d.days);
+  });
+
+  _evtSource.addEventListener("health_update", (e) => {
+    applyHealth(JSON.parse(e.data));
+  });
+
+  // fan_status doesn't carry full health data — the next health_update
+  // (arriving within LOG_INTERVAL seconds) will refresh the health panel.
 
   _evtSource.onopen = () => { _sseRetryMs = 1000; };
 
@@ -518,8 +531,7 @@ function connectSSE() {
   };
 }
 
-// ── Initial data load (SSE replay covers sensor_update, but we still need
-//    weather, forecast, health, and inferences on first paint) ───────────────
+// ── Initial data load then hand off to SSE for all subsequent updates ────────
 
 fetchData();
 fetchHealth();
@@ -528,9 +540,3 @@ fetchForecast();
 fetchDailyForecast();
 fetchInferences();
 connectSSE();
-
-// Keep infrequent polls as fallback — SSE handles the fast-changing data
-setInterval(fetchHealth,            15000);
-setInterval(fetchWeather,       5 * 60 * 1000);
-setInterval(fetchForecast,     60 * 60 * 1000);
-setInterval(fetchDailyForecast, 6 * 60 * 60 * 1000);

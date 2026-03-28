@@ -111,6 +111,59 @@ class TestSSEEndpoint:
             assert resp.status_code == 302
 
 
+class TestSSEAllEventTypes:
+    """Verify that all event types expected by the frontend are published."""
+
+    def test_stream_receives_health_update(self, sse_app):
+        client, bus = sse_app
+        bus.publish("health_update", {
+            "AHT20": "OK", "SGP30": "OK", "smart_plug": "OK",
+            "cpu_usage": "12.3%", "memory_percent": "45.0%",
+        })
+        resp = client.get("/api/stream")
+        raw = resp.get_data(as_text=True)
+        assert "event: health_update" in raw
+        assert '"AHT20": "OK"' in raw
+
+    def test_stream_receives_forecast_update(self, sse_app):
+        client, bus = sse_app
+        bus.publish("forecast_update", {
+            "hours": [{"time": "14:00", "temp": 12.5}],
+        })
+        resp = client.get("/api/stream")
+        raw = resp.get_data(as_text=True)
+        assert "event: forecast_update" in raw
+        assert '"time": "14:00"' in raw
+
+    def test_stream_receives_daily_forecast_update(self, sse_app):
+        client, bus = sse_app
+        bus.publish("daily_forecast_update", {
+            "days": [{"date": "2026-03-28", "temp_max": 15.0}],
+        })
+        resp = client.get("/api/stream")
+        raw = resp.get_data(as_text=True)
+        assert "event: daily_forecast_update" in raw
+        assert '"date": "2026-03-28"' in raw
+
+    def test_all_event_types_delivered_to_single_stream(self, sse_app):
+        """All 6 event types arrive on a single SSE connection."""
+        client, bus = sse_app
+        bus.publish("sensor_update", {"temp": 22})
+        bus.publish("fan_status", {"state": "on"})
+        bus.publish("inference_event", {"title": "spike"})
+        bus.publish("weather_update", {"temp": 10})
+        bus.publish("health_update", {"cpu_usage": "5%"})
+        bus.publish("forecast_update", {"hours": []})
+        bus.publish("daily_forecast_update", {"days": []})
+
+        resp = client.get("/api/stream")
+        raw = resp.get_data(as_text=True)
+        for event_type in ("sensor_update", "fan_status", "inference_event",
+                           "weather_update", "health_update",
+                           "forecast_update", "daily_forecast_update"):
+            assert f"event: {event_type}" in raw, f"Missing {event_type}"
+
+
 class TestSSEHistory:
     def test_history_endpoint_returns_json(self, sse_app):
         client, bus = sse_app

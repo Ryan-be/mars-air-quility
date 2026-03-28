@@ -5,8 +5,10 @@ import mimetypes
 import os
 import ssl
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from threading import Thread
+
+import psutil
 
 import board
 import busio
@@ -205,6 +207,54 @@ def read_sensors():
 
 # ── Background logging ────────────────────────────────────────────────────────
 
+def _collect_health() -> dict:
+    """Gather lightweight system health stats for SSE broadcast."""
+    status = {
+        "AHT20": "OK" if state.aht20 else "UNAVAILABLE",
+        "SGP30": "OK" if state.sgp30 else "UNAVAILABLE",
+    }
+    cpu_percent = psutil.cpu_percent(interval=0)
+    memory = psutil.virtual_memory()
+    disk = psutil.disk_usage("/")
+    status["cpu_usage"] = f"{cpu_percent:.1f}%"
+    status["memory_used"] = f"{memory.used // (1024 ** 2)} MB"
+    status["memory_total"] = f"{memory.total // (1024 ** 2)} MB"
+    status["memory_percent"] = f"{memory.percent:.1f}%"
+    status["disk_used"] = f"{disk.used // (1024 ** 3):.1f} GB"
+    status["disk_total"] = f"{disk.total // (1024 ** 3):.1f} GB"
+    status["disk_percent"] = f"{disk.percent:.1f}%"
+    db_path = config.get("DB_FILE", "data/sensor_data.db")
+    try:
+        db_bytes = os.path.getsize(db_path)
+        if db_bytes >= 1024 ** 2:
+            status["db_size"] = f"{db_bytes / (1024 ** 2):.1f} MB"
+        else:
+            status["db_size"] = f"{db_bytes / 1024:.1f} KB"
+    except OSError:
+        status["db_size"] = "Unknown"
+    if state.service_start_time:
+        service_uptime = datetime.utcnow() - state.service_start_time
+        status["service_uptime"] = str(timedelta(seconds=int(service_uptime.total_seconds())))
+    else:
+        status["service_uptime"] = "Unknown"
+    try:
+        import subprocess
+        uptime_seconds = float(subprocess.check_output(
+            ["cat", "/proc/uptime"]).decode().split()[0])
+        status["uptime"] = str(timedelta(seconds=int(uptime_seconds)))
+    except Exception:
+        status["uptime"] = "Unknown"
+    try:
+        future = asyncio.run_coroutine_threadsafe(
+            state.fan_smart_plug.plug.update(), thread_loop
+        )
+        future.result(timeout=3)
+        status["smart_plug"] = "OK"
+    except Exception:
+        status["smart_plug"] = "UNAVAILABLE"
+    return status
+
+
 def log_data():
     temp, hum, eco2, tvoc = read_sensors()
 
@@ -228,6 +278,7 @@ def log_data():
             "eco2": eco2, "tvoc": tvoc,
             "fan_power_w": fan_power_w, "vpd_kpa": vpd,
         })
+        state.event_bus.publish("health_update", _collect_health())
 
     settings = get_fan_settings()
     if settings["enabled"] and state.fan_mode == "auto":
@@ -299,19 +350,36 @@ def _background_log():
         time.sleep(LOG_INTERVAL)
 
 
+def _weather_log_once():
+    """Fetch weather + forecasts and broadcast via SSE.  Extracted from
+    the loop so it can be called from tests."""
+    loc = get_location()
+    if not loc or loc.get("lat") is None:
+        return
+    w = state.open_meteo.get_current_weather(loc["lat"], loc["lon"])
+    log_weather(w["temp"], w["humidity"], w["feels_like"],
+                w["wind_speed"], w["weather_code"], w["uv_index"])
+    cleanup_old_weather(days=7)
+    log.info("Weather logged: %.1f°C, %d%%RH", w["temp"], w["humidity"])
+    if state.event_bus:
+        state.event_bus.publish("weather_update", w)
+        try:
+            forecast = state.open_meteo.get_forecast(loc["lat"], loc["lon"])
+            state.event_bus.publish("forecast_update", forecast)
+        except Exception as e:
+            log.error("Forecast fetch error: %s", e)
+        try:
+            daily = state.open_meteo.get_daily_forecast(loc["lat"], loc["lon"], days=14)
+            state.event_bus.publish("daily_forecast_update", daily)
+        except Exception as e:
+            log.error("Daily forecast fetch error: %s", e)
+
+
 def _weather_log_loop():
     time.sleep(30)
     while True:
         try:
-            loc = get_location()
-            if loc and loc.get("lat") is not None:
-                w = state.open_meteo.get_current_weather(loc["lat"], loc["lon"])
-                log_weather(w["temp"], w["humidity"], w["feels_like"],
-                            w["wind_speed"], w["weather_code"], w["uv_index"])
-                cleanup_old_weather(days=7)
-                log.info("Weather logged: %.1f°C, %d%%RH", w["temp"], w["humidity"])
-                if state.event_bus:
-                    state.event_bus.publish("weather_update", w)
+            _weather_log_once()
         except Exception as e:
             log.error("Weather log error: %s", e)
         time.sleep(3600)

@@ -91,6 +91,3 @@ function connectFanSSE() {
 }
 
 connectFanSSE();
-
-// Fallback poll in case SSE drops
-setInterval(pollFan, 30000);

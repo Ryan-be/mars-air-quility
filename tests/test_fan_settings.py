@@ -101,6 +101,7 @@ class TestLogDataAutoFan:
         monkeypatch.setattr(app_state, "fan_smart_plug", mock_plug)
         monkeypatch.setattr(app_module, "read_sensors", lambda: (temp, 50, 300, tvoc))
         monkeypatch.setattr(app_module, "log_sensor_data", lambda *a, **kw: None)
+        monkeypatch.setattr(app_module, "_collect_health", lambda: {})
 
         captured = []
         def fake_threadsafe(coro, loop):

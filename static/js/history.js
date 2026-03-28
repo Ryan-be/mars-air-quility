@@ -79,4 +79,32 @@ document.addEventListener("click", (e) => {
 });
 
 fetchData();
-setInterval(fetchData, 30000);
+
+// ── SSE: refresh charts when new sensor data arrives (throttled to ~30s) ─────
+let _histSSE = null;
+let _histRetryMs = 1000;
+let _histPending = false;
+
+function _throttledFetch() {
+  if (_histPending) return;
+  _histPending = true;
+  setTimeout(() => {
+    _rendered = {};
+    fetchData();
+    _histPending = false;
+  }, 30000);
+}
+
+function connectHistorySSE() {
+  if (_histSSE) _histSSE.close();
+  _histSSE = new EventSource("/api/stream");
+  _histSSE.addEventListener("sensor_update", _throttledFetch);
+  _histSSE.onopen = () => { _histRetryMs = 1000; };
+  _histSSE.onerror = () => {
+    _histSSE.close();
+    setTimeout(connectHistorySSE, _histRetryMs);
+    _histRetryMs = Math.min(_histRetryMs * 2, 30000);
+  };
+}
+
+connectHistorySSE();

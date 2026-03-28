@@ -94,6 +94,7 @@ class TestLogDataAsyncDispatch:
         update_fan_settings(0, 500, 0.0, 20.0, enabled)
         monkeypatch.setattr(app_module, "read_sensors", lambda: (temp, 50, 300, tvoc))
         monkeypatch.setattr(app_module, "log_sensor_data", lambda *a, **kw: None)
+        monkeypatch.setattr(app_module, "_collect_health", lambda: {})
 
         mock_future = MagicMock()
         threadsafe_calls = []
