@@ -104,6 +104,10 @@
             <label for="pm25Max">Max (µg/m³)</label>
             <input type="number" id="pm25Max" min="0" step="0.1">
           </div>
+          <div class="field">
+            <label for="pmStaleMinutes">Stale timeout (min)</label>
+            <input type="number" id="pmStaleMinutes" min="1" max="60" step="1">
+          </div>
         </div>
       </div>
 
@@ -275,6 +279,7 @@
         document.getElementById("humidityMax").value = data.humidity_max ?? 70.0;
         document.getElementById("pm25Enabled").checked = !!data.pm25_enabled;
         document.getElementById("pm25Max").value = data.pm25_max ?? 25.0;
+        document.getElementById("pmStaleMinutes").value = data.pm_stale_minutes ?? 10;
       } catch (e) {
         setStatus("Failed to load settings.", false);
       }
@@ -294,6 +299,7 @@
         humidity_max: parseFloat(document.getElementById("humidityMax").value),
         pm25_enabled: document.getElementById("pm25Enabled").checked,
         pm25_max: parseFloat(document.getElementById("pm25Max").value),
+        pm_stale_minutes: parseFloat(document.getElementById("pmStaleMinutes").value),
       };
       try {
         const res = await fetch("/api/fan/settings", {

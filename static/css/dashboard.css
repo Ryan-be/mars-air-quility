@@ -61,6 +61,13 @@
   margin-top: 0.15em;
 }
 .pm-sub { white-space: nowrap; }
+.pm-stale-hint {
+  font-size: 0.7em;
+  color: #f59e0b;
+  margin-top: 0.15em;
+  display: none;
+}
+.pm-stale-hint.visible { display: block; }
 
 /* ── Insight grid ── */
 .insight-grid {

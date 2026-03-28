@@ -95,6 +95,7 @@ def update_fan_settings_route():
         humidity_max=data.get("humidity_max", 70.0),
         pm25_enabled=data.get("pm25_enabled", False),
         pm25_max=data.get("pm25_max", 25.0),
+        pm_stale_minutes=data.get("pm_stale_minutes", 10.0),
     )
     # Sync: keep in-memory fan_mode consistent with the DB toggle
     state.fan_mode = "auto" if enabled else "manual"

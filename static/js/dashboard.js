@@ -22,7 +22,7 @@ function _pm25Class(v) {
   return "pm-unhealthy";
 }
 
-function _updatePmCard(pm25, prevPm25, pm1, pm10) {
+function _updatePmCard(pm25, prevPm25, pm1, pm10, pmStale, pmTimestamp) {
   const el = document.getElementById("pm25Value");
   const card = el?.closest(".stat-card");
   if (el) {
@@ -39,6 +39,27 @@ function _updatePmCard(pm25, prevPm25, pm1, pm10) {
   const pm10El = document.getElementById("pm10SubValue");
   if (pm1El)  pm1El.textContent  = pm1  != null ? `${pm1} µg/m³`  : "--";
   if (pm10El) pm10El.textContent = pm10 != null ? `${pm10} µg/m³` : "--";
+
+  // Show stale indicator when displaying a cached PM reading
+  const staleEl = document.getElementById("pmStaleHint");
+  if (staleEl) {
+    if (pmStale && pmTimestamp) {
+      const ago = _timeAgo(new Date(pmTimestamp));
+      staleEl.textContent = `⏱ cached from ${ago}`;
+      staleEl.classList.add("visible");
+    } else {
+      staleEl.textContent = "";
+      staleEl.classList.remove("visible");
+    }
+  }
+}
+
+function _timeAgo(date) {
+  const secs = Math.round((Date.now() - date.getTime()) / 1000);
+  if (secs < 60) return `${secs}s ago`;
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  return `${Math.round(mins / 60)}h ago`;
 }
 
 async function fetchData() {
@@ -529,7 +550,7 @@ function connectSSE() {
       `${trend(d.eco2, null)}${d.eco2 ?? "--"} ppm`;
     document.getElementById("tvocValue").textContent =
       `${trend(d.tvoc, null)}${d.tvoc ?? "--"} ppb`;
-    _updatePmCard(d.pm2_5, null, d.pm1_0 ?? null, d.pm10 ?? null);
+    _updatePmCard(d.pm2_5, null, d.pm1_0 ?? null, d.pm10 ?? null, d.pm_stale, d.pm_timestamp);
     _lastIndoorTemp = t;
     _lastIndoorHum  = h;
     updateInsights(t, h, d.tvoc, d.eco2, [d.eco2]);

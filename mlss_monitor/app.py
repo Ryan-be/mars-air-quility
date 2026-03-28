@@ -187,9 +187,15 @@ Thread(target=_start_thread_event_loop, daemon=True).start()
 
 # ── Sensor reading ────────────────────────────────────────────────────────────
 
+# Cache for the last successful PM reading so the fan controller and UI can
+# keep using a recent measurement when the UART read intermittently fails.
+_last_pm = {"pm1_0": None, "pm2_5": None, "pm10": None, "timestamp": None}
+
+
 def read_sensors():
     temperature, humidity, eco2, tvoc = 0, 0, 0, 0
     pm1_0, pm2_5, pm10 = None, None, None
+    pm_fresh = False  # True when this cycle produced a brand-new reading
 
     if aht20:
         try:
@@ -216,10 +222,30 @@ def read_sensors():
                 pm1_0 = pm_data["pm1_0"]
                 pm2_5 = pm_data["pm2_5"]
                 pm10 = pm_data["pm10"]
+                pm_fresh = True
+                _last_pm.update(pm1_0=pm1_0, pm2_5=pm2_5, pm10=pm10,
+                                timestamp=datetime.utcnow())
         except Exception as e:
             log.error("Error reading PM sensor: %s", e)
 
-    return temperature, humidity, eco2, tvoc, pm1_0, pm2_5, pm10
+    # Fall back to the cached reading when the sensor didn't return data,
+    # provided it is within the configurable staleness window.
+    pm_stale = False
+    pm_timestamp = _last_pm["timestamp"]
+    if not pm_fresh and pm_timestamp is not None:
+        stale_minutes = get_fan_settings().get("pm_stale_minutes", 10.0)
+        age = (datetime.utcnow() - pm_timestamp).total_seconds()
+        if age <= stale_minutes * 60:
+            pm1_0 = _last_pm["pm1_0"]
+            pm2_5 = _last_pm["pm2_5"]
+            pm10 = _last_pm["pm10"]
+            pm_stale = True
+            log.debug("Using cached PM reading (%.0fs old)", age)
+        else:
+            log.debug("Cached PM reading expired (%.0fs > %.0fs limit)",
+                      age, stale_minutes * 60)
+
+    return temperature, humidity, eco2, tvoc, pm1_0, pm2_5, pm10, pm_fresh, pm_stale, pm_timestamp
 
 
 # ── Background logging ────────────────────────────────────────────────────────
@@ -274,7 +300,7 @@ def _collect_health() -> dict:
 
 
 def log_data():
-    temp, hum, eco2, tvoc, pm1_0, pm2_5, pm10 = read_sensors()
+    temp, hum, eco2, tvoc, pm1_0, pm2_5, pm10, pm_fresh, pm_stale, pm_ts = read_sensors()
 
     fan_power_w = None
     try:
@@ -287,16 +313,24 @@ def log_data():
         log.error("[log_data] get_power failed: %s", exc)
 
     vpd = _vpd_kpa(temp, hum)
+    # Only log fresh PM readings to the database — stale/cached values
+    # are already stored from the original read cycle.
+    db_pm1  = pm1_0 if pm_fresh else None
+    db_pm25 = pm2_5 if pm_fresh else None
+    db_pm10 = pm10  if pm_fresh else None
     log_sensor_data(temp, hum, eco2, tvoc, fan_power_w=fan_power_w, vpd_kpa=vpd,
-                    pm1_0=pm1_0, pm2_5=pm2_5, pm10=pm10)
+                    pm1_0=db_pm1, pm2_5=db_pm25, pm10=db_pm10)
 
-    # Broadcast sensor reading to SSE subscribers
+    # Broadcast sensor reading to SSE subscribers — include staleness
+    # metadata so the dashboard can show when PM data is cached.
     if state.event_bus:
         state.event_bus.publish("sensor_update", {
             "temperature": temp, "humidity": hum,
             "eco2": eco2, "tvoc": tvoc,
             "fan_power_w": fan_power_w, "vpd_kpa": vpd,
             "pm1_0": pm1_0, "pm2_5": pm2_5, "pm10": pm10,
+            "pm_stale": pm_stale,
+            "pm_timestamp": pm_ts.isoformat() + "Z" if pm_ts else None,
         })
         state.event_bus.publish("health_update", _collect_health())
 
