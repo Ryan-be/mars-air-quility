@@ -370,3 +370,105 @@ select.role-select:focus,
 }
 .log-table tr:last-child td { border-bottom: none; }
 .log-table td:first-child { color: #555; width: 2em; text-align: right; }
+
+/* ── Delete button ─────────────────────────────────────────────────────── */
+.btn-delete {
+  padding: 0.3em 0.5em;
+  background: transparent;
+  color: #c0392b;
+  border: 1px solid #5a2020;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.82em;
+  line-height: 1;
+  flex-shrink: 0;
+  transition: background 0.15s, border-color 0.15s;
+}
+.btn-delete:hover {
+  background: #3a1010;
+  border-color: #c0392b;
+}
+
+/* ── Inactive role styling ─────────────────────────────────────────────── */
+.role-inactive {
+  opacity: 0.6;
+  color: #888;
+}
+.opt-inactive { color: #e67e22; }
+
+.badge-inactive {
+  font-size: 0.7em;
+  background: #3a2a10;
+  color: #e67e22;
+  border: 1px solid #6a4a20;
+  border-radius: 3px;
+  padding: 0.1em 0.4em;
+  margin-left: 0.4em;
+  vertical-align: middle;
+}
+
+/* ── Delete confirmation modal ─────────────────────────────────────────── */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+}
+.modal-overlay.modal-open {
+  display: flex;
+}
+.modal {
+  background: #1a1a2e;
+  border: 1px solid #3a2a10;
+  border-radius: 8px;
+  padding: 1.5em 2em;
+  max-width: 420px;
+  width: 90%;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+}
+.modal h4 {
+  margin: 0 0 0.6em;
+  color: #e67e22;
+  font-size: 1.05em;
+}
+.modal-body {
+  color: #ccc;
+  margin: 0 0 0.4em;
+  font-size: 0.9em;
+}
+.modal-warning {
+  color: #888;
+  font-size: 0.8em;
+  margin: 0 0 1.2em;
+}
+.modal-actions {
+  display: flex;
+  gap: 0.8em;
+  justify-content: flex-end;
+}
+.btn-modal-cancel {
+  padding: 0.45em 1em;
+  background: #2a2a3a;
+  color: #aaa;
+  border: 1px solid #3a3a5a;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.88em;
+  transition: background 0.15s;
+}
+.btn-modal-cancel:hover { background: #353550; }
+.btn-modal-confirm {
+  padding: 0.45em 1em;
+  background: #7b1a1a;
+  color: #ffaaaa;
+  border: 1px solid #c0392b;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.88em;
+  font-weight: 600;
+  transition: background 0.15s;
+}
+.btn-modal-confirm:hover { background: #a02020; }

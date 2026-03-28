@@ -296,6 +296,57 @@ class TestUserManagementRBAC:
         resp = client.get("/api/users/1/logins")
         assert resp.status_code == 403
 
+    def test_suspend_user_via_inactive_role(self, app_client, db):
+        client, _ = app_client
+        _session_for(client, "admin")
+        client.post("/api/users", json={"github_username": "suspendme", "role": "viewer"})
+        user = udb.get_user_by_github("suspendme")
+        resp = client.patch(f"/api/users/{user['id']}/role", json={"role": "inactive"})
+        assert resp.status_code == 200
+        assert udb.get_user_by_github("suspendme") is None  # inactive → not returned
+
+    def test_reactivate_user_by_assigning_role(self, app_client, db):
+        client, _ = app_client
+        _session_for(client, "admin")
+        client.post("/api/users", json={"github_username": "reactme", "role": "viewer"})
+        user = udb.get_user_by_github("reactme")
+        client.patch(f"/api/users/{user['id']}/role", json={"role": "inactive"})
+        resp = client.patch(f"/api/users/{user['id']}/role", json={"role": "controller"})
+        assert resp.status_code == 200
+        reactivated = udb.get_user_by_github("reactme")
+        assert reactivated is not None
+        assert reactivated["role"] == "controller"
+
+    def test_hard_delete_removes_user_and_logs(self, app_client, db):
+        client, _ = app_client
+        _session_for(client, "admin", user_id=None)
+        client.post("/api/users", json={"github_username": "deleteme", "role": "viewer"})
+        user = udb.get_user_by_github("deleteme")
+        udb.record_login("deleteme")
+        resp = client.delete(f"/api/users/{user['id']}")
+        assert resp.status_code == 200
+        assert udb.get_user_by_id_any(user["id"]) is None
+        assert udb.get_login_log("deleteme") == []
+
+    def test_cannot_delete_last_active_admin_via_hard_delete(self, app_client, db):
+        client, _ = app_client
+        _session_for(client, "admin", user_id=None)
+        client.post("/api/users", json={"github_username": "lastadmin", "role": "admin"})
+        user = udb.get_user_by_github("lastadmin")
+        resp = client.delete(f"/api/users/{user['id']}")
+        assert resp.status_code == 400
+
+    def test_logins_endpoint_works_for_inactive_user(self, app_client, db):
+        client, _ = app_client
+        _session_for(client, "admin")
+        client.post("/api/users", json={"github_username": "inactlog", "role": "viewer"})
+        user = udb.get_user_by_github("inactlog")
+        udb.record_login("inactlog")
+        udb.deactivate_user(user["id"])
+        resp = client.get(f"/api/users/{user['id']}/logins")
+        assert resp.status_code == 200
+        assert len(resp.get_json()) == 1
+
 
 class TestAdminPageRBAC:
     """GET /admin page requires admin role."""

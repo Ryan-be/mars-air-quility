@@ -138,6 +138,19 @@
 </div><!-- /.settings-grid -->
 </div><!-- /#tab-settings -->
 
+<!-- ── Delete confirmation modal ────────────────────────────────────────── -->
+<div class="modal-overlay" id="deleteModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+  <div class="modal">
+    <h4 id="modalTitle">Delete user?</h4>
+    <p id="modalBody" class="modal-body"></p>
+    <p class="modal-warning">This permanently removes the account and all login history. It cannot be undone.</p>
+    <div class="modal-actions">
+      <button class="btn-modal-cancel" onclick="closeDeleteModal()">Cancel</button>
+      <button class="btn-modal-confirm" id="modalConfirmBtn">Delete permanently</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── Users tab ────────────────────────────────────────────────────────── -->
 <div class="tab-panel tab-hidden" id="tab-users">
 <div class="settings-grid">
@@ -425,15 +438,16 @@
                 ${u.github_username}
                 ${u.is_active ? '' : '<span class="badge-inactive">inactive</span>'}
               </span>
-              <select class="role-select" data-id="${u.id}" onchange="changeRole(${u.id}, this.value)">
-                <option value="viewer"     ${u.role==='viewer'     ? 'selected' : ''}>viewer</option>
-                <option value="controller" ${u.role==='controller' ? 'selected' : ''}>controller</option>
-                <option value="admin"      ${u.role==='admin'      ? 'selected' : ''}>admin</option>
+              <select class="role-select ${!u.is_active ? 'role-inactive' : ''}" data-id="${u.id}" onchange="changeRole(${u.id}, this.value)">
+                <option value="viewer"     ${u.role==='viewer'     && u.is_active ? 'selected' : ''}>viewer</option>
+                <option value="controller" ${u.role==='controller' && u.is_active ? 'selected' : ''}>controller</option>
+                <option value="admin"      ${u.role==='admin'      && u.is_active ? 'selected' : ''}>admin</option>
+                <option value="inactive"   ${!u.is_active ? 'selected' : ''} class="opt-inactive">inactive</option>
               </select>
               <button class="btn-logs" onclick="toggleLogs(${u.id}, this)" title="Show login history">
                 ${u.last_login ? u.last_login.slice(0,16).replace('T',' ') : 'Never logged in'} ▸
               </button>
-              <button class="btn-remove" onclick="removeUser(${u.id}, '${u.github_username}')" title="Remove user">✕</button>
+              <button class="btn-delete" onclick="confirmDelete(${u.id}, '${u.github_username}')" title="Permanently delete user">🗑</button>
             </div>
             <div class="login-log tab-hidden" id="log-${u.id}">
               <p class="log-loading">Loading…</p>
@@ -471,8 +485,50 @@
         body: JSON.stringify({ role }),
       });
       const d = await res.json();
-      setUserStatus(res.ok ? `Role updated to ${role}.` : (d.error || "Failed."), res.ok);
+      if (res.ok) {
+        setUserStatus(role === "inactive" ? "User suspended." : `Role updated to ${role}.`, true);
+        loadUsers();
+      } else {
+        setUserStatus(d.error || "Failed.", false);
+        loadUsers(); // reload to restore select to current value
+      }
     }
+
+    let _pendingDeleteId = null;
+
+    function confirmDelete(userId, username) {
+      _pendingDeleteId = userId;
+      document.getElementById("modalBody").textContent =
+        `You are about to permanently delete "${username}".`;
+      document.getElementById("deleteModal").classList.add("modal-open");
+    }
+
+    function closeDeleteModal() {
+      _pendingDeleteId = null;
+      document.getElementById("deleteModal").classList.remove("modal-open");
+    }
+
+    document.getElementById("modalConfirmBtn").addEventListener("click", async () => {
+      if (!_pendingDeleteId) return;
+      const userId = _pendingDeleteId;
+      closeDeleteModal();
+      const res = await fetch(`/api/users/${userId}`, { method: "DELETE" });
+      const d = await res.json();
+      if (res.ok) {
+        setUserStatus("User permanently deleted.", true);
+        loadUsers();
+      } else {
+        setUserStatus(d.error || "Failed to delete user.", false);
+      }
+    });
+
+    document.getElementById("deleteModal").addEventListener("click", (e) => {
+      if (e.target === e.currentTarget) closeDeleteModal();
+    });
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") closeDeleteModal();
+    });
 
     async function toggleLogs(userId, btn) {
       const panel = document.getElementById(`log-${userId}`);
@@ -497,18 +553,6 @@
           </table>`;
       } catch {
         panel.innerHTML = "<p class='log-empty status-err'>Failed to load login history.</p>";
-      }
-    }
-
-    async function removeUser(userId, username) {
-      if (!confirm(`Remove ${username}? They will no longer be able to log in.`)) return;
-      const res = await fetch(`/api/users/${userId}`, { method: "DELETE" });
-      const d = await res.json();
-      if (res.ok) {
-        setUserStatus(`Removed ${username}.`, true);
-        loadUsers();
-      } else {
-        setUserStatus(d.error || "Failed to remove user.", false);
       }
     }
 
