@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import math
+import mimetypes
 import os
 import ssl
 import time
@@ -57,6 +58,16 @@ app.secret_key = SECRET_KEY
 HTTPS_ENABLED = str(config.get("HTTPS_ENABLED", "true")).lower() == "true"
 SSL_CERT_FILE = config.get("SSL_CERT_FILE", "certs/cert.pem")
 SSL_KEY_FILE = config.get("SSL_KEY_FILE", "certs/key.pem")
+
+# Ensure MIME types are correct — browsers enforce strict checking over HTTPS
+# and will refuse to apply stylesheets served with the wrong Content-Type.
+mimetypes.add_type("text/css", ".css")
+mimetypes.add_type("application/javascript", ".js")
+mimetypes.add_type("application/json", ".json")
+
+if HTTPS_ENABLED:
+    app.config["PREFERRED_URL_SCHEME"] = "https"
+    app.config["SESSION_COOKIE_SECURE"] = True
 
 # Populate shared state with auth config
 state.GITHUB_CLIENT_ID     = config.get("GITHUB_CLIENT_ID", None)
