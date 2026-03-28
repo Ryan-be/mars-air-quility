@@ -7,6 +7,7 @@ from flask import Blueprint, jsonify, request
 
 from database.db_logger import get_fan_settings, get_unit_rate, update_fan_settings
 from mlss_monitor import state
+from mlss_monitor.rbac import require_role
 
 log = logging.getLogger(__name__)
 
@@ -14,6 +15,7 @@ api_fan_bp = Blueprint("api_fan", __name__)
 
 
 @api_fan_bp.route("/api/fan", methods=["POST"])
+@require_role("controller", "admin")
 def control_fan():
     try:
         cmd = request.args.get("state")
@@ -72,6 +74,7 @@ def get_fan_settings_route():
 
 
 @api_fan_bp.route("/api/fan/settings", methods=["POST"])
+@require_role("admin")
 def update_fan_settings_route():
     data = request.get_json()
     update_fan_settings(

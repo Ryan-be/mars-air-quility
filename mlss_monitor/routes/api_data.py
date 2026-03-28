@@ -9,6 +9,7 @@ from flask import Blueprint, jsonify, request, send_file
 from database.db_logger import (
     add_annotation, get_sensor_data_by_date, remove_annotation,
 )
+from mlss_monitor.rbac import require_role
 
 api_data_bp = Blueprint("api_data", __name__)
 
@@ -75,6 +76,7 @@ def download_data():
 
 
 @api_data_bp.route("/api/annotate", methods=["POST"])
+@require_role("controller", "admin")
 def annotate_point():
     try:
         entry_id = request.args.get("point", type=int)
@@ -91,6 +93,7 @@ def annotate_point():
 
 
 @api_data_bp.route("/api/annotate", methods=["DELETE"])
+@require_role("controller", "admin")
 def remove_annotation_route():
     try:
         entry_id = request.args.get("point", type=int)

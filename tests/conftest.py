@@ -13,11 +13,13 @@ for _mod in _hw_mocks:
 import pytest
 import database.init_db as dbi
 import database.db_logger as dbl
+import database.user_db as udb
 
 
 def _patch_db(path: str):
     dbi.DB_FILE = path
     dbl.DB_FILE = path
+    udb.DB_FILE = path
 
 
 @pytest.fixture
@@ -44,4 +46,10 @@ def app_client(db, monkeypatch):  # pylint: disable=redefined-outer-name
 
     app_module.app.config["TESTING"] = True
     with app_module.app.test_client() as client:
+        # Default to admin session so existing tests are unaffected by RBAC guards
+        with client.session_transaction() as sess:  # pylint: disable=contextmanager-generator-missing-cleanup
+            sess["logged_in"] = True
+            sess["user"] = "test-admin"
+            sess["user_role"] = "admin"
+            sess["user_id"] = None
         yield client, mock_plug

@@ -10,6 +10,7 @@ from database.db_logger import (
     save_unit_rate,
     update_threshold,
 )
+from mlss_monitor.rbac import require_role
 
 api_settings_bp = Blueprint("api_settings", __name__)
 
@@ -20,6 +21,7 @@ def get_location_route():
 
 
 @api_settings_bp.route("/api/settings/location", methods=["POST"])
+@require_role("admin")
 def save_location_route():
     data = request.get_json()
     save_location(data.get("lat"), data.get("lon"), data.get("name", ""))
@@ -32,6 +34,7 @@ def get_energy_settings():
 
 
 @api_settings_bp.route("/api/settings/energy", methods=["POST"])
+@require_role("admin")
 def save_energy_settings():
     data = request.get_json()
     try:
@@ -48,6 +51,7 @@ def get_thresholds_route():
 
 
 @api_settings_bp.route("/api/settings/thresholds", methods=["POST"])
+@require_role("admin")
 def save_thresholds_route():
     data = request.get_json()
     if not isinstance(data, dict):

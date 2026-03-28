@@ -2,6 +2,8 @@
 
 from flask import Blueprint, render_template
 
+from mlss_monitor.rbac import require_role
+
 pages_bp = Blueprint("pages", __name__)
 
 
@@ -21,5 +23,6 @@ def controls_page():
 
 
 @pages_bp.route("/admin")
+@require_role("admin")
 def admin():
     return render_template("admin.html")

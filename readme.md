@@ -49,7 +49,10 @@ A lightweight environmental monitoring system for Raspberry Pi, designed as a pr
 - Outdoor weather — current conditions and 24-hour forecast via [Open-Meteo](https://open-meteo.com) (free, no key)
 - UK postcode geocoding via [postcodes.io](https://postcodes.io) (e.g. `LS26`)
 - Hourly weather logging with 7-day auto-cleanup
-- Session-based authentication with GitHub OAuth 2.0 (via `authlib`) and optional local username/password
+- GitHub OAuth 2.0 authentication (via `authlib`) — all users authenticate via GitHub
+- Role-Based Access Control (RBAC) — three roles: **admin**, **controller**, **viewer**
+- User management UI under Settings → Users — admins can add/remove GitHub users and change roles
+- Login audit log — per-user login history visible to admins
 - Environment inference engine — continuously analyses sensor data to detect pollution events, threshold breaches, and trends
 - Interactive dashboard card popups — tap any card for detailed information about the metric, sensor, or calculation
 
@@ -111,13 +114,21 @@ Settings are read from `.env` via [Dynaconf](https://www.dynaconf.com) with pref
 | `DB_FILE` | `data/sensor_data.db` | SQLite database path |
 | `FAN_KASA_SMART_PLUG_IP` | `192.168.1.63` | IP of the Kasa smart plug |
 | `MLSS_SECRET_KEY` | dev fallback | Flask session secret — **must be set in production** |
-| `MLSS_GITHUB_CLIENT_ID` | *(unset)* | GitHub OAuth App client ID |
-| `MLSS_GITHUB_CLIENT_SECRET` | *(unset)* | GitHub OAuth App client secret |
-| `MLSS_ALLOWED_GITHUB_USER` | *(unset = any)* | Restrict login to one GitHub username |
-| `MLSS_AUTH_USERNAME` | *(unset)* | Local login username (alternative to GitHub OAuth) |
-| `MLSS_AUTH_PASSWORD` | *(unset)* | Local login password |
+| `MLSS_GITHUB_CLIENT_ID` | *(required)* | GitHub OAuth App client ID |
+| `MLSS_GITHUB_CLIENT_SECRET` | *(required)* | GitHub OAuth App client secret |
+| `MLSS_ALLOWED_GITHUB_USER` | *(unset)* | Bootstrap admin GitHub username — always grants admin access, even without a DB entry. Use for first-time setup and recovery. |
 
-> **Auth note:** authentication is disabled when none of the `MLSS_` auth variables are set — safe for LAN-only use. Set at least one method before exposing to the internet.
+> **Auth note:** authentication requires GitHub OAuth. Set `MLSS_GITHUB_CLIENT_ID` and `MLSS_GITHUB_CLIENT_SECRET`. Set `MLSS_ALLOWED_GITHUB_USER` to your GitHub handle for the first login, then add further users under **Settings → Users** in the web UI.
+
+### Roles
+
+| Role | Permissions |
+|---|---|
+| **admin** | Full access — settings, fan control, annotations, user management |
+| **controller** | Operate fan, annotate data, dismiss inferences — no settings changes |
+| **viewer** | Read-only — view all sensor, weather, and inference data |
+
+The `MLSS_ALLOWED_GITHUB_USER` bootstrap account always has the **admin** role regardless of what is stored in the database. It serves as a permanent recovery mechanism.
 
 ---
 
@@ -148,41 +159,50 @@ sudo journalctl -u mlss-monitor -f
 
 ## Web interface
 
-| URL | Description |
-|---|---|
-| `/` | Live sensor dashboard |
-| `/admin` | Settings — fan thresholds, auto mode, location |
-| `/login` | Sign-in page (GitHub OAuth or local credentials) |
-| `/system_health` | JSON system status |
+| URL | Description | Min role |
+|---|---|---|
+| `/` | Live sensor dashboard | viewer |
+| `/history` | Historical charts | viewer |
+| `/controls` | Fan manual control | viewer (write: controller) |
+| `/admin` | Settings & user management | admin |
+| `/login` | Sign-in via GitHub OAuth | — |
+| `/system_health` | JSON system status | viewer |
 
 ## API reference
 
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/data?range=24h` | Sensor readings. `range`: `15m` `1h` `6h` `12h` `24h` `all` |
-| `GET` | `/api/download?range=24h` | Download as CSV |
-| `POST` | `/api/annotate?point=<id>` | Add annotation — body: `{"annotation": "text"}` |
-| `DELETE` | `/api/annotate?point=<id>` | Remove annotation |
-| `POST` | `/api/fan?state=on\|off\|auto` | Manual fan control or switch to auto mode |
-| `GET` | `/api/fan/status` | Current plug state |
-| `GET` | `/api/fan/settings` | Auto fan threshold settings |
-| `POST` | `/api/fan/settings` | Update settings — body: `{"temp_max": 25.0, "tvoc_max": 600, "enabled": true, ...}` |
-| `GET` | `/api/weather` | Current outdoor conditions (90-min DB cache) |
-| `GET` | `/api/weather/forecast` | 24-hour hourly forecast from Open-Meteo |
-| `GET` | `/api/geocode?q=<query>` | Geocode a place name or UK postcode |
-| `GET` | `/api/settings/location` | Get saved location |
-| `POST` | `/api/settings/location` | Save location — body: `{"lat": 53.7, "lon": -1.5, "name": "LS26"}` |
-| `GET` | `/api/settings/energy` | Get saved energy unit rate |
-| `POST` | `/api/settings/energy` | Save energy unit rate — body: `{"rate_pence": 28.5}` |
-| `GET` | `/api/inferences?limit=50` | List environment inferences (most recent first). `dismissed=1` includes dismissed. |
-| `POST` | `/api/inferences/<id>/notes` | Save user notes on an inference — body: `{"notes": "text"}` |
-| `POST` | `/api/inferences/<id>/dismiss` | Dismiss an inference (hides from default list) |
+| Method | Endpoint | Min role | Description |
+|---|---|---|---|
+| `GET` | `/api/data?range=24h` | viewer | Sensor readings. `range`: `15m` `1h` `6h` `12h` `24h` `all` |
+| `GET` | `/api/download?range=24h` | viewer | Download as CSV |
+| `POST` | `/api/annotate?point=<id>` | controller | Add annotation — body: `{"annotation": "text"}` |
+| `DELETE` | `/api/annotate?point=<id>` | controller | Remove annotation |
+| `POST` | `/api/fan?state=on\|off\|auto` | controller | Manual fan control or switch to auto mode |
+| `GET` | `/api/fan/status` | viewer | Current plug state |
+| `GET` | `/api/fan/settings` | viewer | Auto fan threshold settings |
+| `POST` | `/api/fan/settings` | admin | Update fan settings — body: `{"temp_max": 25.0, "tvoc_max": 600, "enabled": true, ...}` |
+| `GET` | `/api/weather` | viewer | Current outdoor conditions (90-min DB cache) |
+| `GET` | `/api/weather/forecast` | viewer | 24-hour hourly forecast from Open-Meteo |
+| `GET` | `/api/geocode?q=<query>` | viewer | Geocode a place name or UK postcode |
+| `GET` | `/api/settings/location` | viewer | Get saved location |
+| `POST` | `/api/settings/location` | admin | Save location — body: `{"lat": 53.7, "lon": -1.5, "name": "LS26"}` |
+| `GET` | `/api/settings/energy` | viewer | Get saved energy unit rate |
+| `POST` | `/api/settings/energy` | admin | Save energy unit rate — body: `{"unit_rate_pence": 28.5}` |
+| `GET` | `/api/settings/thresholds` | viewer | Get inference thresholds |
+| `POST` | `/api/settings/thresholds` | admin | Update inference thresholds |
+| `GET` | `/api/inferences?limit=50` | viewer | List inferences. `dismissed=1` includes dismissed. |
+| `POST` | `/api/inferences/<id>/notes` | controller | Save user notes on an inference — body: `{"notes": "text"}` |
+| `POST` | `/api/inferences/<id>/dismiss` | controller | Dismiss an inference |
+| `GET` | `/api/users` | admin | List all registered GitHub users |
+| `POST` | `/api/users` | admin | Add a GitHub user — body: `{"github_username": "octocat", "role": "viewer"}` |
+| `PATCH` | `/api/users/<id>/role` | admin | Change a user's role — body: `{"role": "controller"}` |
+| `GET` | `/api/users/<id>/logins` | admin | Login history for a user (last 20 entries) |
+| `DELETE` | `/api/users/<id>` | admin | Deactivate a user |
 
 ---
 
 ## Database design
 
-MLSS uses a single SQLite file (`data/sensor_data.db`) with five tables.
+MLSS uses a single SQLite file (`data/sensor_data.db`) with seven tables.
 
 ```mermaid
 erDiagram
@@ -241,6 +261,24 @@ erDiagram
     }
 
     sensor_data ||--o{ inferences : "linked via start/end IDs"
+
+    users {
+        INTEGER  id             PK
+        TEXT     github_username "UNIQUE COLLATE NOCASE"
+        TEXT     display_name
+        TEXT     role           "CHECK admin|controller|viewer"
+        DATETIME created_at
+        DATETIME last_login
+        INTEGER  is_active
+    }
+
+    login_log {
+        INTEGER  id             PK
+        TEXT     github_username
+        DATETIME logged_in_at
+    }
+
+    users ||--o{ login_log : "github_username"
 ```
 
 ### Table notes
@@ -252,6 +290,8 @@ erDiagram
 | `app_settings` | Key/value store. Holds `location_lat`, `location_lon`, `location_name`, `energy_unit_rate_pence`. | Permanent config. |
 | `weather_log` | One row per hourly weather fetch from Open-Meteo. | Auto-purged after 7 days by `_weather_log_loop`. |
 | `inferences` | Environment inferences generated by the inference engine. Each row links to a range of `sensor_data` rows, stores evidence JSON, confidence score, and optional user notes. | Indefinite — dismiss to hide, or delete manually. |
+| `users` | Authorised GitHub users and their roles. Managed via Settings → Users in the web UI. Soft-deleted via `is_active = 0`. | Permanent — admin-managed. |
+| `login_log` | Append-only audit log of every successful login, keyed by `github_username`. | Indefinite — query via `GET /api/users/<id>/logins`. |
 
 ### Key design decisions
 
@@ -352,15 +392,17 @@ These steps are required before safely exposing MLSS to the internet.
 | Feature | Status |
 |---|---|
 | GitHub OAuth login flow (`/auth/github`, `/auth/callback`) | ✅ Implemented |
-| Local username/password login (`/login`) | ✅ Implemented |
+| RBAC — three roles (admin, controller, viewer) on all write endpoints | ✅ Implemented |
+| User management UI — add/remove GitHub users, change roles | ✅ Implemented |
+| Login audit log — per-user history, visible to admins | ✅ Implemented |
 | Session guard — redirects unauthenticated users | ✅ Implemented |
-| `MLSS_ALLOWED_GITHUB_USER` filtering | ✅ Implemented |
+| `MLSS_ALLOWED_GITHUB_USER` bootstrap admin (permanent recovery path) | ✅ Implemented |
 | `MLSS_SECRET_KEY` loaded from config/env | ✅ Implemented |
 | Startup log confirms auth status (`🔒 Auth ENABLED`) | ✅ Implemented |
 | Weather log rolling window (auto-purge > 7 days) | ✅ Implemented |
 | CI pipeline — separate lint + test workflows | ✅ Implemented |
 | Pylint 10/10 score enforced in CI | ✅ Implemented |
-| Unit test suite (fan settings, async, resilience, open-meteo, forecasts, weather history) | ✅ Implemented |
+| Unit test suite (fan settings, async, resilience, open-meteo, forecasts, weather history, RBAC) | ✅ Implemented |
 
 ### 🔐 Authentication & secrets (deployment)
 
@@ -369,7 +411,7 @@ These steps are required before safely exposing MLSS to the internet.
   python3 -c "import secrets; print(secrets.token_hex(32))"
   ```
 - [ ] **Configure GitHub OAuth** — create an OAuth App at `https://github.com/settings/developers`. Set callback URL to your domain (`https://yourdomain.com/auth/callback`).
-- [ ] **Set `MLSS_ALLOWED_GITHUB_USER`** to restrict access to your account only.
+- [ ] **Set `MLSS_ALLOWED_GITHUB_USER`** to your GitHub handle (bootstrap admin — first login uses this).
 - [ ] Remove or rotate any test/development credentials from `.env`.
 - [ ] Confirm startup log shows `🔒 Auth ENABLED` before opening firewall.
 
@@ -501,7 +543,8 @@ sudo ufw status
 | 11 | Unattended upgrades enabled | ☐ |
 | 12 | Daily DB backup cron job | ☐ |
 | 13 | `🔒 Auth ENABLED — GitHub OAuth` confirmed in service log | ☐ |
-| 14 | End-to-end test: login → dashboard → logout from external network | ☐ |
+| 14 | Log in as bootstrap admin → Settings → Users → add team members | ☐ |
+| 15 | End-to-end test: login → dashboard → logout from external network | ☐ |
 
 ---
 
@@ -550,20 +593,23 @@ poetry install --with visualization
 mlss_monitor/
   app.py                      Flask app factory, hardware init, background loops
   state.py                    Shared mutable state (fan mode, hardware refs, event loop)
+  rbac.py                     Role-Based Access Control — require_role() decorator
   inference_engine.py         Environment analysis — 9 detectors, pollution event flagging
   routes/
-    __init__.py               Blueprint registration (8 blueprints)
-    auth.py                   Login, logout, GitHub OAuth
+    __init__.py               Blueprint registration (9 blueprints)
+    auth.py                   GitHub OAuth login/logout, DB role lookup
     pages.py                  Page routes (dashboard, history, controls, admin)
     api_data.py               Sensor data API (fetch, CSV download, annotations)
     api_fan.py                Fan control API (toggle, status, settings)
     api_weather.py            Weather API (current, hourly/daily forecast, history, geocode)
-    api_settings.py           Settings API (location, energy rate)
+    api_settings.py           Settings API (location, energy rate, thresholds)
     api_inferences.py         Inference API (list, notes, dismiss)
+    api_users.py              User management API (list, add, role change, login log, deactivate)
     system.py                 System health endpoint
 database/
   db_logger.py                SQLite read/write helpers
   init_db.py                  Schema creation — safe to re-run on existing DB
+  user_db.py                  User & login_log CRUD operations
   import_csv_to_db.py         One-off CSV import utility
 sensor_interfaces/
   aht20.py                    AHT20 temperature/humidity driver
@@ -578,8 +624,8 @@ templates/
   dashboard.html              Live sensor dashboard with forecasts
   history.html                Tabbed historical charts (sensors, environment, correlation, patterns)
   controls.html               Device control hub (fan, future devices)
-  admin.html                  Settings — fan thresholds, energy rate, location
-  login.html                  Sign-in page (GitHub OAuth + local credentials)
+  admin.html                  Settings (tabbed) — fan thresholds, energy rate, location, user management
+  login.html                  Sign-in page (GitHub OAuth)
 static/
   css/
     base.css                  Shared reset, nav, cards, light/dark toggle, mobile fixes
@@ -609,6 +655,7 @@ tests/
   test_open_meteo.py          Open-Meteo client unit tests
   test_daily_forecast.py      Daily forecast API tests
   test_weather_history.py     Weather history DB function tests
+  test_rbac.py                RBAC — user DB, login log, role enforcement on all write endpoints
 config.py                     Dynaconf configuration loader
 mlss-monitor.service          systemd unit file
 .env.example                  Template for environment variables
