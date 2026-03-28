@@ -316,3 +316,57 @@ select.role-select:focus,
 
 .user-status { font-size: 0.9em; min-height: 1.2em; }
 .no-users { font-size: 0.85em; color: #555; margin: 0.5em 0 0; }
+
+/* ── Login log panel ── */
+.user-entry { display: flex; flex-direction: column; }
+
+.btn-logs {
+  padding: 0.3em 0.6em;
+  background: #1e2a3a;
+  color: #7db8ff;
+  border: 1px solid #2a4a6a;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.78em;
+  white-space: nowrap;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+.btn-logs:hover { background: #243550; }
+
+.login-log {
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+  padding: 0.6em 0.8em;
+  margin-top: -1px;
+}
+.log-loading, .log-empty {
+  font-size: 0.8em;
+  color: #555;
+  margin: 0;
+}
+
+.log-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82em;
+  color: #aaa;
+}
+.log-table th {
+  text-align: left;
+  color: #666;
+  font-weight: 600;
+  font-size: 0.78em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.2em 0.6em 0.4em;
+  border-bottom: 1px solid #2a2a2a;
+}
+.log-table td {
+  padding: 0.25em 0.6em;
+  border-bottom: 1px solid #222;
+}
+.log-table tr:last-child td { border-bottom: none; }
+.log-table td:first-child { color: #555; width: 2em; text-align: right; }

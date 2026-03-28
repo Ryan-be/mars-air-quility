@@ -131,13 +131,30 @@ def deactivate_user(user_id: int) -> bool:
 
 
 def record_login(github_username: str):
-    """Update last_login timestamp for an existing DB user."""
+    """Update last_login on the user row and append a login_log entry."""
+    now = datetime.utcnow().isoformat()
     with _conn() as conn:
         conn.execute(
             "UPDATE users SET last_login = ? WHERE lower(github_username) = lower(?)",
-            (datetime.utcnow().isoformat(), github_username),
+            (now, github_username),
+        )
+        conn.execute(
+            "INSERT INTO login_log (github_username, logged_in_at) VALUES (lower(?), ?)",
+            (github_username, now),
         )
         conn.commit()
+
+
+def get_login_log(github_username: str, limit: int = 20) -> list[dict]:
+    """Return the most recent login timestamps for a given GitHub username."""
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT logged_in_at FROM login_log "
+            "WHERE lower(github_username) = lower(?) "
+            "ORDER BY logged_in_at DESC LIMIT ?",
+            (github_username, limit),
+        ).fetchall()
+    return [{"logged_in_at": r[0]} for r in rows]
 
 
 # ── Private ───────────────────────────────────────────────────────────────────

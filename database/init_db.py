@@ -176,6 +176,19 @@ def create_db():
     );
     """)
 
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS login_log (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        github_username TEXT    NOT NULL,
+        logged_in_at    DATETIME NOT NULL
+    );
+    """)
+
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_login_log_user "
+        "ON login_log (github_username, logged_in_at DESC)"
+    )
+
     cur.execute("SELECT COUNT(*) FROM fan_settings")
     if cur.fetchone()[0] == 0:
         cur.execute("""

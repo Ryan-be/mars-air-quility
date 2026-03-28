@@ -22,7 +22,7 @@ import logging
 
 from flask import Blueprint, redirect, render_template, session, url_for
 
-from database.user_db import get_user_by_github, record_login
+from database.user_db import get_user_by_github, get_login_log, record_login
 from mlss_monitor import state
 
 log = logging.getLogger(__name__)
@@ -79,6 +79,7 @@ def github_callback():
 
     # 2. Fall back to the bootstrap env-var admin
     if state.ALLOWED_GITHUB_USER and username.lower() == state.ALLOWED_GITHUB_USER.lower():
+        record_login(username)
         _set_session(username, "admin", None)
         log.info("Login: %s (bootstrap admin via ALLOWED_GITHUB_USER)", username)
         return redirect(url_for("pages.dashboard"))

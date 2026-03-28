@@ -15,6 +15,7 @@ from database.user_db import (
     add_user,
     admin_count,
     deactivate_user,
+    get_login_log,
     get_user_by_id,
     list_users,
     update_user_role,
@@ -64,6 +65,16 @@ def update_role(user_id: int):
     if not updated:
         return jsonify({"error": "User not found"}), 404
     return jsonify({"message": "Role updated"})
+
+
+@api_users_bp.route("/api/users/<int:user_id>/logins", methods=["GET"])
+@require_role("admin")
+def get_user_logins(user_id: int):
+    user = get_user_by_id(user_id)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+    logs = get_login_log(user["github_username"])
+    return jsonify(logs)
 
 
 @api_users_bp.route("/api/users/<int:user_id>", methods=["DELETE"])
