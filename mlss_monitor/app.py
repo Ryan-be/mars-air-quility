@@ -54,7 +54,7 @@ SECRET_KEY = config.get("SECRET_KEY", "mlss-dev-key-change-me-in-production")
 app.secret_key = SECRET_KEY
 
 # ── HTTPS / TLS ──────────────────────────────────────────────────────────────
-HTTPS_ENABLED = config.get("HTTPS_ENABLED", "true").lower() == "true"
+HTTPS_ENABLED = str(config.get("HTTPS_ENABLED", "true")).lower() == "true"
 SSL_CERT_FILE = config.get("SSL_CERT_FILE", "certs/cert.pem")
 SSL_KEY_FILE = config.get("SSL_KEY_FILE", "certs/key.pem")
 
@@ -296,7 +296,7 @@ def _build_ssl_context():
 
     if not os.path.isfile(cert) or not os.path.isfile(key):
         log.warning("SSL cert/key not found (%s, %s) — falling back to HTTP. "
-                    "Run 'python generate_certs.py' to create a self-signed certificate.", cert, key)
+                    "Run 'python scripts/generate_certs.py' to create a self-signed certificate.", cert, key)
         return None
 
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)

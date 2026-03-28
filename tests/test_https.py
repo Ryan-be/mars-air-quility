@@ -3,8 +3,7 @@
 import os
 import ssl
 import subprocess
-import sys
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pytest
 
@@ -12,7 +11,7 @@ import pytest
 import mlss_monitor.app as app_module
 
 
-class TestBuildSslContext:
+class TestBuildSslContext:  # pylint: disable=protected-access
     """Unit tests for _build_ssl_context."""
 
     def test_returns_none_when_disabled(self):
@@ -65,7 +64,7 @@ class TestGenerateCerts:
         except FileNotFoundError:
             pytest.skip("openssl not available")
 
-        from generate_certs import generate_self_signed_cert
+        from scripts.generate_certs import generate_self_signed_cert
 
         cert, key = generate_self_signed_cert(cert_dir=str(tmp_path))
         assert os.path.isfile(cert)
@@ -77,7 +76,7 @@ class TestGenerateCerts:
         except FileNotFoundError:
             pytest.skip("openssl not available")
 
-        from generate_certs import generate_self_signed_cert
+        from scripts.generate_certs import generate_self_signed_cert
 
         generate_self_signed_cert(cert_dir=str(tmp_path))
         first_mtime = os.path.getmtime(tmp_path / "cert.pem")
@@ -91,7 +90,7 @@ class TestGenerateCerts:
         except FileNotFoundError:
             pytest.skip("openssl not available")
 
-        from generate_certs import generate_self_signed_cert
+        from scripts.generate_certs import generate_self_signed_cert
 
         generate_self_signed_cert(cert_dir=str(tmp_path))
         first_mtime = os.path.getmtime(tmp_path / "cert.pem")
