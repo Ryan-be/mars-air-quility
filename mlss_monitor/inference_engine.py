@@ -181,8 +181,7 @@ def _detect_tvoc_spike(rows):
     recent = _mean(tvocs[-3:])
     peak = max(tvocs[-3:])
 
-    if baseline < 50:
-        baseline = 50  # floor to avoid false positives on near-zero baselines
+    baseline = max(baseline, 50)  # floor to avoid false positives on near-zero baselines
 
     spike_factor = _t("spike_factor")
     tvoc_moderate = _t("tvoc_moderate")

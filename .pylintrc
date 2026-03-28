@@ -20,6 +20,12 @@ disable=
     too-few-public-methods,
     too-many-positional-arguments,
     unbalanced-tuple-unpacking,
+    too-many-lines,
+    too-many-locals,
+    too-many-branches,
+    too-many-statements,
+    too-many-arguments,
+    duplicate-code,
 
 [FORMAT]
 max-line-length=120

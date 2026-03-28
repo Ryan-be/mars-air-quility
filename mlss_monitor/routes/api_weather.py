@@ -1,7 +1,5 @@
 """Weather API routes: current, forecast (hourly & daily), history, geocode."""
 
-from datetime import datetime, timedelta
-
 from flask import Blueprint, jsonify, request
 
 from database.db_logger import (
@@ -9,6 +7,7 @@ from database.db_logger import (
     get_weather_history, log_weather,
 )
 from mlss_monitor import state
+from mlss_monitor.routes.api_data import _parse_range
 
 api_weather_bp = Blueprint("api_weather", __name__)
 
@@ -61,15 +60,7 @@ def daily_forecast():
 @api_weather_bp.route("/api/weather/history")
 def weather_history():
     range_param = request.args.get("range", "24h")
-    now = datetime.utcnow()
-    range_map = {
-        "15m": timedelta(minutes=15),
-        "1h":  timedelta(hours=1),
-        "6h":  timedelta(hours=6),
-        "12h": timedelta(hours=12),
-        "24h": timedelta(hours=24),
-    }
-    since = now - range_map.get(range_param, timedelta(hours=24))
+    since, _now = _parse_range(range_param)
     return jsonify(get_weather_history(since.isoformat()))
 
 
