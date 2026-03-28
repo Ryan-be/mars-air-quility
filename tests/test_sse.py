@@ -26,7 +26,7 @@ def sse_app(db, monkeypatch, bus):
 
     app_module.app.config["TESTING"] = True
     with app_module.app.test_client() as client:
-        with client.session_transaction() as sess:
+        with client.session_transaction() as sess:  # pylint: disable=contextmanager-generator-missing-cleanup
             sess["logged_in"] = True
             sess["user"] = "test-admin"
             sess["user_role"] = "admin"
