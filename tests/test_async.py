@@ -18,6 +18,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+import mlss_monitor.state as app_state
+
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -90,7 +92,7 @@ class TestLogDataAsyncDispatch:
         from database.db_logger import update_fan_settings
 
         update_fan_settings(0, 500, 0.0, 20.0, enabled)
-        monkeypatch.setattr(app_module, "read_sensors", lambda: (0, temp, 50, 300, tvoc))
+        monkeypatch.setattr(app_module, "read_sensors", lambda: (temp, 50, 300, tvoc))
         monkeypatch.setattr(app_module, "log_sensor_data", lambda *a, **kw: None)
 
         mock_future = MagicMock()
@@ -144,14 +146,14 @@ class TestLogDataAsyncDispatch:
         captured_coro_args = []
         mock_future = MagicMock()
 
-        original_switch = app_module.fan_smart_plug.switch
+        original_switch = app_state.fan_smart_plug.switch
 
         def spy_switch(state):
             captured_coro_args.append(state)
             return original_switch(state)
 
-        monkeypatch.setattr(app_module.fan_smart_plug, "switch", spy_switch)
-        monkeypatch.setattr(app_module, "read_sensors", lambda: (0, 25.0, 50, 300, 100))
+        monkeypatch.setattr(app_state.fan_smart_plug, "switch", spy_switch)
+        monkeypatch.setattr(app_module, "read_sensors", lambda: (25.0, 50, 300, 100))
         monkeypatch.setattr(app_module, "log_sensor_data", lambda *a, **kw: None)
         monkeypatch.setattr(app_module.asyncio, "run_coroutine_threadsafe", lambda coro, loop: mock_future)
 
@@ -165,14 +167,14 @@ class TestLogDataAsyncDispatch:
 
         captured_coro_args = []
         mock_future = MagicMock()
-        original_switch = app_module.fan_smart_plug.switch
+        original_switch = app_state.fan_smart_plug.switch
 
         def spy_switch(state):
             captured_coro_args.append(state)
             return original_switch(state)
 
-        monkeypatch.setattr(app_module.fan_smart_plug, "switch", spy_switch)
-        monkeypatch.setattr(app_module, "read_sensors", lambda: (0, 15.0, 50, 300, 100))
+        monkeypatch.setattr(app_state.fan_smart_plug, "switch", spy_switch)
+        monkeypatch.setattr(app_module, "read_sensors", lambda: (15.0, 50, 300, 100))
         monkeypatch.setattr(app_module, "log_sensor_data", lambda *a, **kw: None)
         monkeypatch.setattr(app_module.asyncio, "run_coroutine_threadsafe", lambda coro, loop: mock_future)
 
@@ -184,7 +186,7 @@ class TestLogDataAsyncDispatch:
         from database.db_logger import update_fan_settings
         update_fan_settings(0, 500, 0.0, 20.0, True)
 
-        monkeypatch.setattr(app_module, "read_sensors", lambda: (0, 25.0, 50, 300, 100))
+        monkeypatch.setattr(app_module, "read_sensors", lambda: (25.0, 50, 300, 100))
         monkeypatch.setattr(app_module, "log_sensor_data", lambda *a, **kw: None)
         monkeypatch.setattr(
             app_module.asyncio, "run_coroutine_threadsafe",
@@ -203,7 +205,7 @@ class TestControlFanAsyncDispatch:
     """The POST /api/fan endpoint must wait for the plug before responding."""
 
     def _mock_threadsafe(self, monkeypatch, return_value=None, raise_exc=None):
-        import mlss_monitor.app as app_module
+        import mlss_monitor.routes.api_fan as fan_module
         mock_future = _make_future(return_value=return_value, raise_exc=raise_exc)
         calls = []
 
@@ -211,7 +213,7 @@ class TestControlFanAsyncDispatch:
             calls.append({"coro": coro, "loop": loop})
             return mock_future
 
-        monkeypatch.setattr(app_module.asyncio, "run_coroutine_threadsafe", fake)
+        monkeypatch.setattr(fan_module.asyncio, "run_coroutine_threadsafe", fake)
         return calls, mock_future
 
     def test_result_called_for_manual_on(self, app_client, monkeypatch):
@@ -234,11 +236,10 @@ class TestControlFanAsyncDispatch:
         mock_future.result.assert_not_called()  # auto mode must not touch the plug
 
     def test_dispatches_to_thread_loop(self, app_client, monkeypatch):
-        import mlss_monitor.app as app_module
         client, _ = app_client
         calls, _ = self._mock_threadsafe(monkeypatch)
         client.post("/api/fan?state=on")
-        assert calls[0]["loop"] is app_module.thread_loop
+        assert calls[0]["loop"] is app_state.thread_loop
 
     def test_plug_timeout_returns_500(self, app_client, monkeypatch):
         client, _ = app_client
@@ -269,7 +270,7 @@ class TestGetFanStateAsync:
 
     def _setup_status_mocks(self, monkeypatch, update_exc=None, state_exc=None,
                             state_value=None):
-        import mlss_monitor.app as app_module
+        import mlss_monitor.routes.api_fan as fan_module
 
         update_future = _make_future(raise_exc=update_exc)
         state_future = _make_future(
@@ -282,14 +283,13 @@ class TestGetFanStateAsync:
 
         def fake_threadsafe(_coro, _loop):
             f = next(futures)
-            # Record which future is being dispatched by checking which mock it is
             if f is update_future:
                 call_order.append("update")
             else:
                 call_order.append("get_state")
             return f
 
-        monkeypatch.setattr(app_module.asyncio, "run_coroutine_threadsafe", fake_threadsafe)
+        monkeypatch.setattr(fan_module.asyncio, "run_coroutine_threadsafe", fake_threadsafe)
         return update_future, state_future, call_order
 
     def test_update_called_before_get_state(self, app_client, monkeypatch):
@@ -320,10 +320,10 @@ class TestGetFanStateAsync:
 
     def test_update_failure_returns_500(self, app_client, monkeypatch):
         client, _ = app_client
-        import mlss_monitor.app as app_module
+        import mlss_monitor.routes.api_fan as fan_module
 
         mock_future = _make_future(raise_exc=Exception("update failed"))
-        monkeypatch.setattr(app_module.asyncio, "run_coroutine_threadsafe",
+        monkeypatch.setattr(fan_module.asyncio, "run_coroutine_threadsafe",
                             lambda coro, loop: mock_future)
 
         res = client.get("/api/fan/status")
@@ -336,8 +336,8 @@ class TestGetFanStateAsync:
         state_fut = _make_future(raise_exc=Exception("state read failed"))
         futures = iter([update_fut, state_fut])
 
-        import mlss_monitor.app as app_module
-        monkeypatch.setattr(app_module.asyncio, "run_coroutine_threadsafe",
+        import mlss_monitor.routes.api_fan as fan_module
+        monkeypatch.setattr(fan_module.asyncio, "run_coroutine_threadsafe",
                             lambda coro, loop: next(futures))
 
         res = client.get("/api/fan/status")

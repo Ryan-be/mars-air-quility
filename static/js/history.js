@@ -66,5 +66,17 @@ async function fetchData() {
   }
 }
 
+// ── Chart info button toggle ─────────────────────────────────────────────────
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest(".chart-info-btn");
+  // Close all open popups first
+  document.querySelectorAll(".chart-info-popup.visible").forEach(p => {
+    if (!btn || p.id !== `info-${btn.dataset.info}`) p.classList.remove("visible");
+  });
+  if (!btn) return;
+  const popup = document.getElementById(`info-${btn.dataset.info}`);
+  if (popup) popup.classList.toggle("visible");
+});
+
 fetchData();
 setInterval(fetchData, 30000);

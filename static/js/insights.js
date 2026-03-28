@@ -177,6 +177,10 @@ function _openForecastDialog(idx) {
     h.wind_speed != null
       ? (h.wind_speed < 5 ? "Calm" : h.wind_speed < 15 ? "Breezy" : h.wind_speed < 25 ? "Windy" : "Very windy")
       : "--";
+  document.getElementById("fdHum").textContent =
+    h.humidity != null ? `${h.humidity}%` : "--";
+  document.getElementById("fdCloud").textContent =
+    h.cloud_cover != null ? `${h.cloud_cover}%` : "--";
 
   dialog.showModal();
 
@@ -241,6 +245,12 @@ function _openDailyDialog(idx) {
     d.precip_prob != null ? `${d.precip_prob}%` : "--";
   document.getElementById("fddWind").textContent  =
     d.wind_speed != null ? `${d.wind_speed.toFixed(1)} mph` : "--";
+  document.getElementById("fddPrecip").textContent =
+    d.precip_sum != null ? `${d.precip_sum.toFixed(1)} mm` : "--";
+  document.getElementById("fddUV").textContent =
+    d.uv_index != null ? `${d.uv_index.toFixed(1)}` : "--";
+  document.getElementById("fddSunrise").textContent = d.sunrise ?? "--";
+  document.getElementById("fddSunset").textContent  = d.sunset ?? "--";
 
   dialog.showModal();
   dialog.onclick = (e) => { if (e.target === dialog) dialog.close(); };

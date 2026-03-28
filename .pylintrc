@@ -1,6 +1,6 @@
 [MASTER]
 # Hardware libs that only exist on the Pi — skip import resolution for them
-ignored-modules=board,busio,adafruit_ahtx0,adafruit_sgp30,kasa
+ignored-modules=board,busio,adafruit_ahtx0,adafruit_sgp30,kasa,authlib,authlib.integrations,authlib.integrations.flask_client,digitalio,adafruit_rgb_display,adafruit_rgb_display.st7735
 
 [MESSAGES CONTROL]
 disable=
@@ -19,9 +19,16 @@ disable=
     consider-using-from-import,
     too-few-public-methods,
     too-many-positional-arguments,
+    unbalanced-tuple-unpacking,
+    too-many-lines,
+    too-many-locals,
+    too-many-branches,
+    too-many-statements,
+    too-many-arguments,
+    duplicate-code,
 
 [FORMAT]
 max-line-length=120
 
 [DESIGN]
-max-args=6
+max-args=8

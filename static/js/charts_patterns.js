@@ -73,6 +73,7 @@ export function renderPatternCharts(data) {
       line: { color: "#ff88aa", dash: "dot", width: 1 } },
   ], themeLayout({
     title: { text: "📅 Daily Temperature Range (°C)", font: titleFont },
-    legend: { orientation: "h", x: 0.5, xanchor: "center", y: 1.15, bgcolor: "rgba(0,0,0,0)" },
+    legend: { orientation: "h", x: 0.5, xanchor: "center", y: 1.3, bgcolor: "rgba(0,0,0,0)" },
+    margin: { t: 75 },
   }), { responsive: true });
 }

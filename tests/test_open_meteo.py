@@ -252,7 +252,7 @@ class TestGetCurrentWeather:
 
 def _make_forecast_response(start_hour: int = 12, count: int = 48) -> dict:
     """Build a synthetic Open-Meteo hourly forecast payload."""
-    times, temps, precips, codes, winds = [], [], [], [], []
+    times, temps, precips, codes, winds, hums, clouds = [], [], [], [], [], [], []
     for i in range(count):
         h = (start_hour + i) % 24
         day_offset = (start_hour + i) // 24
@@ -262,6 +262,8 @@ def _make_forecast_response(start_hour: int = 12, count: int = 48) -> dict:
         precips.append(i % 100)
         codes.append(1)
         winds.append(8.0)
+        hums.append(60 + i % 30)
+        clouds.append(i % 100)
     return {
         "hourly": {
             "time":                        times,
@@ -269,6 +271,8 @@ def _make_forecast_response(start_hour: int = 12, count: int = 48) -> dict:
             "precipitation_probability":   precips,
             "weather_code":                codes,
             "wind_speed_10m":              winds,
+            "relative_humidity_2m":        hums,
+            "cloud_cover":                 clouds,
         }
     }
 

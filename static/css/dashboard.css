@@ -110,7 +110,7 @@ body.light .section-heading { color: #aaa; }
 .weather-updated { color: #444; font-size: 0.9em; margin-left: auto; }
 .weather-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 0.75em;
 }
 body.light .weather-heading { color: #999; }
@@ -371,3 +371,342 @@ body.light .fc-lo { color: #aaa; }
 }
 #forecastDailyDialog::backdrop { background: rgba(0,0,0,0.65); }
 body.light #forecastDailyDialog { background: #fff; color: #111; border-color: #ccc; }
+
+/* ── Clickable stat cards ── */
+button.stat-card {
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  transition: border-color 0.15s, background 0.15s;
+}
+button.stat-card:hover, button.stat-card:focus-visible {
+  border-color: #7db8ff;
+  background: #252535;
+  outline: none;
+}
+body.light button.stat-card:hover,
+body.light button.stat-card:focus-visible { background: #f0f4ff; border-color: #6699dd; }
+
+/* ── Sensor detail dialog ── */
+#sensorDialog { max-width: 360px; }
+.sd-body { display: flex; flex-direction: column; gap: 0.6em; }
+.sd-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #2a2a2a;
+  border-radius: 8px;
+  padding: 0.5em 0.75em;
+}
+.sd-row .fd-label { font-size: 0.75em; }
+.sd-row .fd-value { font-size: 0.95em; }
+.sd-desc {
+  font-size: 0.82em;
+  color: #aaa;
+  line-height: 1.5;
+  margin-top: 0.25em;
+}
+body.light .sd-row    { background: #f5f5f5; }
+body.light .sd-desc   { color: #666; }
+
+/* ── Clickable insight cards ── */
+button.insight-card {
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  transition: border-color 0.15s, background 0.15s;
+}
+button.insight-card:hover, button.insight-card:focus-visible {
+  border-color: #7db8ff;
+  background: #252535;
+  outline: none;
+}
+body.light button.insight-card:hover,
+body.light button.insight-card:focus-visible { background: #f0f4ff; border-color: #6699dd; }
+
+/* ── Clickable health items ── */
+button.health-item {
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 0.4em 0.5em;
+  transition: border-color 0.15s, background 0.15s;
+}
+button.health-item:hover, button.health-item:focus-visible {
+  border-color: #555;
+  background: #252535;
+  outline: none;
+}
+body.light button.health-item:hover,
+body.light button.health-item:focus-visible { background: #f0f4ff; border-color: #ccc; }
+
+/* ── Insight detail dialog ── */
+#insightDialog { max-width: 380px; }
+
+/* ── Inference filter chips ── */
+.inference-filters {
+  display: flex;
+  gap: 0.4em;
+  margin-bottom: 0.6em;
+  flex-wrap: wrap;
+}
+.inf-filter {
+  padding: 0.3em 0.75em;
+  background: #1e1e1e;
+  color: #999;
+  border: 1px solid #444;
+  border-radius: 20px;
+  font-size: 0.8em;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.inf-filter:hover { background: #2a2a3a; color: #ccc; }
+.inf-filter.active {
+  background: #2a4a7a;
+  color: #7db8ff;
+  border-color: #2a7aff;
+}
+
+/* ── Inference feed ── */
+.inference-feed {
+  max-height: 320px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35em;
+  margin-bottom: 1.25em;
+  scrollbar-width: thin;
+  scrollbar-color: #444 transparent;
+}
+.inference-feed::-webkit-scrollbar       { width: 4px; }
+.inference-feed::-webkit-scrollbar-thumb { background: #444; border-radius: 2px; }
+.inference-empty {
+  font-size: 0.85em;
+  color: #555;
+  padding: 1em;
+  text-align: center;
+}
+.inference-count { font-size: 0.85em; color: #666; margin-left: 0.4em; }
+
+.inference-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #1e1e1e;
+  border: 1px solid #333;
+  border-left: 3px solid #555;
+  border-radius: 6px;
+  padding: 0.55em 0.85em;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s;
+}
+.inference-card:hover { background: #252535; border-color: #555; }
+.inference-card.dismissed { opacity: 0.5; }
+.inference-card.inf-info     { border-left-color: #38bdf8; }
+.inference-card.inf-warning  { border-left-color: #f59e0b; }
+.inference-card.inf-critical { border-left-color: #ef4444; }
+
+.inf-card-left {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15em;
+  min-width: 0;
+  flex: 1;
+}
+.inf-card-type {
+  font-size: 0.65em;
+  color: #777;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.inf-card-summary {
+  font-size: 0.85em;
+  color: #ddd;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.inf-card-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.1em;
+  flex-shrink: 0;
+  margin-left: 0.75em;
+}
+.inf-card-time { font-size: 0.65em; color: #666; }
+.inf-card-conf { font-size: 0.7em; color: #888; }
+
+/* ── Inference detail dialog ── */
+#inferenceDialog {
+  max-width: 440px;
+  width: 92vw;
+}
+.inf-body { display: flex; flex-direction: column; gap: 0.8em; }
+.inf-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  flex-wrap: wrap;
+  font-size: 0.8em;
+}
+.inf-badge {
+  padding: 0.2em 0.6em;
+  border-radius: 4px;
+  font-size: 0.8em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.inf-badge.inf-info     { background: #1e3a5f; color: #38bdf8; }
+.inf-badge.inf-warning  { background: #3d2e0a; color: #f59e0b; }
+.inf-badge.inf-critical { background: #3b1111; color: #ef4444; }
+.inf-time       { color: #888; }
+.inf-confidence { color: #aaa; }
+
+.inf-section { margin-top: 0.3em; }
+.inf-section-title {
+  font-size: 0.7em;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.3em;
+}
+.inf-section > div:not(.inf-section-title):not(.inf-evidence) {
+  font-size: 0.88em;
+  color: #ccc;
+  line-height: 1.5;
+}
+.inf-evidence {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3em;
+}
+.inf-ev-row {
+  display: flex;
+  justify-content: space-between;
+  background: #2a2a2a;
+  border-radius: 6px;
+  padding: 0.4em 0.65em;
+}
+.inf-ev-row .fd-label { font-size: 0.7em; }
+.inf-ev-row .fd-value { font-size: 0.85em; }
+.inf-ev-row.ev-good  { border-left: 3px solid #22c55e; }
+.inf-ev-row.ev-warn  { border-left: 3px solid #f59e0b; }
+.inf-ev-row.ev-bad   { border-left: 3px solid #ef4444; }
+.inf-ev-row.ev-good .fd-value  { color: #4ade80; }
+.inf-ev-row.ev-warn .fd-value  { color: #fbbf24; }
+.inf-ev-row.ev-bad .fd-value   { color: #f87171; }
+
+#inferenceDialog textarea {
+  width: 100%;
+  background: #2a2a2a;
+  color: #fff;
+  border: 1px solid #555;
+  border-radius: 4px;
+  padding: 0.45em;
+  font-size: 0.85em;
+  resize: vertical;
+  box-sizing: border-box;
+}
+.inf-save-note {
+  margin-top: 0.35em;
+  padding: 0.3em 0.8em;
+  font-size: 0.8em;
+  background: #1a3a5a;
+  color: #7db8ff;
+  border-color: #2a5a8a;
+}
+
+/* ── Inference threshold details (expandable) ── */
+.inf-thresholds-section {
+  margin-top: 0.3em;
+  border: 1px solid #333;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.inf-thresholds-section summary.inf-section-title {
+  cursor: pointer;
+  padding: 0.45em 0.65em;
+  margin-bottom: 0;
+  user-select: none;
+  list-style: none;
+}
+.inf-thresholds-section summary.inf-section-title::before {
+  content: "▸ ";
+}
+.inf-thresholds-section[open] summary.inf-section-title::before {
+  content: "▾ ";
+}
+.inf-thresholds-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25em;
+  padding: 0 0.65em 0.5em;
+}
+.inf-th-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #2a2a2a;
+  border-radius: 4px;
+  padding: 0.3em 0.55em;
+  font-size: 0.82em;
+}
+.inf-th-label { color: #bbb; }
+.inf-th-val { color: #ddd; display: flex; align-items: center; gap: 0.4em; }
+.inf-th-custom {
+  font-size: 0.7em;
+  padding: 0.1em 0.4em;
+  border-radius: 3px;
+  background: #3d2e0a;
+  color: #f59e0b;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.inf-th-default {
+  font-size: 0.7em;
+  padding: 0.1em 0.4em;
+  border-radius: 3px;
+  background: #1e3a5f;
+  color: #38bdf8;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* ── Inference feed light mode ── */
+body.light .inference-card         { background: #fff; border-color: #ddd; }
+body.light .inference-card:hover   { background: #f0f4ff; }
+body.light .inf-card-type          { color: #999; }
+body.light .inf-card-summary       { color: #222; }
+body.light .inf-card-time          { color: #aaa; }
+body.light .inf-card-conf          { color: #999; }
+body.light .inf-badge.inf-info     { background: #e0f2fe; color: #0369a1; }
+body.light .inf-badge.inf-warning  { background: #fef3c7; color: #92400e; }
+body.light .inf-badge.inf-critical { background: #fee2e2; color: #991b1b; }
+body.light .inf-time               { color: #888; }
+body.light .inf-confidence         { color: #666; }
+body.light .inf-section-title      { color: #999; }
+body.light .inf-section > div:not(.inf-section-title):not(.inf-evidence) { color: #333; }
+body.light .inf-ev-row             { background: #f5f5f5; }
+body.light .inf-ev-row.ev-good .fd-value { color: #16a34a; }
+body.light .inf-ev-row.ev-warn .fd-value { color: #d97706; }
+body.light .inf-ev-row.ev-bad .fd-value  { color: #dc2626; }
+body.light #inferenceDialog textarea { background: #f5f5f5; color: #111; border-color: #bbb; }
+body.light .inf-save-note          { background: #e0f2fe; color: #0369a1; border-color: #7dd3fc; }
+body.light .inference-empty        { color: #999; }
+body.light .inf-filter             { background: #f0f0f0; color: #666; border-color: #ddd; }
+body.light .inf-filter:hover       { background: #e0e4f0; color: #333; }
+body.light .inf-filter.active      { background: #e0f2fe; color: #0369a1; border-color: #7dd3fc; }
+body.light .inf-thresholds-section { border-color: #ddd; }
+body.light .inf-th-row             { background: #f5f5f5; }
+body.light .inf-th-label           { color: #555; }
+body.light .inf-th-val             { color: #222; }
+body.light .inf-th-custom          { background: #fef3c7; color: #92400e; }
+body.light .inf-th-default         { background: #e0f2fe; color: #0369a1; }
