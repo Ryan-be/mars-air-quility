@@ -88,6 +88,25 @@
 .switch input:checked + .slider { background: #2a7aff; }
 .switch input:checked + .slider::before { transform: translateX(20px); }
 
+/* Small toggle variant for inline legend use */
+.switch.switch-sm {
+  width: 32px;
+  height: 18px;
+  vertical-align: middle;
+  margin-left: 0.5em;
+}
+.switch.switch-sm .slider::before {
+  width: 12px;
+  height: 12px;
+}
+.switch.switch-sm input:checked + .slider::before { transform: translateX(14px); }
+
+/* Legend layout with inline toggle */
+.field-group legend {
+  display: flex;
+  align-items: center;
+}
+
 /* ── Card spacing ── */
 .card-desc { font-size: 0.85em; color: #888; margin: -0.8em 0 1.2em; }
 .search-row { display: flex; gap: 0.5em; margin-bottom: 0.5em; }

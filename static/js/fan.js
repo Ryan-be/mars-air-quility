@@ -36,3 +36,13 @@ export async function fetchFanStatus() {
     }
   } catch { /* silent */ }
 }
+
+export async function fetchAutoStatus() {
+  try {
+    const res = await fetch('/api/fan/auto-status');
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}

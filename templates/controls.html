@@ -33,6 +33,11 @@
         <button class="btn-on"   onclick="setFanControl('on')">On</button>
         <button class="btn-off"  onclick="setFanControl('off')">Off</button>
         <button class="btn-auto" onclick="setFanControl('auto')">Auto</button>
+        <button class="btn-info" id="fanInfoBtn" onclick="toggleAutoInfo()" title="Auto-mode details">i</button>
+      </div>
+      <div class="auto-info-panel hidden" id="autoInfoPanel">
+        <p class="auto-info-summary" id="autoInfoSummary">Loading...</p>
+        <ul class="auto-info-rules" id="autoInfoRules"></ul>
       </div>
       <div class="device-meta">
         <div class="meta-item">
