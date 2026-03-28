@@ -123,26 +123,21 @@ function _renderBrushChart(data) {
   // When PM2.5 is present we need two right-hand axes.  Give each its own
   // position so their tick labels don't collide, and shrink the xaxis domain
   // to leave room on the right edge.
-  // Two right axes need: xaxis domain shrunk, yaxis2 anchored to x's right edge,
-  // yaxis3 free-positioned beyond that, and enough right margin for both label stacks.
-  const rightMargin = hasPm ? 110 : 55;
-  const xDomainEnd  = hasPm ? 0.78 : 1;
-  // yaxis2 sits at the right edge of xDomain (paper x = xDomainEnd)
-  // yaxis3 sits further right in the paper margin
-  const y3Position  = hasPm ? 0.88 : undefined;
-
+  // With PM data we need two right-hand axes.  Rather than free-positioning
+  // a third axis (which eats plot width), stack eCO₂ and PM2.5 into a single
+  // right axis label area using Plotly annotations for the second label.
   const layout = themeLayout({
-    height: 220,
-    margin: { t: 58, b: 50, l: 60, r: rightMargin },
+    height: 230,
+    margin: { t: 58, b: 55, l: 55, r: hasPm ? 70 : 55 },
     title: { text: "TVOC · eCO₂ · PM2.5 over time — drag to select a window", font: { ...titleFont, size: 12 }, x: 0.5, xanchor: "center" },
     legend: { orientation: "h", x: 0.5, xanchor: "center", y: 1.22, font: { size: 10 }, bgcolor: "rgba(0,0,0,0)" },
-    xaxis:  { type: "date", domain: [0, xDomainEnd] },
+    xaxis:  { type: "date" },
     yaxis:  { title: "TVOC (ppb)",   side: "left",  showgrid: false, titlefont: { size: 10 }, tickfont: { size: 9 } },
-    yaxis2: { title: "eCO₂ (ppm)",   side: "right", overlaying: "y", showgrid: false, titlefont: { size: 10 }, tickfont: { size: 9 }, anchor: "x" },
+    yaxis2: { title: "eCO₂ (ppm)",   side: "right", overlaying: "y", showgrid: false, titlefont: { size: 10 }, tickfont: { size: 9 } },
     yaxis3: hasPm ? {
       title: "PM2.5 (µg/m³)", side: "right", overlaying: "y",
-      anchor: "free", position: y3Position,
       showgrid: false, titlefont: { size: 10 }, tickfont: { size: 9 },
+      anchor: "free", autoshift: true, shift: 1,
     } : undefined,
     dragmode: "zoom",
   });

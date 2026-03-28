@@ -75,7 +75,7 @@ body.light .ts-label { color: #555; }
   transition: background 0.15s;
 }
 .btn:hover { background: #3a3a3a; color: #fff; }
-.btn:disabled { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* ── Shared card base ── */
 .card {

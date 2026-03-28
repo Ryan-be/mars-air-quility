@@ -108,6 +108,8 @@ body.light .chart-info-popup { background: #fff; border-color: #ddd; color: #555
   gap: 1em;
   margin-top: 0.4em;
   padding-bottom: 0.4em;
+  position: relative;
+  z-index: 10;
 }
 .btn-sm {
   font-size: 0.78em;
