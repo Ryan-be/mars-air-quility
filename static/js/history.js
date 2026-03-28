@@ -9,7 +9,7 @@ window.downloadCSV = () => {
   window.open(`/api/download?range=${document.getElementById("range").value}`, "_blank");
 };
 
-const TABS = ["sensors", "environment", "correlation", "patterns"];
+const TABS = ["sensors", "particulate", "environment", "correlation", "patterns"];
 let _rendered    = {};
 let _sensorData  = [];
 let _weatherData = [];
@@ -34,6 +34,7 @@ function renderActiveTab() {
   if (_rendered[tab]) return;
   _rendered[tab] = true;
   if (tab === "sensors")     renderSensorCharts(_sensorData);
+  if (tab === "particulate") renderPmTable(_sensorData);
   if (tab === "environment") renderEnvCharts(_sensorData, _weatherData);
   if (tab === "correlation") renderCorrelationCharts(_sensorData);
   if (tab === "patterns")    renderPatternCharts(_sensorData);
@@ -64,6 +65,58 @@ async function fetchData() {
   } catch (e) {
     document.getElementById("last-updated").textContent = "Fetch error: " + e.message;
   }
+}
+
+// ── PM table rendering ──────────────────────────────────────────────────────
+function _pm25Class(v) {
+  if (v == null) return "";
+  if (v <= 12) return "pm-good";
+  if (v <= 35) return "pm-moderate";
+  return "pm-unhealthy";
+}
+
+function renderPmTable(data) {
+  const pmRows = data.filter(d => d.pm2_5 != null || d.pm1_0 != null || d.pm10 != null);
+
+  // Summary averages
+  const avg = (arr) => arr.length ? (arr.reduce((a, b) => a + b, 0) / arr.length).toFixed(1) : "--";
+  const pm1Vals  = pmRows.map(d => d.pm1_0).filter(v => v != null);
+  const pm25Vals = pmRows.map(d => d.pm2_5).filter(v => v != null);
+  const pm10Vals = pmRows.map(d => d.pm10).filter(v => v != null);
+
+  const sumPm1  = document.getElementById("pmSumPm1");
+  const sumPm25 = document.getElementById("pmSumPm25");
+  const sumPm10 = document.getElementById("pmSumPm10");
+  if (sumPm1)  sumPm1.textContent  = avg(pm1Vals);
+  if (sumPm25) sumPm25.textContent = avg(pm25Vals);
+  if (sumPm10) sumPm10.textContent = avg(pm10Vals);
+
+  // Color the PM2.5 summary
+  const avgPm25 = pm25Vals.length ? pm25Vals.reduce((a, b) => a + b, 0) / pm25Vals.length : null;
+  if (sumPm25) sumPm25.className = `value ${_pm25Class(avgPm25)}`;
+
+  const tbody = document.getElementById("pmTableBody");
+  if (!tbody) return;
+
+  if (!pmRows.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="pm-empty">No particulate data for this range.</td></tr>';
+    return;
+  }
+
+  // Show most recent first, limit to 200 rows for performance
+  const display = pmRows.slice().reverse().slice(0, 200);
+  tbody.innerHTML = display.map(d => {
+    const ts = new Date(d.timestamp).toLocaleString(undefined, {
+      month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit"
+    });
+    const cls = _pm25Class(d.pm2_5);
+    return `<tr class="${cls}">
+      <td>${ts}</td>
+      <td>${d.pm1_0 ?? "--"}</td>
+      <td>${d.pm2_5 ?? "--"}</td>
+      <td>${d.pm10 ?? "--"}</td>
+    </tr>`;
+  }).join("");
 }
 
 // ── Chart info button toggle ─────────────────────────────────────────────────

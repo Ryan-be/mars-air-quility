@@ -34,6 +34,9 @@ async function fetchData() {
   const currentEco2 = eco2.at(-1);
   const currentTvoc = tvoc.at(-1);
 
+  const pm25 = data.map(d => d.pm2_5);
+  const currentPm25 = pm25.at(-1);
+
   document.getElementById("tempValue").textContent =
     `${trend(currentTemp, temperatures.at(-2))}${currentTemp?.toFixed(1) ?? "--"} °C`;
   document.getElementById("humValue").textContent =
@@ -42,6 +45,10 @@ async function fetchData() {
     `${trend(currentEco2, eco2.at(-2))}${currentEco2 ?? "--"} ppm`;
   document.getElementById("tvocValue").textContent =
     `${trend(currentTvoc, tvoc.at(-2))}${currentTvoc ?? "--"} ppb`;
+  document.getElementById("pm25Value").textContent =
+    currentPm25 != null
+      ? `${trend(currentPm25, pm25.at(-2))}${currentPm25} µg/m³`
+      : "--";
 
   _lastIndoorTemp = currentTemp;
   _lastIndoorHum  = currentHum;
@@ -103,6 +110,13 @@ const SENSOR_INFO = {
     unit: "ppb",
     range: "0 – 250 ppb (WHO good)",
     desc: "Total Volatile Organic Compounds from the SGP30 sensor. Sources include paint, cleaning products, cooking, and off-gassing furniture. Levels above 500 ppb are considered high by WHO guidelines and warrant ventilation.",
+  },
+  pm25: {
+    title: "🌫️ PM2.5",
+    sensor: "PMSA003 (UART)",
+    unit: "µg/m³",
+    range: "0 – 12 µg/m³ (WHO good)",
+    desc: "Fine particulate matter (≤2.5 µm) from the PMSA003 sensor via UART. These particles penetrate deep into the lungs and bloodstream. WHO guidelines recommend annual mean exposure below 5 µg/m³ and 24-hour mean below 15 µg/m³. Levels above 35 µg/m³ are unhealthy for sensitive groups. Sources include cooking, candles, traffic, and wildfires.",
   },
 };
 
@@ -202,6 +216,7 @@ document.querySelectorAll("[data-insight]").forEach(card => {
 const HEALTH_INFO = {
   aht20:   { title: "🌡️ AHT20 Sensor", desc: "Temperature and humidity sensor connected via I²C bus. Measures 0–100% RH and -40 to +85°C. If offline, temperature and humidity readings will show 0." },
   sgp30:   { title: "🧪 SGP30 Sensor", desc: "Metal-oxide gas sensor for eCO₂ and TVOC via I²C. Requires 15s warm-up and 12h baseline calibration for accurate readings. If offline, air quality data will be unavailable." },
+  pm:      { title: "🌫️ PM Sensor (PMSA003)", desc: "Particulate matter sensor connected via UART serial (/dev/ttyS0). Measures PM1.0, PM2.5, and PM10 concentrations in µg/m³. Uses laser scattering to count airborne particles. If offline, particulate matter readings will show '--'." },
   plug:    { title: "🔌 Smart Plug (Kasa)", desc: "TP-Link Kasa smart plug controlling the ventilation fan. Provides on/off switching and real-time power consumption monitoring. If unreachable, automatic fan control will be disabled." },
   cpu:     { title: "🖥️ CPU Usage", desc: "Current processor utilisation of the Raspberry Pi. Sustained usage above 80% may slow sensor polling and web responses. The sensor logging loop and Flask server are the main consumers." },
   mem:     { title: "🧠 Memory Usage", desc: "RAM utilisation. The Pi typically has 1–8 GB. If memory exceeds 85%, the OS may start swapping to SD card, significantly slowing performance. Consider reducing log frequency if this is high." },
@@ -488,6 +503,8 @@ function connectSSE() {
       `${trend(d.eco2, null)}${d.eco2 ?? "--"} ppm`;
     document.getElementById("tvocValue").textContent =
       `${trend(d.tvoc, null)}${d.tvoc ?? "--"} ppb`;
+    document.getElementById("pm25Value").textContent =
+      d.pm2_5 != null ? `${d.pm2_5} µg/m³` : "--";
     _lastIndoorTemp = t;
     _lastIndoorHum  = h;
     updateInsights(t, h, d.tvoc, d.eco2, [d.eco2]);

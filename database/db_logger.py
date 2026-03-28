@@ -7,7 +7,8 @@ from config import config
 DB_FILE = config.get("DB_FILE", "data/sensor_data.db")
 
 
-def log_sensor_data(temp, hum, eco2, tvoc, annotation=None, fan_power_w=None, vpd_kpa=None):
+def log_sensor_data(temp, hum, eco2, tvoc, annotation=None, fan_power_w=None, vpd_kpa=None,
+                    pm1_0=None, pm2_5=None, pm10=None):
     """
     Log sensor data into the SQLite database.
 
@@ -18,15 +19,20 @@ def log_sensor_data(temp, hum, eco2, tvoc, annotation=None, fan_power_w=None, vp
     :param annotation: optional text annotation
     :param fan_power_w: current fan power consumption in watts (None if unavailable)
     :param vpd_kpa: vapour pressure deficit in kPa (None falls back to NULL in DB)
+    :param pm1_0: PM1.0 in ug/m3 (None if unavailable)
+    :param pm2_5: PM2.5 in ug/m3 (None if unavailable)
+    :param pm10: PM10 in ug/m3 (None if unavailable)
     """
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
 
     cur.execute("""
         INSERT INTO sensor_data
-            (timestamp, temperature, humidity, eco2, tvoc, annotation, fan_power_w, vpd_kpa)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """, (datetime.utcnow().isoformat(), temp, hum, eco2, tvoc, annotation, fan_power_w, vpd_kpa))
+            (timestamp, temperature, humidity, eco2, tvoc, annotation, fan_power_w, vpd_kpa,
+             pm1_0, pm2_5, pm10)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (datetime.utcnow().isoformat(), temp, hum, eco2, tvoc, annotation, fan_power_w, vpd_kpa,
+          pm1_0, pm2_5, pm10))
 
     conn.commit()
     conn.close()

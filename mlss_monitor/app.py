@@ -30,6 +30,7 @@ from mlss_monitor.event_bus import EventBus
 from mlss_monitor.fan_controller import SensorReading, build_default_controller
 from mlss_monitor.routes import register_routes
 from sensor_interfaces.aht20 import read_aht20
+from sensor_interfaces.sb_components_pm_sensor import init_pm_sensor, read_pm
 from sensor_interfaces.sgp30 import read_sgp30
 
 log = logging.getLogger(__name__)
@@ -163,6 +164,11 @@ except Exception as e:
     log.error("Unexpected error initializing SGP30 sensor: %s", e)
     sgp30 = None
 
+# PM sensor (UART — no I2C conflict)
+pm_sensor = init_pm_sensor()
+if pm_sensor:
+    state.pm_sensor = pm_sensor
+
 # ── Smart plug & async event loop ────────────────────────────────────────────
 
 state.fan_smart_plug = KasaSmartPlug(FAN_KASA_SMART_PLUG_IP)
@@ -183,6 +189,7 @@ Thread(target=_start_thread_event_loop, daemon=True).start()
 
 def read_sensors():
     temperature, humidity, eco2, tvoc = 0, 0, 0, 0
+    pm1_0, pm2_5, pm10 = None, None, None
 
     if aht20:
         try:
@@ -202,7 +209,17 @@ def read_sensors():
         except Exception as e:
             log.error("Error reading SGP30 sensor: %s", e)
 
-    return temperature, humidity, eco2, tvoc
+    if pm_sensor:
+        try:
+            pm_data = read_pm()
+            if pm_data:
+                pm1_0 = pm_data["pm1_0"]
+                pm2_5 = pm_data["pm2_5"]
+                pm10 = pm_data["pm10"]
+        except Exception as e:
+            log.error("Error reading PM sensor: %s", e)
+
+    return temperature, humidity, eco2, tvoc, pm1_0, pm2_5, pm10
 
 
 # ── Background logging ────────────────────────────────────────────────────────
@@ -212,6 +229,7 @@ def _collect_health() -> dict:
     status = {
         "AHT20": "OK" if state.aht20 else "UNAVAILABLE",
         "SGP30": "OK" if state.sgp30 else "UNAVAILABLE",
+        "PM_sensor": "OK" if state.pm_sensor else "UNAVAILABLE",
     }
     cpu_percent = psutil.cpu_percent(interval=0)
     memory = psutil.virtual_memory()
@@ -256,7 +274,7 @@ def _collect_health() -> dict:
 
 
 def log_data():
-    temp, hum, eco2, tvoc = read_sensors()
+    temp, hum, eco2, tvoc, pm1_0, pm2_5, pm10 = read_sensors()
 
     fan_power_w = None
     try:
@@ -269,7 +287,8 @@ def log_data():
         log.error("[log_data] get_power failed: %s", exc)
 
     vpd = _vpd_kpa(temp, hum)
-    log_sensor_data(temp, hum, eco2, tvoc, fan_power_w=fan_power_w, vpd_kpa=vpd)
+    log_sensor_data(temp, hum, eco2, tvoc, fan_power_w=fan_power_w, vpd_kpa=vpd,
+                    pm1_0=pm1_0, pm2_5=pm2_5, pm10=pm10)
 
     # Broadcast sensor reading to SSE subscribers
     if state.event_bus:
@@ -277,6 +296,7 @@ def log_data():
             "temperature": temp, "humidity": hum,
             "eco2": eco2, "tvoc": tvoc,
             "fan_power_w": fan_power_w, "vpd_kpa": vpd,
+            "pm1_0": pm1_0, "pm2_5": pm2_5, "pm10": pm10,
         })
         state.event_bus.publish("health_update", _collect_health())
 

@@ -46,6 +46,9 @@ def get_data():
                 "annotation": row[6],
                 "fan_power_w": row[7] if len(row) > 7 else None,
                 "vpd_kpa": row[8] if len(row) > 8 else None,
+                "pm1_0": row[9] if len(row) > 9 else None,
+                "pm2_5": row[10] if len(row) > 10 else None,
+                "pm10": row[11] if len(row) > 11 else None,
             }
             for row in rows
         ]

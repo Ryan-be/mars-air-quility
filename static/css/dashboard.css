@@ -48,6 +48,7 @@
 .stat-card.hum   { border-top-color: dodgerblue; }
 .stat-card.eco2  { border-top-color: yellowgreen; }
 .stat-card.tvoc  { border-top-color: #e0a000; }
+.stat-card.pm25  { border-top-color: #a78bfa; }
 
 /* ── Insight grid ── */
 .insight-grid {

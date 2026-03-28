@@ -38,6 +38,10 @@
       <div class="label">🧪 TVOC</div>
       <div class="current" id="tvocValue">--</div>
     </button>
+    <button class="stat-card pm25" data-sensor="pm25">
+      <div class="label">🌫️ PM2.5</div>
+      <div class="current" id="pm25Value">--</div>
+    </button>
   </div>
 
   <!-- Sensor detail dialog -->
@@ -255,6 +259,10 @@
       <button class="health-item" data-health="sgp30">
         <div class="h-label">SGP30</div>
         <div class="h-value" id="sgp30Status">Checking…</div>
+      </button>
+      <button class="health-item" data-health="pm">
+        <div class="h-label">PM Sensor</div>
+        <div class="h-value" id="pmStatus">Checking…</div>
       </button>
       <button class="health-item" data-health="plug">
         <div class="h-label">Smart plug</div>

@@ -31,6 +31,7 @@
 
   <div class="tab-bar">
     <button class="tab-btn tab-active" data-tab="sensors">🌡️ Sensors</button>
+    <button class="tab-btn" data-tab="particulate">🌫️ Particulate</button>
     <button class="tab-btn" data-tab="environment">🌿 Environment</button>
     <button class="tab-btn" data-tab="correlation">🔍 Correlation</button>
     <button class="tab-btn" data-tab="patterns">📅 Patterns</button>
@@ -50,6 +51,49 @@
         <div class="tvoc-level"><span class="color-dot orange"></span>251–500 ppb Moderate</div>
         <div class="tvoc-level"><span class="color-dot red"></span>&gt;500 ppb High</div>
       </div>
+    </div>
+  </div>
+
+  <div class="tab-panel tab-hidden" id="tab-particulate">
+    <div class="pm-summary" id="pmSummary">
+      <div class="pm-summary-card">
+        <div class="label">PM1.0</div>
+        <div class="value" id="pmSumPm1">--</div>
+        <div class="sub">µg/m³ avg</div>
+      </div>
+      <div class="pm-summary-card">
+        <div class="label">PM2.5</div>
+        <div class="value" id="pmSumPm25">--</div>
+        <div class="sub">µg/m³ avg</div>
+      </div>
+      <div class="pm-summary-card">
+        <div class="label">PM10</div>
+        <div class="value" id="pmSumPm10">--</div>
+        <div class="sub">µg/m³ avg</div>
+      </div>
+    </div>
+    <div class="pm-who-key">
+      <span class="pm-key-title">PM2.5 · WHO 24h guideline: 15 µg/m³</span>
+      <div class="pm-levels">
+        <div class="pm-level"><span class="color-dot green"></span>0–12 Good</div>
+        <div class="pm-level"><span class="color-dot orange"></span>13–35 Moderate</div>
+        <div class="pm-level"><span class="color-dot red"></span>&gt;35 Unhealthy</div>
+      </div>
+    </div>
+    <div class="pm-table-wrap">
+      <table class="pm-table" id="pmTable">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>PM1.0 (µg/m³)</th>
+            <th>PM2.5 (µg/m³)</th>
+            <th>PM10 (µg/m³)</th>
+          </tr>
+        </thead>
+        <tbody id="pmTableBody">
+          <tr><td colspan="4" class="pm-empty">No particulate data available.</td></tr>
+        </tbody>
+      </table>
     </div>
   </div>
 

@@ -161,6 +161,9 @@ def create_db():
         "ALTER TABLE fan_settings ADD COLUMN tvoc_enabled INTEGER DEFAULT 1",
         "ALTER TABLE fan_settings ADD COLUMN humidity_enabled INTEGER DEFAULT 0",
         "ALTER TABLE fan_settings ADD COLUMN humidity_max REAL DEFAULT 70.0",
+        "ALTER TABLE sensor_data ADD COLUMN pm1_0 REAL",
+        "ALTER TABLE sensor_data ADD COLUMN pm2_5 REAL",
+        "ALTER TABLE sensor_data ADD COLUMN pm10 REAL",
     ]:
         try:
             cur.execute(migration)
