@@ -341,7 +341,7 @@ function _renderInferenceFeed() {
       month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"
     });
     return `
-      <button class="inference-card ${sev}${inf.dismissed ? ' dismissed' : ''}"
+      <button class="inference-card ${sev} inf-cat-${inf.category ?? 'other'}${inf.dismissed ? ' dismissed' : ''}"
               data-inf-id="${inf.id}" title="Tap for details">
         <div class="inf-card-left">
           <span class="inf-card-type">${inf.event_type.replace(/_/g, " ")}</span>

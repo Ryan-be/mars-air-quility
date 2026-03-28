@@ -524,6 +524,8 @@ body.light button.health-item:focus-visible { background: #f0f4ff; border-color:
 .inference-card.inf-info     { border-left-color: #38bdf8; }
 .inference-card.inf-warning  { border-left-color: #f59e0b; }
 .inference-card.inf-critical { border-left-color: #ef4444; }
+/* Category overrides — alerts are always red regardless of severity */
+.inference-card.inf-cat-alert { border-left-color: #ef4444; }
 
 .inf-card-left {
   display: flex;
