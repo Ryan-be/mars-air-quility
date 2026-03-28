@@ -446,6 +446,30 @@ body.light button.health-item:focus-visible { background: #f0f4ff; border-color:
 /* ── Insight detail dialog ── */
 #insightDialog { max-width: 380px; }
 
+/* ── Inference filter chips ── */
+.inference-filters {
+  display: flex;
+  gap: 0.4em;
+  margin-bottom: 0.6em;
+  flex-wrap: wrap;
+}
+.inf-filter {
+  padding: 0.3em 0.75em;
+  background: #1e1e1e;
+  color: #999;
+  border: 1px solid #444;
+  border-radius: 20px;
+  font-size: 0.8em;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.inf-filter:hover { background: #2a2a3a; color: #ccc; }
+.inf-filter.active {
+  background: #2a4a7a;
+  color: #7db8ff;
+  border-color: #2a7aff;
+}
+
 /* ── Inference feed ── */
 .inference-feed {
   max-height: 320px;
@@ -677,6 +701,9 @@ body.light .inf-ev-row.ev-bad .fd-value  { color: #dc2626; }
 body.light #inferenceDialog textarea { background: #f5f5f5; color: #111; border-color: #bbb; }
 body.light .inf-save-note          { background: #e0f2fe; color: #0369a1; border-color: #7dd3fc; }
 body.light .inference-empty        { color: #999; }
+body.light .inf-filter             { background: #f0f0f0; color: #666; border-color: #ddd; }
+body.light .inf-filter:hover       { background: #e0e4f0; color: #333; }
+body.light .inf-filter.active      { background: #e0f2fe; color: #0369a1; border-color: #7dd3fc; }
 body.light .inf-thresholds-section { border-color: #ddd; }
 body.light .inf-th-row             { background: #f5f5f5; }
 body.light .inf-th-label           { color: #555; }

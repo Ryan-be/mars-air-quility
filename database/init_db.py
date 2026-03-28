@@ -98,6 +98,9 @@ def create_db():
             ("vpd_high",      1.6,  "kPa", "VPD High",              "Above this plants close stomata (stress)"),
             ("spike_factor",  2.0,  "×",   "Spike Factor",          "Multiplier above rolling mean to detect spikes"),
             ("min_readings",  6,    "count","Minimum Readings",      "Data points required before analysis runs"),
+            ("mould_hum",     70.0, "%",   "Mould Risk Humidity",   "Sustained humidity above this promotes mould growth"),
+            ("mould_temp",    20.0, "°C",  "Mould Risk Temp",       "Warm temperatures above this accelerate mould growth"),
+            ("mould_hours",   4,    "hrs", "Mould Risk Duration",   "Hours of sustained conditions before flagging mould risk"),
         ]
         for key, default, unit, label, desc in _defaults:
             cur.execute(
@@ -105,6 +108,19 @@ def create_db():
                 "VALUES (?, ?, ?, ?, ?)",
                 (key, default, unit, label, desc),
             )
+
+    # Ensure new thresholds are added to existing databases
+    _new_thresholds = [
+        ("mould_hum",   70.0, "%",   "Mould Risk Humidity",  "Sustained humidity above this promotes mould growth"),
+        ("mould_temp",  20.0, "°C",  "Mould Risk Temp",      "Warm temperatures above this accelerate mould growth"),
+        ("mould_hours", 4,    "hrs", "Mould Risk Duration",  "Hours of sustained conditions before flagging mould risk"),
+    ]
+    for key, default, unit, label, desc in _new_thresholds:
+        cur.execute(
+            "INSERT OR IGNORE INTO inference_thresholds (key, default_value, unit, label, description) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (key, default, unit, label, desc),
+        )
 
     # Migrations: add columns introduced after initial release
     for migration in [

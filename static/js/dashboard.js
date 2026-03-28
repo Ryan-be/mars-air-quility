@@ -231,9 +231,39 @@ document.querySelectorAll("[data-health]").forEach(item => {
 const SEVERITY_LABEL = { info: "Info", warning: "Warning", critical: "Critical" };
 const SEVERITY_CLS   = { info: "inf-info", warning: "inf-warning", critical: "inf-critical" };
 let _inferences = [];
+let _activeCategory = "all";
+let _categoriesLoaded = false;
+
+async function _loadCategories() {
+  if (_categoriesLoaded) return;
+  try {
+    const res = await fetch("/api/inferences/categories");
+    if (!res.ok) return;
+    const cats = await res.json();
+    const bar = document.getElementById("inferenceFilters");
+    if (!bar) return;
+    for (const [key, label] of Object.entries(cats)) {
+      const btn = document.createElement("button");
+      btn.className = "inf-filter";
+      btn.dataset.category = key;
+      btn.textContent = label;
+      bar.appendChild(btn);
+    }
+    bar.addEventListener("click", (e) => {
+      const btn = e.target.closest(".inf-filter");
+      if (!btn) return;
+      bar.querySelectorAll(".inf-filter").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      _activeCategory = btn.dataset.category;
+      _renderInferenceFeed();
+    });
+    _categoriesLoaded = true;
+  } catch { /* categories not available */ }
+}
 
 async function fetchInferences() {
   try {
+    await _loadCategories();
     const res = await fetch("/api/inferences?limit=50");
     if (!res.ok) return;
     _inferences = await res.json();
@@ -246,16 +276,25 @@ function _renderInferenceFeed() {
   const countEl = document.getElementById("inferenceCount");
   if (!feed) return;
 
-  if (!_inferences.length) {
-    feed.innerHTML = '<div class="inference-empty">No inferences yet — data is being analysed.</div>';
+  // Apply category filter
+  let filtered = _inferences;
+  if (_activeCategory && _activeCategory !== "all") {
+    filtered = _inferences.filter(i => i.category === _activeCategory);
+  }
+
+  if (!filtered.length) {
+    const msg = _inferences.length
+      ? "No inferences in this category."
+      : "No inferences yet — data is being analysed.";
+    feed.innerHTML = `<div class="inference-empty">${msg}</div>`;
     if (countEl) countEl.textContent = "";
     return;
   }
 
-  const active = _inferences.filter(i => !i.dismissed);
+  const active = filtered.filter(i => !i.dismissed);
   if (countEl) countEl.textContent = active.length ? `(${active.length})` : "";
 
-  feed.innerHTML = _inferences.slice(0, 30).map(inf => {
+  feed.innerHTML = filtered.slice(0, 30).map(inf => {
     const sev = SEVERITY_CLS[inf.severity] || "inf-info";
     const time = new Date(inf.created_at).toLocaleString(undefined, {
       month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"

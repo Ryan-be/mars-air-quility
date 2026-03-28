@@ -25,6 +25,54 @@ from database.db_logger import (
 
 log = logging.getLogger(__name__)
 
+# ── Event type registry ──────────────────────────────────────────────────────
+# Each event type belongs to a category used for dashboard filtering.
+
+EVENT_TYPES = {
+    # Alerts — immediate environmental concerns
+    "tvoc_spike":            "alert",
+    "eco2_danger":           "alert",
+    "eco2_elevated":         "alert",
+    "correlated_pollution":  "alert",
+    "sustained_poor_air":    "alert",
+    "mould_risk":            "alert",
+    # Climate — temperature, humidity, VPD
+    "temp_high":             "climate",
+    "temp_low":              "climate",
+    "humidity_high":         "climate",
+    "humidity_low":          "climate",
+    "vpd_low":               "climate",
+    "vpd_high":              "climate",
+    "rapid_temp_change":     "climate",
+    "rapid_humidity_change": "climate",
+    # Summaries — periodic reports
+    "hourly_summary":        "summary",
+    "daily_summary":         "summary",
+    # Patterns — detected trends and recurring behaviours
+    "daily_pattern":         "pattern",
+    "overnight_buildup":     "pattern",
+}
+
+# Annotation-context events are dynamic (annotation_context_<id>)
+_ANNOTATION_PREFIX = "annotation_context_"
+
+CATEGORIES = {
+    "alert":   "Alerts",
+    "climate": "Climate",
+    "summary": "Summaries",
+    "pattern": "Patterns",
+    "other":   "Other",
+}
+
+def event_category(event_type):
+    """Return the category for an event type."""
+    if event_type.startswith(_ANNOTATION_PREFIX):
+        return "other"
+    return EVENT_TYPES.get(event_type, "other")
+
+
+MIN_READINGS = 6
+
 # ── Thresholds (loaded from DB, with hardcoded fallbacks) ────────────────────
 
 _DEFAULTS = {
@@ -34,6 +82,7 @@ _DEFAULTS = {
     "hum_high": 70.0, "hum_low": 30.0,
     "vpd_low": 0.4, "vpd_high": 1.6,
     "spike_factor": 2.0, "min_readings": 6,
+    "mould_hum": 70.0, "mould_temp": 20.0, "mould_hours": 4,
 }
 
 # Module-level cache, refreshed each analysis cycle
@@ -413,6 +462,88 @@ def _detect_vpd_extreme(rows):
         },
         confidence=0.75,
         start_id=rows[-6]["id"] if len(rows) >= 6 else rows[0]["id"],
+        end_id=rows[-1]["id"],
+    )
+
+
+def _detect_mould_risk(rows):
+    """Detect sustained warm + humid conditions that promote mould growth."""
+    min_readings = int(_t("min_readings"))
+    if len(rows) < min_readings:
+        return
+
+    mould_hum = _t("mould_hum")
+    mould_temp = _t("mould_temp")
+    mould_hours = _t("mould_hours")
+
+    # Count how many consecutive recent readings exceed both thresholds
+    consecutive = 0
+    for r in reversed(rows):
+        temp = r.get("temperature")
+        hum = r.get("humidity")
+        if temp is not None and hum is not None and hum >= mould_hum and temp >= mould_temp:
+            consecutive += 1
+        else:
+            break
+
+    if consecutive < min_readings:
+        return
+
+    # Estimate hours from reading count (LOG_INTERVAL is typically 10s)
+    log_interval = int(config.get("LOG_INTERVAL", "10"))
+    sustained_hours = (consecutive * log_interval) / 3600
+
+    if sustained_hours < mould_hours:
+        return
+
+    if get_recent_inference_by_type("mould_risk", hours=6):
+        return
+
+    # Calculate dew point for the most recent readings to enrich evidence
+    recent = rows[-min(consecutive, 10):]
+    temps = [r["temperature"] for r in recent if r["temperature"] is not None]
+    hums = [r["humidity"] for r in recent if r["humidity"] is not None]
+    avg_temp = _mean(temps)
+    avg_hum = _mean(hums)
+
+    # Dew point (Magnus formula)
+    a, b = 17.625, 243.04
+    alpha = math.log(avg_hum / 100) + a * avg_temp / (b + avg_temp)
+    dew_point = (b * alpha) / (a - alpha)
+    dew_margin = avg_temp - dew_point
+
+    sev = "critical" if sustained_hours >= mould_hours * 2 or avg_hum >= 80 else "warning"
+
+    thresholds_used = get_thresholds_for_evidence(["mould_hum", "mould_temp", "mould_hours"])
+    save_inference(
+        event_type="mould_risk",
+        severity=sev,
+        title=f"Mould risk — {avg_hum:.0f}% RH for {sustained_hours:.1f}h",
+        description=(
+            f"Humidity has been above {mould_hum:.0f}% with temperature above "
+            f"{mould_temp:.0f}°C for approximately {sustained_hours:.1f} hours "
+            f"({consecutive} consecutive readings). These warm, humid conditions "
+            f"are ideal for mould growth, particularly Aspergillus and Cladosporium "
+            f"species. The dew point margin is only {dew_margin:.1f}°C — surfaces "
+            f"cooler than {dew_point:.1f}°C will have condensation."
+        ),
+        action=(
+            "Reduce humidity urgently: run a dehumidifier, increase ventilation, "
+            "and check for water sources (leaks, standing water, drying clothes). "
+            "Inspect corners, window frames, and behind furniture for early mould. "
+            "Target humidity below 60% to stop mould progression."
+        ),
+        evidence={
+            "avg_humidity": f"{avg_hum:.0f}%",
+            "avg_temperature": f"{avg_temp:.1f}°C",
+            "sustained_hours": f"{sustained_hours:.1f} hrs",
+            "consecutive_readings": str(consecutive),
+            "dew_point": f"{dew_point:.1f}°C",
+            "dew_margin": f"{dew_margin:.1f}°C",
+            "_thresholds": thresholds_used,
+        },
+        confidence=round(min(0.95, 0.7 + sustained_hours * 0.03), 2),
+        start_id=rows[-consecutive]["id"],
         end_id=rows[-1]["id"],
     )
 
@@ -1039,6 +1170,7 @@ def run_analysis():
         _detect_temperature_extreme(rows)
         _detect_humidity_extreme(rows)
         _detect_vpd_extreme(rows)
+        _detect_mould_risk(rows)
         _detect_correlated_pollution(rows)
         _detect_rapid_change(rows)
         _detect_sustained_poor_air(rows)
