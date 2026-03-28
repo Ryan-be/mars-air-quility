@@ -214,6 +214,9 @@ def log_data():
 
 
 _log_cycle = 0
+_CYCLE_60S  = max(1, 60 // LOG_INTERVAL)          # short-term analysis
+_CYCLE_1H   = max(1, 3600 // LOG_INTERVAL)         # hourly analysis
+_CYCLE_24H  = max(1, 86400 // LOG_INTERVAL)         # daily analysis
 
 
 def _background_log():
@@ -225,14 +228,31 @@ def _background_log():
         except Exception as e:
             log.error("Error in background log loop: %s", e)
 
-        # Run inference engine every ~60s (every 6th cycle at 10s intervals)
         _log_cycle += 1
-        if _log_cycle % max(1, 60 // LOG_INTERVAL) == 0:
+
+        # Short-term detectors every ~60s
+        if _log_cycle % _CYCLE_60S == 0:
             try:
                 from mlss_monitor.inference_engine import run_analysis
                 run_analysis()
             except Exception as e:
                 log.error("Inference engine error: %s", e)
+
+        # Hourly detectors every ~1h
+        if _log_cycle % _CYCLE_1H == 0:
+            try:
+                from mlss_monitor.inference_engine import run_hourly_analysis
+                run_hourly_analysis()
+            except Exception as e:
+                log.error("Hourly inference error: %s", e)
+
+        # Daily detectors every ~24h
+        if _log_cycle % _CYCLE_24H == 0:
+            try:
+                from mlss_monitor.inference_engine import run_daily_analysis
+                run_daily_analysis()
+            except Exception as e:
+                log.error("Daily inference error: %s", e)
 
         time.sleep(LOG_INTERVAL)
 
@@ -270,6 +290,13 @@ def main():
     else:
         log.warning("⚠️  Auth DISABLED — configure MLSS_GITHUB_CLIENT_ID "
                     "or MLSS_AUTH_USERNAME in .env")
+    # Backfill any missing long-term inferences from historical data
+    try:
+        from mlss_monitor.inference_engine import run_startup_analysis
+        run_startup_analysis()
+    except Exception as e:
+        log.error("Startup analysis failed: %s", e)
+
     Thread(target=_background_log, daemon=True).start()
     Thread(target=_weather_log_loop, daemon=True).start()
     app.run(host="0.0.0.0", port=5000)

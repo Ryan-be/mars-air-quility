@@ -272,6 +272,8 @@ The inference engine (`mlss_monitor/inference_engine.py`) continuously analyses 
 1. **Data window** — each analysis cycle fetches the last 30 minutes of sensor readings from SQLite.
 2. **Detectors** — nine independent detectors examine the data for specific patterns:
 
+**Short-term detectors** (run every ~60 seconds, analyse last 30 minutes):
+
 | Detector | Event type | What it looks for |
 |---|---|---|
 | TVOC spike | `tvoc_spike` | Sudden TVOC rise > 2× the rolling baseline and above the moderate threshold |
@@ -284,7 +286,22 @@ The inference engine (`mlss_monitor/inference_engine.py`) continuously analyses 
 | Sustained poor air | `sustained_poor_air` | TVOC or eCO₂ high for 10+ of the last 12 readings |
 | Annotation context | `annotation_context_<id>` | Links user annotations to notable sensor conditions |
 
-3. **Deduplication** — each detector checks if an inference of the same type was already created within a cooldown window (1–3 hours depending on type) before saving a new one.
+**Hourly detectors** (run every ~1 hour, analyse last 60 minutes):
+
+| Detector | Event type | What it looks for |
+|---|---|---|
+| Hourly summary | `hourly_summary` | Full statistical summary — averages, trends, stability assessment, and issue count |
+
+**Daily detectors** (run every ~24 hours, analyse last 24 hours):
+
+| Detector | Event type | What it looks for |
+|---|---|---|
+| Daily summary | `daily_summary` | Comprehensive report with environment score (0–100), time-in-zone percentages, VPD analysis, and annotation count |
+| Daily patterns | `daily_pattern` | Recurring pollution at specific hours (e.g. cooking at 18:00, morning commute) |
+| Overnight build-up | `overnight_buildup` | eCO₂ rising > 200 ppm between 23:00–07:00 (closed bedroom pattern) |
+
+3. **Startup backfill** — on application start, the engine immediately checks for missing hourly and daily summaries. If the last hourly summary is >1 hour old or the last daily summary is >23 hours old, it analyses historical data from the database and generates the missing reports. This means you get long-term insights immediately after a restart, without waiting for new data.
+4. **Deduplication** — each detector checks if an inference of the same type was already created within a cooldown window (1–24 hours depending on type) before saving a new one.
 4. **Confidence scoring** — each inference includes a confidence value (0.0–1.0) based on how strongly the data supports the conclusion.
 5. **Annotation awareness** — detectors check for user annotations on nearby data points and include them as context in the inference.
 

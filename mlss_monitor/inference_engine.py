@@ -601,10 +601,382 @@ def _get_annotation_context(rows):
     return " | ".join(annotations) if annotations else None
 
 
-# ── Public entry point ────────────────────────────────────────────────────────
+# ── Long-term detectors (1 hour) ─────────────────────────────────────────────
+
+def _hourly_summary(rows):
+    """Analyse the last hour of data and produce a summary inference."""
+    if len(rows) < 20:
+        return
+    if get_recent_inference_by_type("hourly_summary", hours=1):
+        return
+
+    temps = [r["temperature"] for r in rows if r["temperature"] is not None]
+    hums  = [r["humidity"]    for r in rows if r["humidity"] is not None]
+    tvocs = [r["tvoc"]        for r in rows if r["tvoc"] is not None]
+    eco2s = [r["eco2"]        for r in rows if r["eco2"] is not None]
+
+    if not temps or not hums or not tvocs or not eco2s:
+        return
+
+    # Compute statistics
+    temp_mean, temp_std = _mean(temps), _std(temps)
+    hum_mean,  hum_std  = _mean(hums),  _std(hums)
+    tvoc_mean            = _mean(tvocs)
+    eco2_mean            = _mean(eco2s)
+    tvoc_peak            = max(tvocs)
+    eco2_peak            = max(eco2s)
+    temp_slope           = _slope(temps)
+    hum_slope            = _slope(hums)
+    tvoc_slope           = _slope(tvocs)
+    eco2_slope           = _slope(eco2s)
+
+    # Build trend descriptions
+    def _trend_word(slope, threshold=0.05):
+        if slope > threshold:
+            return "rising"
+        if slope < -threshold:
+            return "falling"
+        return "stable"
+
+    temp_trend = _trend_word(temp_slope, 0.02)
+    hum_trend  = _trend_word(hum_slope, 0.1)
+    tvoc_trend = _trend_word(tvoc_slope, 0.5)
+    eco2_trend = _trend_word(eco2_slope, 1.0)
+
+    # Determine severity
+    issues = []
+    if tvoc_mean > TVOC_MODERATE:
+        issues.append(f"avg TVOC {int(tvoc_mean)} ppb (above {TVOC_MODERATE})")
+    if eco2_mean > 800:
+        issues.append(f"avg eCO₂ {int(eco2_mean)} ppm (above 800)")
+    if temp_mean > TEMP_HIGH or temp_mean < TEMP_LOW:
+        issues.append(f"avg temp {temp_mean:.1f}°C (outside {TEMP_LOW}–{TEMP_HIGH})")
+    if hum_mean > HUM_HIGH or hum_mean < HUM_LOW:
+        issues.append(f"avg humidity {hum_mean:.0f}% (outside {HUM_LOW}–{HUM_HIGH})")
+
+    sev = "warning" if len(issues) >= 2 else "info"
+    quality = "Poor" if len(issues) >= 2 else "Fair" if issues else "Good"
+
+    # Stability assessment
+    stability_issues = []
+    if temp_std > 2.0:
+        stability_issues.append(f"temperature varied ±{temp_std:.1f}°C")
+    if hum_std > 8.0:
+        stability_issues.append(f"humidity varied ±{hum_std:.0f}%")
+    stability = ("Unstable — " + ", ".join(stability_issues)) if stability_issues else "Stable"
+
+    desc_parts = [
+        f"Over the past hour ({len(rows)} readings):",
+        f"Temperature: {temp_mean:.1f}°C (±{temp_std:.1f}), {temp_trend}.",
+        f"Humidity: {hum_mean:.0f}% (±{hum_std:.0f}), {hum_trend}.",
+        f"TVOC: avg {int(tvoc_mean)} ppb, peak {int(tvoc_peak)} ppb, {tvoc_trend}.",
+        f"eCO₂: avg {int(eco2_mean)} ppm, peak {int(eco2_peak)} ppm, {eco2_trend}.",
+    ]
+    if issues:
+        desc_parts.append(f"Issues: {'; '.join(issues)}.")
+    if stability_issues:
+        desc_parts.append(f"Stability: {stability}.")
+
+    annotation_context = _get_annotation_context(rows)
+    save_inference(
+        event_type="hourly_summary",
+        severity=sev,
+        title=f"Hourly summary — {quality} air quality",
+        description=" ".join(desc_parts),
+        action=(
+            "Address the issues noted above. " + ("; ".join(issues) + "." if issues else "")
+            if issues else "No action needed — environment is within normal ranges."
+        ),
+        evidence={
+            "period": "1 hour",
+            "readings": str(len(rows)),
+            "temp_avg": f"{temp_mean:.1f}°C",
+            "temp_range": f"{min(temps):.1f} – {max(temps):.1f}°C",
+            "temp_trend": temp_trend,
+            "humidity_avg": f"{hum_mean:.0f}%",
+            "humidity_trend": hum_trend,
+            "tvoc_avg": f"{int(tvoc_mean)} ppb",
+            "tvoc_peak": f"{int(tvoc_peak)} ppb",
+            "tvoc_trend": tvoc_trend,
+            "eco2_avg": f"{int(eco2_mean)} ppm",
+            "eco2_peak": f"{int(eco2_peak)} ppm",
+            "eco2_trend": eco2_trend,
+            "stability": stability,
+            "overall": quality,
+        },
+        confidence=0.9,
+        start_id=rows[0]["id"],
+        end_id=rows[-1]["id"],
+        annotation=annotation_context,
+    )
+
+
+# ── Long-term detectors (24 hours) ──────────────────────────────────────────
+
+def _daily_summary(rows):
+    """Analyse the last 24 hours and produce a daily environment report."""
+    if len(rows) < 100:
+        return
+    if get_recent_inference_by_type("daily_summary", hours=23):
+        return
+
+    temps = [r["temperature"] for r in rows if r["temperature"] is not None]
+    hums  = [r["humidity"]    for r in rows if r["humidity"] is not None]
+    tvocs = [r["tvoc"]        for r in rows if r["tvoc"] is not None]
+    eco2s = [r["eco2"]        for r in rows if r["eco2"] is not None]
+
+    if not all([temps, hums, tvocs, eco2s]):
+        return
+
+    # Basic stats
+    temp_mean, temp_min, temp_max = _mean(temps), min(temps), max(temps)
+    hum_mean, hum_min, hum_max = _mean(hums), min(hums), max(hums)
+    tvoc_mean, tvoc_peak = _mean(tvocs), max(tvocs)
+    eco2_mean, eco2_peak = _mean(eco2s), max(eco2s)
+
+    # Time in bad zones
+    tvoc_high_pct = sum(1 for v in tvocs if v > TVOC_MODERATE) / len(tvocs) * 100
+    eco2_high_pct = sum(1 for v in eco2s if v > 800) / len(eco2s) * 100
+    temp_out_pct  = sum(1 for v in temps if v > TEMP_HIGH or v < TEMP_LOW) / len(temps) * 100
+    hum_out_pct   = sum(1 for v in hums if v > HUM_HIGH or v < HUM_LOW) / len(hums) * 100
+
+    # VPD analysis
+    vpds = [_vpd_kpa(r.get("temperature"), r.get("humidity")) for r in rows]
+    vpds = [v for v in vpds if v is not None]
+    vpd_mean = _mean(vpds) if vpds else None
+    vpd_opt_pct = sum(1 for v in vpds if 0.4 <= v <= 1.6) / len(vpds) * 100 if vpds else 0
+
+    # Overall score (simple weighted)
+    score = 100
+    if tvoc_high_pct > 0:
+        score -= tvoc_high_pct * 0.3
+    if eco2_high_pct > 0:
+        score -= eco2_high_pct * 0.3
+    if temp_out_pct > 0:
+        score -= temp_out_pct * 0.2
+    if hum_out_pct > 0:
+        score -= hum_out_pct * 0.2
+    score = max(0, min(100, round(score)))
+
+    if score >= 80:
+        quality, sev = "Good", "info"
+    elif score >= 50:
+        quality, sev = "Fair", "info"
+    else:
+        quality, sev = "Poor", "warning"
+
+    # Annotations count
+    annotated = [r for r in rows if r.get("annotation")]
+    anno_str = f" You added {len(annotated)} annotation(s) during this period." if annotated else ""
+
+    # Build description
+    desc = (
+        f"24-hour environment report ({len(rows)} readings). "
+        f"Temperature: {temp_mean:.1f}°C avg (range {temp_min:.1f}–{temp_max:.1f}°C), "
+        f"outside comfort zone {temp_out_pct:.0f}% of the time. "
+        f"Humidity: {hum_mean:.0f}% avg (range {hum_min:.0f}–{hum_max:.0f}%), "
+        f"outside ideal range {hum_out_pct:.0f}% of the time. "
+        f"TVOC: avg {int(tvoc_mean)} ppb, peak {int(tvoc_peak)} ppb, "
+        f"above moderate ({TVOC_MODERATE} ppb) for {tvoc_high_pct:.0f}% of readings. "
+        f"eCO₂: avg {int(eco2_mean)} ppm, peak {int(eco2_peak)} ppm, "
+        f"above 800 ppm for {eco2_high_pct:.0f}% of readings."
+    )
+    if vpd_mean is not None:
+        desc += (
+            f" VPD: avg {vpd_mean:.2f} kPa, "
+            f"in optimal range {vpd_opt_pct:.0f}% of the time."
+        )
+    desc += (
+        f" Overall environment score: {score}/100 ({quality}).{anno_str}"
+    )
+
+    # Action items
+    actions = []
+    if tvoc_high_pct > 20:
+        actions.append(f"TVOC was elevated {tvoc_high_pct:.0f}% of the day — investigate persistent VOC sources")
+    if eco2_high_pct > 20:
+        actions.append(f"eCO₂ was high {eco2_high_pct:.0f}% of the day — improve base ventilation rate")
+    if temp_out_pct > 30:
+        actions.append(f"Temperature was outside comfort zone {temp_out_pct:.0f}% of the day — check heating/cooling")
+    if hum_out_pct > 30:
+        actions.append(f"Humidity was outside ideal range {hum_out_pct:.0f}% of the day — consider humidifier/dehumidifier")
+    if vpds and vpd_opt_pct < 50:
+        actions.append(f"VPD was optimal only {vpd_opt_pct:.0f}% of the day — adjust temp/humidity for plant health")
+    action = ". ".join(actions) + "." if actions else "Environment was generally within acceptable ranges — no action needed."
+
+    annotation_context = _get_annotation_context(annotated) if annotated else None
+    save_inference(
+        event_type="daily_summary",
+        severity=sev,
+        title=f"Daily report — {score}/100 ({quality})",
+        description=desc,
+        action=action,
+        evidence={
+            "period": "24 hours",
+            "readings": str(len(rows)),
+            "score": f"{score}/100",
+            "temp_avg": f"{temp_mean:.1f}°C",
+            "temp_range": f"{temp_min:.1f} – {temp_max:.1f}°C",
+            "temp_out_of_range": f"{temp_out_pct:.0f}%",
+            "humidity_avg": f"{hum_mean:.0f}%",
+            "humidity_range": f"{hum_min:.0f} – {hum_max:.0f}%",
+            "humidity_out_of_range": f"{hum_out_pct:.0f}%",
+            "tvoc_avg": f"{int(tvoc_mean)} ppb",
+            "tvoc_peak": f"{int(tvoc_peak)} ppb",
+            "tvoc_above_moderate": f"{tvoc_high_pct:.0f}%",
+            "eco2_avg": f"{int(eco2_mean)} ppm",
+            "eco2_peak": f"{int(eco2_peak)} ppm",
+            "eco2_above_800": f"{eco2_high_pct:.0f}%",
+            "vpd_avg": f"{vpd_mean:.2f} kPa" if vpd_mean else "N/A",
+            "vpd_optimal_time": f"{vpd_opt_pct:.0f}%",
+            "annotations": str(len(annotated)),
+        },
+        confidence=0.95,
+        start_id=rows[0]["id"],
+        end_id=rows[-1]["id"],
+        annotation=annotation_context,
+    )
+
+
+def _detect_daily_patterns(rows):
+    """Detect recurring patterns in the 24h data (e.g. regular spikes at certain times)."""
+    if len(rows) < 100:
+        return
+    if get_recent_inference_by_type("daily_pattern", hours=23):
+        return
+
+    # Bucket readings by hour
+    hourly_tvoc = {}
+    hourly_eco2 = {}
+    for r in rows:
+        try:
+            hour = datetime.fromisoformat(r["timestamp"]).hour
+        except (ValueError, TypeError):
+            continue
+        if r.get("tvoc") is not None:
+            hourly_tvoc.setdefault(hour, []).append(r["tvoc"])
+        if r.get("eco2") is not None:
+            hourly_eco2.setdefault(hour, []).append(r["eco2"])
+
+    # Find hours with notably high averages
+    overall_tvoc_mean = _mean([v for vs in hourly_tvoc.values() for v in vs])
+    overall_eco2_mean = _mean([v for vs in hourly_eco2.values() for v in vs])
+
+    problem_hours = []
+    for hour in sorted(hourly_tvoc.keys()):
+        h_tvoc = _mean(hourly_tvoc.get(hour, []))
+        h_eco2 = _mean(hourly_eco2.get(hour, []))
+        if (h_tvoc > overall_tvoc_mean * 1.5 and h_tvoc > TVOC_MODERATE) or \
+           (h_eco2 > overall_eco2_mean * 1.5 and h_eco2 > 800):
+            problem_hours.append({
+                "hour": hour,
+                "tvoc_avg": int(h_tvoc),
+                "eco2_avg": int(h_eco2),
+            })
+
+    if not problem_hours:
+        return
+
+    hours_str = ", ".join(f"{h['hour']:02d}:00" for h in problem_hours)
+    details = "; ".join(
+        f"{h['hour']:02d}:00 (TVOC {h['tvoc_avg']} ppb, eCO₂ {h['eco2_avg']} ppm)"
+        for h in problem_hours
+    )
+
+    save_inference(
+        event_type="daily_pattern",
+        severity="info",
+        title=f"Recurring pollution pattern — peaks at {hours_str}",
+        description=(
+            f"Analysis of the last 24 hours shows air quality consistently "
+            f"degrades at certain times of day: {details}. "
+            f"This suggests a recurring activity (cooking, commute, heating "
+            f"schedule, occupancy pattern) is responsible. Identifying the cause "
+            f"lets you pre-emptively ventilate."
+        ),
+        action=(
+            f"Consider starting ventilation 15 minutes before the typical "
+            f"spike times ({hours_str}). Add annotations at these times to help "
+            f"identify the specific activity."
+        ),
+        evidence={
+            "peak_hours": hours_str,
+            "details": details,
+            "overall_tvoc_avg": f"{int(overall_tvoc_mean)} ppb",
+            "overall_eco2_avg": f"{int(overall_eco2_mean)} ppm",
+            "hours_analysed": str(len(hourly_tvoc)),
+        },
+        confidence=0.7,
+        start_id=rows[0]["id"],
+        end_id=rows[-1]["id"],
+    )
+
+
+def _detect_overnight_trend(rows):
+    """Detect overnight build-up (eCO₂/TVOC rising while likely sleeping)."""
+    if len(rows) < 100:
+        return
+    if get_recent_inference_by_type("overnight_buildup", hours=23):
+        return
+
+    # Filter to 23:00–07:00 window
+    night_rows = []
+    for r in rows:
+        try:
+            hour = datetime.fromisoformat(r["timestamp"]).hour
+        except (ValueError, TypeError):
+            continue
+        if hour >= 23 or hour < 7:
+            night_rows.append(r)
+
+    if len(night_rows) < 20:
+        return
+
+    eco2s = [r["eco2"] for r in night_rows if r["eco2"] is not None]
+    tvocs = [r["tvoc"] for r in night_rows if r["tvoc"] is not None]
+    if len(eco2s) < 20:
+        return
+
+    eco2_start = _mean(eco2s[:5])
+    eco2_end = _mean(eco2s[-5:])
+    eco2_rise = eco2_end - eco2_start
+
+    if eco2_rise > 200 and eco2_end > 800:
+        save_inference(
+            event_type="overnight_buildup",
+            severity="warning" if eco2_end > ECO2_COGNITIVE else "info",
+            title=f"Overnight CO₂ build-up — rose by {int(eco2_rise)} ppm",
+            description=(
+                f"eCO₂ rose from ~{int(eco2_start)} ppm to ~{int(eco2_end)} ppm "
+                f"between 23:00 and 07:00. This is a common pattern in bedrooms "
+                f"with closed windows — one sleeping adult produces ~200 mL/min of "
+                f"CO₂. By morning, levels can significantly exceed the 1000 ppm "
+                f"cognitive impairment threshold, leading to poor sleep quality "
+                f"and grogginess."
+            ),
+            action=(
+                "Consider cracking a window at night or running a quiet fan on a "
+                "low setting. Even a small gap provides enough air exchange to keep "
+                "CO₂ below 1000 ppm in most rooms."
+            ),
+            evidence={
+                "period": "23:00 – 07:00",
+                "eco2_at_start": f"{int(eco2_start)} ppm",
+                "eco2_at_end": f"{int(eco2_end)} ppm",
+                "eco2_rise": f"+{int(eco2_rise)} ppm",
+                "night_readings": str(len(night_rows)),
+                "tvoc_avg": f"{int(_mean(tvocs))} ppb" if tvocs else "N/A",
+            },
+            confidence=0.85,
+            start_id=night_rows[0]["id"],
+            end_id=night_rows[-1]["id"],
+        )
+
+
+# ── Public entry points ──────────────────────────────────────────────────────
 
 def run_analysis():
-    """Run all detectors against recent data. Call periodically."""
+    """Run short-term detectors against recent data. Call every ~60s."""
     try:
         rows = _fetch_recent(minutes=30)
         if len(rows) < MIN_READINGS:
@@ -621,3 +993,50 @@ def run_analysis():
         _detect_annotation_context_event(rows)
     except Exception as e:
         log.error("Inference engine error: %s", e)
+
+
+def run_hourly_analysis():
+    """Run 1-hour detectors. Call every ~60 minutes."""
+    try:
+        rows = _fetch_recent(minutes=60)
+        if len(rows) < 20:
+            return
+        _hourly_summary(rows)
+    except Exception as e:
+        log.error("Hourly inference error: %s", e)
+
+
+def run_daily_analysis():
+    """Run 24-hour detectors. Call every ~24 hours."""
+    try:
+        rows = _fetch_recent(minutes=1440)
+        if len(rows) < 100:
+            return
+        _daily_summary(rows)
+        _detect_daily_patterns(rows)
+        _detect_overnight_trend(rows)
+    except Exception as e:
+        log.error("Daily inference error: %s", e)
+
+
+def run_startup_analysis():
+    """Run on application startup — backfill any missing long-term analyses."""
+    log.info("Inference engine: running startup analysis on historical data…")
+    try:
+        # Hourly: run if no hourly summary exists in the last hour
+        if not get_recent_inference_by_type("hourly_summary", hours=1):
+            rows_1h = _fetch_recent(minutes=60)
+            if len(rows_1h) >= 20:
+                _hourly_summary(rows_1h)
+                log.info("Inference engine: generated hourly summary from historical data")
+
+        # Daily: run if no daily summary exists in the last 23 hours
+        if not get_recent_inference_by_type("daily_summary", hours=23):
+            rows_24h = _fetch_recent(minutes=1440)
+            if len(rows_24h) >= 100:
+                _daily_summary(rows_24h)
+                _detect_daily_patterns(rows_24h)
+                _detect_overnight_trend(rows_24h)
+                log.info("Inference engine: generated daily summary from historical data")
+    except Exception as e:
+        log.error("Startup inference error: %s", e)
