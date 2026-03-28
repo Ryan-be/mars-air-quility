@@ -8,7 +8,7 @@ A lightweight environmental monitoring system for Raspberry Pi, designed as a pr
 
 | Component | Purpose |
 |---|---|
-| Raspberry Pi Zero W | Host |
+| Raspberry Pi 4 | Host |
 | Adafruit AHT20 | Temperature & humidity (I2C) |
 | Adafruit SGP30 | eCO2 & TVOC air quality (I2C) |
 | 1.8" ST7735 TFT LCD | Local readout (SPI, 128×160) |
@@ -364,13 +364,92 @@ These steps are required before safely exposing MLSS to the internet.
 
 ### 🔐 Authentication & secrets (deployment)
 
-- [ ] **Set `MLSS_SECRET_KEY`** to a cryptographically random value.
-  ```bash
-  python3 -c "import secrets; print(secrets.token_hex(32))"
-  ```
+#### Why a plain `.env` is not enough
+
+If a threat actor gets shell access (e.g. via a compromised SSH key or a vulnerability in another service), a `.env` file sitting in the project directory is readable by any process running as that user — including an interactive shell. They can simply `cat .env` and harvest your GitHub OAuth credentials and `SECRET_KEY` instantly.
+
+The fix is to **separate non-secret config from secrets**, and store secrets in a root-owned file that the service process can read at runtime but an attacker's shell session cannot.
+
+#### Recommended approach — root-owned secrets file + systemd `EnvironmentFile`
+
+This works on any Raspberry Pi OS installation (no extra software needed):
+
+**1. Create a dedicated secrets file outside the project directory**
+
+```bash
+sudo mkdir -p /etc/mlss
+sudo touch /etc/mlss/secrets.env
+sudo chmod 600 /etc/mlss/secrets.env   # only root can read/write
+sudo chown root:root /etc/mlss/secrets.env
+```
+
+**2. Populate it with your real secrets (edit as root)**
+
+```bash
+sudo nano /etc/mlss/secrets.env
+```
+
+```ini
+MLSS_SECRET_KEY=replace-with-output-of-python3-c-import-secrets-print-secrets-token_hex-32
+MLSS_GITHUB_CLIENT_ID=your_client_id
+MLSS_GITHUB_CLIENT_SECRET=your_client_secret
+MLSS_ALLOWED_GITHUB_USER=your_github_username
+```
+
+Generate a strong secret key with:
+```bash
+python3 -c "import secrets; print(secrets.token_hex(32))"
+```
+
+**3. Keep `.env` for non-secret config only**
+
+Your `.env` (in the project directory) should contain only things you don't mind being seen:
+```ini
+ENV_FOR_DYNACONF=production
+LOG_INTERVAL=10
+LOG_FILE=data/log.csv
+DB_FILE=data/sensor_data.db
+FAN_KASA_SMART_PLUG_IP=192.168.1.x
+```
+
+Never put `MLSS_SECRET_KEY`, `MLSS_GITHUB_CLIENT_ID`, or `MLSS_GITHUB_CLIENT_SECRET` in `.env`.
+
+**4. Reference the secrets file in the systemd unit**
+
+The service file uses `EnvironmentFile=/etc/mlss/secrets.env`. systemd reads the file as root before dropping privileges to the service user, so the service gets the vars injected into its environment without the service user ever being able to read the file directly.
+
+See [`mlss-monitor.service`](mlss-monitor.service) — it already includes this `EnvironmentFile` directive.
+
+**5. What this protects against**
+
+| Threat | Protected? |
+|---|---|
+| Attacker with shell as service user (`masadmin`) | ✅ `/etc/mlss/secrets.env` is root-owned `600` — they cannot read it |
+| `cat .env` from the project directory | ✅ Secrets are no longer in `.env` |
+| Reading vars from `/proc/<pid>/environ` | ⚠️ Readable by the process owner — if attacker *is* the service user, env vars are visible there. Mitigate by running as a dedicated low-privilege user with no login shell. |
+| Offline SD card clone | ⚠️ Root-owned files are readable if you mount the card as root. Use `systemd-creds` (see below) to protect against this. |
+
+#### Advanced: `systemd-creds` (encryption at rest)
+
+Raspberry Pi OS Bookworm ships systemd 252, which supports `systemd-creds`. This encrypts secrets with a key derived from the machine's identity, so they cannot be read even if someone clones the SD card.
+
+```bash
+# Encrypt each secret (run as root, once)
+sudo systemd-creds encrypt --name=MLSS_SECRET_KEY -
+# (paste the value, press Ctrl+D — outputs a ciphertext blob)
+```
+
+Then in the service unit, replace `EnvironmentFile` with `SetCredentialEncrypted=` directives and read them via `$CREDENTIALS_DIRECTORY`. This is the highest protection level available without a TPM module or external vault. See [systemd.exec(5) — Credentials](https://www.freedesktop.org/software/systemd/man/systemd.exec.html#Credentials) for details.
+
+For most home Pi deployments the root-owned file approach (steps 1–4 above) provides a strong, practical security boundary without added complexity.
+
+#### Checklist
+
+- [ ] **Set `MLSS_SECRET_KEY`** to a cryptographically random value in `/etc/mlss/secrets.env`.
 - [ ] **Configure GitHub OAuth** — create an OAuth App at `https://github.com/settings/developers`. Set callback URL to your domain (`https://yourdomain.com/auth/callback`).
 - [ ] **Set `MLSS_ALLOWED_GITHUB_USER`** to restrict access to your account only.
-- [ ] Remove or rotate any test/development credentials from `.env`.
+- [ ] `/etc/mlss/secrets.env` is owned `root:root` with mode `600`.
+- [ ] `.env` in the project directory contains **no secrets** — only non-sensitive config.
 - [ ] Confirm startup log shows `🔒 Auth ENABLED` before opening firewall.
 
 ### 🌐 TLS / HTTPS (nginx reverse proxy)
@@ -488,20 +567,22 @@ sudo ufw status
 
 | # | Task | Done |
 |---|---|---|
-| 1 | `MLSS_SECRET_KEY` set to random 32-byte hex | ☐ |
-| 2 | GitHub OAuth App created with HTTPS callback URL | ☐ |
-| 3 | `MLSS_ALLOWED_GITHUB_USER` set | ☐ |
-| 4 | nginx installed and reverse-proxying port 5000 | ☐ |
-| 5 | TLS certificate obtained from Let's Encrypt | ☐ |
-| 6 | HTTPS redirect in nginx (port 80 → 443) | ☐ |
-| 7 | Rate limiting on `/login` in nginx config | ☐ |
-| 8 | Port 5000 blocked in ufw | ☐ |
-| 9 | fail2ban installed and configured for nginx | ☐ |
-| 10 | SSH key-only auth enabled | ☐ |
-| 11 | Unattended upgrades enabled | ☐ |
-| 12 | Daily DB backup cron job | ☐ |
-| 13 | `🔒 Auth ENABLED — GitHub OAuth` confirmed in service log | ☐ |
-| 14 | End-to-end test: login → dashboard → logout from external network | ☐ |
+| 1 | `/etc/mlss/secrets.env` created, owned `root:root`, mode `600` | ☐ |
+| 2 | `MLSS_SECRET_KEY` set to random 32-byte hex in `/etc/mlss/secrets.env` | ☐ |
+| 3 | GitHub OAuth App created with HTTPS callback URL | ☐ |
+| 4 | `MLSS_ALLOWED_GITHUB_USER` set in `/etc/mlss/secrets.env` | ☐ |
+| 5 | `.env` in project directory contains no secrets (only non-sensitive config) | ☐ |
+| 6 | nginx installed and reverse-proxying port 5000 | ☐ |
+| 7 | TLS certificate obtained from Let's Encrypt | ☐ |
+| 8 | HTTPS redirect in nginx (port 80 → 443) | ☐ |
+| 9 | Rate limiting on `/login` in nginx config | ☐ |
+| 10 | Port 5000 blocked in ufw | ☐ |
+| 11 | fail2ban installed and configured for nginx | ☐ |
+| 12 | SSH key-only auth enabled | ☐ |
+| 13 | Unattended upgrades enabled | ☐ |
+| 14 | Daily DB backup cron job | ☐ |
+| 15 | `🔒 Auth ENABLED — GitHub OAuth` confirmed in service log | ☐ |
+| 16 | End-to-end test: login → dashboard → logout from external network | ☐ |
 
 ---
 

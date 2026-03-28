@@ -11,5 +11,15 @@ Restart=on-failure
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
 
+# Non-secret config (intervals, paths, plug IP) — readable by anyone
+EnvironmentFile=%h/projects/git_versions/mars-air-quility/.env
+
+# Secrets (SECRET_KEY, GitHub OAuth credentials) — root-owned, mode 600
+# Create with: sudo mkdir -p /etc/mlss && sudo touch /etc/mlss/secrets.env
+#              sudo chmod 600 /etc/mlss/secrets.env && sudo chown root:root /etc/mlss/secrets.env
+# systemd reads this as root before dropping to User=masadmin, so masadmin
+# never has direct read access to the file — only the injected env vars.
+EnvironmentFile=/etc/mlss/secrets.env
+
 [Install]
 WantedBy=multi-user.target

@@ -83,8 +83,9 @@ poetry run python database/init_db.py
 success "Database initialised"
 
 # ── 8. Create .env if it doesn't exist ───────────────────────────────────────
+# .env holds non-secret config only. Secrets go in /etc/mlss/secrets.env (step 9).
 if [ ! -f .env ]; then
-    info "Creating default .env..."
+    info "Creating default .env (non-secret config only)..."
     cat > .env <<'EOF'
 ENV_FOR_DYNACONF=production
 LOG_INTERVAL=10
@@ -97,6 +98,37 @@ else
     success ".env already exists"
 fi
 
+# ── 9. Create /etc/mlss/secrets.env if it doesn't exist ──────────────────────
+# This file is root-owned (mode 600) so it cannot be read by the service user
+# or by any attacker who gains a shell as that user.
+# The systemd unit injects these vars into the service process at startup.
+SECRETS_FILE="/etc/mlss/secrets.env"
+if [ ! -f "$SECRETS_FILE" ]; then
+    info "Creating $SECRETS_FILE (root-owned, mode 600)..."
+    sudo mkdir -p /etc/mlss
+    sudo touch "$SECRETS_FILE"
+    sudo chmod 600 "$SECRETS_FILE"
+    sudo chown root:root "$SECRETS_FILE"
+    # Write a template — values must be filled in before starting the service
+    sudo tee "$SECRETS_FILE" > /dev/null <<'EOF'
+# Secrets for MLSS Monitor — edit this file as root (sudo nano /etc/mlss/secrets.env)
+# Generate SECRET_KEY with: python3 -c "import secrets; print(secrets.token_hex(32))"
+MLSS_SECRET_KEY=REPLACE_WITH_RANDOM_32_BYTE_HEX
+
+# GitHub OAuth (delete these lines if using local username/password auth instead)
+# MLSS_GITHUB_CLIENT_ID=your_client_id
+# MLSS_GITHUB_CLIENT_SECRET=your_client_secret
+# MLSS_ALLOWED_GITHUB_USER=your_github_username
+
+# Local auth (delete these lines if using GitHub OAuth instead)
+# MLSS_AUTH_USERNAME=admin
+# MLSS_AUTH_PASSWORD=changeme
+EOF
+    warn "Edit $SECRETS_FILE and fill in your secrets before starting the service"
+else
+    success "$SECRETS_FILE already exists"
+fi
+
 # ── Done ──────────────────────────────────────────────────────────────────────
 echo ""
 echo "=============================="
@@ -105,11 +137,13 @@ echo "=============================="
 echo ""
 echo "Next steps:"
 echo "  1. Edit .env and set FAN_KASA_SMART_PLUG_IP"
+echo "  2. Edit /etc/mlss/secrets.env (as root) and set MLSS_SECRET_KEY + auth credentials"
+echo "     sudo nano /etc/mlss/secrets.env"
 if grep -q "Enabling I2C" <<< "$(cat /boot/firmware/config.txt 2>/dev/null || cat /boot/config.txt 2>/dev/null)" 2>/dev/null; then
-    echo "  2. Reboot to enable I2C: sudo reboot"
-    echo "  3. Run: poetry run python mlss_monitor/app.py"
+    echo "  3. Reboot to enable I2C: sudo reboot"
+    echo "  4. Run: poetry run python mlss_monitor/app.py"
 else
-    echo "  2. Run: poetry run python mlss_monitor/app.py"
+    echo "  3. Run: poetry run python mlss_monitor/app.py"
 fi
 echo ""
 echo "  To install as a systemd service:"
