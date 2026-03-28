@@ -573,6 +573,12 @@ body.light button.health-item:focus-visible { background: #f0f4ff; border-color:
 }
 .inf-ev-row .fd-label { font-size: 0.7em; }
 .inf-ev-row .fd-value { font-size: 0.85em; }
+.inf-ev-row.ev-good  { border-left: 3px solid #22c55e; }
+.inf-ev-row.ev-warn  { border-left: 3px solid #f59e0b; }
+.inf-ev-row.ev-bad   { border-left: 3px solid #ef4444; }
+.inf-ev-row.ev-good .fd-value  { color: #4ade80; }
+.inf-ev-row.ev-warn .fd-value  { color: #fbbf24; }
+.inf-ev-row.ev-bad .fd-value   { color: #f87171; }
 
 #inferenceDialog textarea {
   width: 100%;
@@ -665,6 +671,9 @@ body.light .inf-confidence         { color: #666; }
 body.light .inf-section-title      { color: #999; }
 body.light .inf-section > div:not(.inf-section-title):not(.inf-evidence) { color: #333; }
 body.light .inf-ev-row             { background: #f5f5f5; }
+body.light .inf-ev-row.ev-good .fd-value { color: #16a34a; }
+body.light .inf-ev-row.ev-warn .fd-value { color: #d97706; }
+body.light .inf-ev-row.ev-bad .fd-value  { color: #dc2626; }
 body.light #inferenceDialog textarea { background: #f5f5f5; color: #111; border-color: #bbb; }
 body.light .inf-save-note          { background: #e0f2fe; color: #0369a1; border-color: #7dd3fc; }
 body.light .inference-empty        { color: #999; }

@@ -282,6 +282,73 @@ function _renderInferenceFeed() {
   };
 }
 
+function _parseNum(v) {
+  const m = String(v).match(/-?[\d.]+/);
+  return m ? parseFloat(m[0]) : null;
+}
+
+// Returns "ev-good", "ev-warn", "ev-bad", or "" (neutral)
+function _evidenceColor(key, val) {
+  const n = _parseNum(val);
+  if (n === null) return "";
+
+  // Percentage-based "out of range" / "above X" — lower is better
+  if (/out_of_range|above_moderate|above_800/.test(key)) {
+    if (n <= 0) return "ev-good";
+    if (n <= 20) return "ev-warn";
+    return "ev-bad";
+  }
+  // Percentage-based "optimal time" — higher is better
+  if (/optimal_time/.test(key)) {
+    if (n >= 80) return "ev-good";
+    if (n >= 50) return "ev-warn";
+    return "ev-bad";
+  }
+  // Score out of 100
+  if (key === "score") {
+    if (n >= 80) return "ev-good";
+    if (n >= 60) return "ev-warn";
+    return "ev-bad";
+  }
+  // Temperature averages
+  if (key === "temp_avg" || key === "mean_temp") {
+    if (n >= 18 && n <= 26) return "ev-good";
+    if (n >= 15 && n <= 28) return "ev-warn";
+    return "ev-bad";
+  }
+  // Humidity averages
+  if (key === "humidity_avg" || key === "mean_humidity") {
+    if (n >= 40 && n <= 60) return "ev-good";
+    if (n >= 30 && n <= 70) return "ev-warn";
+    return "ev-bad";
+  }
+  // TVOC (avg or peak or current)
+  if (/tvoc/.test(key) && /ppb/.test(val)) {
+    if (n <= 250) return "ev-good";
+    if (n <= 500) return "ev-warn";
+    return "ev-bad";
+  }
+  // eCO2
+  if (/eco2|co2/.test(key) && /ppm/.test(val)) {
+    if (n <= 800) return "ev-good";
+    if (n <= 1500) return "ev-warn";
+    return "ev-bad";
+  }
+  // VPD
+  if (/vpd/.test(key) && /kPa/.test(val)) {
+    if (n >= 0.4 && n <= 1.6) return "ev-good";
+    if (n >= 0.3 && n <= 1.8) return "ev-warn";
+    return "ev-bad";
+  }
+  // Stability percentage — higher is better
+  if (/stability/.test(key)) {
+    if (n >= 80) return "ev-good";
+    if (n >= 50) return "ev-warn";
+    return "ev-bad";
+  }
+  return "";
+}
+
 function _openInferenceDialog(id) {
   const inf = _inferences.find(i => i.id === id);
   if (!inf) return;
@@ -308,9 +375,10 @@ function _openInferenceDialog(id) {
   if (inf.evidence && typeof inf.evidence === "object") {
     const thresholds = inf.evidence._thresholds;
     const evidenceEntries = Object.entries(inf.evidence).filter(([k]) => k !== "_thresholds");
-    evEl.innerHTML = evidenceEntries.map(([k, v]) =>
-      `<div class="inf-ev-row"><span class="fd-label">${k.replace(/_/g, " ")}</span><span class="fd-value">${v}</span></div>`
-    ).join("") || "No detailed evidence available.";
+    evEl.innerHTML = evidenceEntries.map(([k, v]) => {
+      const cls = _evidenceColor(k, v);
+      return `<div class="inf-ev-row ${cls}"><span class="fd-label">${k.replace(/_/g, " ")}</span><span class="fd-value">${v}</span></div>`;
+    }).join("") || "No detailed evidence available.";
 
     // Expandable thresholds section
     if (thresholds && typeof thresholds === "object" && Object.keys(thresholds).length) {
