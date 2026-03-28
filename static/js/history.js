@@ -123,16 +123,16 @@ function renderPmTable(data) {
           line: { color: "#6ee7b7", width: 1.5 },
           hovertemplate: "PM10: %{y} µg/m³<extra></extra>",
         },
-        // WHO guideline reference lines
+        // WHO guideline reference lines — excluded from legend, labelled via annotations
         {
           x: [ts[0], ts[ts.length - 1]], y: [15, 15],
-          mode: "lines", name: "WHO PM2.5 (15)",
+          mode: "lines", showlegend: false,
           line: { color: "#f59e0b", width: 1, dash: "dot" },
           hoverinfo: "skip",
         },
         {
           x: [ts[0], ts[ts.length - 1]], y: [45, 45],
-          mode: "lines", name: "WHO PM10 (45)",
+          mode: "lines", showlegend: false,
           line: { color: "#ef4444", width: 1, dash: "dot" },
           hoverinfo: "skip",
         },
@@ -142,7 +142,20 @@ function renderPmTable(data) {
         title: { text: "🌫️ Particulate Matter over time", font: titleFont },
         xaxis: { type: "date" },
         yaxis: { title: "µg/m³", rangemode: "tozero" },
-        legend: { orientation: "h", x: 0.5, xanchor: "center", y: 1.08, bgcolor: "rgba(0,0,0,0)" },
+        legend: { orientation: "h", x: 0.5, xanchor: "center", y: 1.04, bgcolor: "rgba(0,0,0,0)" },
+        margin: { t: 60 },
+        annotations: [
+          {
+            xref: "paper", yref: "y", x: 1.01, y: 15,
+            text: "WHO PM2.5", showarrow: false, xanchor: "left",
+            font: { size: 10, color: "#f59e0b" },
+          },
+          {
+            xref: "paper", yref: "y", x: 1.01, y: 45,
+            text: "WHO PM10", showarrow: false, xanchor: "left",
+            font: { size: 10, color: "#ef4444" },
+          },
+        ],
       }), { responsive: true });
     }
   }
