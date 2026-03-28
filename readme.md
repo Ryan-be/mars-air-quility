@@ -226,8 +226,8 @@ erDiagram
     inferences {
         INTEGER  id PK
         DATETIME created_at
-        TEXT     event_type
-        TEXT     severity
+        TEXT     event_type "CHECK enum"
+        TEXT     severity "CHECK enum"
         TEXT     title
         TEXT     description
         TEXT     action
@@ -330,8 +330,8 @@ To customise thresholds, edit the constants in `mlss_monitor/inference_engine.py
 
 Each inference stored in the database includes:
 
-- **event_type** — machine-readable category (e.g. `tvoc_spike`)
-- **severity** — `info`, `warning`, or `critical`
+- **event_type** — constrained enum via CHECK: `tvoc_spike`, `eco2_danger`, `eco2_elevated`, `correlated_pollution`, `sustained_poor_air`, `mould_risk`, `temp_high`, `temp_low`, `humidity_high`, `humidity_low`, `vpd_low`, `vpd_high`, `rapid_temp_change`, `rapid_humidity_change`, `hourly_summary`, `daily_summary`, `daily_pattern`, `overnight_buildup`, or `annotation_context_*`
+- **severity** — constrained enum via CHECK: `info`, `warning`, or `critical`
 - **title** — human-readable one-line summary
 - **description** — plain-English explanation of what was detected and why it matters
 - **action** — recommended steps to address the issue

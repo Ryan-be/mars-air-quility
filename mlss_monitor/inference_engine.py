@@ -36,15 +36,15 @@ EVENT_TYPES = {
     "correlated_pollution":  "alert",
     "sustained_poor_air":    "alert",
     "mould_risk":            "alert",
-    # Climate — temperature, humidity, VPD
-    "temp_high":             "climate",
-    "temp_low":              "climate",
-    "humidity_high":         "climate",
-    "humidity_low":          "climate",
-    "vpd_low":               "climate",
-    "vpd_high":              "climate",
-    "rapid_temp_change":     "climate",
-    "rapid_humidity_change": "climate",
+    # Warnings — temperature, humidity, VPD concerns
+    "temp_high":             "warning",
+    "temp_low":              "warning",
+    "humidity_high":         "warning",
+    "humidity_low":          "warning",
+    "vpd_low":               "warning",
+    "vpd_high":              "warning",
+    "rapid_temp_change":     "warning",
+    "rapid_humidity_change": "warning",
     # Summaries — periodic reports
     "hourly_summary":        "summary",
     "daily_summary":         "summary",
@@ -58,7 +58,7 @@ _ANNOTATION_PREFIX = "annotation_context_"
 
 CATEGORIES = {
     "alert":   "Alerts",
-    "climate": "Climate",
+    "warning": "Warnings",
     "summary": "Summaries",
     "pattern": "Patterns",
     "other":   "Other",
@@ -981,10 +981,19 @@ def _daily_summary(rows):
     if temp_out_pct > 30:
         actions.append(f"Temperature was outside comfort zone {temp_out_pct:.0f}% of the day — check heating/cooling")
     if hum_out_pct > 30:
-        actions.append(f"Humidity was outside ideal range {hum_out_pct:.0f}% of the day — consider humidifier/dehumidifier")
+        actions.append(
+            f"Humidity was outside ideal range {hum_out_pct:.0f}% of the day"
+            " — consider humidifier/dehumidifier"
+        )
     if vpds and vpd_opt_pct < 50:
-        actions.append(f"VPD was optimal only {vpd_opt_pct:.0f}% of the day — adjust temp/humidity for plant health")
-    action = ". ".join(actions) + "." if actions else "Environment was generally within acceptable ranges — no action needed."
+        actions.append(
+            f"VPD was optimal only {vpd_opt_pct:.0f}% of the day"
+            " — adjust temp/humidity for plant health"
+        )
+    action = (
+        ". ".join(actions) + "." if actions
+        else "Environment was generally within acceptable ranges — no action needed."
+    )
 
     annotation_context = _get_annotation_context(annotated) if annotated else None
     save_inference(

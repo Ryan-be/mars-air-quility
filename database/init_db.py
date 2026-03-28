@@ -56,8 +56,21 @@ def create_db():
     CREATE TABLE IF NOT EXISTS inferences (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         created_at DATETIME NOT NULL,
-        event_type TEXT NOT NULL,
-        severity TEXT NOT NULL DEFAULT 'info',
+        event_type TEXT NOT NULL CHECK(
+            event_type IN (
+                'tvoc_spike', 'eco2_danger', 'eco2_elevated',
+                'correlated_pollution', 'sustained_poor_air',
+                'mould_risk',
+                'temp_high', 'temp_low',
+                'humidity_high', 'humidity_low',
+                'vpd_low', 'vpd_high',
+                'rapid_temp_change', 'rapid_humidity_change',
+                'hourly_summary', 'daily_summary',
+                'daily_pattern', 'overnight_buildup'
+            ) OR event_type LIKE 'annotation_context_%'
+        ),
+        severity TEXT NOT NULL DEFAULT 'info'
+            CHECK(severity IN ('info', 'warning', 'critical')),
         title TEXT NOT NULL,
         description TEXT,
         action TEXT,
@@ -86,21 +99,36 @@ def create_db():
     cur.execute("SELECT COUNT(*) FROM inference_thresholds")
     if cur.fetchone()[0] == 0:
         _defaults = [
-            ("tvoc_high",     500,  "ppb", "TVOC High",              "WHO 'high' threshold for total volatile organic compounds"),
-            ("tvoc_moderate", 250,  "ppb", "TVOC Moderate",          "WHO 'good' ceiling — above this triggers spike detection"),
-            ("eco2_cognitive",1000, "ppm", "eCO₂ Cognitive",         "CO₂ level where cognitive impairment begins"),
-            ("eco2_danger",   2000, "ppm", "eCO₂ Danger",            "CO₂ level causing headaches and drowsiness"),
-            ("temp_high",     28.0, "°C",  "Temperature High",       "Upper comfort zone boundary"),
-            ("temp_low",      15.0, "°C",  "Temperature Low",        "Lower comfort zone boundary"),
-            ("hum_high",      70.0, "%",   "Humidity High",          "Above this promotes mould and dust mites"),
-            ("hum_low",       30.0, "%",   "Humidity Low",           "Below this causes dry skin and irritation"),
-            ("vpd_low",       0.4,  "kPa", "VPD Low",               "Below this air is too saturated for plants"),
-            ("vpd_high",      1.6,  "kPa", "VPD High",              "Above this plants close stomata (stress)"),
-            ("spike_factor",  2.0,  "×",   "Spike Factor",          "Multiplier above rolling mean to detect spikes"),
-            ("min_readings",  6,    "count","Minimum Readings",      "Data points required before analysis runs"),
-            ("mould_hum",     70.0, "%",   "Mould Risk Humidity",   "Sustained humidity above this promotes mould growth"),
-            ("mould_temp",    20.0, "°C",  "Mould Risk Temp",       "Warm temperatures above this accelerate mould growth"),
-            ("mould_hours",   4,    "hrs", "Mould Risk Duration",   "Hours of sustained conditions before flagging mould risk"),
+            ("tvoc_high",     500,  "ppb",   "TVOC High",
+             "WHO 'high' threshold for total VOCs"),
+            ("tvoc_moderate", 250,  "ppb",   "TVOC Moderate",
+             "WHO 'good' ceiling — triggers spike detection"),
+            ("eco2_cognitive", 1000, "ppm",  "eCO2 Cognitive",
+             "CO2 level where cognitive impairment begins"),
+            ("eco2_danger",   2000, "ppm",   "eCO2 Danger",
+             "CO2 level causing headaches and drowsiness"),
+            ("temp_high",     28.0, "°C",    "Temperature High",
+             "Upper comfort zone boundary"),
+            ("temp_low",      15.0, "°C",    "Temperature Low",
+             "Lower comfort zone boundary"),
+            ("hum_high",      70.0, "%",     "Humidity High",
+             "Above this promotes mould and dust mites"),
+            ("hum_low",       30.0, "%",     "Humidity Low",
+             "Below this causes dry skin and irritation"),
+            ("vpd_low",       0.4,  "kPa",  "VPD Low",
+             "Below this air is too saturated for plants"),
+            ("vpd_high",      1.6,  "kPa",  "VPD High",
+             "Above this plants close stomata (stress)"),
+            ("spike_factor",  2.0,  "x",    "Spike Factor",
+             "Multiplier above rolling mean to detect spikes"),
+            ("min_readings",  6,    "count", "Minimum Readings",
+             "Data points required before analysis runs"),
+            ("mould_hum",     70.0, "%",     "Mould Risk Humidity",
+             "Sustained humidity promoting mould growth"),
+            ("mould_temp",    20.0, "°C",    "Mould Risk Temp",
+             "Warm temps accelerating mould growth"),
+            ("mould_hours",   4,    "hrs",   "Mould Risk Duration",
+             "Hours of sustained conditions before flagging"),
         ]
         for key, default, unit, label, desc in _defaults:
             cur.execute(
@@ -111,9 +139,12 @@ def create_db():
 
     # Ensure new thresholds are added to existing databases
     _new_thresholds = [
-        ("mould_hum",   70.0, "%",   "Mould Risk Humidity",  "Sustained humidity above this promotes mould growth"),
-        ("mould_temp",  20.0, "°C",  "Mould Risk Temp",      "Warm temperatures above this accelerate mould growth"),
-        ("mould_hours", 4,    "hrs", "Mould Risk Duration",  "Hours of sustained conditions before flagging mould risk"),
+        ("mould_hum",   70.0, "%",   "Mould Risk Humidity",
+         "Sustained humidity promoting mould growth"),
+        ("mould_temp",  20.0, "°C",  "Mould Risk Temp",
+         "Warm temps accelerating mould growth"),
+        ("mould_hours", 4,    "hrs", "Mould Risk Duration",
+         "Hours of sustained conditions before flagging"),
     ]
     for key, default, unit, label, desc in _new_thresholds:
         cur.execute(
