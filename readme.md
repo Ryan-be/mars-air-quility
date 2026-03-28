@@ -28,9 +28,10 @@ A lightweight environmental monitoring system for Raspberry Pi, designed as a pr
 
 | Component | Purpose |
 |---|---|
-| Raspberry Pi Zero W | Host |
-| Adafruit AHT20 | Temperature & humidity (I2C) |
-| Adafruit SGP30 | eCO2 & TVOC air quality (I2C) |
+| Raspberry Pi 4 | Host |
+| Adafruit AHT20 | Temperature & humidity (I2C, 0x38) |
+| Adafruit SGP30 | eCO2 & TVOC air quality (I2C, 0x58) |
+| SB Components Air Monitoring HAT (PMSA003) | Particulate matter PM1.0/PM2.5/PM10 (UART) |
 | 1.8" ST7735 TFT LCD | Local readout (SPI, 128x160) |
 | TP-Link Kasa smart plug | Fan control (effector) |
 
@@ -55,10 +56,24 @@ A lightweight environmental monitoring system for Raspberry Pi, designed as a pr
 | DC | 18 | GPIO24 | Data/command |
 | CS | 24 | GPIO8 | Chip select |
 
+### Wiring -- PMSA003 PM sensor (UART)
+
+The SB Components Air Monitoring HAT sits directly on the Pi GPIO header. It uses the hardware UART (`/dev/serial0`) for data.
+
+| HAT pin | Pi pin | GPIO | Function |
+|---|---|---|---|
+| VCC | 2 or 4 | -- | 5V power |
+| GND | 6 | -- | Ground |
+| TXD | 10 | GPIO15 (RXD) | Sensor TX → Pi RX |
+| RXD | 8 | GPIO14 (TXD) | Pi TX → Sensor RX |
+
+> **Important (Pi 4):** The hardware UART must be enabled via `raspi-config`. See the [UART setup](#uart-setup-for-pm-sensor) section under Installation.
+
 ---
 
 ## Features
 
+- Particulate matter monitoring (PM1.0, PM2.5, PM10) via PMSA003 UART sensor with WHO guideline colour coding
 - Live sensor dashboard with configurable time range (15 min to all time)
 - Auto fan control -- turns on when temperature or TVOC exceeds configurable thresholds
 - Admin/settings page -- fan thresholds, auto mode toggle, location configuration
@@ -111,8 +126,9 @@ flowchart TB
     end
 
     subgraph Hardware["Hardware Abstraction"]
-        AHT20["AHT20 Driver<br/>(temp + humidity)"]
-        SGP30["SGP30 Driver<br/>(eCO2 + TVOC)"]
+        AHT20["AHT20 Driver<br/>(temp + humidity, I2C)"]
+        SGP30["SGP30 Driver<br/>(eCO2 + TVOC, I2C)"]
+        PMSA003["PMSA003 Driver<br/>(PM1.0/PM2.5/PM10, UART)"]
         Display["ST7735 Display<br/>(SPI)"]
         Kasa["Kasa Smart Plug<br/>(async, network)"]
     end
@@ -140,6 +156,7 @@ flowchart TB
     Bus -->|subscribe| SSE
     SensorLoop --> AHT20
     SensorLoop --> SGP30
+    SensorLoop --> PMSA003
     SensorLoop --> Display
     SensorLoop --> Kasa
     SensorLoop --> InferenceEng
@@ -173,7 +190,7 @@ sequenceDiagram
     Bus-->>SSE: replay recent history
 
     loop Every LOG_INTERVAL seconds
-        Sensor->>Bus: publish("sensor_update", {temp, humidity, eco2, tvoc, ...})
+        Sensor->>Bus: publish("sensor_update", {temp, humidity, eco2, tvoc, pm1_0, pm2_5, pm10, ...})
         Bus-->>SSE: fan-out to all subscriber queues
         SSE-->>Browser: id: 42\nevent: sensor_update\ndata: {...}
     end
@@ -197,7 +214,7 @@ sequenceDiagram
 
 | Event | Producer | Frequency | Payload |
 |---|---|---|---|
-| `sensor_update` | Sensor loop | Every LOG_INTERVAL (10s) | `{temperature, humidity, eco2, tvoc, fan_power_w, vpd_kpa}` |
+| `sensor_update` | Sensor loop | Every LOG_INTERVAL (10s) | `{temperature, humidity, eco2, tvoc, fan_power_w, vpd_kpa, pm1_0, pm2_5, pm10}` |
 | `fan_status` | Sensor loop (auto mode) | On state change | `{state, mode, power_w}` |
 | `inference_event` | Inference engine | When detected | `{id, event_type, severity, title, description, action, confidence}` |
 | `weather_update` | Weather loop | Every 60 min | `{temp, humidity, feels_like, wind_speed, weather_code, uv_index}` |
@@ -231,6 +248,9 @@ erDiagram
         TEXT annotation
         REAL fan_power_w
         REAL vpd_kpa
+        REAL pm1_0
+        REAL pm2_5
+        REAL pm10
     }
 
     fan_settings {
@@ -338,6 +358,7 @@ flowchart TB
     subgraph Sensors["Sensor Input"]
         AHT20["AHT20<br/>temp + humidity"]
         SGP30["SGP30<br/>eCO2 + TVOC"]
+        PM["PMSA003<br/>PM1.0 / PM2.5 / PM10"]
     end
 
     subgraph Controller["Rule-Based Controller<br/>(Background Thread)"]
@@ -366,6 +387,7 @@ flowchart TB
 
     AHT20 --> Read
     SGP30 --> Read
+    PM --> Read
     Read --> Threshold
     Threshold -->|Yes| Evaluate
     Threshold -->|No / Manual override| Effector
@@ -503,9 +525,10 @@ All inference thresholds are stored in the `inference_thresholds` table and can 
 
 ### Prerequisites
 
-- Raspberry Pi running Raspberry Pi OS (Bookworm or Bullseye)
+- Raspberry Pi 4 running Raspberry Pi OS (Bookworm or Bullseye)
 - Python 3.11+
 - I2C enabled (the setup script handles this)
+- UART enabled (required for the PM sensor -- see below)
 
 ### First-time setup
 
@@ -525,6 +548,33 @@ The setup script:
 7. Creates a default `.env` if one does not exist
 
 > After setup, edit `.env` and configure your environment variables. See the [Configuration reference](docs/CONFIGURATION.md) for all available options.
+
+### UART setup for PM sensor
+
+The PMSA003 particulate matter sensor communicates via the hardware UART (`/dev/serial0`). On Raspberry Pi 4, this must be enabled manually:
+
+```bash
+sudo raspi-config
+```
+
+Navigate to **Interface Options → Serial Port**:
+1. "Would you like a login shell to be accessible over serial?" → **No**
+2. "Would you like the serial port hardware to be enabled?" → **Yes**
+
+Then reboot:
+
+```bash
+sudo reboot
+```
+
+After reboot, verify the serial port exists:
+
+```bash
+ls -l /dev/serial0
+# Should show: /dev/serial0 -> ttyAMA0
+```
+
+> **Note:** On Pi 4, `/dev/serial0` is a symlink to `/dev/ttyAMA0` (the PL011 UART). The mini UART (`/dev/ttyS0`) is assigned to Bluetooth by default. If you need Bluetooth disabled, add `dtoverlay=disable-bt` to `/boot/config.txt`.
 
 ### Why piwheels?
 
@@ -671,7 +721,7 @@ The `MLSS_ALLOWED_GITHUB_USER` bootstrap account always has the **admin** role r
 ```
 id: 42
 event: sensor_update
-data: {"temperature": 22.5, "humidity": 55.0, "eco2": 620, "tvoc": 85, "fan_power_w": 4.2, "vpd_kpa": 1.12}
+data: {"temperature": 22.5, "humidity": 55.0, "eco2": 620, "tvoc": 85, "fan_power_w": 4.2, "vpd_kpa": 1.12, "pm1_0": 5, "pm2_5": 8, "pm10": 12}
 
 ```
 
@@ -754,7 +804,7 @@ external_api_interfaces/
 templates/
   base.html                   Shared layout (nav bar, auth controls)
   dashboard.html              Live sensor dashboard with forecasts
-  history.html                Tabbed historical charts (sensors, environment, correlation, patterns)
+  history.html                Tabbed historical charts (sensors, particulate, environment, correlation, patterns)
   controls.html               Device control hub (fan, future devices)
   admin.html                  Settings (tabbed) -- fan, energy, location, user management
   login.html                  Sign-in page (GitHub OAuth)
@@ -807,5 +857,6 @@ mlss-monitor.service          systemd unit file
 | `data/` directory must exist before starting | SQLite will fail if the directory is missing. The setup script creates it; for manual installs run `mkdir -p data`. |
 | `RPi.GPIO` not in `pyproject.toml` | This Pi-only package fails to build on non-Pi platforms so it is excluded from the lock file. The setup script installs it via `poetry run pip install RPi.GPIO`. For manual installs run that command after `poetry install`. |
 | SGP30 15 s warm-up | The first few eCO2/TVOC readings after power-on may be inaccurate -- this is normal sensor behaviour. |
+| PMSA003 UART must be enabled | The PM sensor requires the hardware UART to be enabled via `raspi-config` on Pi 4. Without it, `/dev/serial0` does not exist and PM readings will be null. See the [UART setup](#uart-setup-for-pm-sensor) section. |
 | Kasa `SmartPlug` API deprecated | The `python-kasa` library has deprecated `SmartPlug` in favour of `IotPlug`. A migration warning appears on startup; functionality is unaffected for now. |
 | Flask dev server | `app.run()` uses Flask's single-threaded development server. For production, use gunicorn behind nginx -- see the [Production deployment guide](docs/PRODUCTION.md). |

@@ -14,10 +14,10 @@ class AirMonitoringHAT_PM:
     Interface for SB Components Air Monitoring HAT.
     Reads PM1.0, PM2.5, and PM10 values via UART (PMSA003 / PMS5003).
 
-    Uses /dev/ttyS0 (mini UART) — no I2C address conflict with other sensors.
+    Uses /dev/serial0 (hardware UART) — no I2C address conflict with other sensors.
     """
 
-    def __init__(self, port="/dev/ttyS0", baudrate=9600, timeout=2):
+    def __init__(self, port="/dev/serial0", baudrate=9600, timeout=2):
         self._port = port
         self._baudrate = baudrate
         self._timeout = timeout
@@ -97,7 +97,7 @@ class AirMonitoringHAT_PM:
 _sensor = None
 
 
-def init_pm_sensor(port="/dev/ttyS0"):
+def init_pm_sensor(port="/dev/serial0"):
     global _sensor
     try:
         _sensor = AirMonitoringHAT_PM(port=port)
