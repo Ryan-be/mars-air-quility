@@ -303,7 +303,8 @@ def log_data():
     settings = get_fan_settings()
     if settings["enabled"] and state.fan_mode == "auto":
         reading = SensorReading(
-            temperature=temp, humidity=hum, eco2=eco2, tvoc=tvoc, vpd_kpa=vpd,
+            temperature=temp, humidity=hum, eco2=eco2, tvoc=tvoc,
+            vpd_kpa=vpd, pm2_5=pm2_5,
         )
         try:
             action, results = fan_controller.evaluate(reading, settings)

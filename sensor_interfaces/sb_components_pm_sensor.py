@@ -58,8 +58,12 @@ class AirMonitoringHAT_PM:
             self._ser = None
 
     def _sync_to_frame(self):
-        """Scan the byte stream until we find the 0x42 0x4D start marker."""
-        for _ in range(64):  # read up to 64 bytes looking for sync
+        """Scan the byte stream until we find the 0x42 0x4D start marker.
+
+        Uses a 96-byte window (3 full frames worth) to reliably catch the next
+        frame boundary without flushing the buffer.
+        """
+        for _ in range(96):
             b = self._ser.read(1)
             if len(b) == 0:
                 return False
@@ -77,34 +81,35 @@ class AirMonitoringHAT_PM:
         actual = sum(frame[:-2])
         return expected == actual
 
-    def read_pm(self):
-        """Read one PM frame. Returns dict with pm1_0, pm2_5, pm10 (ug/m3), or None."""
+    def _try_read_frame(self, attempt):
+        """Single attempt to read one valid PM frame. Returns dict or None."""
         try:
             self._open()
-            self._ser.reset_input_buffer()
+            # Do NOT call reset_input_buffer() — flushing the buffer and then
+            # waiting for the next 1 Hz frame is the root cause of intermittent
+            # sync failures.  Instead, scan whatever bytes are already buffered.
 
             if not self._sync_to_frame():
-                log.warning("PM sensor: could not sync to frame start")
+                log.debug("PM sensor: no frame marker found (attempt %d)", attempt + 1)
                 return None
 
             # We already consumed the 2 start bytes; read the remaining 30
             remaining = self._ser.read(_FRAME_LEN - 2)
             if len(remaining) < _FRAME_LEN - 2:
-                log.warning("PM sensor: incomplete frame (%d bytes)", len(remaining))
+                log.debug("PM sensor: short frame %d bytes (attempt %d)",
+                          len(remaining), attempt + 1)
                 return None
 
-            # Reconstruct full frame for checksum
             frame = bytes([_START1, _START2]) + remaining
 
             if not self._verify_checksum(frame):
-                log.warning("PM sensor: checksum mismatch")
+                log.debug("PM sensor: checksum mismatch (attempt %d)", attempt + 1)
                 return None
 
             # Standard atmosphere values (bytes 10-15 in the frame)
             pm1_0 = (frame[10] << 8) | frame[11]
             pm2_5 = (frame[12] << 8) | frame[13]
-            pm10 = (frame[14] << 8) | frame[15]
-
+            pm10  = (frame[14] << 8) | frame[15]
             return {"pm1_0": pm1_0, "pm2_5": pm2_5, "pm10": pm10}
 
         except serial.SerialException as e:
@@ -114,6 +119,22 @@ class AirMonitoringHAT_PM:
         except Exception as e:
             log.error("PM sensor unexpected error: %s", e)
             return None
+
+    def read_pm(self):
+        """Read one PM frame with up to 3 retries.
+
+        Returns dict with pm1_0, pm2_5, pm10 (ug/m3), or None on failure.
+        """
+        for attempt in range(3):
+            result = self._try_read_frame(attempt)
+            if result is not None:
+                return result
+            if attempt < 2:
+                # Wait for the next 1 Hz frame to arrive before retrying
+                time.sleep(1.2)
+
+        log.warning("PM sensor: could not read a valid frame after 3 attempts")
+        return None
 
 
 # Module-level convenience (mirrors aht20.py / sgp30.py pattern)

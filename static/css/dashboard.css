@@ -48,7 +48,19 @@
 .stat-card.hum   { border-top-color: dodgerblue; }
 .stat-card.eco2  { border-top-color: yellowgreen; }
 .stat-card.tvoc  { border-top-color: #e0a000; }
-.stat-card.pm25  { border-top-color: #a78bfa; }
+.stat-card.pm    { border-top-color: #a78bfa; }
+.stat-card.pm.pm-good      { border-top-color: #22c55e; }
+.stat-card.pm.pm-moderate  { border-top-color: #f59e0b; }
+.stat-card.pm.pm-unhealthy { border-top-color: #ef4444; }
+
+.pm-sub-row {
+  display: flex;
+  gap: 0.75em;
+  font-size: 0.75em;
+  color: #999;
+  margin-top: 0.15em;
+}
+.pm-sub { white-space: nowrap; }
 
 /* ── Insight grid ── */
 .insight-grid {

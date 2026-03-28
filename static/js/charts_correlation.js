@@ -210,6 +210,59 @@ function _renderScatterCharts(data) {
     xaxis: { title: "Humidity (%)" },
     yaxis: { title: "Temperature (°C)" },
   }), { responsive: true });
+
+  // PM2.5 vs TVOC
+  const pm25El = document.getElementById("pm25TvocScatterPlot");
+  if (pm25El) {
+    const pmPairs = data.filter(d => d.pm2_5 != null && d.tvoc != null);
+    if (pmPairs.length >= 2) {
+      const pmX = pmPairs.map(d => d.pm2_5);
+      const pmY = pmPairs.map(d => d.tvoc);
+      const pmTime = pmPairs.map((_, i) => i / (pmPairs.length - 1 || 1));
+      const pmReg = linearRegression(pmX, pmY);
+      const pmTraces = [{
+        x: pmX, y: pmY, mode: "markers", name: "Readings",
+        marker: {
+          color: pmTime, colorscale: "Plasma", size: 6,
+          colorbar: { title: "Time →", thickness: 12, len: 0.6 },
+        },
+        hovertemplate: "PM2.5: %{x} µg/m³<br>TVOC: %{y} ppb<extra></extra>",
+      }];
+      if (pmReg) {
+        const xMin = Math.min(...pmX), xMax = Math.max(...pmX);
+        pmTraces.push({
+          x: [xMin, xMax],
+          y: [pmReg.slope * xMin + pmReg.intercept, pmReg.slope * xMax + pmReg.intercept],
+          mode: "lines", name: "Best fit",
+          line: { color: "#f59e0b", width: 2, dash: "dash" },
+          hoverinfo: "skip",
+        });
+      }
+      const pmR2 = pmReg ? pmReg.r2.toFixed(3) : "";
+      const pmHint = pmReg
+        ? (pmReg.r2 > 0.6
+            ? "Strong link — particles and VOCs likely share a source (cooking, combustion)"
+            : pmReg.r2 > 0.3
+              ? "Moderate link — partial shared source (e.g. cooking raises both)"
+              : "Weak link — particles and VOCs have independent sources")
+        : "";
+      Plotly.newPlot("pm25TvocScatterPlot", pmTraces, themeLayout({
+        title: { text: "🔍 PM2.5 vs TVOC (colour = time)", font: titleFont },
+        xaxis: { title: "PM2.5 (µg/m³)" },
+        yaxis: { title: "TVOC (ppb)" },
+        annotations: pmReg ? [{
+          xref: "paper", yref: "paper", x: 0.02, y: 0.98,
+          text: `<b>R² = ${pmR2}</b><br>${pmHint}`,
+          showarrow: false, align: "left",
+          font: { size: 12, color: isLight ? "#333" : "#ddd" },
+          bgcolor: isLight ? "rgba(255,255,255,0.8)" : "rgba(30,30,30,0.8)",
+          borderpad: 6,
+        }] : [],
+      }), { responsive: true });
+    } else {
+      pm25El.innerHTML = '<p style="color:#888;padding:1em;text-align:center">No PM2.5 data available for this range.</p>';
+    }
+  }
 }
 
 // ── Inference engine ─────────────────────────────────────────────────────────

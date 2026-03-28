@@ -15,6 +15,32 @@ function trend(current, previous) {
 let _lastIndoorTemp = null;
 let _lastIndoorHum  = null;
 
+function _pm25Class(v) {
+  if (v == null) return "";
+  if (v <= 12)  return "pm-good";
+  if (v <= 35)  return "pm-moderate";
+  return "pm-unhealthy";
+}
+
+function _updatePmCard(pm25, prevPm25, pm1, pm10) {
+  const el = document.getElementById("pm25Value");
+  const card = el?.closest(".stat-card");
+  if (el) {
+    el.textContent = pm25 != null
+      ? `${trend(pm25, prevPm25)}${pm25} µg/m³`
+      : "--";
+  }
+  if (card) {
+    card.classList.remove("pm-good", "pm-moderate", "pm-unhealthy");
+    const cls = _pm25Class(pm25);
+    if (cls) card.classList.add(cls);
+  }
+  const pm1El  = document.getElementById("pm1SubValue");
+  const pm10El = document.getElementById("pm10SubValue");
+  if (pm1El)  pm1El.textContent  = pm1  != null ? `${pm1} µg/m³`  : "--";
+  if (pm10El) pm10El.textContent = pm10 != null ? `${pm10} µg/m³` : "--";
+}
+
 async function fetchData() {
   const res = await fetch("/api/data?range=15m");
   const data = await res.json();
@@ -36,6 +62,8 @@ async function fetchData() {
 
   const pm25 = data.map(d => d.pm2_5);
   const currentPm25 = pm25.at(-1);
+  const currentPm1  = data.at(-1)?.pm1_0 ?? null;
+  const currentPm10 = data.at(-1)?.pm10  ?? null;
 
   document.getElementById("tempValue").textContent =
     `${trend(currentTemp, temperatures.at(-2))}${currentTemp?.toFixed(1) ?? "--"} °C`;
@@ -45,10 +73,8 @@ async function fetchData() {
     `${trend(currentEco2, eco2.at(-2))}${currentEco2 ?? "--"} ppm`;
   document.getElementById("tvocValue").textContent =
     `${trend(currentTvoc, tvoc.at(-2))}${currentTvoc ?? "--"} ppb`;
-  document.getElementById("pm25Value").textContent =
-    currentPm25 != null
-      ? `${trend(currentPm25, pm25.at(-2))}${currentPm25} µg/m³`
-      : "--";
+
+  _updatePmCard(currentPm25, pm25.at(-2), currentPm1, currentPm10);
 
   _lastIndoorTemp = currentTemp;
   _lastIndoorHum  = currentHum;
@@ -111,12 +137,12 @@ const SENSOR_INFO = {
     range: "0 – 250 ppb (WHO good)",
     desc: "Total Volatile Organic Compounds from the SGP30 sensor. Sources include paint, cleaning products, cooking, and off-gassing furniture. Levels above 500 ppb are considered high by WHO guidelines and warrant ventilation.",
   },
-  pm25: {
-    title: "🌫️ PM2.5",
+  pm: {
+    title: "🌫️ Particulate Matter",
     sensor: "PMSA003 (UART)",
     unit: "µg/m³",
-    range: "0 – 12 µg/m³ (WHO good)",
-    desc: "Fine particulate matter (≤2.5 µm) from the PMSA003 sensor via UART. These particles penetrate deep into the lungs and bloodstream. WHO guidelines recommend annual mean exposure below 5 µg/m³ and 24-hour mean below 15 µg/m³. Levels above 35 µg/m³ are unhealthy for sensitive groups. Sources include cooking, candles, traffic, and wildfires.",
+    range: "PM2.5: 0–12 good · 12–35 moderate · >35 unhealthy",
+    desc: "Fine particulate matter from the PMSA003 sensor via UART. PM2.5 (≤2.5 µm) penetrates deep into the lungs and bloodstream. WHO 24-hr guideline: 15 µg/m³. PM10 (≤10 µm) irritates the upper respiratory tract. Sources include cooking, candles, dust, traffic, and wildfires.",
   },
 };
 
@@ -503,8 +529,7 @@ function connectSSE() {
       `${trend(d.eco2, null)}${d.eco2 ?? "--"} ppm`;
     document.getElementById("tvocValue").textContent =
       `${trend(d.tvoc, null)}${d.tvoc ?? "--"} ppb`;
-    document.getElementById("pm25Value").textContent =
-      d.pm2_5 != null ? `${d.pm2_5} µg/m³` : "--";
+    _updatePmCard(d.pm2_5, null, d.pm1_0 ?? null, d.pm10 ?? null);
     _lastIndoorTemp = t;
     _lastIndoorHum  = h;
     updateInsights(t, h, d.tvoc, d.eco2, [d.eco2]);

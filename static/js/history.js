@@ -1,4 +1,4 @@
-import { toggleTheme } from './theme.js';
+import { toggleTheme, isLight, themeLayout } from './theme.js';
 import { renderSensorCharts } from './charts.js';
 import { renderEnvCharts } from './charts_env.js';
 import { renderCorrelationCharts } from './charts_correlation.js';
@@ -95,6 +95,59 @@ function renderPmTable(data) {
   const avgPm25 = pm25Vals.length ? pm25Vals.reduce((a, b) => a + b, 0) / pm25Vals.length : null;
   if (sumPm25) sumPm25.className = `value ${_pm25Class(avgPm25)}`;
 
+  // ── Plotly time-series chart ─────────────────────────────────────────────
+  const plotEl = document.getElementById("pmTimeSeriesPlot");
+  if (plotEl) {
+    if (pmRows.length < 2) {
+      plotEl.innerHTML = '<p style="color:#888;padding:1em;text-align:center">No particulate data for this range.</p>';
+    } else {
+      const ts   = pmRows.map(d => new Date(d.timestamp));
+      const pm1  = pmRows.map(d => d.pm1_0);
+      const pm25 = pmRows.map(d => d.pm2_5);
+      const pm10 = pmRows.map(d => d.pm10);
+      const titleFont = { color: isLight ? "#111" : "#ccc" };
+
+      const traces = [
+        {
+          x: ts, y: pm1, mode: "lines", name: "PM1.0",
+          line: { color: "#818cf8", width: 1.5 },
+          hovertemplate: "PM1.0: %{y} µg/m³<extra></extra>",
+        },
+        {
+          x: ts, y: pm25, mode: "lines", name: "PM2.5",
+          line: { color: "#a78bfa", width: 2 },
+          hovertemplate: "PM2.5: %{y} µg/m³<extra></extra>",
+        },
+        {
+          x: ts, y: pm10, mode: "lines", name: "PM10",
+          line: { color: "#6ee7b7", width: 1.5 },
+          hovertemplate: "PM10: %{y} µg/m³<extra></extra>",
+        },
+        // WHO guideline reference lines
+        {
+          x: [ts[0], ts[ts.length - 1]], y: [15, 15],
+          mode: "lines", name: "WHO PM2.5 (15)",
+          line: { color: "#f59e0b", width: 1, dash: "dot" },
+          hoverinfo: "skip",
+        },
+        {
+          x: [ts[0], ts[ts.length - 1]], y: [45, 45],
+          mode: "lines", name: "WHO PM10 (45)",
+          line: { color: "#ef4444", width: 1, dash: "dot" },
+          hoverinfo: "skip",
+        },
+      ];
+
+      Plotly.newPlot("pmTimeSeriesPlot", traces, themeLayout({
+        title: { text: "🌫️ Particulate Matter over time", font: titleFont },
+        xaxis: { type: "date" },
+        yaxis: { title: "µg/m³", rangemode: "tozero" },
+        legend: { orientation: "h", x: 0.5, xanchor: "center", y: 1.08, bgcolor: "rgba(0,0,0,0)" },
+      }), { responsive: true });
+    }
+  }
+
+  // ── Data table ──────────────────────────────────────────────────────────
   const tbody = document.getElementById("pmTableBody");
   if (!tbody) return;
 

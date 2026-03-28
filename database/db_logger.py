@@ -154,9 +154,12 @@ def get_fan_settings():
     d.setdefault("tvoc_enabled", 1)
     d.setdefault("humidity_enabled", 0)
     d.setdefault("humidity_max", 70.0)
-    d["temp_enabled"] = bool(d["temp_enabled"])
-    d["tvoc_enabled"] = bool(d["tvoc_enabled"])
+    d.setdefault("pm25_enabled", 0)
+    d.setdefault("pm25_max", 25.0)
+    d["temp_enabled"]     = bool(d["temp_enabled"])
+    d["tvoc_enabled"]     = bool(d["tvoc_enabled"])
     d["humidity_enabled"] = bool(d["humidity_enabled"])
+    d["pm25_enabled"]     = bool(d["pm25_enabled"])
     return d
 
 
@@ -285,16 +288,19 @@ def save_unit_rate(rate_pence: float) -> None:
 
 def update_fan_settings(tvoc_min, tvoc_max, temp_min, temp_max, enabled,
                         temp_enabled=True, tvoc_enabled=True,
-                        humidity_enabled=False, humidity_max=70.0):
+                        humidity_enabled=False, humidity_max=70.0,
+                        pm25_enabled=False, pm25_max=25.0):
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
     cur.execute("""
         UPDATE fan_settings
         SET tvoc_min = ?, tvoc_max = ?, temp_min = ?, temp_max = ?, enabled = ?,
-            temp_enabled = ?, tvoc_enabled = ?, humidity_enabled = ?, humidity_max = ?
+            temp_enabled = ?, tvoc_enabled = ?, humidity_enabled = ?, humidity_max = ?,
+            pm25_enabled = ?, pm25_max = ?
         WHERE id = (SELECT MAX(id) FROM fan_settings)
     """, (tvoc_min, tvoc_max, temp_min, temp_max, int(enabled),
-          int(temp_enabled), int(tvoc_enabled), int(humidity_enabled), humidity_max))
+          int(temp_enabled), int(tvoc_enabled), int(humidity_enabled), humidity_max,
+          int(pm25_enabled), pm25_max))
     conn.commit()
     conn.close()
 

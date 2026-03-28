@@ -93,6 +93,8 @@ def update_fan_settings_route():
         tvoc_enabled=data.get("tvoc_enabled", True),
         humidity_enabled=data.get("humidity_enabled", False),
         humidity_max=data.get("humidity_max", 70.0),
+        pm25_enabled=data.get("pm25_enabled", False),
+        pm25_max=data.get("pm25_max", 25.0),
     )
     # Sync: keep in-memory fan_mode consistent with the DB toggle
     state.fan_mode = "auto" if enabled else "manual"

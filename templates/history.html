@@ -80,6 +80,19 @@
         <div class="pm-level"><span class="color-dot red"></span>&gt;35 Unhealthy</div>
       </div>
     </div>
+
+    <!-- Particulate time-series charts -->
+    <div class="plot-container">
+      <div class="chart-wrapper">
+        <div class="chart-header" style="position:relative">
+          <button class="chart-info-btn" data-info="pmTimeSeries" aria-label="Chart info">i</button>
+          <div class="chart-info-popup" id="info-pmTimeSeries">Time-series of all three particulate fractions. The dashed lines show WHO 24-hour guidelines: PM2.5 ≤ 15 µg/m³ and PM10 ≤ 45 µg/m³. Spikes above these lines warrant ventilation or source investigation.</div>
+        </div>
+        <div id="pmTimeSeriesPlot"></div>
+      </div>
+    </div>
+
+    <!-- Raw data table (most recent first, capped at 200 rows) -->
     <div class="pm-table-wrap">
       <table class="pm-table" id="pmTable">
         <thead>
@@ -181,6 +194,13 @@
           <div class="chart-info-popup" id="info-tempHum">Temperature vs humidity coloured by VPD zone. Blue = too humid, green = ideal for plants, amber = getting dry, red = plant stress. For a grow room, aim for clusters in the green zone.</div>
         </div>
         <div id="tempHumScatterPlot"></div>
+      </div>
+      <div class="chart-wrapper">
+        <div class="chart-header" style="position:relative">
+          <button class="chart-info-btn" data-info="pm25Tvoc" aria-label="Chart info">i</button>
+          <div class="chart-info-popup" id="info-pm25Tvoc">Scatter plot of PM2.5 against TVOC, coloured by time. A strong R² suggests particles and volatile compounds share a common source — typically cooking, candles, or combustion. A weak R² means they have independent origins (e.g. outdoor particle infiltration + indoor VOC off-gassing).</div>
+        </div>
+        <div id="pm25TvocScatterPlot"></div>
       </div>
     </div>
   </div>
