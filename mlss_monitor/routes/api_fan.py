@@ -1,11 +1,13 @@
-"""Fan control API routes: toggle, status, settings."""
+"""Fan control API routes: toggle, status, settings, auto-status."""
 
 import asyncio
 import logging
 
 from flask import Blueprint, jsonify, request
 
-from database.db_logger import get_fan_settings, get_unit_rate, update_fan_settings
+from database.db_logger import (
+    get_fan_settings, get_unit_rate, set_fan_enabled, update_fan_settings,
+)
 from mlss_monitor import state
 from mlss_monitor.rbac import require_role
 
@@ -24,10 +26,13 @@ def control_fan():
 
         if cmd == "auto":
             state.fan_mode = "auto"
-            state.fan_state = "off"
+            # Sync: also enable auto in the DB so settings page stays in sync
+            set_fan_enabled(True)
         else:
             state.fan_mode = "manual"
             state.fan_state = cmd
+            # Sync: disable auto in the DB so settings page stays in sync
+            set_fan_enabled(False)
             asyncio.run_coroutine_threadsafe(
                 state.fan_smart_plug.switch(cmd == "on"), state.thread_loop
             ).result()
@@ -77,11 +82,30 @@ def get_fan_settings_route():
 @require_role("admin")
 def update_fan_settings_route():
     data = request.get_json()
+    enabled = data.get("enabled", False)
     update_fan_settings(
         tvoc_min=data.get("tvoc_min", 0),
         tvoc_max=data.get("tvoc_max", 500),
         temp_min=data.get("temp_min", 0.0),
         temp_max=data.get("temp_max", 20.0),
-        enabled=data.get("enabled", False),
+        enabled=enabled,
+        temp_enabled=data.get("temp_enabled", True),
+        tvoc_enabled=data.get("tvoc_enabled", True),
+        humidity_enabled=data.get("humidity_enabled", False),
+        humidity_max=data.get("humidity_max", 70.0),
     )
+    # Sync: keep in-memory fan_mode consistent with the DB toggle
+    state.fan_mode = "auto" if enabled else "manual"
     return jsonify({"message": "Fan settings updated"})
+
+
+@api_fan_bp.route("/api/fan/auto-status", methods=["GET"])
+def get_auto_status():
+    """Return the last auto-evaluation results for the controls (i) tooltip."""
+    settings = get_fan_settings()
+    return jsonify({
+        "mode": state.fan_mode,
+        "auto_enabled": settings["enabled"],
+        "action": state.last_auto_action,
+        "rules": state.last_auto_evaluation or [],
+    })

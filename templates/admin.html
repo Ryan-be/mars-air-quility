@@ -27,40 +27,68 @@
 
     <form id="fanForm">
 
-      <div class="field-group">
-        <legend>TVOC thresholds (ppb)</legend>
-        <div class="field-row">
-          <div class="field">
-            <label for="tvocMin">Minimum</label>
-            <input type="number" id="tvocMin" min="0" step="1">
-          </div>
-          <div class="field">
-            <label for="tvocMax">Maximum</label>
-            <input type="number" id="tvocMax" min="0" step="1">
-          </div>
-        </div>
-      </div>
-
-      <div class="field-group">
-        <legend>Temperature thresholds (°C)</legend>
-        <div class="field-row">
-          <div class="field">
-            <label for="tempMin">Minimum</label>
-            <input type="number" id="tempMin" step="0.1">
-          </div>
-          <div class="field">
-            <label for="tempMax">Maximum</label>
-            <input type="number" id="tempMax" step="0.1">
-          </div>
-        </div>
-      </div>
-
       <div class="toggle-row">
         <span>Enable auto fan control</span>
         <label class="switch">
           <input type="checkbox" id="enabled">
           <span class="slider"></span>
         </label>
+      </div>
+
+      <div class="field-group">
+        <legend>
+          Temperature rule
+          <label class="switch switch-sm">
+            <input type="checkbox" id="tempEnabled">
+            <span class="slider"></span>
+          </label>
+        </legend>
+        <div class="field-row">
+          <div class="field">
+            <label for="tempMin">Min (°C)</label>
+            <input type="number" id="tempMin" step="0.1">
+          </div>
+          <div class="field">
+            <label for="tempMax">Max (°C)</label>
+            <input type="number" id="tempMax" step="0.1">
+          </div>
+        </div>
+      </div>
+
+      <div class="field-group">
+        <legend>
+          TVOC rule
+          <label class="switch switch-sm">
+            <input type="checkbox" id="tvocEnabled">
+            <span class="slider"></span>
+          </label>
+        </legend>
+        <div class="field-row">
+          <div class="field">
+            <label for="tvocMin">Min (ppb)</label>
+            <input type="number" id="tvocMin" min="0" step="1">
+          </div>
+          <div class="field">
+            <label for="tvocMax">Max (ppb)</label>
+            <input type="number" id="tvocMax" min="0" step="1">
+          </div>
+        </div>
+      </div>
+
+      <div class="field-group">
+        <legend>
+          Humidity rule
+          <label class="switch switch-sm">
+            <input type="checkbox" id="humidityEnabled">
+            <span class="slider"></span>
+          </label>
+        </legend>
+        <div class="field-row">
+          <div class="field">
+            <label for="humidityMax">Max (%)</label>
+            <input type="number" id="humidityMax" min="0" max="100" step="0.1">
+          </div>
+        </div>
       </div>
 
       <button class="btn-save" type="submit">Save settings</button>
@@ -225,6 +253,10 @@
         document.getElementById("tempMin").value = data.temp_min;
         document.getElementById("tempMax").value = data.temp_max;
         document.getElementById("enabled").checked = data.enabled;
+        document.getElementById("tempEnabled").checked = data.temp_enabled !== false;
+        document.getElementById("tvocEnabled").checked = data.tvoc_enabled !== false;
+        document.getElementById("humidityEnabled").checked = !!data.humidity_enabled;
+        document.getElementById("humidityMax").value = data.humidity_max ?? 70.0;
       } catch (e) {
         setStatus("Failed to load settings.", false);
       }
@@ -238,6 +270,10 @@
         temp_min: parseFloat(document.getElementById("tempMin").value),
         temp_max: parseFloat(document.getElementById("tempMax").value),
         enabled: document.getElementById("enabled").checked,
+        temp_enabled: document.getElementById("tempEnabled").checked,
+        tvoc_enabled: document.getElementById("tvocEnabled").checked,
+        humidity_enabled: document.getElementById("humidityEnabled").checked,
+        humidity_max: parseFloat(document.getElementById("humidityMax").value),
       };
       try {
         const res = await fetch("/api/fan/settings", {

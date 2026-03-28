@@ -129,19 +129,29 @@ def edit_annotation(sensor_id, new_annotation):
 
 def get_fan_settings():
     conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
     cur = conn.cursor()
-    cur.execute("SELECT tvoc_min, tvoc_max, temp_min, temp_max, enabled FROM fan_settings ORDER BY id DESC LIMIT 1")
+    cur.execute("SELECT * FROM fan_settings ORDER BY id DESC LIMIT 1")
     row = cur.fetchone()
     conn.close()
     if row is None:
-        return {"tvoc_min": 0, "tvoc_max": 500, "temp_min": 0.0, "temp_max": 20.0, "enabled": False}
-    return {
-        "tvoc_min": row[0],
-        "tvoc_max": row[1],
-        "temp_min": row[2],
-        "temp_max": row[3],
-        "enabled": bool(row[4]),
-    }
+        return {
+            "tvoc_min": 0, "tvoc_max": 500,
+            "temp_min": 0.0, "temp_max": 20.0,
+            "enabled": False,
+            "temp_enabled": True, "tvoc_enabled": True,
+            "humidity_enabled": False, "humidity_max": 70.0,
+        }
+    d = dict(row)
+    d["enabled"] = bool(d.get("enabled", 0))
+    d.setdefault("temp_enabled", 1)
+    d.setdefault("tvoc_enabled", 1)
+    d.setdefault("humidity_enabled", 0)
+    d.setdefault("humidity_max", 70.0)
+    d["temp_enabled"] = bool(d["temp_enabled"])
+    d["tvoc_enabled"] = bool(d["tvoc_enabled"])
+    d["humidity_enabled"] = bool(d["humidity_enabled"])
+    return d
 
 
 def log_weather(temp, humidity, feels_like, wind_speed, weather_code, uv_index):
@@ -267,14 +277,30 @@ def save_unit_rate(rate_pence: float) -> None:
     conn.close()
 
 
-def update_fan_settings(tvoc_min, tvoc_max, temp_min, temp_max, enabled):
+def update_fan_settings(tvoc_min, tvoc_max, temp_min, temp_max, enabled,
+                        temp_enabled=True, tvoc_enabled=True,
+                        humidity_enabled=False, humidity_max=70.0):
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
     cur.execute("""
         UPDATE fan_settings
-        SET tvoc_min = ?, tvoc_max = ?, temp_min = ?, temp_max = ?, enabled = ?
+        SET tvoc_min = ?, tvoc_max = ?, temp_min = ?, temp_max = ?, enabled = ?,
+            temp_enabled = ?, tvoc_enabled = ?, humidity_enabled = ?, humidity_max = ?
         WHERE id = (SELECT MAX(id) FROM fan_settings)
-    """, (tvoc_min, tvoc_max, temp_min, temp_max, int(enabled)))
+    """, (tvoc_min, tvoc_max, temp_min, temp_max, int(enabled),
+          int(temp_enabled), int(tvoc_enabled), int(humidity_enabled), humidity_max))
+    conn.commit()
+    conn.close()
+
+
+def set_fan_enabled(enabled: bool):
+    """Toggle only the master auto-control flag (used by the controls page)."""
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE fan_settings SET enabled = ? WHERE id = (SELECT MAX(id) FROM fan_settings)",
+        (int(enabled),),
+    )
     conn.commit()
     conn.close()
 

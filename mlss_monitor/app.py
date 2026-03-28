@@ -22,6 +22,7 @@ from database.init_db import create_db
 from external_api_interfaces.kasa_smart_plug import KasaSmartPlug
 from external_api_interfaces.open_meteo import OpenMeteoClient
 from mlss_monitor import state
+from mlss_monitor.fan_controller import SensorReading, build_default_controller
 from mlss_monitor.routes import register_routes
 from sensor_interfaces.aht20 import read_aht20
 from sensor_interfaces.sgp30 import read_sgp30
@@ -70,6 +71,10 @@ if state.GITHUB_CLIENT_ID and state.GITHUB_CLIENT_SECRET:
         api_base_url="https://api.github.com/",
         client_kwargs={"scope": "read:user"},
     )
+
+# ── Fan controller ────────────────────────────────────────────────────────────
+
+fan_controller = build_default_controller()
 
 # ── API clients ───────────────────────────────────────────────────────────────
 
@@ -195,18 +200,21 @@ def log_data():
     log_sensor_data(temp, hum, eco2, tvoc, fan_power_w=fan_power_w, vpd_kpa=vpd)
 
     settings = get_fan_settings()
-    if settings["enabled"]:
+    if settings["enabled"] and state.fan_mode == "auto":
+        reading = SensorReading(
+            temperature=temp, humidity=hum, eco2=eco2, tvoc=tvoc, vpd_kpa=vpd,
+        )
         try:
-            if temp > settings["temp_max"] or tvoc > settings["tvoc_max"]:
-                state.fan_state = "on"
-                asyncio.run_coroutine_threadsafe(
-                    state.fan_smart_plug.switch(True), thread_loop
-                )
-            else:
-                state.fan_state = "off"
-                asyncio.run_coroutine_threadsafe(
-                    state.fan_smart_plug.switch(False), thread_loop
-                )
+            action, results = fan_controller.evaluate(reading, settings)
+            state.last_auto_action = action
+            state.last_auto_evaluation = [
+                {"rule": r.rule_name, "action": r.action.value, "reason": r.reason}
+                for r in results
+            ]
+            state.fan_state = action
+            asyncio.run_coroutine_threadsafe(
+                state.fan_smart_plug.switch(action == "on"), thread_loop
+            )
         except Exception as e:
             log.error("Error controlling smart plug fan: %s", e)
 
@@ -288,6 +296,10 @@ def main():
     else:
         log.warning("⚠️  Auth DISABLED — set MLSS_GITHUB_CLIENT_ID / "
                     "MLSS_GITHUB_CLIENT_SECRET in .env")
+    # Sync fan_mode from persisted settings
+    _fan_settings = get_fan_settings()
+    state.fan_mode = "auto" if _fan_settings["enabled"] else "manual"
+
     # Backfill any missing long-term inferences from historical data
     try:
         from mlss_monitor.inference_engine import run_startup_analysis

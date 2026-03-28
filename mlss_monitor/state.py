@@ -8,6 +8,10 @@ Initialised once by app.py at startup; imported by route blueprints.
 fan_mode = "auto"
 fan_state = "off"
 
+# Last auto-evaluation results (list of RuleResult dicts) for UI display
+last_auto_evaluation: list[dict] | None = None
+last_auto_action: str | None = None
+
 # Hardware references (set by app.py after init)
 fan_smart_plug = None
 thread_loop = None
