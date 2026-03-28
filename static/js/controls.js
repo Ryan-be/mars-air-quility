@@ -69,4 +69,28 @@ function toggleAutoInfo() {
 }
 
 pollFan();
-setInterval(pollFan, 15000);
+
+// ── SSE for real-time fan status push ───────────────────────────────────────
+
+let _fanSSE = null;
+let _fanRetryMs = 1000;
+
+function connectFanSSE() {
+  if (_fanSSE) _fanSSE.close();
+  _fanSSE = new EventSource("/api/stream");
+
+  _fanSSE.addEventListener("fan_status", () => { pollFan(); });
+  _fanSSE.addEventListener("sensor_update", () => { pollFan(); });
+
+  _fanSSE.onopen = () => { _fanRetryMs = 1000; };
+  _fanSSE.onerror = () => {
+    _fanSSE.close();
+    setTimeout(connectFanSSE, _fanRetryMs);
+    _fanRetryMs = Math.min(_fanRetryMs * 2, 30000);
+  };
+}
+
+connectFanSSE();
+
+// Fallback poll in case SSE drops
+setInterval(pollFan, 30000);

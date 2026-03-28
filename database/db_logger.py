@@ -326,6 +326,20 @@ def save_inference(event_type, severity, title, description, action,
     inf_id = cur.lastrowid
     conn.commit()
     conn.close()
+
+    # Broadcast to SSE subscribers
+    try:
+        from mlss_monitor import state  # pylint: disable=import-outside-toplevel
+        if state.event_bus:
+            state.event_bus.publish("inference_event", {
+                "id": inf_id, "event_type": event_type,
+                "severity": severity, "title": title,
+                "description": description, "action": action,
+                "confidence": confidence,
+            })
+    except ImportError:
+        pass
+
     return inf_id
 
 

@@ -467,15 +467,70 @@ function _openInferenceDialog(id) {
   dialog.onclick = (e) => { if (e.target === dialog) dialog.close(); };
 }
 
+// ── Server-Sent Events (real-time push) ─────────────────────────────────────
+
+let _evtSource = null;
+let _sseRetryMs = 1000;
+
+function connectSSE() {
+  if (_evtSource) _evtSource.close();
+  _evtSource = new EventSource("/api/stream");
+
+  _evtSource.addEventListener("sensor_update", (e) => {
+    const d = JSON.parse(e.data);
+    const t = d.temperature;
+    const h = d.humidity;
+    document.getElementById("tempValue").textContent =
+      `${trend(t, _lastIndoorTemp)}${t?.toFixed(1) ?? "--"} °C`;
+    document.getElementById("humValue").textContent =
+      `${trend(h, _lastIndoorHum)}${h?.toFixed(1) ?? "--"} %`;
+    document.getElementById("eco2Value").textContent =
+      `${trend(d.eco2, null)}${d.eco2 ?? "--"} ppm`;
+    document.getElementById("tvocValue").textContent =
+      `${trend(d.tvoc, null)}${d.tvoc ?? "--"} ppb`;
+    _lastIndoorTemp = t;
+    _lastIndoorHum  = h;
+    updateInsights(t, h, d.tvoc, d.eco2, [d.eco2]);
+    document.getElementById("last-updated").textContent =
+      "Last updated: " + new Date().toLocaleString();
+  });
+
+  _evtSource.addEventListener("inference_event", () => {
+    // New inference detected — refresh the full feed from the API
+    fetchInferences();
+  });
+
+  _evtSource.addEventListener("weather_update", () => {
+    fetchWeather();
+  });
+
+  _evtSource.addEventListener("fan_status", () => {
+    fetchHealth();
+  });
+
+  _evtSource.onopen = () => { _sseRetryMs = 1000; };
+
+  _evtSource.onerror = () => {
+    _evtSource.close();
+    // Exponential back-off reconnect (max 30 s)
+    setTimeout(connectSSE, _sseRetryMs);
+    _sseRetryMs = Math.min(_sseRetryMs * 2, 30000);
+  };
+}
+
+// ── Initial data load (SSE replay covers sensor_update, but we still need
+//    weather, forecast, health, and inferences on first paint) ───────────────
+
 fetchData();
 fetchHealth();
 fetchWeather();
 fetchForecast();
 fetchDailyForecast();
 fetchInferences();
-setInterval(fetchData,          15000);
-setInterval(fetchHealth,        15000);
-setInterval(fetchWeather,   5 * 60 * 1000);
-setInterval(fetchForecast,  60 * 60 * 1000);
+connectSSE();
+
+// Keep infrequent polls as fallback — SSE handles the fast-changing data
+setInterval(fetchHealth,            15000);
+setInterval(fetchWeather,       5 * 60 * 1000);
+setInterval(fetchForecast,     60 * 60 * 1000);
 setInterval(fetchDailyForecast, 6 * 60 * 60 * 1000);
-setInterval(fetchInferences,    60 * 1000);

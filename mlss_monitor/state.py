@@ -29,3 +29,6 @@ GITHUB_CLIENT_ID = None
 GITHUB_CLIENT_SECRET = None
 ALLOWED_GITHUB_USER = None
 github_oauth = None
+
+# Event bus (SSE push)
+event_bus = None

@@ -24,6 +24,7 @@ from database.init_db import create_db
 from external_api_interfaces.kasa_smart_plug import KasaSmartPlug
 from external_api_interfaces.open_meteo import OpenMeteoClient
 from mlss_monitor import state
+from mlss_monitor.event_bus import EventBus
 from mlss_monitor.fan_controller import SensorReading, build_default_controller
 from mlss_monitor.routes import register_routes
 from sensor_interfaces.aht20 import read_aht20
@@ -88,6 +89,10 @@ if state.GITHUB_CLIENT_ID and state.GITHUB_CLIENT_SECRET:
         api_base_url="https://api.github.com/",
         client_kwargs={"scope": "read:user"},
     )
+
+# ── Event bus (SSE push) ──────────────────────────────────────────────────────
+
+state.event_bus = EventBus(max_history=50)
 
 # ── Fan controller ────────────────────────────────────────────────────────────
 
@@ -216,6 +221,14 @@ def log_data():
     vpd = _vpd_kpa(temp, hum)
     log_sensor_data(temp, hum, eco2, tvoc, fan_power_w=fan_power_w, vpd_kpa=vpd)
 
+    # Broadcast sensor reading to SSE subscribers
+    if state.event_bus:
+        state.event_bus.publish("sensor_update", {
+            "temperature": temp, "humidity": hum,
+            "eco2": eco2, "tvoc": tvoc,
+            "fan_power_w": fan_power_w, "vpd_kpa": vpd,
+        })
+
     settings = get_fan_settings()
     if settings["enabled"] and state.fan_mode == "auto":
         reading = SensorReading(
@@ -232,6 +245,12 @@ def log_data():
             asyncio.run_coroutine_threadsafe(
                 state.fan_smart_plug.switch(action == "on"), thread_loop
             )
+            # Broadcast fan status change
+            if state.event_bus:
+                state.event_bus.publish("fan_status", {
+                    "state": action, "mode": "auto",
+                    "power_w": fan_power_w,
+                })
         except Exception as e:
             log.error("Error controlling smart plug fan: %s", e)
 
@@ -291,6 +310,8 @@ def _weather_log_loop():
                             w["wind_speed"], w["weather_code"], w["uv_index"])
                 cleanup_old_weather(days=7)
                 log.info("Weather logged: %.1f°C, %d%%RH", w["temp"], w["humidity"])
+                if state.event_bus:
+                    state.event_bus.publish("weather_update", w)
         except Exception as e:
             log.error("Weather log error: %s", e)
         time.sleep(3600)
