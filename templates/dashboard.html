@@ -38,6 +38,14 @@
       <div class="label">🧪 TVOC</div>
       <div class="current" id="tvocValue">--</div>
     </button>
+    <button class="stat-card gas" data-sensor="gas">
+      <div class="label">🔥 Gas (MICS6814)</div>
+      <div class="current" id="gasCoValue">--</div>
+      <div class="pm-sub-row">
+        <span class="pm-sub">NO2: <span id="gasNo2SubValue">--</span></span>
+        <span class="pm-sub">NH3: <span id="gasNh3SubValue">--</span></span>
+      </div>
+    </button>
     <button class="stat-card pm" data-sensor="pm">
       <div class="label">🌫️ Particulate</div>
       <div class="current" id="pm25Value">--</div>
@@ -268,6 +276,10 @@
       <button class="health-item" data-health="pm">
         <div class="h-label">PM Sensor</div>
         <div class="h-value" id="pmStatus">Checking…</div>
+      </button>
+      <button class="health-item" data-health="mics6814">
+        <div class="h-label">MICS6814</div>
+        <div class="h-value" id="mics6814Status">Checking…</div>
       </button>
       <button class="health-item" data-health="plug">
         <div class="h-label">Smart plug</div>

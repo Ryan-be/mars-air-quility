@@ -54,6 +54,15 @@ function _updatePmCard(pm25, prevPm25, pm1, pm10, pmStale, pmTimestamp) {
   }
 }
 
+function _updateGasCard(co, no2, nh3) {
+  const coEl  = document.getElementById("gasCoValue");
+  const no2El = document.getElementById("gasNo2SubValue");
+  const nh3El = document.getElementById("gasNh3SubValue");
+  if (coEl)  coEl.textContent  = co  != null ? `CO: ${co}`  : "--";
+  if (no2El) no2El.textContent = no2 != null ? `${no2}` : "--";
+  if (nh3El) nh3El.textContent = nh3 != null ? `${nh3}` : "--";
+}
+
 function _timeAgo(date) {
   const secs = Math.round((Date.now() - date.getTime()) / 1000);
   if (secs < 60) return `${secs}s ago`;
@@ -96,6 +105,7 @@ async function fetchData() {
     `${trend(currentTvoc, tvoc.at(-2))}${currentTvoc ?? "--"} ppb`;
 
   _updatePmCard(currentPm25, pm25.at(-2), currentPm1, currentPm10);
+  _updateGasCard(data.at(-1)?.gas_co ?? null, data.at(-1)?.gas_no2 ?? null, data.at(-1)?.gas_nh3 ?? null);
 
   _lastIndoorTemp = currentTemp;
   _lastIndoorHum  = currentHum;
@@ -157,6 +167,13 @@ const SENSOR_INFO = {
     unit: "ppb",
     range: "0 – 250 ppb (WHO good)",
     desc: "Total Volatile Organic Compounds from the SGP30 sensor. Sources include paint, cleaning products, cooking, and off-gassing furniture. Levels above 500 ppb are considered high by WHO guidelines and warrant ventilation.",
+  },
+  gas: {
+    title: "🔥 Gas (MICS6814)",
+    sensor: "Pimoroni MICS6814 (I²C)",
+    unit: "kΩ (resistance)",
+    range: "Relative — higher resistance = lower concentration",
+    desc: "Three-in-one gas sensor measuring CO (carbon monoxide, reducing), NO₂ (nitrogen dioxide, oxidising), and NH₃ (ammonia, reducing) via analogue resistance channels. Readings are proportional to gas concentration — compare trends rather than absolute values. Useful for detecting combustion byproducts, vehicle exhaust, and agricultural emissions.",
   },
   pm: {
     title: "🌫️ Particulate Matter",
@@ -263,6 +280,7 @@ document.querySelectorAll("[data-insight]").forEach(card => {
 const HEALTH_INFO = {
   aht20:   { title: "🌡️ AHT20 Sensor", desc: "Temperature and humidity sensor connected via I²C bus. Measures 0–100% RH and -40 to +85°C. If offline, temperature and humidity readings will show 0." },
   sgp30:   { title: "🧪 SGP30 Sensor", desc: "Metal-oxide gas sensor for eCO₂ and TVOC via I²C. Requires 15s warm-up and 12h baseline calibration for accurate readings. If offline, air quality data will be unavailable." },
+  mics6814:{ title: "🔥 MICS6814 Gas Sensor", desc: "Pimoroni MICS6814 3-in-1 gas sensor connected via I²C. Measures CO (carbon monoxide), NO₂ (nitrogen dioxide), and NH₃ (ammonia) as analogue resistance values. If offline, gas readings will show '--'." },
   pm:      { title: "🌫️ PM Sensor (PMSA003)", desc: "Particulate matter sensor connected via UART serial (/dev/ttyS0). Measures PM1.0, PM2.5, and PM10 concentrations in µg/m³. Uses laser scattering to count airborne particles. If offline, particulate matter readings will show '--'." },
   plug:    { title: "🔌 Smart Plug (Kasa)", desc: "TP-Link Kasa smart plug controlling the ventilation fan. Provides on/off switching and real-time power consumption monitoring. If unreachable, automatic fan control will be disabled." },
   cpu:     { title: "🖥️ CPU Usage", desc: "Current processor utilisation of the Raspberry Pi. Sustained usage above 80% may slow sensor polling and web responses. The sensor logging loop and Flask server are the main consumers." },
@@ -551,6 +569,7 @@ function connectSSE() {
     document.getElementById("tvocValue").textContent =
       `${trend(d.tvoc, null)}${d.tvoc ?? "--"} ppb`;
     _updatePmCard(d.pm2_5, null, d.pm1_0 ?? null, d.pm10 ?? null, d.pm_stale, d.pm_timestamp);
+    _updateGasCard(d.gas_co ?? null, d.gas_no2 ?? null, d.gas_nh3 ?? null);
     _lastIndoorTemp = t;
     _lastIndoorHum  = h;
     updateInsights(t, h, d.tvoc, d.eco2, [d.eco2]);

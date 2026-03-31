@@ -18,6 +18,7 @@ thread_loop = None
 aht20 = None
 sgp30 = None
 pm_sensor = None
+mics6814 = None
 
 # API clients
 open_meteo = None

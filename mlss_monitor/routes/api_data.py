@@ -49,6 +49,9 @@ def get_data():
                 "pm1_0": row[9] if len(row) > 9 else None,
                 "pm2_5": row[10] if len(row) > 10 else None,
                 "pm10": row[11] if len(row) > 11 else None,
+                "gas_co": row[12] if len(row) > 12 else None,
+                "gas_no2": row[13] if len(row) > 13 else None,
+                "gas_nh3": row[14] if len(row) > 14 else None,
             }
             for row in rows
         ]
