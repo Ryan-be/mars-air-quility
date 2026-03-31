@@ -19,6 +19,7 @@ from unittest.mock import MagicMock
 import pytest
 
 import mlss_monitor.state as app_state
+from conftest import fake_sensors
 
 
 # ---------------------------------------------------------------------------
@@ -92,7 +93,7 @@ class TestLogDataAsyncDispatch:
         from database.db_logger import update_fan_settings
 
         update_fan_settings(0, 500, 0.0, 20.0, enabled)
-        monkeypatch.setattr(app_module, "read_sensors", lambda: (temp, 50, 300, tvoc, None, None, None, False, False, None))
+        monkeypatch.setattr(app_module, "read_sensors", lambda: fake_sensors(temp, 50, 300, tvoc))
         monkeypatch.setattr(app_module, "log_sensor_data", lambda *a, **kw: None)
         monkeypatch.setattr(app_module, "_collect_health", lambda: {})
 
@@ -154,7 +155,7 @@ class TestLogDataAsyncDispatch:
             return original_switch(state)
 
         monkeypatch.setattr(app_state.fan_smart_plug, "switch", spy_switch)
-        monkeypatch.setattr(app_module, "read_sensors", lambda: (25.0, 50, 300, 100, None, None, None, False, False, None))
+        monkeypatch.setattr(app_module, "read_sensors", lambda: fake_sensors(25.0, 50, 300, 100))
         monkeypatch.setattr(app_module, "log_sensor_data", lambda *a, **kw: None)
         monkeypatch.setattr(app_module.asyncio, "run_coroutine_threadsafe", lambda coro, loop: mock_future)
 
@@ -175,7 +176,7 @@ class TestLogDataAsyncDispatch:
             return original_switch(state)
 
         monkeypatch.setattr(app_state.fan_smart_plug, "switch", spy_switch)
-        monkeypatch.setattr(app_module, "read_sensors", lambda: (15.0, 50, 300, 100, None, None, None, False, False, None))
+        monkeypatch.setattr(app_module, "read_sensors", lambda: fake_sensors(15.0, 50, 300, 100))
         monkeypatch.setattr(app_module, "log_sensor_data", lambda *a, **kw: None)
         monkeypatch.setattr(app_module.asyncio, "run_coroutine_threadsafe", lambda coro, loop: mock_future)
 
@@ -187,7 +188,7 @@ class TestLogDataAsyncDispatch:
         from database.db_logger import update_fan_settings
         update_fan_settings(0, 500, 0.0, 20.0, True)
 
-        monkeypatch.setattr(app_module, "read_sensors", lambda: (25.0, 50, 300, 100, None, None, None, False, False, None))
+        monkeypatch.setattr(app_module, "read_sensors", lambda: fake_sensors(25.0, 50, 300, 100))
         monkeypatch.setattr(app_module, "log_sensor_data", lambda *a, **kw: None)
         monkeypatch.setattr(
             app_module.asyncio, "run_coroutine_threadsafe",

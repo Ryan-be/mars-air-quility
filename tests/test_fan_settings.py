@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 
 import database.db_logger as dbl
 from database.db_logger import get_fan_settings, update_fan_settings
+from conftest import fake_sensors
 
 
 # ---------------------------------------------------------------------------
@@ -99,7 +100,7 @@ class TestLogDataAutoFan:
         power_future = MagicMock()
         power_future.result.return_value = {"power_w": None, "today_kwh": None}
         monkeypatch.setattr(app_state, "fan_smart_plug", mock_plug)
-        monkeypatch.setattr(app_module, "read_sensors", lambda: (temp, 50, 300, tvoc, None, None, None, False, False, None))
+        monkeypatch.setattr(app_module, "read_sensors", lambda: fake_sensors(temp, 50, 300, tvoc))
         monkeypatch.setattr(app_module, "log_sensor_data", lambda *a, **kw: None)
         monkeypatch.setattr(app_module, "_collect_health", lambda: {})
 

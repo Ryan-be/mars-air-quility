@@ -15,6 +15,7 @@ import pytest
 import database.db_logger as dbl
 import database.init_db as dbi
 from database.db_logger import get_fan_settings, update_fan_settings
+from conftest import fake_sensors
 
 
 # ---------------------------------------------------------------------------
@@ -97,7 +98,7 @@ class TestSensorFailures:
         """log_data must complete without exception when all sensor reads return 0."""
         import mlss_monitor.app as app_module
 
-        monkeypatch.setattr(app_module, "read_sensors", lambda: (0, 0, 0, 0, None, None, None, False, False, None))
+        monkeypatch.setattr(app_module, "read_sensors", lambda: fake_sensors(0, 0, 0, 0))
         monkeypatch.setattr(app_module, "log_sensor_data", lambda *a, **kw: None)
         monkeypatch.setattr(app_module, "_collect_health", lambda: {})
         monkeypatch.setattr(
@@ -131,7 +132,7 @@ class TestFanZeroValueEdgeCase:
             app_state.fan_smart_plug, "switch",
             lambda state: switch_args.append(state) or original_switch(state)
         )
-        monkeypatch.setattr(app_module, "read_sensors", lambda: (0.0, 0.0, 0, 0, None, None, None, False, False, None))
+        monkeypatch.setattr(app_module, "read_sensors", lambda: fake_sensors(0.0, 0.0, 0, 0))
         monkeypatch.setattr(app_module, "log_sensor_data", lambda *a, **kw: None)
         monkeypatch.setattr(app_module, "_collect_health", lambda: {})
         monkeypatch.setattr(
@@ -157,7 +158,7 @@ class TestFanZeroValueEdgeCase:
             app_state.fan_smart_plug, "switch",
             lambda state: switch_args.append(state) or original_switch(state)
         )
-        monkeypatch.setattr(app_module, "read_sensors", lambda: (25.0, 0.0, 0, 0, None, None, None, False, False, None))
+        monkeypatch.setattr(app_module, "read_sensors", lambda: fake_sensors(25.0, 0.0, 0, 0))
         monkeypatch.setattr(app_module, "log_sensor_data", lambda *a, **kw: None)
         monkeypatch.setattr(app_module, "_collect_health", lambda: {})
         monkeypatch.setattr(
@@ -304,7 +305,7 @@ class TestBackgroundThreadResilience:
         """log_data() itself still raises on error — _background_log catches it."""
         import mlss_monitor.app as app_module
 
-        monkeypatch.setattr(app_module, "read_sensors", lambda: (15.0, 50, 300, 100, None, None, None, False, False, None))
+        monkeypatch.setattr(app_module, "read_sensors", lambda: fake_sensors(15.0, 50, 300, 100))
         monkeypatch.setattr(
             app_module, "log_sensor_data",
             lambda *a, **kw: (_ for _ in ()).throw(OSError("data/ directory missing"))
