@@ -1,7 +1,7 @@
-import { toggleTheme } from './theme.js';
+import { toggleTheme, isLight, themeLayout } from './theme.js';
 import { renderSensorCharts } from './charts.js';
 import { renderEnvCharts } from './charts_env.js';
-import { renderCorrelationCharts } from './charts_correlation.js';
+import { renderCorrelationCharts, updateCorrelationData } from './charts_correlation.js';
 import { renderPatternCharts } from './charts_patterns.js';
 
 window.toggleTheme = () => toggleTheme(() => { _rendered = {}; renderActiveTab(); });
@@ -9,7 +9,7 @@ window.downloadCSV = () => {
   window.open(`/api/download?range=${document.getElementById("range").value}`, "_blank");
 };
 
-const TABS = ["sensors", "environment", "correlation", "patterns"];
+const TABS = ["sensors", "particulate", "environment", "correlation", "patterns"];
 let _rendered    = {};
 let _sensorData  = [];
 let _weatherData = [];
@@ -34,6 +34,7 @@ function renderActiveTab() {
   if (_rendered[tab]) return;
   _rendered[tab] = true;
   if (tab === "sensors")     renderSensorCharts(_sensorData);
+  if (tab === "particulate") renderPmTable(_sensorData);
   if (tab === "environment") renderEnvCharts(_sensorData, _weatherData);
   if (tab === "correlation") renderCorrelationCharts(_sensorData);
   if (tab === "patterns")    renderPatternCharts(_sensorData);
@@ -55,15 +56,142 @@ async function fetchData() {
       document.getElementById("last-updated").textContent = "No data for selected range.";
       return;
     }
+    const corrWasRendered = !!_rendered["correlation"];
     _sensorData  = rawSensor.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
     _weatherData = Array.isArray(rawWeather) ? rawWeather : [];
     _rendered    = {};
+
+    // If the correlation tab was already rendered, update its data without
+    // destroying the user's zoom — mark it rendered so renderActiveTab skips it.
+    if (corrWasRendered) {
+      updateCorrelationData(_sensorData);
+      _rendered["correlation"] = true;
+    }
+
     renderActiveTab();
     document.getElementById("last-updated").textContent =
       "Last updated: " + new Date().toLocaleString();
   } catch (e) {
     document.getElementById("last-updated").textContent = "Fetch error: " + e.message;
   }
+}
+
+// ── PM table rendering ──────────────────────────────────────────────────────
+function _pm25Class(v) {
+  if (v == null) return "";
+  if (v <= 12) return "pm-good";
+  if (v <= 35) return "pm-moderate";
+  return "pm-unhealthy";
+}
+
+function renderPmTable(data) {
+  const pmRows = data.filter(d => d.pm2_5 != null || d.pm1_0 != null || d.pm10 != null);
+
+  // Summary averages
+  const avg = (arr) => arr.length ? (arr.reduce((a, b) => a + b, 0) / arr.length).toFixed(1) : "--";
+  const pm1Vals  = pmRows.map(d => d.pm1_0).filter(v => v != null);
+  const pm25Vals = pmRows.map(d => d.pm2_5).filter(v => v != null);
+  const pm10Vals = pmRows.map(d => d.pm10).filter(v => v != null);
+
+  const sumPm1  = document.getElementById("pmSumPm1");
+  const sumPm25 = document.getElementById("pmSumPm25");
+  const sumPm10 = document.getElementById("pmSumPm10");
+  if (sumPm1)  sumPm1.textContent  = avg(pm1Vals);
+  if (sumPm25) sumPm25.textContent = avg(pm25Vals);
+  if (sumPm10) sumPm10.textContent = avg(pm10Vals);
+
+  // Color the PM2.5 summary
+  const avgPm25 = pm25Vals.length ? pm25Vals.reduce((a, b) => a + b, 0) / pm25Vals.length : null;
+  if (sumPm25) sumPm25.className = `value ${_pm25Class(avgPm25)}`;
+
+  // ── Plotly time-series chart ─────────────────────────────────────────────
+  const plotEl = document.getElementById("pmTimeSeriesPlot");
+  if (plotEl) {
+    if (pmRows.length < 2) {
+      plotEl.innerHTML = '<p style="color:#888;padding:1em;text-align:center">No particulate data for this range.</p>';
+    } else {
+      const ts   = pmRows.map(d => new Date(d.timestamp));
+      const pm1  = pmRows.map(d => d.pm1_0);
+      const pm25 = pmRows.map(d => d.pm2_5);
+      const pm10 = pmRows.map(d => d.pm10);
+      const titleFont = { color: isLight ? "#111" : "#ccc" };
+
+      const traces = [
+        {
+          x: ts, y: pm1, mode: "lines", name: "PM1.0",
+          line: { color: "#818cf8", width: 1.5 },
+          hovertemplate: "PM1.0: %{y} µg/m³<extra></extra>",
+        },
+        {
+          x: ts, y: pm25, mode: "lines", name: "PM2.5",
+          line: { color: "#a78bfa", width: 2 },
+          hovertemplate: "PM2.5: %{y} µg/m³<extra></extra>",
+        },
+        {
+          x: ts, y: pm10, mode: "lines", name: "PM10",
+          line: { color: "#6ee7b7", width: 1.5 },
+          hovertemplate: "PM10: %{y} µg/m³<extra></extra>",
+        },
+        // WHO guideline reference lines — excluded from legend, labelled via annotations
+        {
+          x: [ts[0], ts[ts.length - 1]], y: [15, 15],
+          mode: "lines", showlegend: false,
+          line: { color: "#f59e0b", width: 1, dash: "dot" },
+          hoverinfo: "skip",
+        },
+        {
+          x: [ts[0], ts[ts.length - 1]], y: [45, 45],
+          mode: "lines", showlegend: false,
+          line: { color: "#ef4444", width: 1, dash: "dot" },
+          hoverinfo: "skip",
+        },
+      ];
+
+      Plotly.newPlot("pmTimeSeriesPlot", traces, themeLayout({
+        title: { text: "🌫️ Particulate Matter over time", font: titleFont },
+        xaxis: { type: "date" },
+        yaxis: { title: "µg/m³", rangemode: "tozero" },
+        legend: { orientation: "h", x: 0.5, xanchor: "center", y: 1.04, bgcolor: "rgba(0,0,0,0)" },
+        margin: { t: 60 },
+        annotations: [
+          {
+            xref: "paper", yref: "y", x: 1.01, y: 15,
+            text: "WHO PM2.5", showarrow: false, xanchor: "left",
+            font: { size: 10, color: "#f59e0b" },
+          },
+          {
+            xref: "paper", yref: "y", x: 1.01, y: 45,
+            text: "WHO PM10", showarrow: false, xanchor: "left",
+            font: { size: 10, color: "#ef4444" },
+          },
+        ],
+      }), { responsive: true });
+    }
+  }
+
+  // ── Data table ──────────────────────────────────────────────────────────
+  const tbody = document.getElementById("pmTableBody");
+  if (!tbody) return;
+
+  if (!pmRows.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="pm-empty">No particulate data for this range.</td></tr>';
+    return;
+  }
+
+  // Show most recent first, limit to 200 rows for performance
+  const display = pmRows.slice().reverse().slice(0, 200);
+  tbody.innerHTML = display.map(d => {
+    const ts = new Date(d.timestamp).toLocaleString(undefined, {
+      month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit"
+    });
+    const cls = _pm25Class(d.pm2_5);
+    return `<tr class="${cls}">
+      <td>${ts}</td>
+      <td>${d.pm1_0 ?? "--"}</td>
+      <td>${d.pm2_5 ?? "--"}</td>
+      <td>${d.pm10 ?? "--"}</td>
+    </tr>`;
+  }).join("");
 }
 
 // ── Chart info button toggle ─────────────────────────────────────────────────
@@ -89,7 +217,6 @@ function _throttledFetch() {
   if (_histPending) return;
   _histPending = true;
   setTimeout(() => {
-    _rendered = {};
     fetchData();
     _histPending = false;
   }, 30000);

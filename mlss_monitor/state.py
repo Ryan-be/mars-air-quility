@@ -17,6 +17,7 @@ fan_smart_plug = None
 thread_loop = None
 aht20 = None
 sgp30 = None
+pm_sensor = None
 
 # API clients
 open_meteo = None

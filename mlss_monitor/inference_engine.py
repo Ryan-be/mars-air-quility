@@ -36,6 +36,9 @@ EVENT_TYPES = {
     "correlated_pollution":  "alert",
     "sustained_poor_air":    "alert",
     "mould_risk":            "alert",
+    "pm25_spike":            "alert",
+    "pm25_elevated":         "alert",
+    "pm10_elevated":         "warning",
     # Warnings — temperature, humidity, VPD concerns
     "temp_high":             "warning",
     "temp_low":              "warning",
@@ -83,6 +86,8 @@ _DEFAULTS = {
     "vpd_low": 0.4, "vpd_high": 1.6,
     "spike_factor": 2.0, "min_readings": 6,
     "mould_hum": 70.0, "mould_temp": 20.0, "mould_hours": 4,
+    "pm25_moderate": 12.0, "pm25_high": 35.0,
+    "pm10_high": 50.0, "pm_spike_factor": 3.0,
 }
 
 # Module-level cache, refreshed each analysis cycle
@@ -721,6 +726,140 @@ def _detect_sustained_poor_air(rows):
         )
 
 
+def _detect_pm25_spike(rows):
+    """Detect a sudden spike in PM2.5 above the rolling mean."""
+    pm_rows = [r for r in rows if r.get("pm2_5") is not None]
+    min_readings = max(4, int(_t("min_readings")))
+    if len(pm_rows) < min_readings:
+        return
+
+    values = [r["pm2_5"] for r in pm_rows]
+    baseline = _mean(values[:-3])
+    recent   = _mean(values[-3:])
+    peak     = max(values[-3:])
+
+    baseline = max(baseline, 5.0)  # floor to avoid false positives near zero
+
+    spike_factor = _t("pm_spike_factor")
+    pm25_moderate = _t("pm25_moderate")
+    pm25_high     = _t("pm25_high")
+
+    if recent > baseline * spike_factor and peak > pm25_moderate:
+        if get_recent_inference_by_type("pm25_spike", hours=1):
+            return
+        confidence = min(0.95, 0.5 + (recent / baseline - spike_factor) * 0.1)
+        annotation_context = _get_annotation_context(rows[-6:])
+        thresholds_used = get_thresholds_for_evidence(
+            ["pm25_moderate", "pm25_high", "pm_spike_factor"])
+        save_inference(
+            event_type="pm25_spike",
+            severity="warning" if peak > pm25_high else "info",
+            title=f"PM2.5 spike detected — {int(peak)} µg/m³",
+            description=(
+                f"PM2.5 rose sharply from a baseline of ~{baseline:.1f} µg/m³ to "
+                f"{int(peak)} µg/m³. Common causes include cooking (especially "
+                f"frying or grilling), candles, incense, a nearby road event, "
+                f"or a dust disturbance."
+            ),
+            action=(
+                "Increase ventilation immediately. If cooking is the source, "
+                "use the extractor fan and open a window. Levels should return "
+                "to baseline within 15–30 minutes with adequate airflow."
+            ),
+            evidence={
+                "baseline_pm25": f"{baseline:.1f} µg/m³",
+                "peak_pm25": f"{int(peak)} µg/m³",
+                "spike_ratio": f"{recent / baseline:.1f}x baseline",
+                "readings_analysed": str(len(values)),
+                "_thresholds": thresholds_used,
+            },
+            confidence=round(confidence, 2),
+            start_id=rows[-6]["id"] if len(rows) >= 6 else rows[0]["id"],
+            end_id=rows[-1]["id"],
+            annotation=annotation_context,
+        )
+
+
+def _detect_pm_elevated(rows):
+    """Detect sustained elevated PM2.5 or PM10 over the last 30 minutes."""
+    pm_rows = [r for r in rows if r.get("pm2_5") is not None]
+    if len(pm_rows) < 6:
+        return
+
+    pm25_vals = [r["pm2_5"] for r in pm_rows]
+    pm10_vals = [r["pm10"] for r in pm_rows if r.get("pm10") is not None]
+
+    pm25_moderate = _t("pm25_moderate")
+    pm25_high     = _t("pm25_high")
+    pm10_high     = _t("pm10_high")
+
+    mean_pm25 = _mean(pm25_vals)
+    mean_pm10 = _mean(pm10_vals) if pm10_vals else None
+
+    # PM2.5 elevated
+    pm25_high_count = sum(1 for v in pm25_vals if v > pm25_moderate)
+    if pm25_high_count >= len(pm25_vals) * 0.7:
+        if not get_recent_inference_by_type("pm25_elevated", hours=2):
+            sev = "warning" if mean_pm25 > pm25_high else "info"
+            thresholds_used = get_thresholds_for_evidence(["pm25_moderate", "pm25_high"])
+            annotation_context = _get_annotation_context(rows[-6:])
+            save_inference(
+                event_type="pm25_elevated",
+                severity=sev,
+                title=f"PM2.5 elevated — avg {mean_pm25:.1f} µg/m³",
+                description=(
+                    f"PM2.5 has been above the 'good' threshold ({pm25_moderate} µg/m³) "
+                    f"for {pm25_high_count}/{len(pm25_vals)} readings in the last 30 minutes "
+                    f"(avg {mean_pm25:.1f} µg/m³). This is not a spike — it suggests a "
+                    f"persistent particle source or poor outdoor air infiltrating indoors."
+                ),
+                action=(
+                    "Check for ongoing combustion sources (candles, incense, gas cooking). "
+                    "If outdoor air quality is poor, keep windows closed and run ventilation "
+                    "with a HEPA filter if available."
+                ),
+                evidence={
+                    "avg_pm25": f"{mean_pm25:.1f} µg/m³",
+                    "high_readings": f"{pm25_high_count}/{len(pm25_vals)}",
+                    "_thresholds": thresholds_used,
+                },
+                confidence=0.8,
+                start_id=rows[0]["id"],
+                end_id=rows[-1]["id"],
+                annotation=annotation_context,
+            )
+
+    # PM10 elevated (separate event)
+    if pm10_vals and mean_pm10 is not None and mean_pm10 > pm10_high:
+        if not get_recent_inference_by_type("pm10_elevated", hours=2):
+            thresholds_used = get_thresholds_for_evidence(["pm10_high"])
+            annotation_context = _get_annotation_context(rows[-6:])
+            save_inference(
+                event_type="pm10_elevated",
+                severity="warning",
+                title=f"PM10 elevated — avg {mean_pm10:.1f} µg/m³",
+                description=(
+                    f"PM10 (coarse particles ≤10 µm) has averaged {mean_pm10:.1f} µg/m³ "
+                    f"over the past 30 minutes, exceeding the WHO 24-hour guideline of "
+                    f"{pm10_high} µg/m³. Sources include dust, pollen, mould spores, "
+                    f"and soil tracked indoors."
+                ),
+                action=(
+                    "Vacuum with a HEPA filter, close windows if outdoor air is dusty, "
+                    "and check for dust or mould sources in the room."
+                ),
+                evidence={
+                    "avg_pm10": f"{mean_pm10:.1f} µg/m³",
+                    "who_guideline": f"{pm10_high} µg/m³",
+                    "_thresholds": thresholds_used,
+                },
+                confidence=0.75,
+                start_id=rows[0]["id"],
+                end_id=rows[-1]["id"],
+                annotation=annotation_context,
+            )
+
+
 def _detect_annotation_context_event(rows):
     """When user adds an annotation near a notable reading, create a contextual inference."""
     annotated = _fetch_annotations(minutes=10)
@@ -1182,6 +1321,8 @@ def run_analysis():
         _detect_correlated_pollution(rows)
         _detect_rapid_change(rows)
         _detect_sustained_poor_air(rows)
+        _detect_pm25_spike(rows)
+        _detect_pm_elevated(rows)
         _detect_annotation_context_event(rows)
     except Exception as e:
         log.error("Inference engine error: %s", e)

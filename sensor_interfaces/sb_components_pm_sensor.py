@@ -1,30 +1,165 @@
+import logging
+import time
 import serial
+
+log = logging.getLogger(__name__)
+
+# PMS5003/PMSA003 frame constants
+_START1 = 0x42
+_START2 = 0x4D
+_FRAME_LEN = 32
+
+# SB Components Air Monitoring HAT uses GPIO27 (BCM) as the SET/sleep pin.
+# HIGH = active (sensor fan + laser on, streaming data)
+# LOW  = sleep  (sensor powered down, no data)
+_DEFAULT_SET_PIN = 27
+
+
+def _wake_sensor(set_pin):
+    """Pull the SET pin HIGH to wake the PMSA003 from sleep mode."""
+    try:
+        import RPi.GPIO as GPIO
+        GPIO.setwarnings(False)
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setup(set_pin, GPIO.OUT)
+        GPIO.output(set_pin, GPIO.HIGH)
+        log.info("PM sensor: SET pin (GPIO%d) pulled HIGH — waking sensor", set_pin)
+        time.sleep(3)  # sensor needs ~2-3s to spin up fan and stabilise
+    except ImportError:
+        log.warning("RPi.GPIO not available — cannot control PM sensor SET pin")
+    except Exception as e:
+        log.error("PM sensor: failed to set wake pin GPIO%d: %s", set_pin, e)
 
 
 class AirMonitoringHAT_PM:
     """
-    Simple interface for SB Components Air Monitoring HAT.
+    Interface for SB Components Air Monitoring HAT.
     Reads PM1.0, PM2.5, and PM10 values via UART (PMSA003 / PMS5003).
+
+    Uses /dev/serial0 (hardware UART) — no I2C address conflict with other sensors.
+    The HAT's SET pin (GPIO27) must be held HIGH for the sensor to stream data.
     """
 
-    def __init__(self, port="/dev/ttyS0", baudrate=9600, timeout=2):
-        self.ser = serial.Serial(port, baudrate, timeout=timeout)
+    def __init__(self, port="/dev/serial0", baudrate=9600, timeout=2):
+        self._port = port
+        self._baudrate = baudrate
+        self._timeout = timeout
+        self._ser = None
 
-    def read_pm(self):
-        """Reads particulate matter values and returns a dict, or None if no valid data."""
-        data = self.ser.read(32)
-        if len(data) < 32:
+    def _open(self):
+        if self._ser is None or not self._ser.is_open:
+            self._ser = serial.Serial(
+                self._port, self._baudrate, timeout=self._timeout,
+            )
+
+    def close(self):
+        if self._ser and self._ser.is_open:
+            self._ser.close()
+            self._ser = None
+
+    def _sync_to_frame(self):
+        """Scan the byte stream until we find the 0x42 0x4D start marker.
+
+        Uses a 96-byte window (3 full frames worth) to reliably catch the next
+        frame boundary without flushing the buffer.
+        """
+        for _ in range(96):
+            b = self._ser.read(1)
+            if len(b) == 0:
+                return False
+            if b[0] == _START1:
+                b2 = self._ser.read(1)
+                if len(b2) == 0:
+                    return False
+                if b2[0] == _START2:
+                    return True
+        return False
+
+    def _verify_checksum(self, frame):
+        """Verify the PMS frame checksum (last 2 bytes = sum of all preceding bytes)."""
+        expected = (frame[-2] << 8) | frame[-1]
+        actual = sum(frame[:-2])
+        return expected == actual
+
+    def _try_read_frame(self, attempt):
+        """Single attempt to read one valid PM frame. Returns dict or None."""
+        try:
+            self._open()
+            # Do NOT call reset_input_buffer() — flushing the buffer and then
+            # waiting for the next 1 Hz frame is the root cause of intermittent
+            # sync failures.  Instead, scan whatever bytes are already buffered.
+
+            if not self._sync_to_frame():
+                log.debug("PM sensor: no frame marker found (attempt %d)", attempt + 1)
+                return None
+
+            # We already consumed the 2 start bytes; read the remaining 30
+            remaining = self._ser.read(_FRAME_LEN - 2)
+            if len(remaining) < _FRAME_LEN - 2:
+                log.debug("PM sensor: short frame %d bytes (attempt %d)",
+                          len(remaining), attempt + 1)
+                return None
+
+            frame = bytes([_START1, _START2]) + remaining
+
+            if not self._verify_checksum(frame):
+                log.debug("PM sensor: checksum mismatch (attempt %d)", attempt + 1)
+                return None
+
+            # Standard atmosphere values (bytes 10-15 in the frame)
+            pm1_0 = (frame[10] << 8) | frame[11]
+            pm2_5 = (frame[12] << 8) | frame[13]
+            pm10  = (frame[14] << 8) | frame[15]
+            return {"pm1_0": pm1_0, "pm2_5": pm2_5, "pm10": pm10}
+
+        except serial.SerialException as e:
+            log.error("PM sensor serial error: %s", e)
+            self.close()
+            return None
+        except Exception as e:
+            log.error("PM sensor unexpected error: %s", e)
             return None
 
-        # Frame starts with 0x42 0x4D
-        if data[0] == 0x42 and data[1] == 0x4D:
-            pm1_0 = (data[10] << 8) | data[11]
-            pm2_5 = (data[12] << 8) | data[13]
-            pm10 = (data[14] << 8) | data[15]
+    def read_pm(self):
+        """Read one PM frame with up to 3 retries.
 
-            return {
-                "pm1_0": pm1_0,
-                "pm2_5": pm2_5,
-                "pm10": pm10
-            }
+        Returns dict with pm1_0, pm2_5, pm10 (ug/m3), or None on failure.
+        """
+        for attempt in range(3):
+            result = self._try_read_frame(attempt)
+            if result is not None:
+                return result
+            if attempt < 2:
+                # Wait for the next 1 Hz frame to arrive before retrying
+                time.sleep(1.2)
+
+        log.warning("PM sensor: could not read a valid frame after 3 attempts")
         return None
+
+
+# Module-level convenience (mirrors aht20.py / sgp30.py pattern)
+_sensor = None
+
+
+def init_pm_sensor(port="/dev/serial0", set_pin=_DEFAULT_SET_PIN):
+    global _sensor
+    try:
+        _wake_sensor(set_pin)
+        _sensor = AirMonitoringHAT_PM(port=port)
+        # Do a test read to confirm sensor is responding
+        result = _sensor.read_pm()
+        if result is not None:
+            log.info("PM sensor initialised: PM2.5=%d ug/m3", result["pm2_5"])
+            return _sensor
+        log.warning("PM sensor connected but no data yet (may need warm-up)")
+        return _sensor
+    except Exception as e:
+        log.error("Failed to initialise PM sensor: %s", e)
+        _sensor = None
+        return None
+
+
+def read_pm():
+    if _sensor is None:
+        return None
+    return _sensor.read_pm()

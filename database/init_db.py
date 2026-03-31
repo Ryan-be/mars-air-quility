@@ -61,6 +61,7 @@ def create_db():
                 'tvoc_spike', 'eco2_danger', 'eco2_elevated',
                 'correlated_pollution', 'sustained_poor_air',
                 'mould_risk',
+                'pm25_spike', 'pm25_elevated', 'pm10_elevated',
                 'temp_high', 'temp_low',
                 'humidity_high', 'humidity_low',
                 'vpd_low', 'vpd_high',
@@ -129,6 +130,14 @@ def create_db():
              "Warm temps accelerating mould growth"),
             ("mould_hours",   4,    "hrs",   "Mould Risk Duration",
              "Hours of sustained conditions before flagging"),
+            ("pm25_moderate", 12.0, "µg/m³", "PM2.5 Moderate",
+             "WHO 24-hr guideline — below this is 'good' air quality"),
+            ("pm25_high",     35.0, "µg/m³", "PM2.5 High",
+             "Unhealthy for sensitive groups above this level"),
+            ("pm10_high",     50.0, "µg/m³", "PM10 High",
+             "WHO 24-hr guideline for coarse particles"),
+            ("pm_spike_factor", 3.0, "x",    "PM Spike Factor",
+             "Multiplier above rolling mean to detect sudden PM spikes"),
         ]
         for key, default, unit, label, desc in _defaults:
             cur.execute(
@@ -145,6 +154,14 @@ def create_db():
          "Warm temps accelerating mould growth"),
         ("mould_hours", 4,    "hrs", "Mould Risk Duration",
          "Hours of sustained conditions before flagging"),
+        ("pm25_moderate", 12.0, "µg/m³", "PM2.5 Moderate",
+         "WHO 24-hr guideline — below this is 'good' air quality"),
+        ("pm25_high",     35.0, "µg/m³", "PM2.5 High",
+         "Unhealthy for sensitive groups above this level"),
+        ("pm10_high",     50.0, "µg/m³", "PM10 High",
+         "WHO 24-hr guideline for coarse particles"),
+        ("pm_spike_factor", 3.0, "x",    "PM Spike Factor",
+         "Multiplier above rolling mean to detect sudden PM spikes"),
     ]
     for key, default, unit, label, desc in _new_thresholds:
         cur.execute(
@@ -161,6 +178,12 @@ def create_db():
         "ALTER TABLE fan_settings ADD COLUMN tvoc_enabled INTEGER DEFAULT 1",
         "ALTER TABLE fan_settings ADD COLUMN humidity_enabled INTEGER DEFAULT 0",
         "ALTER TABLE fan_settings ADD COLUMN humidity_max REAL DEFAULT 70.0",
+        "ALTER TABLE sensor_data ADD COLUMN pm1_0 REAL",
+        "ALTER TABLE sensor_data ADD COLUMN pm2_5 REAL",
+        "ALTER TABLE sensor_data ADD COLUMN pm10 REAL",
+        "ALTER TABLE fan_settings ADD COLUMN pm25_enabled INTEGER DEFAULT 0",
+        "ALTER TABLE fan_settings ADD COLUMN pm25_max REAL DEFAULT 25.0",
+        "ALTER TABLE fan_settings ADD COLUMN pm_stale_minutes REAL DEFAULT 10.0",
     ]:
         try:
             cur.execute(migration)

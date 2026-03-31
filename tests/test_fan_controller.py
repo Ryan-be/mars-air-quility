@@ -8,6 +8,7 @@ from mlss_monitor.fan_controller import (
     FanAction,
     FanController,
     HumidityRule,
+    PM25Rule,
     SensorReading,
     TemperatureRule,
     TVOCRule,
@@ -142,15 +143,15 @@ class TestFanController:
         on_results = [r for r in results if r.action == FanAction.ON]
         assert len(on_results) == 2
 
-    def test_build_default_has_three_rules(self):
+    def test_build_default_has_four_rules(self):
         ctrl = build_default_controller()
-        assert len(ctrl.rules) == 3
+        assert len(ctrl.rules) == 4
 
     def test_results_contain_rule_names(self):
         ctrl = build_default_controller()
         _, results = ctrl.evaluate(_reading(), _default_settings())
         names = {r.rule_name for r in results}
-        assert names == {"temperature", "tvoc", "humidity"}
+        assert names == {"temperature", "tvoc", "humidity", "pm25"}
 
 
 # ── DB layer: new per-rule fields ────────────────────────────────────────────
@@ -256,3 +257,76 @@ class TestAutoStatusAPI:
         assert data["action"] == "on"
         assert len(data["rules"]) == 1
         assert data["rules"][0]["rule"] == "temperature"
+
+
+# ── PM25Rule ─────────────────────────────────────────────────────────────────
+
+def _pm_settings(**overrides):
+    base = {
+        "pm25_enabled": True,
+        "pm25_max": 25.0,
+    }
+    base.update(overrides)
+    return base
+
+
+def _pm_reading(pm2_5=None):
+    return SensorReading(
+        temperature=18.0, humidity=50.0, eco2=400, tvoc=100, pm2_5=pm2_5,
+    )
+
+
+class TestPM25Rule:
+    rule = PM25Rule()
+
+    def test_on_when_above_max(self):
+        r = self.rule.evaluate(_pm_reading(pm2_5=30.0), _pm_settings(pm25_max=25.0))
+        assert r.action == FanAction.ON
+
+    def test_no_opinion_when_within_max(self):
+        r = self.rule.evaluate(_pm_reading(pm2_5=20.0), _pm_settings(pm25_max=25.0))
+        assert r.action == FanAction.NO_OPINION
+
+    def test_no_opinion_at_exact_max(self):
+        r = self.rule.evaluate(_pm_reading(pm2_5=25.0), _pm_settings(pm25_max=25.0))
+        assert r.action == FanAction.NO_OPINION
+
+    def test_disabled_returns_no_opinion(self):
+        r = self.rule.evaluate(_pm_reading(pm2_5=999.0), _pm_settings(pm25_enabled=False))
+        assert r.action == FanAction.NO_OPINION
+        assert "disabled" in r.reason.lower()
+
+    def test_no_sensor_returns_no_opinion(self):
+        r = self.rule.evaluate(_pm_reading(pm2_5=None), _pm_settings())
+        assert r.action == FanAction.NO_OPINION
+        assert "not available" in r.reason.lower()
+
+    def test_reason_includes_value_when_on(self):
+        r = self.rule.evaluate(_pm_reading(pm2_5=42.5), _pm_settings(pm25_max=25.0))
+        assert "42.5" in r.reason
+        assert "25.0" in r.reason
+
+
+# ── pm_stale_minutes DB round-trip ───────────────────────────────────────────
+
+class TestPmStaleMinutes:
+    def test_default_stale_minutes(self, db):
+        from database.db_logger import get_fan_settings
+        s = get_fan_settings()
+        assert s["pm_stale_minutes"] == 10.0
+
+    def test_update_stale_minutes(self, db):
+        from database.db_logger import get_fan_settings, update_fan_settings
+        update_fan_settings(0, 500, 0.0, 20.0, False, pm_stale_minutes=5.0)
+        assert get_fan_settings()["pm_stale_minutes"] == 5.0
+
+    def test_stale_minutes_via_api(self, app_client):
+        client, _ = app_client
+        payload = {
+            "tvoc_min": 0, "tvoc_max": 500, "temp_min": 0.0, "temp_max": 20.0,
+            "enabled": False, "pm_stale_minutes": 3.0,
+        }
+        res = client.post("/api/fan/settings", json=payload)
+        assert res.status_code == 200
+        data = client.get("/api/fan/settings").get_json()
+        assert data["pm_stale_minutes"] == 3.0

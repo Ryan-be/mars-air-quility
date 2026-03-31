@@ -15,6 +15,53 @@ function trend(current, previous) {
 let _lastIndoorTemp = null;
 let _lastIndoorHum  = null;
 
+function _pm25Class(v) {
+  if (v == null) return "";
+  if (v <= 12)  return "pm-good";
+  if (v <= 35)  return "pm-moderate";
+  return "pm-unhealthy";
+}
+
+function _updatePmCard(pm25, prevPm25, pm1, pm10, pmStale, pmTimestamp) {
+  const el = document.getElementById("pm25Value");
+  const card = el?.closest(".stat-card");
+  if (el) {
+    el.textContent = pm25 != null
+      ? `${trend(pm25, prevPm25)}${pm25} µg/m³`
+      : "--";
+  }
+  if (card) {
+    card.classList.remove("pm-good", "pm-moderate", "pm-unhealthy");
+    const cls = _pm25Class(pm25);
+    if (cls) card.classList.add(cls);
+  }
+  const pm1El  = document.getElementById("pm1SubValue");
+  const pm10El = document.getElementById("pm10SubValue");
+  if (pm1El)  pm1El.textContent  = pm1  != null ? `${pm1} µg/m³`  : "--";
+  if (pm10El) pm10El.textContent = pm10 != null ? `${pm10} µg/m³` : "--";
+
+  // Show stale indicator when displaying a cached PM reading
+  const staleEl = document.getElementById("pmStaleHint");
+  if (staleEl) {
+    if (pmStale && pmTimestamp) {
+      const ago = _timeAgo(new Date(pmTimestamp));
+      staleEl.textContent = `⏱ cached from ${ago}`;
+      staleEl.classList.add("visible");
+    } else {
+      staleEl.textContent = "";
+      staleEl.classList.remove("visible");
+    }
+  }
+}
+
+function _timeAgo(date) {
+  const secs = Math.round((Date.now() - date.getTime()) / 1000);
+  if (secs < 60) return `${secs}s ago`;
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  return `${Math.round(mins / 60)}h ago`;
+}
+
 async function fetchData() {
   const res = await fetch("/api/data?range=15m");
   const data = await res.json();
@@ -34,6 +81,11 @@ async function fetchData() {
   const currentEco2 = eco2.at(-1);
   const currentTvoc = tvoc.at(-1);
 
+  const pm25 = data.map(d => d.pm2_5);
+  const currentPm25 = pm25.at(-1);
+  const currentPm1  = data.at(-1)?.pm1_0 ?? null;
+  const currentPm10 = data.at(-1)?.pm10  ?? null;
+
   document.getElementById("tempValue").textContent =
     `${trend(currentTemp, temperatures.at(-2))}${currentTemp?.toFixed(1) ?? "--"} °C`;
   document.getElementById("humValue").textContent =
@@ -42,6 +94,8 @@ async function fetchData() {
     `${trend(currentEco2, eco2.at(-2))}${currentEco2 ?? "--"} ppm`;
   document.getElementById("tvocValue").textContent =
     `${trend(currentTvoc, tvoc.at(-2))}${currentTvoc ?? "--"} ppb`;
+
+  _updatePmCard(currentPm25, pm25.at(-2), currentPm1, currentPm10);
 
   _lastIndoorTemp = currentTemp;
   _lastIndoorHum  = currentHum;
@@ -103,6 +157,13 @@ const SENSOR_INFO = {
     unit: "ppb",
     range: "0 – 250 ppb (WHO good)",
     desc: "Total Volatile Organic Compounds from the SGP30 sensor. Sources include paint, cleaning products, cooking, and off-gassing furniture. Levels above 500 ppb are considered high by WHO guidelines and warrant ventilation.",
+  },
+  pm: {
+    title: "🌫️ Particulate Matter",
+    sensor: "PMSA003 (UART)",
+    unit: "µg/m³",
+    range: "PM2.5: 0–12 good · 12–35 moderate · >35 unhealthy",
+    desc: "Fine particulate matter from the PMSA003 sensor via UART. PM2.5 (≤2.5 µm) penetrates deep into the lungs and bloodstream. WHO 24-hr guideline: 15 µg/m³. PM10 (≤10 µm) irritates the upper respiratory tract. Sources include cooking, candles, dust, traffic, and wildfires.",
   },
 };
 
@@ -202,6 +263,7 @@ document.querySelectorAll("[data-insight]").forEach(card => {
 const HEALTH_INFO = {
   aht20:   { title: "🌡️ AHT20 Sensor", desc: "Temperature and humidity sensor connected via I²C bus. Measures 0–100% RH and -40 to +85°C. If offline, temperature and humidity readings will show 0." },
   sgp30:   { title: "🧪 SGP30 Sensor", desc: "Metal-oxide gas sensor for eCO₂ and TVOC via I²C. Requires 15s warm-up and 12h baseline calibration for accurate readings. If offline, air quality data will be unavailable." },
+  pm:      { title: "🌫️ PM Sensor (PMSA003)", desc: "Particulate matter sensor connected via UART serial (/dev/ttyS0). Measures PM1.0, PM2.5, and PM10 concentrations in µg/m³. Uses laser scattering to count airborne particles. If offline, particulate matter readings will show '--'." },
   plug:    { title: "🔌 Smart Plug (Kasa)", desc: "TP-Link Kasa smart plug controlling the ventilation fan. Provides on/off switching and real-time power consumption monitoring. If unreachable, automatic fan control will be disabled." },
   cpu:     { title: "🖥️ CPU Usage", desc: "Current processor utilisation of the Raspberry Pi. Sustained usage above 80% may slow sensor polling and web responses. The sensor logging loop and Flask server are the main consumers." },
   mem:     { title: "🧠 Memory Usage", desc: "RAM utilisation. The Pi typically has 1–8 GB. If memory exceeds 85%, the OS may start swapping to SD card, significantly slowing performance. Consider reducing log frequency if this is high." },
@@ -300,7 +362,7 @@ function _renderInferenceFeed() {
       month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"
     });
     return `
-      <button class="inference-card ${sev}${inf.dismissed ? ' dismissed' : ''}"
+      <button class="inference-card ${sev} inf-cat-${inf.category ?? 'other'}${inf.dismissed ? ' dismissed' : ''}"
               data-inf-id="${inf.id}" title="Tap for details">
         <div class="inf-card-left">
           <span class="inf-card-type">${inf.event_type.replace(/_/g, " ")}</span>
@@ -488,6 +550,7 @@ function connectSSE() {
       `${trend(d.eco2, null)}${d.eco2 ?? "--"} ppm`;
     document.getElementById("tvocValue").textContent =
       `${trend(d.tvoc, null)}${d.tvoc ?? "--"} ppb`;
+    _updatePmCard(d.pm2_5, null, d.pm1_0 ?? null, d.pm10 ?? null, d.pm_stale, d.pm_timestamp);
     _lastIndoorTemp = t;
     _lastIndoorHum  = h;
     updateInsights(t, h, d.tvoc, d.eco2, [d.eco2]);

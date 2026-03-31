@@ -15,6 +15,7 @@ import pytest
 import database.db_logger as dbl
 import database.init_db as dbi
 from database.db_logger import get_fan_settings, update_fan_settings
+from conftest import fake_sensors
 
 
 # ---------------------------------------------------------------------------
@@ -28,7 +29,7 @@ class TestSensorFailures:
         monkeypatch.setattr(app_module, "aht20", None)
         monkeypatch.setattr(app_module, "sgp30", None)
 
-        temp, hum, eco2, tvoc = app_module.read_sensors()
+        temp, hum, eco2, tvoc, *_ = app_module.read_sensors()
 
         assert temp == 0
         assert hum == 0
@@ -48,7 +49,7 @@ class TestSensorFailures:
             MagicMock(side_effect=OSError("I2C read failed"))
         )
 
-        temp, hum, _, _ = app_module.read_sensors()
+        temp, hum, *_ = app_module.read_sensors()
 
         assert temp == 0
         assert hum == 0
@@ -66,7 +67,7 @@ class TestSensorFailures:
             MagicMock(side_effect=OSError("I2C read failed"))
         )
 
-        _, _, eco2, tvoc = app_module.read_sensors()
+        _, _, eco2, tvoc, *_ = app_module.read_sensors()
 
         assert eco2 == 0
         assert tvoc == 0
@@ -86,7 +87,7 @@ class TestSensorFailures:
             MagicMock(side_effect=OSError("I2C timeout"))
         )
 
-        temp, hum, eco2, tvoc = app_module.read_sensors()
+        temp, hum, eco2, tvoc, *_ = app_module.read_sensors()
 
         assert temp == 22.5
         assert hum == 55.0
@@ -97,7 +98,7 @@ class TestSensorFailures:
         """log_data must complete without exception when all sensor reads return 0."""
         import mlss_monitor.app as app_module
 
-        monkeypatch.setattr(app_module, "read_sensors", lambda: (0, 0, 0, 0))
+        monkeypatch.setattr(app_module, "read_sensors", lambda: fake_sensors(0, 0, 0, 0))
         monkeypatch.setattr(app_module, "log_sensor_data", lambda *a, **kw: None)
         monkeypatch.setattr(app_module, "_collect_health", lambda: {})
         monkeypatch.setattr(
@@ -131,7 +132,7 @@ class TestFanZeroValueEdgeCase:
             app_state.fan_smart_plug, "switch",
             lambda state: switch_args.append(state) or original_switch(state)
         )
-        monkeypatch.setattr(app_module, "read_sensors", lambda: (0.0, 0.0, 0, 0))
+        monkeypatch.setattr(app_module, "read_sensors", lambda: fake_sensors(0.0, 0.0, 0, 0))
         monkeypatch.setattr(app_module, "log_sensor_data", lambda *a, **kw: None)
         monkeypatch.setattr(app_module, "_collect_health", lambda: {})
         monkeypatch.setattr(
@@ -157,7 +158,7 @@ class TestFanZeroValueEdgeCase:
             app_state.fan_smart_plug, "switch",
             lambda state: switch_args.append(state) or original_switch(state)
         )
-        monkeypatch.setattr(app_module, "read_sensors", lambda: (25.0, 0.0, 0, 0))
+        monkeypatch.setattr(app_module, "read_sensors", lambda: fake_sensors(25.0, 0.0, 0, 0))
         monkeypatch.setattr(app_module, "log_sensor_data", lambda *a, **kw: None)
         monkeypatch.setattr(app_module, "_collect_health", lambda: {})
         monkeypatch.setattr(
@@ -304,7 +305,7 @@ class TestBackgroundThreadResilience:
         """log_data() itself still raises on error — _background_log catches it."""
         import mlss_monitor.app as app_module
 
-        monkeypatch.setattr(app_module, "read_sensors", lambda: (15.0, 50, 300, 100))
+        monkeypatch.setattr(app_module, "read_sensors", lambda: fake_sensors(15.0, 50, 300, 100))
         monkeypatch.setattr(
             app_module, "log_sensor_data",
             lambda *a, **kw: (_ for _ in ()).throw(OSError("data/ directory missing"))

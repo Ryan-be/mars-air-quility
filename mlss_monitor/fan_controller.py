@@ -34,6 +34,7 @@ class SensorReading:
     eco2: int
     tvoc: int
     vpd_kpa: float | None = None
+    pm2_5: float | None = None
 
 
 @dataclass(frozen=True)
@@ -148,6 +149,36 @@ class HumidityRule(FanRule):
         )
 
 
+class PM25Rule(FanRule):
+    @property
+    def name(self) -> str:
+        return "pm25"
+
+    @property
+    def description(self) -> str:
+        return "Activates the fan when PM2.5 exceeds the configured maximum."
+
+    def evaluate(self, reading: SensorReading, settings: dict) -> RuleResult:
+        if not settings.get("pm25_enabled", False):
+            return RuleResult(self.name, FanAction.NO_OPINION, "PM2.5 rule disabled")
+
+        if reading.pm2_5 is None:
+            return RuleResult(self.name, FanAction.NO_OPINION, "PM2.5 sensor not available")
+
+        pm25_max = settings.get("pm25_max", 25.0)
+        if reading.pm2_5 > pm25_max:
+            return RuleResult(
+                self.name,
+                FanAction.ON,
+                f"PM2.5 {reading.pm2_5:.1f} µg/m³ exceeds max {pm25_max} µg/m³",
+            )
+        return RuleResult(
+            self.name,
+            FanAction.NO_OPINION,
+            f"PM2.5 {reading.pm2_5:.1f} µg/m³ within range (max {pm25_max} µg/m³)",
+        )
+
+
 # ── Controller ──────────────────────────────────────────────────────────────
 
 
@@ -196,4 +227,5 @@ def build_default_controller() -> FanController:
     ctrl.register(TemperatureRule())
     ctrl.register(TVOCRule())
     ctrl.register(HumidityRule())
+    ctrl.register(PM25Rule())
     return ctrl

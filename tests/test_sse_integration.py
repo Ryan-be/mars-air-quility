@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from mlss_monitor.event_bus import EventBus
+from conftest import fake_sensors
 
 
 @pytest.fixture
@@ -25,7 +26,7 @@ class TestSensorLoopPublishesHealth:
         monkeypatch.setattr(app_state, "fan_mode", "manual")
 
         # Stub sensors to return known values
-        monkeypatch.setattr(app_module, "read_sensors", lambda: (22.0, 55.0, 600, 100))
+        monkeypatch.setattr(app_module, "read_sensors", lambda: fake_sensors(22.0, 55.0, 600, 100))
 
         # Stub smart plug power
         mock_future = MagicMock()
@@ -57,7 +58,7 @@ class TestSensorLoopPublishesHealth:
         monkeypatch.setattr(app_state, "event_bus", None)
         monkeypatch.setattr(app_state, "fan_smart_plug", MagicMock())
         monkeypatch.setattr(app_state, "fan_mode", "manual")
-        monkeypatch.setattr(app_module, "read_sensors", lambda: (22.0, 55.0, 600, 100))
+        monkeypatch.setattr(app_module, "read_sensors", lambda: fake_sensors(22.0, 55.0, 600, 100))
         mock_future = MagicMock()
         mock_future.result.return_value = {"power_w": 0}
         monkeypatch.setattr("asyncio.run_coroutine_threadsafe", lambda *a, **k: mock_future)

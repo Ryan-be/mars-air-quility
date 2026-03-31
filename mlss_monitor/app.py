@@ -30,6 +30,7 @@ from mlss_monitor.event_bus import EventBus
 from mlss_monitor.fan_controller import SensorReading, build_default_controller
 from mlss_monitor.routes import register_routes
 from sensor_interfaces.aht20 import read_aht20
+from sensor_interfaces.sb_components_pm_sensor import init_pm_sensor, read_pm
 from sensor_interfaces.sgp30 import read_sgp30
 
 log = logging.getLogger(__name__)
@@ -163,6 +164,11 @@ except Exception as e:
     log.error("Unexpected error initializing SGP30 sensor: %s", e)
     sgp30 = None
 
+# PM sensor (UART — no I2C conflict)
+pm_sensor = init_pm_sensor()
+if pm_sensor:
+    state.pm_sensor = pm_sensor
+
 # ── Smart plug & async event loop ────────────────────────────────────────────
 
 state.fan_smart_plug = KasaSmartPlug(FAN_KASA_SMART_PLUG_IP)
@@ -181,8 +187,15 @@ Thread(target=_start_thread_event_loop, daemon=True).start()
 
 # ── Sensor reading ────────────────────────────────────────────────────────────
 
+# Cache for the last successful PM reading so the fan controller and UI can
+# keep using a recent measurement when the UART read intermittently fails.
+_last_pm = {"pm1_0": None, "pm2_5": None, "pm10": None, "timestamp": None}
+
+
 def read_sensors():
     temperature, humidity, eco2, tvoc = 0, 0, 0, 0
+    pm1_0, pm2_5, pm10 = None, None, None
+    pm_fresh = False  # True when this cycle produced a brand-new reading
 
     if aht20:
         try:
@@ -202,7 +215,37 @@ def read_sensors():
         except Exception as e:
             log.error("Error reading SGP30 sensor: %s", e)
 
-    return temperature, humidity, eco2, tvoc
+    if pm_sensor:
+        try:
+            pm_data = read_pm()
+            if pm_data:
+                pm1_0 = pm_data["pm1_0"]
+                pm2_5 = pm_data["pm2_5"]
+                pm10 = pm_data["pm10"]
+                pm_fresh = True
+                _last_pm.update(pm1_0=pm1_0, pm2_5=pm2_5, pm10=pm10,
+                                timestamp=datetime.utcnow())
+        except Exception as e:
+            log.error("Error reading PM sensor: %s", e)
+
+    # Fall back to the cached reading when the sensor didn't return data,
+    # provided it is within the configurable staleness window.
+    pm_stale = False
+    pm_timestamp = _last_pm["timestamp"]
+    if not pm_fresh and pm_timestamp is not None:
+        stale_minutes = get_fan_settings().get("pm_stale_minutes", 10.0)
+        age = (datetime.utcnow() - pm_timestamp).total_seconds()
+        if age <= stale_minutes * 60:
+            pm1_0 = _last_pm["pm1_0"]
+            pm2_5 = _last_pm["pm2_5"]
+            pm10 = _last_pm["pm10"]
+            pm_stale = True
+            log.debug("Using cached PM reading (%.0fs old)", age)
+        else:
+            log.debug("Cached PM reading expired (%.0fs > %.0fs limit)",
+                      age, stale_minutes * 60)
+
+    return temperature, humidity, eco2, tvoc, pm1_0, pm2_5, pm10, pm_fresh, pm_stale, pm_timestamp
 
 
 # ── Background logging ────────────────────────────────────────────────────────
@@ -212,6 +255,7 @@ def _collect_health() -> dict:
     status = {
         "AHT20": "OK" if state.aht20 else "UNAVAILABLE",
         "SGP30": "OK" if state.sgp30 else "UNAVAILABLE",
+        "PM_sensor": "OK" if state.pm_sensor else "UNAVAILABLE",
     }
     cpu_percent = psutil.cpu_percent(interval=0)
     memory = psutil.virtual_memory()
@@ -256,7 +300,7 @@ def _collect_health() -> dict:
 
 
 def log_data():
-    temp, hum, eco2, tvoc = read_sensors()
+    temp, hum, eco2, tvoc, pm1_0, pm2_5, pm10, pm_fresh, pm_stale, pm_ts = read_sensors()
 
     fan_power_w = None
     try:
@@ -269,21 +313,32 @@ def log_data():
         log.error("[log_data] get_power failed: %s", exc)
 
     vpd = _vpd_kpa(temp, hum)
-    log_sensor_data(temp, hum, eco2, tvoc, fan_power_w=fan_power_w, vpd_kpa=vpd)
+    # Only log fresh PM readings to the database — stale/cached values
+    # are already stored from the original read cycle.
+    db_pm1  = pm1_0 if pm_fresh else None
+    db_pm25 = pm2_5 if pm_fresh else None
+    db_pm10 = pm10  if pm_fresh else None
+    log_sensor_data(temp, hum, eco2, tvoc, fan_power_w=fan_power_w, vpd_kpa=vpd,
+                    pm1_0=db_pm1, pm2_5=db_pm25, pm10=db_pm10)
 
-    # Broadcast sensor reading to SSE subscribers
+    # Broadcast sensor reading to SSE subscribers — include staleness
+    # metadata so the dashboard can show when PM data is cached.
     if state.event_bus:
         state.event_bus.publish("sensor_update", {
             "temperature": temp, "humidity": hum,
             "eco2": eco2, "tvoc": tvoc,
             "fan_power_w": fan_power_w, "vpd_kpa": vpd,
+            "pm1_0": pm1_0, "pm2_5": pm2_5, "pm10": pm10,
+            "pm_stale": pm_stale,
+            "pm_timestamp": pm_ts.isoformat() + "Z" if pm_ts else None,
         })
         state.event_bus.publish("health_update", _collect_health())
 
     settings = get_fan_settings()
     if settings["enabled"] and state.fan_mode == "auto":
         reading = SensorReading(
-            temperature=temp, humidity=hum, eco2=eco2, tvoc=tvoc, vpd_kpa=vpd,
+            temperature=temp, humidity=hum, eco2=eco2, tvoc=tvoc,
+            vpd_kpa=vpd, pm2_5=pm2_5,
         )
         try:
             action, results = fan_controller.evaluate(reading, settings)

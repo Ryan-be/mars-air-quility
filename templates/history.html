@@ -31,6 +31,7 @@
 
   <div class="tab-bar">
     <button class="tab-btn tab-active" data-tab="sensors">🌡️ Sensors</button>
+    <button class="tab-btn" data-tab="particulate">🌫️ Particulate</button>
     <button class="tab-btn" data-tab="environment">🌿 Environment</button>
     <button class="tab-btn" data-tab="correlation">🔍 Correlation</button>
     <button class="tab-btn" data-tab="patterns">📅 Patterns</button>
@@ -50,6 +51,62 @@
         <div class="tvoc-level"><span class="color-dot orange"></span>251–500 ppb Moderate</div>
         <div class="tvoc-level"><span class="color-dot red"></span>&gt;500 ppb High</div>
       </div>
+    </div>
+  </div>
+
+  <div class="tab-panel tab-hidden" id="tab-particulate">
+    <div class="pm-summary" id="pmSummary">
+      <div class="pm-summary-card">
+        <div class="label">PM1.0</div>
+        <div class="value" id="pmSumPm1">--</div>
+        <div class="sub">µg/m³ avg</div>
+      </div>
+      <div class="pm-summary-card">
+        <div class="label">PM2.5</div>
+        <div class="value" id="pmSumPm25">--</div>
+        <div class="sub">µg/m³ avg</div>
+      </div>
+      <div class="pm-summary-card">
+        <div class="label">PM10</div>
+        <div class="value" id="pmSumPm10">--</div>
+        <div class="sub">µg/m³ avg</div>
+      </div>
+    </div>
+    <div class="pm-who-key">
+      <span class="pm-key-title">PM2.5 · WHO 24h guideline: 15 µg/m³</span>
+      <div class="pm-levels">
+        <div class="pm-level"><span class="color-dot green"></span>0–12 Good</div>
+        <div class="pm-level"><span class="color-dot orange"></span>13–35 Moderate</div>
+        <div class="pm-level"><span class="color-dot red"></span>&gt;35 Unhealthy</div>
+      </div>
+    </div>
+
+    <!-- Particulate time-series charts -->
+    <div class="plot-container">
+      <div class="chart-wrapper">
+        <div class="chart-header" style="position:relative">
+          <button class="chart-info-btn" data-info="pmTimeSeries" aria-label="Chart info">i</button>
+          <div class="chart-info-popup" id="info-pmTimeSeries">Time-series of all three particulate fractions. The dashed lines show WHO 24-hour guidelines: PM2.5 ≤ 15 µg/m³ and PM10 ≤ 45 µg/m³. Spikes above these lines warrant ventilation or source investigation.</div>
+        </div>
+        <div id="pmTimeSeriesPlot"></div>
+      </div>
+    </div>
+
+    <!-- Raw data table (most recent first, capped at 200 rows) -->
+    <div class="pm-table-wrap">
+      <table class="pm-table" id="pmTable">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>PM1.0 (µg/m³)</th>
+            <th>PM2.5 (µg/m³)</th>
+            <th>PM10 (µg/m³)</th>
+          </tr>
+        </thead>
+        <tbody id="pmTableBody">
+          <tr><td colspan="4" class="pm-empty">No particulate data available.</td></tr>
+        </tbody>
+      </table>
     </div>
   </div>
 
@@ -108,7 +165,7 @@
         <h4>🔎 Select a time window to investigate</h4>
         <p class="corr-brush-hint">Drag on the chart below to zoom into a spike or event. The scatter plots and analysis will update automatically.</p>
       </div>
-      <div id="corrBrushPlot" style="height:160px"></div>
+      <div id="corrBrushPlot"></div>
       <div class="corr-brush-controls">
         <button class="btn btn-sm" id="corrResetBtn">Reset to full range</button>
         <span class="corr-range-label" id="corrRangeLabel">Showing: full range</span>
@@ -137,6 +194,20 @@
           <div class="chart-info-popup" id="info-tempHum">Temperature vs humidity coloured by VPD zone. Blue = too humid, green = ideal for plants, amber = getting dry, red = plant stress. For a grow room, aim for clusters in the green zone.</div>
         </div>
         <div id="tempHumScatterPlot"></div>
+      </div>
+      <div class="chart-wrapper">
+        <div class="chart-header" style="position:relative">
+          <button class="chart-info-btn" data-info="pm25Tvoc" aria-label="Chart info">i</button>
+          <div class="chart-info-popup" id="info-pm25Tvoc">Scatter plot of PM2.5 against TVOC, coloured by time. A strong R² suggests particles and volatile compounds share a common source — typically cooking, candles, or combustion. A weak R² means they have independent origins (e.g. outdoor particle infiltration + indoor VOC off-gassing).</div>
+        </div>
+        <div id="pm25TvocScatterPlot"></div>
+      </div>
+      <div class="chart-wrapper">
+        <div class="chart-header" style="position:relative">
+          <button class="chart-info-btn" data-info="pm25Eco2" aria-label="Chart info">i</button>
+          <div class="chart-info-popup" id="info-pm25Eco2">Scatter plot of PM2.5 against eCO₂, coloured by time. A strong correlation here points to combustion (cooking, candles) or a densely occupied space. A weak correlation means particles and CO₂ are coming from independent sources — e.g. outdoor PM infiltration while occupants breathe indoors.</div>
+        </div>
+        <div id="pm25Eco2ScatterPlot"></div>
       </div>
     </div>
   </div>

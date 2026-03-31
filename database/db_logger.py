@@ -7,7 +7,8 @@ from config import config
 DB_FILE = config.get("DB_FILE", "data/sensor_data.db")
 
 
-def log_sensor_data(temp, hum, eco2, tvoc, annotation=None, fan_power_w=None, vpd_kpa=None):
+def log_sensor_data(temp, hum, eco2, tvoc, annotation=None, fan_power_w=None, vpd_kpa=None,
+                    pm1_0=None, pm2_5=None, pm10=None):
     """
     Log sensor data into the SQLite database.
 
@@ -18,15 +19,20 @@ def log_sensor_data(temp, hum, eco2, tvoc, annotation=None, fan_power_w=None, vp
     :param annotation: optional text annotation
     :param fan_power_w: current fan power consumption in watts (None if unavailable)
     :param vpd_kpa: vapour pressure deficit in kPa (None falls back to NULL in DB)
+    :param pm1_0: PM1.0 in ug/m3 (None if unavailable)
+    :param pm2_5: PM2.5 in ug/m3 (None if unavailable)
+    :param pm10: PM10 in ug/m3 (None if unavailable)
     """
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
 
     cur.execute("""
         INSERT INTO sensor_data
-            (timestamp, temperature, humidity, eco2, tvoc, annotation, fan_power_w, vpd_kpa)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """, (datetime.utcnow().isoformat(), temp, hum, eco2, tvoc, annotation, fan_power_w, vpd_kpa))
+            (timestamp, temperature, humidity, eco2, tvoc, annotation, fan_power_w, vpd_kpa,
+             pm1_0, pm2_5, pm10)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (datetime.utcnow().isoformat(), temp, hum, eco2, tvoc, annotation, fan_power_w, vpd_kpa,
+          pm1_0, pm2_5, pm10))
 
     conn.commit()
     conn.close()
@@ -148,9 +154,13 @@ def get_fan_settings():
     d.setdefault("tvoc_enabled", 1)
     d.setdefault("humidity_enabled", 0)
     d.setdefault("humidity_max", 70.0)
-    d["temp_enabled"] = bool(d["temp_enabled"])
-    d["tvoc_enabled"] = bool(d["tvoc_enabled"])
+    d.setdefault("pm25_enabled", 0)
+    d.setdefault("pm25_max", 25.0)
+    d.setdefault("pm_stale_minutes", 10.0)
+    d["temp_enabled"]     = bool(d["temp_enabled"])
+    d["tvoc_enabled"]     = bool(d["tvoc_enabled"])
     d["humidity_enabled"] = bool(d["humidity_enabled"])
+    d["pm25_enabled"]     = bool(d["pm25_enabled"])
     return d
 
 
@@ -279,16 +289,20 @@ def save_unit_rate(rate_pence: float) -> None:
 
 def update_fan_settings(tvoc_min, tvoc_max, temp_min, temp_max, enabled,
                         temp_enabled=True, tvoc_enabled=True,
-                        humidity_enabled=False, humidity_max=70.0):
+                        humidity_enabled=False, humidity_max=70.0,
+                        pm25_enabled=False, pm25_max=25.0,
+                        pm_stale_minutes=10.0):
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
     cur.execute("""
         UPDATE fan_settings
         SET tvoc_min = ?, tvoc_max = ?, temp_min = ?, temp_max = ?, enabled = ?,
-            temp_enabled = ?, tvoc_enabled = ?, humidity_enabled = ?, humidity_max = ?
+            temp_enabled = ?, tvoc_enabled = ?, humidity_enabled = ?, humidity_max = ?,
+            pm25_enabled = ?, pm25_max = ?, pm_stale_minutes = ?
         WHERE id = (SELECT MAX(id) FROM fan_settings)
     """, (tvoc_min, tvoc_max, temp_min, temp_max, int(enabled),
-          int(temp_enabled), int(tvoc_enabled), int(humidity_enabled), humidity_max))
+          int(temp_enabled), int(tvoc_enabled), int(humidity_enabled), humidity_max,
+          int(pm25_enabled), pm25_max, pm_stale_minutes))
     conn.commit()
     conn.close()
 

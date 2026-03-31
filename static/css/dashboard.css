@@ -48,6 +48,26 @@
 .stat-card.hum   { border-top-color: dodgerblue; }
 .stat-card.eco2  { border-top-color: yellowgreen; }
 .stat-card.tvoc  { border-top-color: #e0a000; }
+.stat-card.pm    { border-top-color: #a78bfa; }
+.stat-card.pm.pm-good      { border-top-color: #22c55e; }
+.stat-card.pm.pm-moderate  { border-top-color: #f59e0b; }
+.stat-card.pm.pm-unhealthy { border-top-color: #ef4444; }
+
+.pm-sub-row {
+  display: flex;
+  gap: 0.75em;
+  font-size: 0.75em;
+  color: #999;
+  margin-top: 0.15em;
+}
+.pm-sub { white-space: nowrap; }
+.pm-stale-hint {
+  font-size: 0.7em;
+  color: #f59e0b;
+  margin-top: 0.15em;
+  display: none;
+}
+.pm-stale-hint.visible { display: block; }
 
 /* ── Insight grid ── */
 .insight-grid {
@@ -511,6 +531,8 @@ body.light button.health-item:focus-visible { background: #f0f4ff; border-color:
 .inference-card.inf-info     { border-left-color: #38bdf8; }
 .inference-card.inf-warning  { border-left-color: #f59e0b; }
 .inference-card.inf-critical { border-left-color: #ef4444; }
+/* Category overrides — alerts are always red regardless of severity */
+.inference-card.inf-cat-alert { border-left-color: #ef4444; }
 
 .inf-card-left {
   display: flex;
