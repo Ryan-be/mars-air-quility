@@ -217,7 +217,6 @@ function _throttledFetch() {
   if (_histPending) return;
   _histPending = true;
   setTimeout(() => {
-    _rendered = {};
     fetchData();
     _histPending = false;
   }, 30000);
