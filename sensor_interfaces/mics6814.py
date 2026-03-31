@@ -30,6 +30,8 @@ def init_mics6814():
         _sensor = MICS6814()
         # Do a test read to confirm the sensor is responding
         reading = _sensor.read_all()
+        # Green LED = sensor active
+        _sensor.set_led(0, 255, 0)
         log.info(
             "MICS6814 gas sensor initialised: CO=%.2f, NO2=%.2f, NH3=%.2f",
             reading.reducing, reading.oxidising, reading.nh3,
