@@ -209,24 +209,34 @@ rules:
     event_type: tvoc_spike
     severity: warning
     confidence: 0.8
+    title_template: "TVOC spike detected ({tvoc_current:.0f} ppb)"
+    description_template: >
+      TVOC has risen to {tvoc_current:.0f} ppb, {tvoc_peak_ratio:.1f}×
+      above the {tvoc_baseline:.0f} ppb baseline over the last
+      {tvoc_elevated_minutes:.0f} minutes.
+    action: "Identify and ventilate the source."
 
   - id: eco2_danger
     expression: "eco2_current >= 2000"
     event_type: eco2_danger
     severity: critical
     confidence: 0.95
+    title_template: "Dangerous CO₂ level ({eco2_current:.0f} ppm)"
+    description_template: >
+      CO₂ has reached {eco2_current:.0f} ppm, above the 2000 ppm danger
+      threshold. Cognitive impairment is likely at this concentration.
+    action: "Ventilate immediately."
 
   - id: mould_risk
     expression: "humidity_elevated_minutes > 240 and humidity_current > 70 and temperature_c > 20"
     event_type: mould_risk
     severity: warning
     confidence: 0.75
-
-  - id: correlated_pollution
-    expression: "tvoc_slope_5m > 5 and eco2_slope_5m > 10"
-    event_type: correlated_pollution
-    severity: warning
-    confidence: 0.7
+    title_template: "Mould risk conditions ({humidity_current:.0f}% RH for {humidity_elevated_minutes:.0f} min)"
+    description_template: >
+      Humidity has been above 70% for {humidity_elevated_minutes:.0f} minutes
+      at {temperature_c:.1f}°C. Sustained conditions favour mould growth.
+    action: "Reduce humidity. Check for poor air circulation or moisture sources."
 ```
 
 All threshold-based detectors from `inference_engine.py` are migrated to this format (tvoc_spike, eco2_danger, eco2_elevated, temp_high, temp_low, humidity_high, humidity_low, vpd_low, vpd_high, mould_risk, correlated_pollution, rapid_temp_change, rapid_humidity_change, sustained_poor_air). No threshold detection logic lives in Python.
@@ -364,6 +374,60 @@ When Coral integration is implemented, the YAML scoring function is replaced by 
 
 ---
 
+## Narrative Generation
+
+Dynamic human-readable text is still generated for every inference. It works in three parts that are concatenated into the final `description` field.
+
+### Part 1 — Rule narrative (what happened)
+
+Each rule in `rules.yaml` carries title and description templates. Slots are filled from the `FeatureVector` at fire time:
+
+```yaml
+- id: tvoc_spike
+  expression: "tvoc_peak_ratio > 1.5 and tvoc_current > 250"
+  title_template: "TVOC spike detected ({tvoc_current:.0f} ppb)"
+  description_template: >
+    TVOC has risen to {tvoc_current:.0f} ppb,
+    {tvoc_peak_ratio:.1f}× above the {tvoc_baseline:.0f} ppb baseline
+    over the last {tvoc_elevated_minutes:.0f} minutes.
+  action: "Identify and ventilate the source."
+```
+
+### Part 2 — Attribution narrative (what's causing it)
+
+Each fingerprint in `fingerprints.yaml` carries its own description template. The attribution engine also auto-generates ruling-out clauses from sensors that were expected absent/normal but confirmed so by the FeatureVector:
+
+```yaml
+- id: chemical_offgassing
+  description_template: >
+    TVOC is elevated ({tvoc_current:.0f} ppb) but PM2.5 and eCO₂ are normal.
+    This is typical of volatile organic sources that don't produce particles
+    or CO₂: {examples}.
+  examples: "cleaning products, air fresheners, paint, adhesives, new furniture, cosmetics"
+  action_template: "Ventilate the room. {persistence_note}"
+```
+
+Auto-generated ruling-out clause example: if `pm25: absent` in the fingerprint and PM2.5 is confirmed normal, the engine appends "No PM2.5 rise rules out combustion."
+
+### Part 3 — Summary functions (composite narrative, Python)
+
+`_hourly_summary`, `_daily_summary`, `_daily_pattern`, and `_overnight_buildup` continue to generate multi-sentence composite descriptions in Python, exactly as today. They are refactored to consume `FeatureVector` rather than raw DB rows, but their narrative output is unchanged.
+
+### Final output
+
+```
+title       = rule title_template (filled)
+description = rule description_template (filled)
+            + attribution description_template (filled)
+            + ruling-out clauses (auto-generated from evidence)
+action      = attribution action_template (filled) or rule action fallback
+evidence    = FeatureVector values + attribution scores (dict, unchanged schema)
+```
+
+The resulting inference descriptions are at least as rich as today — typically richer, since the attribution layer adds cross-sensor reasoning that was previously absent or hardcoded per-detector.
+
+---
+
 ## Output Layer
 
 `save_inference()` signature is unchanged. The attribution result is embedded in the `description` and `evidence` dict fields that already exist:
@@ -394,28 +458,28 @@ save_inference(
 
 ## Configuration UI
 
-New settings surfaces needed:
+All new settings live under `/settings/insights-engine/` to keep them grouped separately from existing system settings.
 
-### Rule manager (`/settings/rules`)
+### Rule manager (`/settings/insights-engine/rules`)
 - List all rules from `rules.yaml` with current enabled/disabled state
-- Edit expression, severity, confidence inline
+- Edit expression, severity, confidence, and narrative templates inline
 - Add new rule (expression builder with live validation against a sample FeatureVector)
 - Disable/enable without deleting
 - Changes write to `rules.yaml` and trigger hot-reload (no restart)
 
-### Fingerprint manager (`/settings/fingerprints`)
+### Fingerprint manager (`/settings/insights-engine/fingerprints`)
 - List all source fingerprints
-- Add/edit fingerprint (sensor states, temporal profile, confidence floor)
+- Add/edit fingerprint (sensor states, temporal profile, confidence floor, narrative templates)
 - Preview: given current live readings, what would this fingerprint score?
 - Changes write to `fingerprints.yaml` and take effect immediately
 
-### Anomaly settings (`/settings/anomaly`)
+### Anomaly settings (`/settings/insights-engine/anomaly`)
 - Per-channel score threshold slider
 - Cold-start reading count
 - View current anomaly score per channel (live)
 - Model reset per channel (if sensor was faulty for a period)
 
-### Data source manager (`/settings/sources`)
+### Data source manager (`/settings/insights-engine/sources`)
 - List all registered `DataSource` implementations with status (active/error/no data)
 - Enable/disable per source
 - Per-source last-reading timestamp and health indicator
