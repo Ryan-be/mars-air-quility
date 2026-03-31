@@ -260,6 +260,13 @@ erDiagram
         REAL temp_min
         REAL temp_max
         INTEGER enabled
+        INTEGER temp_enabled
+        INTEGER tvoc_enabled
+        INTEGER humidity_enabled
+        REAL humidity_max
+        INTEGER pm25_enabled
+        REAL pm25_max
+        REAL pm_stale_minutes
     }
 
     app_settings {
@@ -414,14 +421,18 @@ flowchart TB
 
 ### Auto-mode threshold rules
 
-When auto mode is enabled, the background sensor polling loop evaluates thresholds from the `fan_settings` table on every cycle:
+When auto mode is enabled, the background sensor polling loop evaluates each enabled rule against the current `fan_settings` thresholds. The fan turns **on** if any rule votes ON, and **off** otherwise.
 
-```
-IF temperature > temp_max OR tvoc > tvoc_max THEN
-    fan ON
-ELSE
-    fan OFF
-```
+| Rule | Setting fields | Behaviour |
+|---|---|---|
+| **Temperature** | `temp_enabled`, `temp_min`, `temp_max` | ON when temperature > `temp_max` |
+| **TVOC** | `tvoc_enabled`, `tvoc_min`, `tvoc_max` | ON when TVOC > `tvoc_max` |
+| **Humidity** | `humidity_enabled`, `humidity_max` | ON when humidity > `humidity_max` |
+| **PM2.5** | `pm25_enabled`, `pm25_max` | ON when PM2.5 > `pm25_max` |
+
+Each rule can be individually enabled/disabled. A disabled rule always abstains (NO_OPINION) so the fan state is determined by the remaining active rules.
+
+**PM2.5 staleness cache** -- when the UART sensor fails to return data on a given cycle, the last successful reading is reused for up to `pm_stale_minutes` (default 10 minutes, configurable in Settings). This prevents the fan toggling on and off every few seconds during intermittent sensor dropouts. Readings older than the staleness window are discarded and the PM2.5 rule abstains.
 
 Thresholds are configurable via the admin settings page or `POST /api/fan/settings`.
 
@@ -822,6 +833,10 @@ static/
     charts.js                 Plotly sensor chart rendering (temp, hum, eco2, tvoc)
     charts_env.js             Environment charts (indoor/outdoor overlay, VPD, fan state)
     charts_correlation.js     Time-brush, scatter plots, regression, inference engine
+                              -- drag the brush chart to zoom into a window; the scatter
+                              plots and inference panel update to show only that selection.
+                              Zoom is preserved across data polling cycles (only destroyed
+                              by Reset button, page navigation, or browser refresh).
     charts_patterns.js        Pattern analysis (hour-of-day heatmap, daily temp range)
     controls.js               Device control page (SSE fan status, status dot)
     fan.js                    Fan control API calls

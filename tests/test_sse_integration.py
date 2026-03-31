@@ -25,7 +25,7 @@ class TestSensorLoopPublishesHealth:
         monkeypatch.setattr(app_state, "fan_mode", "manual")
 
         # Stub sensors to return known values
-        monkeypatch.setattr(app_module, "read_sensors", lambda: (22.0, 55.0, 600, 100))
+        monkeypatch.setattr(app_module, "read_sensors", lambda: (22.0, 55.0, 600, 100, None, None, None, False, False, None))
 
         # Stub smart plug power
         mock_future = MagicMock()
@@ -57,7 +57,7 @@ class TestSensorLoopPublishesHealth:
         monkeypatch.setattr(app_state, "event_bus", None)
         monkeypatch.setattr(app_state, "fan_smart_plug", MagicMock())
         monkeypatch.setattr(app_state, "fan_mode", "manual")
-        monkeypatch.setattr(app_module, "read_sensors", lambda: (22.0, 55.0, 600, 100))
+        monkeypatch.setattr(app_module, "read_sensors", lambda: (22.0, 55.0, 600, 100, None, None, None, False, False, None))
         mock_future = MagicMock()
         mock_future.result.return_value = {"power_w": 0}
         monkeypatch.setattr("asyncio.run_coroutine_threadsafe", lambda *a, **k: mock_future)

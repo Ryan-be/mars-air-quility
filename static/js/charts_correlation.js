@@ -66,6 +66,7 @@ export function renderCorrelationCharts(data) {
   _renderScatterCharts(data);
   _renderInferencePanel(data, data);
 
+
   // Reset button — show immediate feedback then defer the heavy Plotly work
   const resetBtn = document.getElementById("corrResetBtn");
   if (resetBtn) {
@@ -87,6 +88,44 @@ export function renderCorrelationCharts(data) {
         resetBtn.disabled = false;
       }));
     };
+  }
+}
+
+// ── Live data update (preserves user zoom) ───────────────────────────────────
+//
+// Called on each polling cycle instead of renderCorrelationCharts so that the
+// brush chart zoom set by the user is not destroyed by a full re-render.
+// Uses Plotly.restyle to swap trace x/y data without touching the layout
+// (which holds the current xaxis.range / zoom state).
+//
+export function updateCorrelationData(data) {
+  if (!data || data.length === 0) return;
+  _fullData = data;
+
+  const brushEl = document.getElementById("corrBrushPlot");
+  if (brushEl && brushEl.data && brushEl.data.length > 0) {
+    const ts   = data.map(d => new Date(d.timestamp));
+    const tvoc = data.map(d => d.tvoc);
+    const eco2 = data.map(d => d.eco2);
+    const pm25 = data.map(d => d.pm2_5);
+
+    // Build index / value arrays matching the trace order from _renderBrushChart
+    const traceIndices = [0, 1];
+    const update = { x: [ts, ts], y: [tvoc, eco2] };
+    if (brushEl.data.length > 2) {
+      traceIndices.push(2);
+      update.x.push(ts);
+      update.y.push(pm25);
+    }
+    Plotly.restyle(brushEl, update, traceIndices);
+  }
+
+  // When the user hasn't zoomed in, keep the scatter plots and inference panel
+  // current.  When they have zoomed in, leave those panels showing their
+  // selection — they will update naturally when they reset or re-select.
+  if (!_isSubset) {
+    _renderScatterCharts(data);
+    _renderInferencePanel(data, data);
   }
 }
 

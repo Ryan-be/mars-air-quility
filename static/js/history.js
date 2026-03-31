@@ -1,7 +1,7 @@
 import { toggleTheme, isLight, themeLayout } from './theme.js';
 import { renderSensorCharts } from './charts.js';
 import { renderEnvCharts } from './charts_env.js';
-import { renderCorrelationCharts } from './charts_correlation.js';
+import { renderCorrelationCharts, updateCorrelationData } from './charts_correlation.js';
 import { renderPatternCharts } from './charts_patterns.js';
 
 window.toggleTheme = () => toggleTheme(() => { _rendered = {}; renderActiveTab(); });
@@ -56,9 +56,18 @@ async function fetchData() {
       document.getElementById("last-updated").textContent = "No data for selected range.";
       return;
     }
+    const corrWasRendered = !!_rendered["correlation"];
     _sensorData  = rawSensor.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
     _weatherData = Array.isArray(rawWeather) ? rawWeather : [];
     _rendered    = {};
+
+    // If the correlation tab was already rendered, update its data without
+    // destroying the user's zoom — mark it rendered so renderActiveTab skips it.
+    if (corrWasRendered) {
+      updateCorrelationData(_sensorData);
+      _rendered["correlation"] = true;
+    }
+
     renderActiveTab();
     document.getElementById("last-updated").textContent =
       "Last updated: " + new Date().toLocaleString();
