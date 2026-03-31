@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 _hw_mocks = [
     "board", "busio",
     "adafruit_ahtx0", "adafruit_sgp30",
-    "pimoroni_mics6814",
+    "mics6814",
     "authlib", "authlib.integrations", "authlib.integrations.flask_client",
 ]
 for _mod in _hw_mocks:

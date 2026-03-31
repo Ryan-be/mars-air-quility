@@ -73,7 +73,7 @@ class TestInitMics6814:
         original = mod._sensor
 
         # Temporarily remove the mock to force a real ImportError path
-        with patch.dict("sys.modules", {"pimoroni_mics6814": None}):
+        with patch.dict("sys.modules", {"mics6814": None}):
             # Reload forces re-import attempt
             import importlib
             importlib.reload(mod)
@@ -98,9 +98,9 @@ class TestInitMics6814:
         mock_cls.return_value = mock_instance
 
         mock_lib = MagicMock()
-        mock_lib.Mics6814 = mock_cls
+        mock_lib.MICS6814 = mock_cls
 
-        with patch.dict("sys.modules", {"pimoroni_mics6814": mock_lib}):
+        with patch.dict("sys.modules", {"mics6814": mock_lib}):
             result = mod.init_mics6814()
             assert result is mock_instance
             assert mod._sensor is mock_instance
@@ -113,9 +113,9 @@ class TestInitMics6814:
 
         mock_cls = MagicMock(side_effect=OSError("No device"))
         mock_lib = MagicMock()
-        mock_lib.Mics6814 = mock_cls
+        mock_lib.MICS6814 = mock_cls
 
-        with patch.dict("sys.modules", {"pimoroni_mics6814": mock_lib}):
+        with patch.dict("sys.modules", {"mics6814": mock_lib}):
             result = mod.init_mics6814()
             assert result is None
             assert mod._sensor is None

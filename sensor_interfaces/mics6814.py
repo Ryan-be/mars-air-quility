@@ -26,8 +26,8 @@ def init_mics6814():
     """
     global _sensor
     try:
-        from pimoroni_mics6814 import Mics6814
-        _sensor = Mics6814()
+        from mics6814 import MICS6814
+        _sensor = MICS6814()
         # Do a test read to confirm the sensor is responding
         reading = _sensor.read_all()
         log.info(
@@ -36,7 +36,7 @@ def init_mics6814():
         )
         return _sensor
     except ImportError:
-        log.warning("pimoroni_mics6814 library not installed -- gas sensor disabled")
+        log.warning("mics6814 library not installed -- gas sensor disabled")
         _sensor = None
         return None
     except (OSError, ValueError) as exc:
