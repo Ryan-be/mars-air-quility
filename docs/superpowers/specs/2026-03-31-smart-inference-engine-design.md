@@ -20,6 +20,52 @@ This is a large, iterative refactor. The design is structured so that each phase
 - Lay groundwork for Layer B: Google Coral / online ML in a future phase
 - UI to configure rules and fingerprints, and to display attribution results intuitively
 
+## Insight Categories
+
+Five categories replace the current set. Attribution results enrich cards within these categories — they don't form a category of their own.
+
+| Category | Contains | Replaces |
+|----------|---------|---------|
+| **Alert** | Critical threshold breaches requiring immediate action — CO₂ danger, CO spike, combustion detected, sustained poor air | Alerts |
+| **Warning** | Conditions worth addressing — humidity high, mould risk, VPD extreme, temp extreme, TVOC spike | Warnings |
+| **Anomaly** | River statistical detections — statistically unusual readings that may or may not indicate a problem | (new) |
+| **Pattern** | Temporal trends — overnight CO₂ buildup, daily pollution peaks, recurring correlations | Patterns |
+| **Summary** | Periodic reports — hourly and daily | Summaries |
+
+"Other" is retired. Annotation context events are reclassified into Anomaly or Pattern based on what triggered them.
+
+### DB migration
+Existing inference records use the old category set. A one-time migration script reclassifies all existing rows by `event_type` → new category mapping before Phase 3 goes live. No schema column changes required — only data values update.
+
+```python
+# event_type → new category mapping (migration script)
+RECLASSIFY = {
+    "tvoc_spike":           "alert",
+    "eco2_danger":          "alert",
+    "eco2_elevated":        "alert",
+    "correlated_pollution": "alert",
+    "sustained_poor_air":   "alert",
+    "mould_risk":           "warning",
+    "temp_high":            "warning",
+    "temp_low":             "warning",
+    "humidity_high":        "warning",
+    "humidity_low":         "warning",
+    "vpd_low":              "warning",
+    "vpd_high":             "warning",
+    "rapid_temp_change":    "warning",
+    "rapid_humidity_change":"warning",
+    "daily_pattern":        "pattern",
+    "overnight_buildup":    "pattern",
+    "annotation_context":   "pattern",
+    "hourly_summary":       "summary",
+    "daily_summary":        "summary",
+}
+```
+
+Migration runs once, is idempotent, and is included as part of Phase 3 deployment.
+
+---
+
 ## Non-Goals (this phase)
 
 - ML-based adaptive thresholds (Layer B — future)
