@@ -15,6 +15,29 @@ function trend(current, previous) {
 let _lastIndoorTemp = null;
 let _lastIndoorHum  = null;
 
+// ── Gas sensor trend history (resistance in Ω; lower = higher concentration) ──
+let _gasCoHistory  = [];
+let _gasNo2History = [];
+let _gasNh3History = [];
+
+// Returns % by which gas concentration has risen vs the session average.
+// Positive = resistance dropped = gas level rising.
+function _gasTrendPct(vals) {
+  const v = vals.filter(x => x != null);
+  if (v.length < 2) return 0;
+  const current = v.at(-1);
+  const avg = v.reduce((a, b) => a + b, 0) / v.length;
+  if (avg === 0) return 0;
+  return (avg - current) / avg * 100;
+}
+
+function _gasTrendInfo(pct) {
+  if (pct > 15) return { arrow: "↑↑", text: "rising fast", cls: "gas-bad" };
+  if (pct > 5)  return { arrow: "↑",  text: "rising",      cls: "gas-warn" };
+  if (pct < -5) return { arrow: "↓",  text: "falling",     cls: "gas-good" };
+  return { arrow: "→", text: "stable", cls: "" };
+}
+
 function _pm25Class(v) {
   if (v == null) return "";
   if (v <= 12)  return "pm-good";
@@ -54,13 +77,41 @@ function _updatePmCard(pm25, prevPm25, pm1, pm10, pmStale, pmTimestamp) {
   }
 }
 
-function _updateGasCard(co, no2, nh3) {
-  const coEl  = document.getElementById("gasCoValue");
-  const no2El = document.getElementById("gasNo2SubValue");
-  const nh3El = document.getElementById("gasNh3SubValue");
-  if (coEl)  coEl.textContent  = co  != null ? `CO: ${co}`  : "--";
-  if (no2El) no2El.textContent = no2 != null ? `${no2}` : "--";
-  if (nh3El) nh3El.textContent = nh3 != null ? `${nh3}` : "--";
+function _updateGasCard() {
+  const co  = _gasCoHistory.at(-1)  ?? null;
+  const no2 = _gasNo2History.at(-1) ?? null;
+  const nh3 = _gasNh3History.at(-1) ?? null;
+
+  const coTrend  = _gasTrendInfo(_gasTrendPct(_gasCoHistory));
+  const no2Trend = _gasTrendInfo(_gasTrendPct(_gasNo2History));
+  const nh3Trend = _gasTrendInfo(_gasTrendPct(_gasNh3History));
+
+  // Worst trend of the three drives the card colour
+  const maxPct   = Math.max(
+    _gasTrendPct(_gasCoHistory),
+    _gasTrendPct(_gasNo2History),
+    _gasTrendPct(_gasNh3History),
+  );
+  const cardTrend = _gasTrendInfo(maxPct);
+
+  const coEl    = document.getElementById("gasCoValue");
+  const trendEl = document.getElementById("gasTrend");
+  const no2El   = document.getElementById("gasNo2SubValue");
+  const nh3El   = document.getElementById("gasNh3SubValue");
+  const card    = coEl?.closest(".stat-card");
+
+  if (coEl)   coEl.textContent   = co  != null ? `${co} Ω` : "--";
+  if (trendEl) {
+    trendEl.textContent = co != null ? `CO ${coTrend.arrow} ${coTrend.text}` : "--";
+    trendEl.className   = `gas-trend${coTrend.cls ? ` ${coTrend.cls}` : ""}`;
+  }
+  if (no2El) no2El.textContent = no2 != null ? `${no2} Ω ${no2Trend.arrow}` : "--";
+  if (nh3El) nh3El.textContent = nh3 != null ? `${nh3} Ω ${nh3Trend.arrow}` : "--";
+
+  if (card) {
+    card.classList.remove("gas-good", "gas-warn", "gas-bad");
+    if (cardTrend.cls) card.classList.add(cardTrend.cls);
+  }
 }
 
 function _timeAgo(date) {
@@ -105,7 +156,10 @@ async function fetchData() {
     `${trend(currentTvoc, tvoc.at(-2))}${currentTvoc ?? "--"} ppb`;
 
   _updatePmCard(currentPm25, pm25.at(-2), currentPm1, currentPm10);
-  _updateGasCard(data.at(-1)?.gas_co ?? null, data.at(-1)?.gas_no2 ?? null, data.at(-1)?.gas_nh3 ?? null);
+  _gasCoHistory  = data.map(d => d.gas_co).filter(v => v != null);
+  _gasNo2History = data.map(d => d.gas_no2).filter(v => v != null);
+  _gasNh3History = data.map(d => d.gas_nh3).filter(v => v != null);
+  _updateGasCard();
 
   _lastIndoorTemp = currentTemp;
   _lastIndoorHum  = currentHum;
@@ -569,7 +623,10 @@ function connectSSE() {
     document.getElementById("tvocValue").textContent =
       `${trend(d.tvoc, null)}${d.tvoc ?? "--"} ppb`;
     _updatePmCard(d.pm2_5, null, d.pm1_0 ?? null, d.pm10 ?? null, d.pm_stale, d.pm_timestamp);
-    _updateGasCard(d.gas_co ?? null, d.gas_no2 ?? null, d.gas_nh3 ?? null);
+    if (d.gas_co  != null) { _gasCoHistory.push(d.gas_co);   if (_gasCoHistory.length  > 30) _gasCoHistory.shift(); }
+    if (d.gas_no2 != null) { _gasNo2History.push(d.gas_no2); if (_gasNo2History.length > 30) _gasNo2History.shift(); }
+    if (d.gas_nh3 != null) { _gasNh3History.push(d.gas_nh3); if (_gasNh3History.length > 30) _gasNh3History.shift(); }
+    _updateGasCard();
     _lastIndoorTemp = t;
     _lastIndoorHum  = h;
     updateInsights(t, h, d.tvoc, d.eco2, [d.eco2]);

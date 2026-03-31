@@ -30,18 +30,27 @@
 {% block content %}
 
   <div class="tab-bar">
-    <button class="tab-btn tab-active" data-tab="sensors">🌡️ Sensors</button>
-    <button class="tab-btn" data-tab="gas">🔥 Gas</button>
+    <button class="tab-btn tab-active" data-tab="climate">🌡️ Climate</button>
+    <button class="tab-btn" data-tab="air-quality">🧪 Air Quality</button>
     <button class="tab-btn" data-tab="particulate">🌫️ Particulate</button>
     <button class="tab-btn" data-tab="environment">🌿 Environment</button>
     <button class="tab-btn" data-tab="correlation">🔍 Correlation</button>
     <button class="tab-btn" data-tab="patterns">📅 Patterns</button>
   </div>
 
-  <div class="tab-panel" id="tab-sensors">
+  <!-- Climate tab: temperature and humidity only -->
+  <div class="tab-panel" id="tab-climate">
     <div class="plot-container">
       <div id="tempPlot"></div>
       <div id="humPlot"></div>
+    </div>
+  </div>
+
+  <!-- Air Quality tab: SGP30 (eCO₂/TVOC) + MICS6814 (CO/NO₂/NH₃) -->
+  <div class="tab-panel tab-hidden" id="tab-air-quality">
+
+    <div class="aq-section-title">🫁 SGP30 — eCO₂ &amp; TVOC</div>
+    <div class="plot-container">
       <div id="eco2Plot"></div>
       <div id="tvocPlot"></div>
     </div>
@@ -53,32 +62,34 @@
         <div class="tvoc-level"><span class="color-dot red"></span>&gt;500 ppb High</div>
       </div>
     </div>
-  </div>
 
-  <div class="tab-panel tab-hidden" id="tab-gas">
+    <div class="aq-section-title">🔥 MICS6814 — Combustion Gases</div>
     <div class="pm-summary" id="gasSummary">
       <div class="pm-summary-card">
         <div class="label">CO</div>
         <div class="value" id="gasSumCo">--</div>
-        <div class="sub">avg</div>
+        <div class="sub">avg Ω</div>
       </div>
       <div class="pm-summary-card">
-        <div class="label">NO2</div>
+        <div class="label">NO₂</div>
         <div class="value" id="gasSumNo2">--</div>
-        <div class="sub">avg</div>
+        <div class="sub">avg Ω</div>
       </div>
       <div class="pm-summary-card">
-        <div class="label">NH3</div>
+        <div class="label">NH₃</div>
         <div class="value" id="gasSumNh3">--</div>
-        <div class="sub">avg</div>
+        <div class="sub">avg Ω</div>
       </div>
+    </div>
+    <div class="pm-who-key">
+      <span class="pm-key-title">Resistance readings — lower Ω = higher gas concentration. Track trends, not absolute values.</span>
     </div>
 
     <div class="plot-container">
       <div class="chart-wrapper">
         <div class="chart-header" style="position:relative">
           <button class="chart-info-btn" data-info="gasTimeSeries" aria-label="Chart info">i</button>
-          <div class="chart-info-popup" id="info-gasTimeSeries">Time-series of CO, NO2, and NH3 readings from the MICS6814 gas sensor. Values are analogue resistance readings — track trends rather than absolute numbers. Spikes in CO or NO2 may indicate combustion or vehicle exhaust; NH3 spikes suggest cleaning products or biological sources.</div>
+          <div class="chart-info-popup" id="info-gasTimeSeries">Time-series of CO, NO₂, and NH₃ resistance readings from the MICS6814 gas sensor. Values are in Ohms — <strong>lower resistance means higher gas concentration</strong>. Track trends rather than absolute values. A sustained downward trend warrants investigation. CO spikes may indicate combustion; NH₃ spikes suggest cleaning products or biological sources.</div>
         </div>
         <div id="gasTimeSeriesPlot"></div>
       </div>
@@ -89,9 +100,9 @@
         <thead>
           <tr>
             <th>Time</th>
-            <th>CO</th>
-            <th>NO2</th>
-            <th>NH3</th>
+            <th>CO (Ω)</th>
+            <th>NO₂ (Ω)</th>
+            <th>NH₃ (Ω)</th>
           </tr>
         </thead>
         <tbody id="gasTableBody">

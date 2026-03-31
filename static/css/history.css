@@ -84,6 +84,20 @@ body.light .chart-info-btn:hover  { background: #eee; color: #333; }
 .chart-info-popup.visible { display: block; }
 body.light .chart-info-popup { background: #fff; border-color: #ddd; color: #555; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
 
+/* ── Air Quality tab section headers ── */
+.aq-section-title {
+  font-size: 0.82em;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 1.25em 0 0.6em;
+  padding: 0.45em 0.75em;
+  border-left: 3px solid #444;
+  background: #1a1a1a;
+  border-radius: 0 6px 6px 0;
+}
+body.light .aq-section-title { color: #888; background: #f5f5f5; border-left-color: #ccc; }
+
 /* ── Correlation brush & inference ── */
 .corr-brush-section {
   background: #1a1a1a;
