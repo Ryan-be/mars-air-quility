@@ -1812,6 +1812,36 @@ typing = ["typing-extensions ; python_version < \"3.10\""]
 xmp = ["defusedxml"]
 
 [[package]]
+name = "pimoroni-ioexpander"
+version = "1.0.1"
+description = "Python library for the Pimoroni IO Expander"
+optional = false
+python-versions = ">=3.7"
+groups = ["main"]
+files = [
+    {file = "pimoroni_ioexpander-1.0.1-py3-none-any.whl", hash = "sha256:11495fe509c40cbcc60e2ff6077e58416d896493fe746a7ac58878170f899180"},
+    {file = "pimoroni_ioexpander-1.0.1.tar.gz", hash = "sha256:7a647b4e3032c06c381857ca254780c269f0c94df0fbd604dcaa561e1df6f387"},
+]
+
+[package.dependencies]
+smbus2 = ">=0.4.0"
+
+[[package]]
+name = "pimoroni-mics6814"
+version = "1.0.0"
+description = "Library for the Pimoroni mics6814 breakout-garden breakout"
+optional = false
+python-versions = ">=3.7"
+groups = ["main"]
+files = [
+    {file = "pimoroni_mics6814-1.0.0-py3-none-any.whl", hash = "sha256:b408a35b13ff623b5c817a682966903b1a299cf69e0d2c21aeef07d1730d3639"},
+    {file = "pimoroni_mics6814-1.0.0.tar.gz", hash = "sha256:f27dea84ce43202db911e1967074728de75eb6f7ba7318d44defa4128918eacc"},
+]
+
+[package.dependencies]
+pimoroni-ioexpander = ">=1.0.0"
+
+[[package]]
 name = "pluggy"
 version = "1.6.0"
 description = "plugin and hook calling mechanisms for python"
@@ -2177,6 +2207,22 @@ files = [
 ]
 
 [[package]]
+name = "smbus2"
+version = "0.6.0"
+description = "smbus2 is a drop-in replacement for smbus-cffi/smbus-python in pure Python"
+optional = false
+python-versions = "*"
+groups = ["main"]
+files = [
+    {file = "smbus2-0.6.0-py2.py3-none-any.whl", hash = "sha256:03d83d2a9a4afc5ddca0698ccabf101cb3de52bc5aefd7b76778ffb27ff654e0"},
+    {file = "smbus2-0.6.0.tar.gz", hash = "sha256:9b5ff1e998e114730f9dfe0c4babbef06c92468cfb61eaa684e30f225661b95b"},
+]
+
+[package.extras]
+docs = ["sphinx (>=1.5.3)"]
+qa = ["flake8"]
+
+[[package]]
 name = "sysv-ipc"
 version = "1.1.0"
 description = "System V IPC primitives (semaphores, shared memory and message queues) for Python"
@@ -2399,4 +2445,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "4aa4936743b69603207b293bc0d3d10926bb3f5df496245f1baad3a8d69a216a"
+content-hash = "577a001b7095f1e3781be5c1050ac40778087c1bafb4d84605d8e067be1d4e70"
