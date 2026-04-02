@@ -177,6 +177,16 @@ class DataSource(ABC):
 ### Future extension (Phase 6)
 - `UserAnnotationSource` — user-entered context ("just painted", "cooking") feeds into attribution as soft evidence
 
+### Adding a new sensor (e.g. pressure, methane)
+
+Four changes, no layer boundary crossed:
+1. Add field to `NormalisedReading` and `merge_readings._SENSOR_FIELDS`
+2. Write a `DataSource` subclass wrapping the sensor interface
+3. Register it in `_data_sources` in `app.py`
+4. Reference the new field in `config/rules.yaml` and/or `config/fingerprints.yaml`
+
+All downstream layers (`HotTier`, `FeatureExtractor`, rule engine, attribution scorer) handle `None` fields gracefully — they skip fields the sensor doesn't provide.
+
 ---
 
 ## Layer 2 — Storage (Two-Tier)
