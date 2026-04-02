@@ -33,6 +33,14 @@ from sensor_interfaces.aht20 import read_aht20
 from sensor_interfaces.mics6814 import init_mics6814, read_mics6814
 from sensor_interfaces.sb_components_pm_sensor import init_pm_sensor, read_pm
 from sensor_interfaces.sgp30 import read_sgp30
+from mlss_monitor.hot_tier import HotTier
+from mlss_monitor.data_sources import (
+    SGP30Source,
+    AHT20Source,
+    ParticulateSource,
+    MICS6814Source,
+    merge_readings,
+)
 
 log = logging.getLogger(__name__)
 
@@ -174,6 +182,16 @@ if pm_sensor:
 mics6814_sensor = init_mics6814()
 if mics6814_sensor:
     state.mics6814 = mics6814_sensor
+
+# --- Hot tier and data source abstraction (parallel addition) ---
+hot_tier = HotTier(maxlen=3600)
+
+_data_sources = [
+    SGP30Source(),
+    AHT20Source(),
+    ParticulateSource(),    # uses module-level read_pm() — no arg needed
+    MICS6814Source(),
+]
 
 # ── Smart plug & async event loop ────────────────────────────────────────────
 
@@ -423,6 +441,27 @@ def _background_log():
         time.sleep(LOG_INTERVAL)
 
 
+def _sensor_read_loop() -> None:
+    """Reads all DataSources every second, merges into one NormalisedReading,
+    and pushes to the hot tier. Does not write to DB.
+    """
+    while True:
+        try:
+            readings = []
+            for source in _data_sources:
+                try:
+                    readings.append(source.get_latest())
+                except Exception as exc:
+                    app.logger.warning(
+                        "DataSource %s read failed: %s", source.name, exc
+                    )
+            if readings:
+                hot_tier.push(merge_readings(readings))
+        except Exception as exc:
+            app.logger.error("_sensor_read_loop unexpected error: %s", exc)
+        time.sleep(1)
+
+
 def _weather_log_once():
     """Fetch weather + forecasts and broadcast via SSE.  Extracted from
     the loop so it can be called from tests."""
@@ -509,6 +548,7 @@ def main():
 
     Thread(target=_background_log, daemon=True).start()
     Thread(target=_weather_log_loop, daemon=True).start()
+    Thread(target=_sensor_read_loop, daemon=True).start()
 
     ssl_ctx = _build_ssl_context()
     port = 5000
