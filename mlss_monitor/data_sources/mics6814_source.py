@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 
 from sensor_interfaces.mics6814 import read_mics6814
 from .base import DataSource, NormalisedReading
+
+logger = logging.getLogger(__name__)
 
 
 class MICS6814Source(DataSource):
@@ -14,7 +17,8 @@ class MICS6814Source(DataSource):
     def get_latest(self) -> NormalisedReading:
         try:
             co, no2, nh3 = read_mics6814()
-        except Exception:
+        except Exception as exc:
+            logger.warning("MICS6814Source: read_mics6814() failed: %s", exc)
             co, no2, nh3 = None, None, None
         return NormalisedReading(
             timestamp=datetime.now(timezone.utc),
