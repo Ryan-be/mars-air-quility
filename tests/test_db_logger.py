@@ -49,7 +49,7 @@ def test_get_24h_baselines_returns_medians(tmp_path):
     assert result["pm25_ug_m3"] == pytest.approx(10.0)
     assert result["co_ppb"] == pytest.approx(1.5)
     assert result["no2_ppb"] == pytest.approx(0.07)
-    assert result["nh3_ppb"] == pytest.approx(7.0, abs=0.1)  # median of [6, 7, 8]
+    assert result["nh3_ppb"] == pytest.approx(7.0)  # median of [6, 7, 8]
 
 
 def test_get_24h_baselines_returns_none_when_no_data(tmp_path):

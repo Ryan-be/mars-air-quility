@@ -487,25 +487,28 @@ def get_recent_inference_by_type(event_type, hours=1):
     return row is not None
 
 
+_DB_COLUMNS = (
+    ("tvoc",        "tvoc_ppb"),
+    ("eco2",        "eco2_ppm"),
+    ("temperature", "temperature_c"),
+    ("humidity",    "humidity_pct"),
+    ("pm2_5",       "pm25_ug_m3"),
+    ("gas_co",      "co_ppb"),
+    ("gas_no2",     "no2_ppb"),
+    ("gas_nh3",     "nh3_ppb"),
+)
+
+
 def get_24h_baselines() -> dict[str, float | None]:
     """Return 24-hour median for each sensor channel, keyed by NormalisedReading field name.
 
     Queries the last 24 hours of sensor_data. Returns None for any channel
     that has no readings in that window.
     """
-    _DB_COLUMNS = (
-        ("tvoc",        "tvoc_ppb"),
-        ("eco2",        "eco2_ppm"),
-        ("temperature", "temperature_c"),
-        ("humidity",    "humidity_pct"),
-        ("pm2_5",       "pm25_ug_m3"),
-        ("gas_co",      "co_ppb"),
-        ("gas_no2",     "no2_ppb"),
-        ("gas_nh3",     "nh3_ppb"),
-    )
     cols = ", ".join(col for col, _ in _DB_COLUMNS)
     cutoff = (datetime.utcnow() - timedelta(hours=24)).isoformat()
 
+    conn = None
     try:
         conn = sqlite3.connect(DB_FILE)
         rows = conn.execute(
@@ -513,7 +516,8 @@ def get_24h_baselines() -> dict[str, float | None]:
             (cutoff,),
         ).fetchall()
     finally:
-        conn.close()
+        if conn:
+            conn.close()
 
     result: dict[str, float | None] = {}
     for i, (_, nr_field) in enumerate(_DB_COLUMNS):
