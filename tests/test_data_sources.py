@@ -184,3 +184,15 @@ def test_mics6814_source_handles_none_tuple():
         assert reading.co_ppb is None
         assert reading.no2_ppb is None
         assert reading.nh3_ppb is None
+
+
+def test_mics6814_source_handles_exception():
+    with patch(
+        "mlss_monitor.data_sources.mics6814_source.read_mics6814",
+        side_effect=Exception("sensor error"),
+    ):
+        source = MICS6814Source()
+        reading = source.get_latest()
+        assert reading.co_ppb is None
+        assert reading.no2_ppb is None
+        assert reading.nh3_ppb is None
