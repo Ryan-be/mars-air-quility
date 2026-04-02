@@ -71,3 +71,48 @@ def test_merge_readings_empty_list():
     assert merged.tvoc_ppb is None
     assert merged.source == "merged"
     assert before <= merged.timestamp <= after
+
+
+from unittest.mock import patch
+from mlss_monitor.data_sources.sgp30_source import SGP30Source
+from mlss_monitor.data_sources.aht20_source import AHT20Source
+
+
+def test_sgp30_source_name():
+    with patch("mlss_monitor.data_sources.sgp30_source.read_sgp30", return_value=(850, 120)):
+        source = SGP30Source()
+        assert source.name == "sgp30"
+
+
+def test_sgp30_source_returns_reading():
+    with patch("mlss_monitor.data_sources.sgp30_source.read_sgp30", return_value=(850, 120)):
+        source = SGP30Source()
+        reading = source.get_latest()
+        assert reading.eco2_ppm == 850.0
+        assert reading.tvoc_ppb == 120.0
+        assert reading.source == "sgp30"
+        assert reading.temperature_c is None
+
+
+def test_sgp30_source_handles_none():
+    with patch("mlss_monitor.data_sources.sgp30_source.read_sgp30", return_value=(None, None)):
+        source = SGP30Source()
+        reading = source.get_latest()
+        assert reading.eco2_ppm is None
+        assert reading.tvoc_ppb is None
+
+
+def test_aht20_source_name():
+    with patch("mlss_monitor.data_sources.aht20_source.read_aht20", return_value=(21.5, 55.0)):
+        source = AHT20Source()
+        assert source.name == "aht20"
+
+
+def test_aht20_source_returns_reading():
+    with patch("mlss_monitor.data_sources.aht20_source.read_aht20", return_value=(21.5, 55.0)):
+        source = AHT20Source()
+        reading = source.get_latest()
+        assert reading.temperature_c == 21.5
+        assert reading.humidity_pct == 55.0
+        assert reading.source == "aht20"
+        assert reading.tvoc_ppb is None
