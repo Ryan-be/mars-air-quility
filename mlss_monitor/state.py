@@ -20,6 +20,7 @@ sgp30 = None
 pm_sensor = None
 mics6814 = None
 hot_tier = None
+feature_vector = None
 
 # API clients
 open_meteo = None

@@ -19,7 +19,7 @@ from flask import Flask, redirect, request, session, url_for
 
 from config import config
 from database.db_logger import (
-    cleanup_old_weather, get_fan_settings, get_location,
+    cleanup_old_weather, get_24h_baselines, get_fan_settings, get_location,
     log_sensor_data, log_weather,
 )
 from database.init_db import create_db
@@ -34,6 +34,7 @@ from sensor_interfaces.mics6814 import init_mics6814, read_mics6814
 from sensor_interfaces.sb_components_pm_sensor import init_pm_sensor, read_pm
 from sensor_interfaces.sgp30 import read_sgp30
 from mlss_monitor.hot_tier import HotTier
+from mlss_monitor.feature_extractor import FeatureExtractor
 from mlss_monitor.data_sources import (
     SGP30Source,
     AHT20Source,
@@ -193,6 +194,8 @@ _data_sources = [
     ParticulateSource(),    # uses module-level read_pm() — no arg needed
     MICS6814Source(),
 ]
+
+_feature_extractor = FeatureExtractor()
 
 # ── Smart plug & async event loop ────────────────────────────────────────────
 
@@ -412,6 +415,13 @@ def _background_log():
             log_data()
         except Exception as e:
             log.error("Error in background log loop: %s", e)
+
+        try:
+            baselines = get_24h_baselines()
+            hot_snap = state.hot_tier.snapshot() if state.hot_tier else []
+            state.feature_vector = _feature_extractor.extract(hot_snap, baselines)
+        except Exception as exc:
+            log.error("FeatureExtractor error: %s", exc)
 
         _log_cycle += 1
 
