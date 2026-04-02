@@ -116,3 +116,71 @@ def test_aht20_source_returns_reading():
         assert reading.humidity_pct == 55.0
         assert reading.source == "aht20"
         assert reading.tvoc_ppb is None
+
+
+from mlss_monitor.data_sources.pm_source import ParticulateSource
+from mlss_monitor.data_sources.mics6814_source import MICS6814Source
+
+
+def test_particulate_source_name():
+    source = ParticulateSource()
+    assert source.name == "pm_sensor"
+
+
+def test_particulate_source_returns_pm25():
+    with patch(
+        "mlss_monitor.data_sources.pm_source.read_pm",
+        return_value={"pm1_0": 5, "pm2_5": 12, "pm10": 18},
+    ):
+        source = ParticulateSource()
+        reading = source.get_latest()
+        assert reading.pm25_ug_m3 == 12.0
+        assert reading.source == "pm_sensor"
+        assert reading.tvoc_ppb is None
+
+
+def test_particulate_source_handles_none():
+    with patch("mlss_monitor.data_sources.pm_source.read_pm", return_value=None):
+        source = ParticulateSource()
+        reading = source.get_latest()
+        assert reading.pm25_ug_m3 is None
+
+
+def test_particulate_source_handles_exception():
+    with patch(
+        "mlss_monitor.data_sources.pm_source.read_pm",
+        side_effect=Exception("UART timeout"),
+    ):
+        source = ParticulateSource()
+        reading = source.get_latest()
+        assert reading.pm25_ug_m3 is None
+
+
+def test_mics6814_source_name():
+    source = MICS6814Source()
+    assert source.name == "mics6814"
+
+
+def test_mics6814_source_returns_gas_readings():
+    with patch(
+        "mlss_monitor.data_sources.mics6814_source.read_mics6814",
+        return_value=(1.23, 0.05, 8.7),
+    ):
+        source = MICS6814Source()
+        reading = source.get_latest()
+        assert reading.co_ppb == 1.23
+        assert reading.no2_ppb == 0.05
+        assert reading.nh3_ppb == 8.7
+        assert reading.source == "mics6814"
+
+
+def test_mics6814_source_handles_none_tuple():
+    with patch(
+        "mlss_monitor.data_sources.mics6814_source.read_mics6814",
+        return_value=(None, None, None),
+    ):
+        source = MICS6814Source()
+        reading = source.get_latest()
+        assert reading.co_ppb is None
+        assert reading.no2_ppb is None
+        assert reading.nh3_ppb is None
