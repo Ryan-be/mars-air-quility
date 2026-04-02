@@ -206,3 +206,106 @@ def test_extract_no_baseline_gives_none_for_ratio():
     assert fv.tvoc_baseline is None
     assert fv.tvoc_peak_ratio is None
     assert fv.tvoc_elevated_minutes is None
+
+
+# ── Task 3: Cross-sensor and derived features ────────────────────────────────
+
+def _make_readings_with_fields(
+    field_values: dict[str, list[float | None]],
+    seconds_between: int = 1,
+) -> list[NormalisedReading]:
+    """Build synthetic readings with multiple fields set.
+
+    field_values: {field_name: [v0, v1, ..., vN]} — all lists must be same length.
+    """
+    now = datetime.now(timezone.utc)
+    keys = list(field_values.keys())
+    n = len(field_values[keys[0]])
+    readings = []
+    for i in range(n):
+        ts = now - timedelta(seconds=(n - 1 - i) * seconds_between)
+        kwargs = {k: field_values[k][i] for k in keys}
+        readings.append(NormalisedReading(timestamp=ts, source="test", **kwargs))
+    return readings
+
+
+# ── NH3 lag ──────────────────────────────────────────────────────────────────
+
+def test_nh3_lag_detected():
+    """NH3 peaks 30 seconds after TVOC peak → lag = 30.0."""
+    tvoc_vals = [100.0] * 50 + [500.0] + [100.0] * 69  # peak at index 50
+    nh3_vals  = [10.0]  * 80 + [80.0]  + [10.0]  * 39  # peak at index 80
+
+    readings = _make_readings_with_fields({"tvoc_ppb": tvoc_vals, "nh3_ppb": nh3_vals})
+    fv = FeatureExtractor().extract(readings, {})
+    assert fv.nh3_lag_behind_tvoc_seconds is not None
+    assert 25.0 <= fv.nh3_lag_behind_tvoc_seconds <= 35.0
+
+
+def test_nh3_lag_none_when_nh3_before_tvoc():
+    """NH3 peaked before TVOC → no lag (None)."""
+    tvoc_vals = [100.0] * 80 + [500.0] + [100.0] * 39  # peak at index 80
+    nh3_vals  = [10.0]  * 50 + [80.0]  + [10.0]  * 69  # peak at index 50
+    readings = _make_readings_with_fields({"tvoc_ppb": tvoc_vals, "nh3_ppb": nh3_vals})
+    fv = FeatureExtractor().extract(readings, {})
+    assert fv.nh3_lag_behind_tvoc_seconds is None
+
+
+def test_nh3_lag_none_when_lag_too_large():
+    """NH3 peaked 150 seconds after TVOC → beyond 120s limit → None."""
+    tvoc_vals = [500.0] + [100.0] * 170  # peak at index 0
+    nh3_vals  = [10.0]  * 150 + [80.0] + [10.0] * 20  # peak at index 150
+    readings = _make_readings_with_fields({"tvoc_ppb": tvoc_vals, "nh3_ppb": nh3_vals})
+    fv = FeatureExtractor().extract(readings, {})
+    assert fv.nh3_lag_behind_tvoc_seconds is None
+
+
+# ── PM2.5 correlation ────────────────────────────────────────────────────────
+
+def test_pm25_correlated_with_tvoc_true():
+    """Both TVOC and PM2.5 rising → correlated = True."""
+    n = 300  # 5 minutes
+    tvoc_vals = [float(100 + i) for i in range(n)]
+    pm25_vals = [float(10 + i * 0.1) for i in range(n)]
+    readings = _make_readings_with_fields({"tvoc_ppb": tvoc_vals, "pm25_ug_m3": pm25_vals})
+    baselines = {"tvoc_ppb": 100.0, "pm25_ug_m3": 10.0}
+    fv = FeatureExtractor().extract(readings, baselines)
+    assert fv.pm25_correlated_with_tvoc is True
+
+
+def test_pm25_correlated_with_tvoc_false():
+    """TVOC rising, PM2.5 flat → not correlated."""
+    n = 300
+    tvoc_vals = [float(100 + i) for i in range(n)]
+    pm25_vals = [10.0] * n
+    readings = _make_readings_with_fields({"tvoc_ppb": tvoc_vals, "pm25_ug_m3": pm25_vals})
+    baselines = {"tvoc_ppb": 100.0, "pm25_ug_m3": 10.0}
+    fv = FeatureExtractor().extract(readings, baselines)
+    assert fv.pm25_correlated_with_tvoc is False
+
+
+def test_pm25_correlated_none_when_no_data():
+    """No PM2.5 readings → None."""
+    readings = _make_tvoc_readings([float(i) for i in range(60)])
+    fv = FeatureExtractor().extract(readings, {})
+    assert fv.pm25_correlated_with_tvoc is None
+
+
+# ── VPD ──────────────────────────────────────────────────────────────────────
+
+def test_vpd_computed_from_temp_and_humidity():
+    now = datetime.now(timezone.utc)
+    readings = [NormalisedReading(
+        timestamp=now, source="test", temperature_c=21.0, humidity_pct=60.0
+    )]
+    fv = FeatureExtractor().extract(readings, {})
+    # SVP at 21°C ≈ 2.487 kPa; VPD = 2.487 × 0.40 ≈ 0.995 kPa
+    assert fv.vpd_kpa is not None
+    assert 0.9 < fv.vpd_kpa < 1.1
+
+
+def test_vpd_none_when_no_temperature():
+    now = datetime.now(timezone.utc)
+    readings = [NormalisedReading(timestamp=now, source="test", humidity_pct=60.0)]
+    fv = FeatureExtractor().extract(readings, {})
+    assert fv.vpd_kpa is None

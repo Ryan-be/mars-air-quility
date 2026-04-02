@@ -145,6 +145,53 @@ def _sensor_features(
     }
 
 
+def _nh3_lag_behind_tvoc(
+    readings: list[NormalisedReading], max_lag_seconds: float = 120.0
+) -> float | None:
+    """Return NH3 lag behind TVOC peak in seconds, or None.
+
+    Looks for the peak of each sensor in the readings window.
+    Returns the lag only if TVOC peaked before NH3 and lag <= max_lag_seconds.
+    """
+    tvoc_peak_ts: datetime | None = None
+    tvoc_peak_val: float = 0.0
+    nh3_peak_ts: datetime | None = None
+    nh3_peak_val: float = 0.0
+
+    for r in readings:
+        if r.tvoc_ppb is not None and r.tvoc_ppb > tvoc_peak_val:
+            tvoc_peak_val = r.tvoc_ppb
+            tvoc_peak_ts = r.timestamp
+        if r.nh3_ppb is not None and r.nh3_ppb > nh3_peak_val:
+            nh3_peak_val = r.nh3_ppb
+            nh3_peak_ts = r.timestamp
+
+    if tvoc_peak_ts is None or nh3_peak_ts is None:
+        return None
+
+    lag = (nh3_peak_ts - tvoc_peak_ts).total_seconds()
+    if 0 <= lag <= max_lag_seconds:
+        return lag
+    return None
+
+
+def _sensors_correlated(
+    readings: list[NormalisedReading],
+    field_a: str,
+    field_b: str,
+    window_seconds: int = 300,
+) -> bool | None:
+    """True if both sensors have positive slope over window_seconds.
+
+    Returns None if either sensor has no data in the window.
+    """
+    slope_a = _slope(readings, field_a, window_seconds)
+    slope_b = _slope(readings, field_b, window_seconds)
+    if slope_a is None or slope_b is None:
+        return None
+    return slope_a > 0 and slope_b > 0
+
+
 # ── FeatureExtractor ─────────────────────────────────────────────────────────
 
 class FeatureExtractor:
@@ -171,10 +218,17 @@ class FeatureExtractor:
             baseline = baselines.get(nr_field)
             fields.update(_sensor_features(hot_readings, nr_field, fv_prefix, baseline))
 
-        # Cross-sensor and derived — implemented in Task 3, placeholders for now
-        fields["nh3_lag_behind_tvoc_seconds"] = None
-        fields["pm25_correlated_with_tvoc"] = None
-        fields["co_correlated_with_tvoc"] = None
-        fields["vpd_kpa"] = None
+        # Cross-sensor and derived
+        fields["nh3_lag_behind_tvoc_seconds"] = _nh3_lag_behind_tvoc(hot_readings)
+        fields["pm25_correlated_with_tvoc"] = _sensors_correlated(
+            hot_readings, "tvoc_ppb", "pm25_ug_m3"
+        )
+        fields["co_correlated_with_tvoc"] = _sensors_correlated(
+            hot_readings, "tvoc_ppb", "co_ppb"
+        )
+        fields["vpd_kpa"] = _vpd_kpa(
+            _current(hot_readings, "temperature_c"),
+            _current(hot_readings, "humidity_pct"),
+        )
 
         return FeatureVector(timestamp=datetime.now(timezone.utc), **fields)
