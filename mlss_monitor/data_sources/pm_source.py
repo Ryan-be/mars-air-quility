@@ -11,6 +11,9 @@ logger = logging.getLogger(__name__)
 
 class ParticulateSource(DataSource):
 
+    def __init__(self) -> None:
+        self._last_pm25: float | None = None
+
     @property
     def name(self) -> str:
         return "pm_sensor"
@@ -18,12 +21,12 @@ class ParticulateSource(DataSource):
     def get_latest(self) -> NormalisedReading:
         try:
             data = read_pm()
-            pm25 = float(data["pm2_5"]) if data and "pm2_5" in data else None
+            if data and "pm2_5" in data:
+                self._last_pm25 = float(data["pm2_5"])
         except Exception as exc:
             logger.warning("ParticulateSource: read_pm() failed: %s", exc)
-            pm25 = None
         return NormalisedReading(
             timestamp=datetime.now(timezone.utc),
             source=self.name,
-            pm25_ug_m3=pm25,
+            pm25_ug_m3=self._last_pm25,
         )

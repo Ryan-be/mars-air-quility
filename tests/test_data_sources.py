@@ -156,6 +156,23 @@ def test_particulate_source_handles_exception():
         assert reading.pm25_ug_m3 is None
 
 
+def test_particulate_source_returns_last_known_on_failure():
+    """After a successful read, failures return the last known pm25 value."""
+    source = ParticulateSource()
+    with patch(
+        "mlss_monitor.data_sources.pm_source.read_pm",
+        return_value={"pm1_0": 5, "pm2_5": 15.0, "pm10": 20},
+    ):
+        source.get_latest()  # prime the cache
+
+    with patch(
+        "mlss_monitor.data_sources.pm_source.read_pm",
+        side_effect=Exception("UART timeout"),
+    ):
+        reading = source.get_latest()
+        assert reading.pm25_ug_m3 == 15.0  # last known value returned
+
+
 def test_mics6814_source_name():
     source = MICS6814Source()
     assert source.name == "mics6814"
