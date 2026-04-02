@@ -196,3 +196,39 @@ def test_mics6814_source_handles_exception():
         assert reading.co_ppb is None
         assert reading.no2_ppb is None
         assert reading.nh3_ppb is None
+
+
+from unittest.mock import MagicMock
+from mlss_monitor.data_sources.weather_source import WeatherAPISource
+
+
+def test_weather_source_name():
+    source = WeatherAPISource(client=MagicMock(), lat=51.5, lon=-0.1)
+    assert source.name == "weather_api"
+
+
+def test_weather_source_returns_temp_and_humidity():
+    mock_client = MagicMock()
+    mock_client.get_current_weather.return_value = {
+        "temp": 12.3,
+        "humidity": 78.0,
+        "wind_speed": 5.2,
+        "weather_code": 3,
+        "uv_index": 1.0,
+        "feels_like": 10.1,
+    }
+    source = WeatherAPISource(client=mock_client, lat=51.5, lon=-0.1)
+    reading = source.get_latest()
+    assert reading.temperature_c == 12.3
+    assert reading.humidity_pct == 78.0
+    assert reading.source == "weather_api"
+    assert reading.tvoc_ppb is None
+
+
+def test_weather_source_handles_api_failure():
+    mock_client = MagicMock()
+    mock_client.get_current_weather.side_effect = Exception("network error")
+    source = WeatherAPISource(client=mock_client, lat=51.5, lon=-0.1)
+    reading = source.get_latest()
+    assert reading.temperature_c is None
+    assert reading.humidity_pct is None
