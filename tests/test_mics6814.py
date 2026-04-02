@@ -1,10 +1,10 @@
 """Tests for the MICS6814 gas sensor interface and integration."""
 
+# Tests legitimately access the module-level _sensor global to control state
+# pylint: disable=protected-access
+
 from unittest.mock import MagicMock, patch
 
-import pytest
-
-import database.init_db as dbi
 import database.db_logger as dbl
 
 
