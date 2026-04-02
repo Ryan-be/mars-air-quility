@@ -8,6 +8,7 @@ export function applyHealth(stat) {
   setHealthStatus("aht20Status", stat.AHT20);
   setHealthStatus("sgp30Status", stat.SGP30);
   setHealthStatus("pmStatus",    stat.PM_sensor);
+  setHealthStatus("mics6814Status", stat.MICS6814);
   setHealthStatus("plugStatus",  stat.smart_plug);
 
   document.getElementById("cpuUsage").textContent      = stat.cpu_usage;
@@ -23,7 +24,7 @@ export async function fetchHealth() {
     const res  = await fetch('/system_health');
     applyHealth(await res.json());
   } catch {
-    ["aht20Status", "sgp30Status", "pmStatus", "plugStatus"].forEach(id => {
+    ["aht20Status", "sgp30Status", "pmStatus", "mics6814Status", "plugStatus"].forEach(id => {
       const el = document.getElementById(id);
       el.textContent = "Unavailable";
       el.className = "h-value error";

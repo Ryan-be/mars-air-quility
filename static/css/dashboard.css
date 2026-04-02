@@ -48,6 +48,20 @@
 .stat-card.hum   { border-top-color: dodgerblue; }
 .stat-card.eco2  { border-top-color: yellowgreen; }
 .stat-card.tvoc  { border-top-color: #e0a000; }
+.stat-card.gas   { border-top-color: #f97316; }
+.stat-card.gas.gas-good { border-top-color: #22c55e; }
+.stat-card.gas.gas-warn { border-top-color: #f59e0b; }
+.stat-card.gas.gas-bad  { border-top-color: #ef4444; }
+
+.gas-trend {
+  font-size: 0.8em;
+  color: #888;
+  margin-bottom: 0.2em;
+}
+.gas-trend.gas-good { color: #4ade80; }
+.gas-trend.gas-warn { color: #fbbf24; }
+.gas-trend.gas-bad  { color: #f87171; }
+
 .stat-card.pm    { border-top-color: #a78bfa; }
 .stat-card.pm.pm-good      { border-top-color: #22c55e; }
 .stat-card.pm.pm-moderate  { border-top-color: #f59e0b; }
@@ -375,6 +389,10 @@ body.light dialog p          { color: #555; }
 body.light dialog p strong   { color: #111; }
 body.light dialog textarea   { background: #f5f5f5; color: #111; border-color: #bbb; }
 body.light .dialog-buttons .btn-cancel { background: #eee; color: #555; }
+
+body.light .gas-trend.gas-good { color: #16a34a; }
+body.light .gas-trend.gas-warn { color: #d97706; }
+body.light .gas-trend.gas-bad  { color: #dc2626; }
 
 /* Daily forecast slot — high/low temps */
 .fc-lo { color: #777; font-weight: normal; }

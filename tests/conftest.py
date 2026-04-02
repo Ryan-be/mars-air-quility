@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 _hw_mocks = [
     "board", "busio",
     "adafruit_ahtx0", "adafruit_sgp30",
+    "mics6814",
     "authlib", "authlib.integrations", "authlib.integrations.flask_client",
 ]
 for _mod in _hw_mocks:
@@ -17,8 +18,8 @@ import database.user_db as udb
 
 
 def fake_sensors(temp=22.0, hum=50.0, eco2=400, tvoc=100):
-    """Return a read_sensors tuple with no PM data (pm values all None/False)."""
-    return (temp, hum, eco2, tvoc, None, None, None, False, False, None)
+    """Return a read_sensors tuple with no PM or gas data (all None/False)."""
+    return (temp, hum, eco2, tvoc, None, None, None, False, False, None, None, None, None)
 
 
 def _patch_db(path: str):

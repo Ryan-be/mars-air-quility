@@ -22,6 +22,7 @@ def system_health():
     status["AHT20"] = "OK" if state.aht20 else "UNAVAILABLE"
     status["SGP30"] = "OK" if state.sgp30 else "UNAVAILABLE"
     status["PM_sensor"] = "OK" if state.pm_sensor else "UNAVAILABLE"
+    status["MICS6814"] = "OK" if state.mics6814 else "UNAVAILABLE"
 
     # Pi uptime
     try:

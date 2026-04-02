@@ -32,6 +32,7 @@ A lightweight environmental monitoring system for Raspberry Pi, designed as a pr
 | Adafruit AHT20 | Temperature & humidity (I2C, 0x38) |
 | Adafruit SGP30 | eCO2 & TVOC air quality (I2C, 0x58) |
 | SB Components Air Monitoring HAT (PMSA003) | Particulate matter PM1.0/PM2.5/PM10 (UART) |
+| Pimoroni MICS6814 Gas Sensor Breakout | CO, NO2 & NH3 gas detection (I2C, 0x04) |
 | 1.8" ST7735 TFT LCD | Local readout (SPI, 128x160) |
 | TP-Link Kasa smart plug | Fan control (effector) |
 
@@ -69,10 +70,24 @@ The SB Components Air Monitoring HAT sits directly on the Pi GPIO header. It use
 
 > **Important (Pi 4):** The hardware UART must be enabled via `raspi-config`. See the [UART setup](#uart-setup-for-pm-sensor) section under Installation.
 
+### Wiring -- MICS6814 Gas Sensor (I2C)
+
+The Pimoroni MICS6814 breakout uses I2C and can be daisy-chained with the AHT20 and SGP30.
+
+| Signal | Pi GPIO | Wire colour | Connected to |
+|---|---|---|---|
+| 3.3V | Pin 1 | Red | MICS6814 3V3 |
+| GND | Pin 6 | Black | MICS6814 GND |
+| SDA | Pin 3 (GPIO2) | Blue | MICS6814 SDA |
+| SCL | Pin 5 (GPIO3) | Yellow | MICS6814 SCL |
+
+> **Note:** The sensor uses I2C address `0x04`. It measures three gas channels: **reducing** (CO), **oxidising** (NO2), and **NH3**. Readings are analogue resistance values -- compare trends rather than absolute numbers. The sensor benefits from a warm-up period of several minutes for stable readings.
+
 ---
 
 ## Features
 
+- Gas detection (CO, NO2, NH3) via Pimoroni MICS6814 I2C sensor with historical trend plots
 - Particulate matter monitoring (PM1.0, PM2.5, PM10) via PMSA003 UART sensor with WHO guideline colour coding
 - Live sensor dashboard with configurable time range (15 min to all time)
 - Auto fan control -- turns on when temperature or TVOC exceeds configurable thresholds
@@ -129,6 +144,7 @@ flowchart TB
         AHT20["AHT20 Driver<br/>(temp + humidity, I2C)"]
         SGP30["SGP30 Driver<br/>(eCO2 + TVOC, I2C)"]
         PMSA003["PMSA003 Driver<br/>(PM1.0/PM2.5/PM10, UART)"]
+        MICS6814["MICS6814 Driver<br/>(CO/NO2/NH3, I2C)"]
         Display["ST7735 Display<br/>(SPI)"]
         Kasa["Kasa Smart Plug<br/>(async, network)"]
     end
@@ -157,6 +173,7 @@ flowchart TB
     SensorLoop --> AHT20
     SensorLoop --> SGP30
     SensorLoop --> PMSA003
+    SensorLoop --> MICS6814
     SensorLoop --> Display
     SensorLoop --> Kasa
     SensorLoop --> InferenceEng
@@ -214,7 +231,7 @@ sequenceDiagram
 
 | Event | Producer | Frequency | Payload |
 |---|---|---|---|
-| `sensor_update` | Sensor loop | Every LOG_INTERVAL (10s) | `{temperature, humidity, eco2, tvoc, fan_power_w, vpd_kpa, pm1_0, pm2_5, pm10}` |
+| `sensor_update` | Sensor loop | Every LOG_INTERVAL (10s) | `{temperature, humidity, eco2, tvoc, fan_power_w, vpd_kpa, pm1_0, pm2_5, pm10, gas_co, gas_no2, gas_nh3}` |
 | `fan_status` | Sensor loop (auto mode) | On state change | `{state, mode, power_w}` |
 | `inference_event` | Inference engine | When detected | `{id, event_type, severity, title, description, action, confidence}` |
 | `weather_update` | Weather loop | Every 60 min | `{temp, humidity, feels_like, wind_speed, weather_code, uv_index}` |
@@ -251,6 +268,9 @@ erDiagram
         REAL pm1_0
         REAL pm2_5
         REAL pm10
+        REAL gas_co
+        REAL gas_no2
+        REAL gas_nh3
     }
 
     fan_settings {
@@ -366,6 +386,7 @@ flowchart TB
         AHT20["AHT20<br/>temp + humidity"]
         SGP30["SGP30<br/>eCO2 + TVOC"]
         PM["PMSA003<br/>PM1.0 / PM2.5 / PM10"]
+        Gas["MICS6814<br/>CO / NO2 / NH3"]
     end
 
     subgraph Controller["Rule-Based Controller<br/>(Background Thread)"]
@@ -395,6 +416,7 @@ flowchart TB
     AHT20 --> Read
     SGP30 --> Read
     PM --> Read
+    Gas --> Read
     Read --> Threshold
     Threshold -->|Yes| Evaluate
     Threshold -->|No / Manual override| Effector
@@ -732,7 +754,7 @@ The `MLSS_ALLOWED_GITHUB_USER` bootstrap account always has the **admin** role r
 ```
 id: 42
 event: sensor_update
-data: {"temperature": 22.5, "humidity": 55.0, "eco2": 620, "tvoc": 85, "fan_power_w": 4.2, "vpd_kpa": 1.12, "pm1_0": 5, "pm2_5": 8, "pm10": 12}
+data: {"temperature": 22.5, "humidity": 55.0, "eco2": 620, "tvoc": 85, "fan_power_w": 4.2, "vpd_kpa": 1.12, "pm1_0": 5, "pm2_5": 8, "pm10": 12, "gas_co": 1.23, "gas_no2": 0.45, "gas_nh3": 2.10}
 
 ```
 
@@ -757,6 +779,7 @@ Tests are organised into the following files:
 | `tests/test_open_meteo.py` | Geocoding (UK postcode, outcode, place name), current weather, forecast |
 | `tests/test_daily_forecast.py` | 14-day daily forecast API -- keys, URL params, error propagation |
 | `tests/test_weather_history.py` | Weather history DB function -- filtering, ordering, required keys |
+| `tests/test_mics6814.py` | MICS6814 gas sensor interface, init/read, database integration |
 | `tests/test_rbac.py` | User DB, login log, role enforcement on all write endpoints |
 
 Hardware libraries (`board`, `busio`, `adafruit_*`) are stubbed in `tests/conftest.py` so all tests run on any machine.
@@ -808,6 +831,7 @@ sensor_interfaces/
   aht20.py                    AHT20 temperature/humidity driver
   sgp30.py                    SGP30 eCO2/TVOC driver (15 s warm-up on startup)
   display.py                  ST7735 TFT display driver
+  mics6814.py                 Pimoroni MICS6814 gas sensor driver (CO, NO2, NH3)
   sb_components_pm_sensor.py  Particulate matter sensor driver
 external_api_interfaces/
   kasa_smart_plug.py          Async TP-Link Kasa plug control
@@ -852,6 +876,7 @@ tests/
   test_open_meteo.py          Open-Meteo client unit tests
   test_daily_forecast.py      Daily forecast API tests
   test_weather_history.py     Weather history DB function tests
+  test_mics6814.py            MICS6814 gas sensor -- interface, init, read, DB integration
   test_rbac.py                RBAC -- user DB, login log, role enforcement on all write endpoints
   test_event_bus.py           EventBus pub/sub, history, thread safety tests
   test_sse.py                 SSE endpoint, wire format, auth, history API tests
@@ -873,5 +898,6 @@ mlss-monitor.service          systemd unit file
 | `RPi.GPIO` not in `pyproject.toml` | This Pi-only package fails to build on non-Pi platforms so it is excluded from the lock file. The setup script installs it via `poetry run pip install RPi.GPIO`. For manual installs run that command after `poetry install`. |
 | SGP30 15 s warm-up | The first few eCO2/TVOC readings after power-on may be inaccurate -- this is normal sensor behaviour. |
 | PMSA003 UART must be enabled | The PM sensor requires the hardware UART to be enabled via `raspi-config` on Pi 4. Without it, `/dev/serial0` does not exist and PM readings will be null. See the [UART setup](#uart-setup-for-pm-sensor) section. |
+| MICS6814 readings are relative | The gas sensor outputs analogue resistance values, not calibrated ppm concentrations. Compare trends rather than treating readings as absolute measurements. The sensor benefits from a warm-up period of several minutes. |
 | Kasa `SmartPlug` API deprecated | The `python-kasa` library has deprecated `SmartPlug` in favour of `IotPlug`. A migration warning appears on startup; functionality is unaffected for now. |
 | Flask dev server | `app.run()` uses Flask's single-threaded development server. For production, use gunicorn behind nginx -- see the [Production deployment guide](docs/PRODUCTION.md). |

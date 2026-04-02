@@ -1,14 +1,11 @@
 import { isLight, themeLayout } from './theme.js';
 import { attachAnnotationHandler } from './annotations.js';
 
-export function renderSensorCharts(data) {
+export function renderClimateCharts(data) {
   if (!data || data.length === 0) return;
   const timestamps   = data.map(d => new Date(d.timestamp));
   const temperatures = data.map(d => d.temperature);
   const humidities   = data.map(d => d.humidity);
-  const eco2         = data.map(d => d.eco2);
-  const tvoc         = data.map(d => d.tvoc);
-  const annotations  = data.map(d => d.annotation);
   const ids          = data.map(d => d.id);
 
   Plotly.newPlot("tempPlot", [{
@@ -26,6 +23,15 @@ export function renderSensorCharts(data) {
   }], themeLayout({
     title: { text: "💧 Humidity (%)", font: { color: isLight ? "#111" : "#ccc" } },
   }), { responsive: true }).then(() => attachAnnotationHandler("humPlot"));
+}
+
+export function renderGasCharts(data) {
+  if (!data || data.length === 0) return;
+  const timestamps   = data.map(d => new Date(d.timestamp));
+  const eco2         = data.map(d => d.eco2);
+  const tvoc         = data.map(d => d.tvoc);
+  const annotations  = data.map(d => d.annotation);
+  const ids          = data.map(d => d.id);
 
   Plotly.newPlot("eco2Plot", [{
     x: timestamps, y: eco2,
@@ -71,5 +77,4 @@ export function renderSensorCharts(data) {
     margin: { t: 75 },
     annotations: eventAnnotations,
   }), { responsive: true }).then(() => attachAnnotationHandler("tvocPlot"));
-
 }

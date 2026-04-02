@@ -15,6 +15,29 @@ function trend(current, previous) {
 let _lastIndoorTemp = null;
 let _lastIndoorHum  = null;
 
+// ── Gas sensor trend history (resistance in Ω; lower = higher concentration) ──
+let _gasCoHistory  = [];
+let _gasNo2History = [];
+let _gasNh3History = [];
+
+// Returns % by which gas concentration has risen vs the session average.
+// Positive = resistance dropped = gas level rising.
+function _gasTrendPct(vals) {
+  const v = vals.filter(x => x != null);
+  if (v.length < 2) return 0;
+  const current = v.at(-1);
+  const avg = v.reduce((a, b) => a + b, 0) / v.length;
+  if (avg === 0) return 0;
+  return (avg - current) / avg * 100;
+}
+
+function _gasTrendInfo(pct) {
+  if (pct > 15) return { arrow: "↑↑", text: "rising fast", cls: "gas-bad" };
+  if (pct > 5)  return { arrow: "↑",  text: "rising",      cls: "gas-warn" };
+  if (pct < -5) return { arrow: "↓",  text: "falling",     cls: "gas-good" };
+  return { arrow: "→", text: "stable", cls: "" };
+}
+
 function _pm25Class(v) {
   if (v == null) return "";
   if (v <= 12)  return "pm-good";
@@ -51,6 +74,43 @@ function _updatePmCard(pm25, prevPm25, pm1, pm10, pmStale, pmTimestamp) {
       staleEl.textContent = "";
       staleEl.classList.remove("visible");
     }
+  }
+}
+
+function _updateGasCard() {
+  const co  = _gasCoHistory.at(-1)  ?? null;
+  const no2 = _gasNo2History.at(-1) ?? null;
+  const nh3 = _gasNh3History.at(-1) ?? null;
+
+  const coTrend  = _gasTrendInfo(_gasTrendPct(_gasCoHistory));
+  const no2Trend = _gasTrendInfo(_gasTrendPct(_gasNo2History));
+  const nh3Trend = _gasTrendInfo(_gasTrendPct(_gasNh3History));
+
+  // Worst trend of the three drives the card colour
+  const maxPct   = Math.max(
+    _gasTrendPct(_gasCoHistory),
+    _gasTrendPct(_gasNo2History),
+    _gasTrendPct(_gasNh3History),
+  );
+  const cardTrend = _gasTrendInfo(maxPct);
+
+  const coEl    = document.getElementById("gasCoValue");
+  const trendEl = document.getElementById("gasTrend");
+  const no2El   = document.getElementById("gasNo2SubValue");
+  const nh3El   = document.getElementById("gasNh3SubValue");
+  const card    = coEl?.closest(".stat-card");
+
+  if (coEl)   coEl.textContent   = co  != null ? `${co} Ω` : "--";
+  if (trendEl) {
+    trendEl.textContent = co != null ? `CO ${coTrend.arrow} ${coTrend.text}` : "--";
+    trendEl.className   = `gas-trend${coTrend.cls ? ` ${coTrend.cls}` : ""}`;
+  }
+  if (no2El) no2El.textContent = no2 != null ? `${no2} Ω ${no2Trend.arrow}` : "--";
+  if (nh3El) nh3El.textContent = nh3 != null ? `${nh3} Ω ${nh3Trend.arrow}` : "--";
+
+  if (card) {
+    card.classList.remove("gas-good", "gas-warn", "gas-bad");
+    if (cardTrend.cls) card.classList.add(cardTrend.cls);
   }
 }
 
@@ -96,6 +156,10 @@ async function fetchData() {
     `${trend(currentTvoc, tvoc.at(-2))}${currentTvoc ?? "--"} ppb`;
 
   _updatePmCard(currentPm25, pm25.at(-2), currentPm1, currentPm10);
+  _gasCoHistory  = data.map(d => d.gas_co).filter(v => v != null);
+  _gasNo2History = data.map(d => d.gas_no2).filter(v => v != null);
+  _gasNh3History = data.map(d => d.gas_nh3).filter(v => v != null);
+  _updateGasCard();
 
   _lastIndoorTemp = currentTemp;
   _lastIndoorHum  = currentHum;
@@ -157,6 +221,13 @@ const SENSOR_INFO = {
     unit: "ppb",
     range: "0 – 250 ppb (WHO good)",
     desc: "Total Volatile Organic Compounds from the SGP30 sensor. Sources include paint, cleaning products, cooking, and off-gassing furniture. Levels above 500 ppb are considered high by WHO guidelines and warrant ventilation.",
+  },
+  gas: {
+    title: "🔥 Gas (MICS6814)",
+    sensor: "Pimoroni MICS6814 (I²C)",
+    unit: "kΩ (resistance)",
+    range: "Relative — higher resistance = lower concentration",
+    desc: "Three-in-one gas sensor measuring CO (carbon monoxide, reducing), NO₂ (nitrogen dioxide, oxidising), and NH₃ (ammonia, reducing) via analogue resistance channels. Readings are proportional to gas concentration — compare trends rather than absolute values. Useful for detecting combustion byproducts, vehicle exhaust, and agricultural emissions.",
   },
   pm: {
     title: "🌫️ Particulate Matter",
@@ -263,6 +334,7 @@ document.querySelectorAll("[data-insight]").forEach(card => {
 const HEALTH_INFO = {
   aht20:   { title: "🌡️ AHT20 Sensor", desc: "Temperature and humidity sensor connected via I²C bus. Measures 0–100% RH and -40 to +85°C. If offline, temperature and humidity readings will show 0." },
   sgp30:   { title: "🧪 SGP30 Sensor", desc: "Metal-oxide gas sensor for eCO₂ and TVOC via I²C. Requires 15s warm-up and 12h baseline calibration for accurate readings. If offline, air quality data will be unavailable." },
+  mics6814:{ title: "🔥 MICS6814 Gas Sensor", desc: "Pimoroni MICS6814 3-in-1 gas sensor connected via I²C. Measures CO (carbon monoxide), NO₂ (nitrogen dioxide), and NH₃ (ammonia) as analogue resistance values. If offline, gas readings will show '--'." },
   pm:      { title: "🌫️ PM Sensor (PMSA003)", desc: "Particulate matter sensor connected via UART serial (/dev/ttyS0). Measures PM1.0, PM2.5, and PM10 concentrations in µg/m³. Uses laser scattering to count airborne particles. If offline, particulate matter readings will show '--'." },
   plug:    { title: "🔌 Smart Plug (Kasa)", desc: "TP-Link Kasa smart plug controlling the ventilation fan. Provides on/off switching and real-time power consumption monitoring. If unreachable, automatic fan control will be disabled." },
   cpu:     { title: "🖥️ CPU Usage", desc: "Current processor utilisation of the Raspberry Pi. Sustained usage above 80% may slow sensor polling and web responses. The sensor logging loop and Flask server are the main consumers." },
@@ -551,6 +623,10 @@ function connectSSE() {
     document.getElementById("tvocValue").textContent =
       `${trend(d.tvoc, null)}${d.tvoc ?? "--"} ppb`;
     _updatePmCard(d.pm2_5, null, d.pm1_0 ?? null, d.pm10 ?? null, d.pm_stale, d.pm_timestamp);
+    if (d.gas_co  != null) { _gasCoHistory.push(d.gas_co);   if (_gasCoHistory.length  > 30) _gasCoHistory.shift(); }
+    if (d.gas_no2 != null) { _gasNo2History.push(d.gas_no2); if (_gasNo2History.length > 30) _gasNo2History.shift(); }
+    if (d.gas_nh3 != null) { _gasNh3History.push(d.gas_nh3); if (_gasNh3History.length > 30) _gasNh3History.shift(); }
+    _updateGasCard();
     _lastIndoorTemp = t;
     _lastIndoorHum  = h;
     updateInsights(t, h, d.tvoc, d.eco2, [d.eco2]);

@@ -1,5 +1,5 @@
 import { toggleTheme, isLight, themeLayout } from './theme.js';
-import { renderSensorCharts } from './charts.js';
+import { renderClimateCharts, renderGasCharts } from './charts.js';
 import { renderEnvCharts } from './charts_env.js';
 import { renderCorrelationCharts, updateCorrelationData } from './charts_correlation.js';
 import { renderPatternCharts } from './charts_patterns.js';
@@ -9,7 +9,7 @@ window.downloadCSV = () => {
   window.open(`/api/download?range=${document.getElementById("range").value}`, "_blank");
 };
 
-const TABS = ["sensors", "particulate", "environment", "correlation", "patterns"];
+const TABS = ["climate", "air-quality", "particulate", "environment", "correlation", "patterns"];
 let _rendered    = {};
 let _sensorData  = [];
 let _weatherData = [];
@@ -26,14 +26,15 @@ document.querySelectorAll(".tab-btn").forEach(btn => {
 });
 
 function activeTab() {
-  return document.querySelector(".tab-btn.tab-active")?.dataset.tab ?? "sensors";
+  return document.querySelector(".tab-btn.tab-active")?.dataset.tab ?? "climate";
 }
 
 function renderActiveTab() {
   const tab = activeTab();
   if (_rendered[tab]) return;
   _rendered[tab] = true;
-  if (tab === "sensors")     renderSensorCharts(_sensorData);
+  if (tab === "climate")     renderClimateCharts(_sensorData);
+  if (tab === "air-quality") renderAirQualityTab(_sensorData);
   if (tab === "particulate") renderPmTable(_sensorData);
   if (tab === "environment") renderEnvCharts(_sensorData, _weatherData);
   if (tab === "correlation") renderCorrelationCharts(_sensorData);
@@ -190,6 +191,90 @@ function renderPmTable(data) {
       <td>${d.pm1_0 ?? "--"}</td>
       <td>${d.pm2_5 ?? "--"}</td>
       <td>${d.pm10 ?? "--"}</td>
+    </tr>`;
+  }).join("");
+}
+
+// ── Air Quality tab rendering ────────────────────────────────────────────────
+function renderAirQualityTab(data) {
+  // SGP30 charts (eCO₂ + TVOC) via shared charts module
+  renderGasCharts(data);
+
+  // MICS6814 section
+  const gasRows = data.filter(d => d.gas_co != null || d.gas_no2 != null || d.gas_nh3 != null);
+
+  // Summary averages
+  const avg = (arr) => arr.length ? (arr.reduce((a, b) => a + b, 0) / arr.length).toFixed(0) : "--";
+  const coVals  = gasRows.map(d => d.gas_co).filter(v => v != null);
+  const no2Vals = gasRows.map(d => d.gas_no2).filter(v => v != null);
+  const nh3Vals = gasRows.map(d => d.gas_nh3).filter(v => v != null);
+
+  const sumCo  = document.getElementById("gasSumCo");
+  const sumNo2 = document.getElementById("gasSumNo2");
+  const sumNh3 = document.getElementById("gasSumNh3");
+  if (sumCo)  sumCo.textContent  = avg(coVals);
+  if (sumNo2) sumNo2.textContent = avg(no2Vals);
+  if (sumNh3) sumNh3.textContent = avg(nh3Vals);
+
+  // Plotly time-series chart
+  const plotEl = document.getElementById("gasTimeSeriesPlot");
+  if (plotEl) {
+    if (gasRows.length < 2) {
+      plotEl.innerHTML = '<p style="color:#888;padding:1em;text-align:center">No MICS6814 data for this range.</p>';
+    } else {
+      const ts  = gasRows.map(d => new Date(d.timestamp));
+      const co  = gasRows.map(d => d.gas_co);
+      const no2 = gasRows.map(d => d.gas_no2);
+      const nh3 = gasRows.map(d => d.gas_nh3);
+      const titleFont = { color: isLight ? "#111" : "#ccc" };
+
+      const traces = [
+        {
+          x: ts, y: co, mode: "lines", name: "CO (reducing)",
+          line: { color: "#ef4444", width: 2 },
+          hovertemplate: "CO: %{y} Ω<extra></extra>",
+        },
+        {
+          x: ts, y: no2, mode: "lines", name: "NO₂ (oxidising)",
+          line: { color: "#f59e0b", width: 2 },
+          hovertemplate: "NO₂: %{y} Ω<extra></extra>",
+        },
+        {
+          x: ts, y: nh3, mode: "lines", name: "NH₃",
+          line: { color: "#22c55e", width: 2 },
+          hovertemplate: "NH₃: %{y} Ω<extra></extra>",
+        },
+      ];
+
+      Plotly.newPlot("gasTimeSeriesPlot", traces, themeLayout({
+        title: { text: "🔥 MICS6814 Gas Sensor — resistance over time", font: titleFont },
+        xaxis: { type: "date" },
+        yaxis: { title: "Resistance (Ω) — lower = higher concentration", rangemode: "tozero" },
+        legend: { orientation: "h", x: 0.5, xanchor: "center", y: 1.04, bgcolor: "rgba(0,0,0,0)" },
+        margin: { t: 60 },
+      }), { responsive: true });
+    }
+  }
+
+  // Data table
+  const tbody = document.getElementById("gasTableBody");
+  if (!tbody) return;
+
+  if (!gasRows.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="pm-empty">No MICS6814 data for this range.</td></tr>';
+    return;
+  }
+
+  const display = gasRows.slice().reverse().slice(0, 200);
+  tbody.innerHTML = display.map(d => {
+    const ts = new Date(d.timestamp).toLocaleString(undefined, {
+      month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit"
+    });
+    return `<tr>
+      <td>${ts}</td>
+      <td>${d.gas_co != null ? d.gas_co + " Ω" : "--"}</td>
+      <td>${d.gas_no2 != null ? d.gas_no2 + " Ω" : "--"}</td>
+      <td>${d.gas_nh3 != null ? d.gas_nh3 + " Ω" : "--"}</td>
     </tr>`;
   }).join("");
 }

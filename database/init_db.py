@@ -184,6 +184,9 @@ def create_db():
         "ALTER TABLE fan_settings ADD COLUMN pm25_enabled INTEGER DEFAULT 0",
         "ALTER TABLE fan_settings ADD COLUMN pm25_max REAL DEFAULT 25.0",
         "ALTER TABLE fan_settings ADD COLUMN pm_stale_minutes REAL DEFAULT 10.0",
+        "ALTER TABLE sensor_data ADD COLUMN gas_co REAL",
+        "ALTER TABLE sensor_data ADD COLUMN gas_no2 REAL",
+        "ALTER TABLE sensor_data ADD COLUMN gas_nh3 REAL",
     ]:
         try:
             cur.execute(migration)

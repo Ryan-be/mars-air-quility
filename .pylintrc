@@ -1,6 +1,6 @@
 [MASTER]
 # Hardware libs that only exist on the Pi — skip import resolution for them
-ignored-modules=board,busio,adafruit_ahtx0,adafruit_sgp30,kasa,authlib,authlib.integrations,authlib.integrations.flask_client,digitalio,adafruit_rgb_display,adafruit_rgb_display.st7735
+ignored-modules=board,busio,adafruit_ahtx0,adafruit_sgp30,mics6814,kasa,authlib,authlib.integrations,authlib.integrations.flask_client,digitalio,adafruit_rgb_display,adafruit_rgb_display.st7735
 
 [MESSAGES CONTROL]
 disable=

@@ -30,6 +30,7 @@ from mlss_monitor.event_bus import EventBus
 from mlss_monitor.fan_controller import SensorReading, build_default_controller
 from mlss_monitor.routes import register_routes
 from sensor_interfaces.aht20 import read_aht20
+from sensor_interfaces.mics6814 import init_mics6814, read_mics6814
 from sensor_interfaces.sb_components_pm_sensor import init_pm_sensor, read_pm
 from sensor_interfaces.sgp30 import read_sgp30
 
@@ -169,6 +170,11 @@ pm_sensor = init_pm_sensor()
 if pm_sensor:
     state.pm_sensor = pm_sensor
 
+# MICS6814 gas sensor (I2C — CO, NO2, NH3)
+mics6814_sensor = init_mics6814()
+if mics6814_sensor:
+    state.mics6814 = mics6814_sensor
+
 # ── Smart plug & async event loop ────────────────────────────────────────────
 
 state.fan_smart_plug = KasaSmartPlug(FAN_KASA_SMART_PLUG_IP)
@@ -196,6 +202,7 @@ def read_sensors():
     temperature, humidity, eco2, tvoc = 0, 0, 0, 0
     pm1_0, pm2_5, pm10 = None, None, None
     pm_fresh = False  # True when this cycle produced a brand-new reading
+    gas_co, gas_no2, gas_nh3 = None, None, None
 
     if aht20:
         try:
@@ -228,6 +235,12 @@ def read_sensors():
         except Exception as e:
             log.error("Error reading PM sensor: %s", e)
 
+    if state.mics6814:
+        try:
+            gas_co, gas_no2, gas_nh3 = read_mics6814()
+        except Exception as e:
+            log.error("Error reading MICS6814 sensor: %s", e)
+
     # Fall back to the cached reading when the sensor didn't return data,
     # provided it is within the configurable staleness window.
     pm_stale = False
@@ -245,7 +258,8 @@ def read_sensors():
             log.debug("Cached PM reading expired (%.0fs > %.0fs limit)",
                       age, stale_minutes * 60)
 
-    return temperature, humidity, eco2, tvoc, pm1_0, pm2_5, pm10, pm_fresh, pm_stale, pm_timestamp
+    return (temperature, humidity, eco2, tvoc, pm1_0, pm2_5, pm10, pm_fresh, pm_stale, pm_timestamp,
+            gas_co, gas_no2, gas_nh3)
 
 
 # ── Background logging ────────────────────────────────────────────────────────
@@ -256,6 +270,7 @@ def _collect_health() -> dict:
         "AHT20": "OK" if state.aht20 else "UNAVAILABLE",
         "SGP30": "OK" if state.sgp30 else "UNAVAILABLE",
         "PM_sensor": "OK" if state.pm_sensor else "UNAVAILABLE",
+        "MICS6814": "OK" if state.mics6814 else "UNAVAILABLE",
     }
     cpu_percent = psutil.cpu_percent(interval=0)
     memory = psutil.virtual_memory()
@@ -300,7 +315,8 @@ def _collect_health() -> dict:
 
 
 def log_data():
-    temp, hum, eco2, tvoc, pm1_0, pm2_5, pm10, pm_fresh, pm_stale, pm_ts = read_sensors()
+    (temp, hum, eco2, tvoc, pm1_0, pm2_5, pm10, pm_fresh, pm_stale, pm_ts,
+     gas_co, gas_no2, gas_nh3) = read_sensors()
 
     fan_power_w = None
     try:
@@ -319,7 +335,8 @@ def log_data():
     db_pm25 = pm2_5 if pm_fresh else None
     db_pm10 = pm10  if pm_fresh else None
     log_sensor_data(temp, hum, eco2, tvoc, fan_power_w=fan_power_w, vpd_kpa=vpd,
-                    pm1_0=db_pm1, pm2_5=db_pm25, pm10=db_pm10)
+                    pm1_0=db_pm1, pm2_5=db_pm25, pm10=db_pm10,
+                    gas_co=gas_co, gas_no2=gas_no2, gas_nh3=gas_nh3)
 
     # Broadcast sensor reading to SSE subscribers — include staleness
     # metadata so the dashboard can show when PM data is cached.
@@ -331,6 +348,7 @@ def log_data():
             "pm1_0": pm1_0, "pm2_5": pm2_5, "pm10": pm10,
             "pm_stale": pm_stale,
             "pm_timestamp": pm_ts.isoformat() + "Z" if pm_ts else None,
+            "gas_co": gas_co, "gas_no2": gas_no2, "gas_nh3": gas_nh3,
         })
         state.event_bus.publish("health_update", _collect_health())
 
