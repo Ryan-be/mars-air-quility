@@ -4,6 +4,11 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+SENSOR_FIELDS: tuple[str, ...] = (
+    "tvoc_ppb", "eco2_ppm", "temperature_c", "humidity_pct",
+    "pm25_ug_m3", "co_ppb", "no2_ppb", "nh3_ppb",
+)
+
 
 @dataclass
 class NormalisedReading:
@@ -34,13 +39,9 @@ def merge_readings(readings: list[NormalisedReading]) -> NormalisedReading:
     """Merge multiple NormalisedReadings into one.
     First non-None value wins per field. Timestamp is utcnow().
     """
-    _SENSOR_FIELDS = (
-        "tvoc_ppb", "eco2_ppm", "temperature_c", "humidity_pct",
-        "pm25_ug_m3", "co_ppb", "no2_ppb", "nh3_ppb",
-    )
-    merged: dict = {f: None for f in _SENSOR_FIELDS}
+    merged: dict = {f: None for f in SENSOR_FIELDS}
     for reading in readings:
-        for field_name in _SENSOR_FIELDS:
+        for field_name in SENSOR_FIELDS:
             if merged[field_name] is None:
                 merged[field_name] = getattr(reading, field_name)
     return NormalisedReading(
