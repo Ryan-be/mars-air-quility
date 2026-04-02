@@ -416,16 +416,21 @@ def _background_log():
         except Exception as e:
             log.error("Error in background log loop: %s", e)
 
-        try:
-            baselines = get_24h_baselines()
-            hot_snap = state.hot_tier.snapshot() if state.hot_tier else []
-            state.feature_vector = _feature_extractor.extract(hot_snap, baselines)
-        except Exception as exc:
-            log.error("FeatureExtractor error: %s", exc)
-
         _log_cycle += 1
 
         # Short-term detectors every ~60s
+        # The two try/except blocks (log_data and feature extraction) are intentionally
+        # independent: FeatureVector updates proceed even if log_data fails, because the
+        # hot tier is populated by a separate _sensor_read_loop thread.
+        if _log_cycle % _CYCLE_60S == 0:
+            try:
+                baselines = get_24h_baselines()
+                hot_snap = state.hot_tier.snapshot() if state.hot_tier else []
+                state.feature_vector = _feature_extractor.extract(hot_snap, baselines)
+            except Exception as exc:
+                log.error("FeatureExtractor error: %s", exc)
+
+        # Run inference engine every ~60s
         if _log_cycle % _CYCLE_60S == 0:
             try:
                 from mlss_monitor.inference_engine import run_analysis
