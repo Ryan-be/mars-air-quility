@@ -452,13 +452,13 @@ def _sensor_read_loop() -> None:
                 try:
                     readings.append(source.get_latest())
                 except Exception as exc:
-                    app.logger.warning(
+                    log.warning(
                         "DataSource %s read failed: %s", source.name, exc
                     )
             if readings:
                 hot_tier.push(merge_readings(readings))
         except Exception as exc:
-            app.logger.error("_sensor_read_loop unexpected error: %s", exc)
+            log.error("_sensor_read_loop unexpected error: %s", exc)
         time.sleep(1)
 
 
