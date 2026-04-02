@@ -1,5 +1,6 @@
 import json
 import sqlite3
+import statistics
 from datetime import datetime, timedelta
 
 from config import config
@@ -484,3 +485,38 @@ def get_recent_inference_by_type(event_type, hours=1):
     row = cur.fetchone()
     conn.close()
     return row is not None
+
+
+def get_24h_baselines() -> dict[str, float | None]:
+    """Return 24-hour median for each sensor channel, keyed by NormalisedReading field name.
+
+    Queries the last 24 hours of sensor_data. Returns None for any channel
+    that has no readings in that window.
+    """
+    _DB_COLUMNS = (
+        ("tvoc",        "tvoc_ppb"),
+        ("eco2",        "eco2_ppm"),
+        ("temperature", "temperature_c"),
+        ("humidity",    "humidity_pct"),
+        ("pm2_5",       "pm25_ug_m3"),
+        ("gas_co",      "co_ppb"),
+        ("gas_no2",     "no2_ppb"),
+        ("gas_nh3",     "nh3_ppb"),
+    )
+    cols = ", ".join(col for col, _ in _DB_COLUMNS)
+    cutoff = (datetime.utcnow() - timedelta(hours=24)).isoformat()
+
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        rows = conn.execute(
+            f"SELECT {cols} FROM sensor_data WHERE timestamp >= ? ORDER BY timestamp",
+            (cutoff,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    result: dict[str, float | None] = {}
+    for i, (_, nr_field) in enumerate(_DB_COLUMNS):
+        values = [row[i] for row in rows if row[i] is not None]
+        result[nr_field] = statistics.median(values) if values else None
+    return result
