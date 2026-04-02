@@ -185,6 +185,7 @@ if mics6814_sensor:
 
 # --- Hot tier and data source abstraction (parallel addition) ---
 hot_tier = HotTier(maxlen=3600)
+state.hot_tier = hot_tier
 
 _data_sources = [
     SGP30Source(),
