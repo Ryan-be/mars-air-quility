@@ -62,10 +62,23 @@ else
     success "Poetry already installed ($(poetry --version))"
 fi
 
-# ── 5. Install project dependencies ──────────────────────────────────────────
+# ── 5. Pre-install C-extension packages via pip (avoids source builds) ────────
+# Poetry's resolver sometimes picks PyPI sdists over piwheels armv7l wheels for
+# packages with C extensions (numpy, scipy, river). Installing them via pip first
+# lets piwheels serve pre-built wheels; poetry then sees them as already satisfied.
+info "Pre-installing compiled packages from piwheels..."
+poetry env use python3 --quiet 2>/dev/null || true
+VENV_PIP="$(poetry env info --path)/bin/pip"
+"$VENV_PIP" install --quiet \
+    "numpy>=1.26,<2.0" \
+    "scipy" \
+    "river>=0.23,<0.24"
+success "Compiled packages pre-installed"
+
+# ── 6. Install project dependencies ──────────────────────────────────────────
 # Skip 'visualization' (pandas/matplotlib — heavy, not needed for the web app)
 # Skip 'dev' (pytest — not needed in production)
-info "Installing Python dependencies (this may take a few minutes)..."
+info "Installing remaining Python dependencies..."
 poetry install --without visualization --without dev
 # RPi.GPIO is a Pi-only hardware package not listed in pyproject.toml
 # (it fails to build on non-Pi platforms) — install it directly
