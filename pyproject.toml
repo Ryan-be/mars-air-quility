@@ -31,7 +31,7 @@ pytest = "^8.0"
 optional = true
 
 [tool.poetry.group.visualization.dependencies]
-pandas = "^3.0"
+pandas = "^2.0"
 matplotlib = "^3.7"
 
 [[tool.poetry.source]]
