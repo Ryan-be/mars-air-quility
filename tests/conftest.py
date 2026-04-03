@@ -23,9 +23,11 @@ def fake_sensors(temp=22.0, hum=50.0, eco2=400, tvoc=100):
 
 
 def _patch_db(path: str):
+    import mlss_monitor.hot_tier as ht_mod
     dbi.DB_FILE = path
     dbl.DB_FILE = path
     udb.DB_FILE = path
+    ht_mod.DB_FILE = path
 
 
 @pytest.fixture

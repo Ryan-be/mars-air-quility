@@ -20,6 +20,7 @@ from flask import Flask, redirect, request, session, url_for
 
 from config import config
 from database.db_logger import (
+    DB_FILE,
     cleanup_old_weather, get_24h_baselines, get_fan_settings, get_location,
     log_sensor_data, log_weather,
 )
@@ -187,7 +188,7 @@ if mics6814_sensor:
     state.mics6814 = mics6814_sensor
 
 # --- Hot tier and data source abstraction (parallel addition) ---
-hot_tier = HotTier(maxlen=3600)
+hot_tier = HotTier(maxlen=3600, db_file=DB_FILE)
 state.hot_tier = hot_tier
 
 _data_sources = [
@@ -460,6 +461,13 @@ def _background_log():
                         log.debug("[shadow] DetectionEngine would fire: %s", fired)
             except Exception as exc:
                 log.error("[shadow] DetectionEngine short-term error: %s", exc)
+
+        # Prune hot_tier DB rows older than 60 minutes to cap table size.
+        if _log_cycle % _CYCLE_60S == 0:
+            try:
+                hot_tier.prune_old()
+            except Exception as exc:
+                log.error("hot_tier.prune_old error: %s", exc)
 
         # Hourly detectors every ~1h
         if _log_cycle % _CYCLE_1H == 0:
