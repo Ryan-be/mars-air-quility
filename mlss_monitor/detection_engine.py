@@ -23,6 +23,7 @@ from database.db_logger import (
     save_inference,
 )
 from mlss_monitor.anomaly_detector import AnomalyDetector
+from mlss_monitor.attribution import AttributionEngine, AttributionResult
 from mlss_monitor.feature_vector import FeatureVector
 from mlss_monitor.rule_engine import RuleEngine
 
@@ -49,11 +50,30 @@ class DetectionEngine:
         rules_path: str | Path,
         anomaly_config_path: str | Path,
         model_dir: str | Path,
+        fingerprints_path: str | Path | None = None,
         dry_run: bool = True,
     ) -> None:
         self._dry_run = dry_run
         self._rule_engine = RuleEngine(rules_path)
         self._anomaly_detector = AnomalyDetector(anomaly_config_path, model_dir)
+        self._attribution_engine: AttributionEngine | None = None
+        if fingerprints_path is not None:
+            try:
+                self._attribution_engine = AttributionEngine(fingerprints_path)
+            except Exception as exc:
+                log.error("DetectionEngine: could not load fingerprints: %s", exc)
+
+    # ── Attribution helper ────────────────────────────────────────────────────
+
+    def _attribute(self, fv: FeatureVector):
+        """Run attribution scoring. Returns None if engine not configured or no match."""
+        if self._attribution_engine is None:
+            return None
+        try:
+            return self._attribution_engine.attribute(fv)
+        except Exception as exc:
+            log.warning("DetectionEngine: attribution error: %s", exc)
+            return None
 
     # ── Short-term detection (call at _CYCLE_60S) ─────────────────────────────
 
@@ -75,13 +95,29 @@ class DetectionEngine:
             fired.append(match.event_type)
             if not self._dry_run:
                 try:
+                    attribution = self._attribute(fv)
+                    evidence: dict = {"fv_timestamp": fv.timestamp.isoformat()}
+                    if attribution is not None:
+                        evidence["attribution"] = attribution.source_id
+                        evidence["attribution_confidence"] = round(attribution.confidence, 3)
+                        if attribution.runner_up_id is not None:
+                            evidence["runner_up"] = attribution.runner_up_id
+                            evidence["runner_up_confidence"] = round(attribution.runner_up_confidence, 3)
+
+                    title = match.title
+                    description = match.description
+                    if attribution is not None:
+                        title = f"{match.title} — {attribution.label} ({attribution.confidence:.0%})"
+                        description = f"{match.description}\n\n{attribution.description}"
+                    action = attribution.action if attribution is not None else match.action
+
                     save_inference(
                         event_type=match.event_type,
                         severity=match.severity,
-                        title=match.title,
-                        description=match.description,
-                        action=match.action,
-                        evidence={"fv_timestamp": fv.timestamp.isoformat()},
+                        title=title,
+                        description=description,
+                        action=action,
+                        evidence=evidence,
                         confidence=match.confidence,
                     )
                 except Exception as exc:

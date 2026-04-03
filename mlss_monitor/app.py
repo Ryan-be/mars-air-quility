@@ -208,8 +208,8 @@ _detection_engine = DetectionEngine(
     rules_path=_PROJECT_ROOT / "config" / "rules.yaml",
     anomaly_config_path=_PROJECT_ROOT / "config" / "anomaly.yaml",
     model_dir=_PROJECT_ROOT / "data" / "anomaly_models",
-    dry_run=True,  # Shadow mode: log but do not save to DB.
-                   # Set to False once parity with run_analysis() is confirmed.
+    fingerprints_path=_PROJECT_ROOT / "config" / "fingerprints.yaml",
+    dry_run=True,  # Shadow mode. Set to False once parity confirmed.
 )
 
 # ── Smart plug & async event loop ────────────────────────────────────────────
