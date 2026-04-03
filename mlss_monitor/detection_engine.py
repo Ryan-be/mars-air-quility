@@ -106,12 +106,17 @@ class DetectionEngine:
             try:
                 channel_data: dict[str, list[float]] = {}
 
-                # Fetch hot_tier columns
+                # Cap per-channel to last 1440 rows — enough to warm HalfSpaceTrees;
+                # more rows just waste startup time with no accuracy benefit.
+                _LIMIT = 1440
+
+                # Fetch hot_tier columns (1s resolution, up to 60 min)
                 for col in _HOT_TIER_COLS:
                     rows = conn.execute(
-                        f"SELECT {col} FROM hot_tier WHERE {col} IS NOT NULL ORDER BY timestamp"
+                        f"SELECT {col} FROM hot_tier WHERE {col} IS NOT NULL"
+                        f" ORDER BY timestamp DESC LIMIT {_LIMIT}"
                     ).fetchall()
-                    channel_data[col] = [r[0] for r in rows]
+                    channel_data[col] = [r[0] for r in reversed(rows)]
 
                 # Fetch all available sensor_data columns (prepend as older history)
                 _SD_COL_MAP = {
@@ -128,12 +133,13 @@ class DetectionEngine:
                     try:
                         rows = conn.execute(
                             f"SELECT {sd_col} FROM sensor_data"
-                            f" WHERE {sd_col} IS NOT NULL ORDER BY timestamp"
+                            f" WHERE {sd_col} IS NOT NULL"
+                            f" ORDER BY timestamp DESC LIMIT {_LIMIT}"
                         ).fetchall()
                     except Exception:
                         continue  # column may not exist on older DB schemas
                     if rows:
-                        cold = [r[0] for r in rows]
+                        cold = [r[0] for r in reversed(rows)]
                         channel_data[ch] = cold + channel_data.get(ch, [])
 
             finally:

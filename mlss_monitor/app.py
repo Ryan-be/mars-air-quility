@@ -596,10 +596,12 @@ def main():
     global hot_tier
     hot_tier = HotTier(maxlen=3600, db_file=DB_FILE)
     state.hot_tier = hot_tier
-    try:
-        _detection_engine.bootstrap_from_db(str(DB_FILE))
-    except Exception as exc:
-        log.warning("DetectionEngine.bootstrap_from_db failed: %s", exc)
+    def _bootstrap():
+        try:
+            _detection_engine.bootstrap_from_db(str(DB_FILE))
+        except Exception as exc:
+            log.warning("DetectionEngine.bootstrap_from_db failed: %s", exc)
+    Thread(target=_bootstrap, daemon=True).start()
     if state.github_oauth:
         log.info("🔒 Auth ENABLED — GitHub OAuth")
         if state.ALLOWED_GITHUB_USER:
