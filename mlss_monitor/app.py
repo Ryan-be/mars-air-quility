@@ -6,6 +6,7 @@ import os
 import ssl
 import time
 from datetime import datetime, timedelta
+from pathlib import Path
 from threading import Thread
 
 import psutil
@@ -35,6 +36,7 @@ from sensor_interfaces.sb_components_pm_sensor import init_pm_sensor, read_pm
 from sensor_interfaces.sgp30 import read_sgp30
 from mlss_monitor.hot_tier import HotTier
 from mlss_monitor.feature_extractor import FeatureExtractor
+from mlss_monitor.detection_engine import DetectionEngine
 from mlss_monitor.data_sources import (
     SGP30Source,
     AHT20Source,
@@ -196,6 +198,15 @@ _data_sources = [
 ]
 
 _feature_extractor = FeatureExtractor()
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_detection_engine = DetectionEngine(
+    rules_path=_PROJECT_ROOT / "config" / "rules.yaml",
+    anomaly_config_path=_PROJECT_ROOT / "config" / "anomaly.yaml",
+    model_dir=_PROJECT_ROOT / "data" / "anomaly_models",
+    dry_run=True,  # Shadow mode: log but do not save to DB.
+                   # Set to False once parity with run_analysis() is confirmed.
+)
 
 # ── Smart plug & async event loop ────────────────────────────────────────────
 
@@ -438,6 +449,18 @@ def _background_log():
             except Exception as e:
                 log.error("Inference engine error: %s", e)
 
+        # Shadow mode: new DetectionEngine runs alongside run_analysis() for parallel
+        # validation. dry_run=True means no DB writes. Compare log output to verify
+        # parity, then flip dry_run=False once satisfied.
+        if _log_cycle % _CYCLE_60S == 0:
+            try:
+                if state.feature_vector is not None:
+                    fired = _detection_engine.run(state.feature_vector)
+                    if fired:
+                        log.debug("[shadow] DetectionEngine would fire: %s", fired)
+            except Exception as exc:
+                log.error("[shadow] DetectionEngine short-term error: %s", exc)
+
         # Hourly detectors every ~1h
         if _log_cycle % _CYCLE_1H == 0:
             try:
@@ -446,6 +469,13 @@ def _background_log():
             except Exception as e:
                 log.error("Hourly inference error: %s", e)
 
+        if _log_cycle % _CYCLE_1H == 0:
+            try:
+                if state.feature_vector is not None:
+                    _detection_engine.run_hourly(state.feature_vector)
+            except Exception as exc:
+                log.error("[shadow] DetectionEngine hourly error: %s", exc)
+
         # Daily detectors every ~24h
         if _log_cycle % _CYCLE_24H == 0:
             try:
@@ -453,6 +483,13 @@ def _background_log():
                 run_daily_analysis()
             except Exception as e:
                 log.error("Daily inference error: %s", e)
+
+        if _log_cycle % _CYCLE_24H == 0:
+            try:
+                if state.feature_vector is not None:
+                    _detection_engine.run_daily(state.feature_vector)
+            except Exception as exc:
+                log.error("[shadow] DetectionEngine daily error: %s", exc)
 
         time.sleep(LOG_INTERVAL)
 
