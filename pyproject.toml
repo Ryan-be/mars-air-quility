@@ -20,8 +20,8 @@ authlib = ">=1.3.0"
 requests = ">=2.31.0"
 rule-engine = "^4.5"
 river = "^0.23"
-# Pin numpy below 2.2 — piwheels has no armv7l wheel for 2.2.x yet
-numpy = ">=1.23.0,<2.2"
+# numpy 2.x dropped 32-bit ARM wheels; pin to 1.26.x which ships armv7l wheels on PyPI
+numpy = "^1.26"
 pyyaml = "^6.0"
 
 [tool.poetry.group.dev.dependencies]
