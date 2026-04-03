@@ -75,6 +75,67 @@ class DetectionEngine:
             log.warning("DetectionEngine: attribution error: %s", exc)
             return None
 
+    # ── Bootstrap from historical DB ──────────────────────────────────────────
+
+    def bootstrap_from_db(self, db_file: str) -> None:
+        """Warm up the AnomalyDetector with historical data from SQLite.
+
+        Queries both ``hot_tier`` (recent high-resolution data) and the legacy
+        ``sensor_data`` table, merging them so the oldest readings come first.
+        Silently returns if there is no AnomalyDetector configured.
+
+        Args:
+            db_file: path to the SQLite database file.
+        """
+        if self._anomaly_detector is None:
+            return
+
+        _HOT_TIER_COLS = [
+            "tvoc_ppb",
+            "eco2_ppm",
+            "temperature_c",
+            "humidity_pct",
+            "pm25_ug_m3",
+            "co_ppb",
+            "no2_ppb",
+            "nh3_ppb",
+        ]
+
+        try:
+            conn = sqlite3.connect(db_file)
+            try:
+                channel_data: dict[str, list[float]] = {}
+
+                # Fetch hot_tier columns
+                for col in _HOT_TIER_COLS:
+                    rows = conn.execute(
+                        f"SELECT {col} FROM hot_tier WHERE {col} IS NOT NULL ORDER BY timestamp"
+                    ).fetchall()
+                    channel_data[col] = [r[0] for r in rows]
+
+                # Fetch legacy sensor_data tvoc/eco2 (prepend as older history)
+                sd_tvoc = conn.execute(
+                    "SELECT tvoc FROM sensor_data WHERE tvoc IS NOT NULL ORDER BY timestamp"
+                ).fetchall()
+                sd_eco2 = conn.execute(
+                    "SELECT eco2 FROM sensor_data WHERE eco2 IS NOT NULL ORDER BY timestamp"
+                ).fetchall()
+
+                # Merge: sensor_data values first (oldest), hot_tier values after
+                channel_data["tvoc_ppb"] = [r[0] for r in sd_tvoc] + channel_data.get("tvoc_ppb", [])
+                channel_data["eco2_ppm"] = [r[0] for r in sd_eco2] + channel_data.get("eco2_ppm", [])
+
+            finally:
+                conn.close()
+
+            total = sum(len(v) for v in channel_data.values())
+            log.info("DetectionEngine.bootstrap_from_db: bootstrapping %d total readings", total)
+            self._anomaly_detector.bootstrap(channel_data)
+
+        except Exception as exc:
+            log.error("DetectionEngine.bootstrap_from_db failed: %s", exc)
+            return
+
     # ── Short-term detection (call at _CYCLE_60S) ─────────────────────────────
 
     def run(self, fv: FeatureVector) -> list[str]:

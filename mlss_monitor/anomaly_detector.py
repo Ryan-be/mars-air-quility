@@ -118,6 +118,30 @@ class AnomalyDetector:
             self._calls_since_save = 0
         return scores
 
+    def bootstrap(self, channel_data: dict[str, list[float]]) -> None:
+        """Feed historical values into channel models to warm up cold-start.
+
+        Skips channels not in self._models. After all channels are processed,
+        persists models to disk.
+
+        Args:
+            channel_data: mapping of channel name → list of historical float values
+                          ordered oldest-first.
+        """
+        for ch, values in channel_data.items():
+            if ch not in self._models:
+                continue
+            model = self._models[ch]
+            for v in values:
+                model.learn_one({"value": float(v)})
+                self._n_seen[ch] = self._n_seen.get(ch, 0) + 1
+            log.info(
+                "AnomalyDetector.bootstrap: fed %d readings into channel %r",
+                len(values),
+                ch,
+            )
+        self._save_models()
+
     def anomalous_channels(self, scores: dict[str, float | None]) -> list[str]:
         """Return channel names whose score exceeds the configured threshold."""
         threshold = self._config.get("score_threshold", 0.7)

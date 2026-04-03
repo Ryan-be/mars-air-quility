@@ -212,6 +212,10 @@ _detection_engine = DetectionEngine(
     dry_run=True,  # Shadow mode. Set to False once parity confirmed.
 )
 state.detection_engine = _detection_engine
+try:
+    _detection_engine.bootstrap_from_db(str(DB_FILE))
+except Exception as exc:
+    log.warning("DetectionEngine.bootstrap_from_db failed: %s", exc)
 
 # ── Smart plug & async event loop ────────────────────────────────────────────
 
