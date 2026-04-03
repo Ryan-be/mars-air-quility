@@ -36,3 +36,6 @@ github_oauth = None
 
 # Event bus (SSE push)
 event_bus = None
+
+# Detection / attribution engine (set by app.py after init)
+detection_engine = None

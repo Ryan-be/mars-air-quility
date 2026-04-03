@@ -31,6 +31,7 @@
     <a href="/controls" class="{{ 'nav-active' if request.path == '/controls' else '' }}">⚙️ Controls</a>
     {% if session_role == 'admin' %}
       <a href="/admin" class="{{ 'nav-active' if request.path == '/admin' else '' }}">🔧 Settings</a>
+      <a href="/insights-engine" class="{{ 'nav-active' if request.path.startswith('/insights-engine') else '' }}">🧠 Insights</a>
     {% endif %}
   </nav>
 

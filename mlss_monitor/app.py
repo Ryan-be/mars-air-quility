@@ -211,6 +211,7 @@ _detection_engine = DetectionEngine(
     fingerprints_path=_PROJECT_ROOT / "config" / "fingerprints.yaml",
     dry_run=True,  # Shadow mode. Set to False once parity confirmed.
 )
+state.detection_engine = _detection_engine
 
 # ── Smart plug & async event loop ────────────────────────────────────────────
 
