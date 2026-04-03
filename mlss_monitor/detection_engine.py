@@ -113,17 +113,28 @@ class DetectionEngine:
                     ).fetchall()
                     channel_data[col] = [r[0] for r in rows]
 
-                # Fetch legacy sensor_data tvoc/eco2 (prepend as older history)
-                sd_tvoc = conn.execute(
-                    "SELECT tvoc FROM sensor_data WHERE tvoc IS NOT NULL ORDER BY timestamp"
-                ).fetchall()
-                sd_eco2 = conn.execute(
-                    "SELECT eco2 FROM sensor_data WHERE eco2 IS NOT NULL ORDER BY timestamp"
-                ).fetchall()
-
-                # Merge: sensor_data values first (oldest), hot_tier values after
-                channel_data["tvoc_ppb"] = [r[0] for r in sd_tvoc] + channel_data.get("tvoc_ppb", [])
-                channel_data["eco2_ppm"] = [r[0] for r in sd_eco2] + channel_data.get("eco2_ppm", [])
+                # Fetch all available sensor_data columns (prepend as older history)
+                _SD_COL_MAP = {
+                    "tvoc":        "tvoc_ppb",
+                    "eco2":        "eco2_ppm",
+                    "temperature": "temperature_c",
+                    "humidity":    "humidity_pct",
+                    "pm2_5":       "pm25_ug_m3",
+                    "gas_co":      "co_ppb",
+                    "gas_no2":     "no2_ppb",
+                    "gas_nh3":     "nh3_ppb",
+                }
+                for sd_col, ch in _SD_COL_MAP.items():
+                    try:
+                        rows = conn.execute(
+                            f"SELECT {sd_col} FROM sensor_data"
+                            f" WHERE {sd_col} IS NOT NULL ORDER BY timestamp"
+                        ).fetchall()
+                    except Exception:
+                        continue  # column may not exist on older DB schemas
+                    if rows:
+                        cold = [r[0] for r in rows]
+                        channel_data[ch] = cold + channel_data.get(ch, [])
 
             finally:
                 conn.close()
