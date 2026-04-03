@@ -203,3 +203,40 @@ def test_prune_old_with_no_db_does_not_raise():
     """prune_old() on a no-DB HotTier must be a no-op."""
     tier = HotTier(maxlen=3600, db_file=None)
     tier.prune_old()  # must not raise
+
+
+# ── last_minutes after reload ─────────────────────────────────────────────────
+
+def test_last_minutes_returns_reloaded_readings_within_window(tmp_path):
+    """Readings reloaded from DB must have UTC-aware timestamps so that
+    last_minutes() comparisons work correctly after a restart.
+
+    This is the highest-risk path: isoformat() → SQLite string → fromisoformat()
+    must round-trip to a timezone-aware datetime, otherwise the >= comparison
+    in last_minutes() raises TypeError.
+    """
+    import database.init_db as dbi
+    import mlss_monitor.hot_tier as ht_mod
+
+    db_path = str(tmp_path / "test.db")
+    dbi.DB_FILE = db_path
+    ht_mod.DB_FILE = db_path
+    dbi.create_db()
+
+    # Push two readings: one 2 minutes ago, one 10 minutes ago
+    tier1 = HotTier(maxlen=3600, db_file=db_path)
+    tier1.push(_reading(tvoc=5.0, seconds_ago=600))   # 10 min ago
+    tier1.push(_reading(tvoc=9.0, seconds_ago=120))   # 2 min ago
+
+    # Reload
+    tier2 = HotTier(maxlen=3600, db_file=db_path)
+    assert tier2.size() == 2
+
+    # last_minutes(5) should return only the 2-min-ago reading
+    recent = tier2.last_minutes(5)
+    assert len(recent) == 1
+    assert recent[0].tvoc_ppb == pytest.approx(9.0)
+
+    # last_minutes(15) should return both
+    all_recent = tier2.last_minutes(15)
+    assert len(all_recent) == 2

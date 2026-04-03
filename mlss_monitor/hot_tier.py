@@ -7,6 +7,12 @@ When db_file is provided:
 - __init__ loads the last 60 minutes of rows from the DB into the deque.
 - push() inserts each reading into the DB as well as the deque.
 - prune_old() deletes rows older than 60 minutes (call every 60s from app.py).
+
+A single persistent SQLite connection (check_same_thread=False) is kept open
+for the lifetime of the HotTier so that push() does not pay a connection-open
+overhead on every call (3600×/hour at 1 Hz).  CPython's GIL keeps single-writer
+/ single-pruner access safe in practice; the explicit reconnect-on-error path
+handles the rare case where the connection goes stale.
 """
 from __future__ import annotations
 
@@ -48,7 +54,9 @@ class HotTier:
     def __init__(self, maxlen: int = 3600, db_file: str | None = None) -> None:
         self._buffer: deque = deque(maxlen=maxlen)
         self._db_file = db_file
+        self._conn: sqlite3.Connection | None = None
         if self._db_file is not None:
+            self._conn = self._open_connection()
             self._load_from_db()
 
     # ── Public API (unchanged from original) ─────────────────────────────────
@@ -89,27 +97,34 @@ class HotTier:
         if self._db_file is None:
             return
         cutoff = (datetime.now(timezone.utc) - timedelta(minutes=60)).isoformat()
-        conn = None
         try:
-            conn = sqlite3.connect(self._db_file)
+            conn = self._get_connection()
             conn.execute("DELETE FROM hot_tier WHERE timestamp < ?", (cutoff,))
             conn.commit()
         except Exception as exc:
             log.warning("HotTier.prune_old failed: %s", exc)
-        finally:
-            if conn:
-                conn.close()
+            self._conn = None  # Force reconnect on next call
 
     # ── Private helpers ───────────────────────────────────────────────────────
+
+    def _open_connection(self) -> sqlite3.Connection:
+        """Open and return a new persistent SQLite connection."""
+        conn = sqlite3.connect(self._db_file, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    def _get_connection(self) -> sqlite3.Connection:
+        """Return the persistent connection, reopening it if it went stale."""
+        if self._conn is None:
+            self._conn = self._open_connection()
+        return self._conn
 
     def _load_from_db(self) -> None:
         """Load the last 60 minutes of rows from DB into the deque on startup."""
         from mlss_monitor.data_sources.base import NormalisedReading
         cutoff = (datetime.now(timezone.utc) - timedelta(minutes=60)).isoformat()
-        conn = None
         try:
-            conn = sqlite3.connect(self._db_file)
-            conn.row_factory = sqlite3.Row
+            conn = self._get_connection()
             rows = conn.execute(
                 "SELECT * FROM hot_tier WHERE timestamp >= ? ORDER BY timestamp ASC",
                 (cutoff,),
@@ -130,12 +145,10 @@ class HotTier:
                 log.info("HotTier: loaded %d readings from DB (last 60 min)", len(rows))
         except Exception as exc:
             log.warning("HotTier: could not load from DB: %s", exc)
-        finally:
-            if conn:
-                conn.close()
+            self._conn = None
 
     def _insert_row(self, reading) -> None:
-        """Insert one NormalisedReading row into hot_tier."""
+        """Insert one NormalisedReading row into hot_tier using the persistent connection."""
         cols = ("timestamp", "source") + _SENSOR_COLS
         placeholders = ", ".join("?" for _ in cols)
         values = (
@@ -143,9 +156,8 @@ class HotTier:
             reading.source,
             *[getattr(reading, col) for col in _SENSOR_COLS],
         )
-        conn = None
         try:
-            conn = sqlite3.connect(self._db_file)
+            conn = self._get_connection()
             conn.execute(
                 f"INSERT INTO hot_tier ({', '.join(cols)}) VALUES ({placeholders})",
                 values,
@@ -153,6 +165,4 @@ class HotTier:
             conn.commit()
         except Exception as exc:
             log.warning("HotTier._insert_row failed: %s", exc)
-        finally:
-            if conn:
-                conn.close()
+            self._conn = None  # Force reconnect on next call

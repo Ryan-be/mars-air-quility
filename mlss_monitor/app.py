@@ -188,7 +188,10 @@ if mics6814_sensor:
     state.mics6814 = mics6814_sensor
 
 # --- Hot tier and data source abstraction (parallel addition) ---
-hot_tier = HotTier(maxlen=3600, db_file=DB_FILE)
+# Initialised without DB here so importing app.py never touches the database.
+# main() reinitialises with db_file=DB_FILE after create_db() so that the
+# hot_tier table exists before _load_from_db() is called.
+hot_tier = HotTier(maxlen=3600)
 state.hot_tier = hot_tier
 
 _data_sources = [
@@ -588,6 +591,10 @@ def main():
         datefmt="%Y-%m-%d %H:%M:%S",
     )
     create_db()
+    # Reinitialise hot_tier now that the DB table is guaranteed to exist.
+    global hot_tier
+    hot_tier = HotTier(maxlen=3600, db_file=DB_FILE)
+    state.hot_tier = hot_tier
     if state.github_oauth:
         log.info("🔒 Auth ENABLED — GitHub OAuth")
         if state.ALLOWED_GITHUB_USER:
