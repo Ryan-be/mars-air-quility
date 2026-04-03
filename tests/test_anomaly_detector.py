@@ -127,6 +127,9 @@ def test_models_are_saved_and_reloaded(tmp_path):
     fv = _make_fv(tvoc_current=100.0, eco2_current=600.0)
     for _ in range(3):
         det.learn_and_score(fv)
+    # Force a save — models are throttled to every _SAVE_EVERY_N calls
+    # to reduce SD card wear, so we flush explicitly here.
+    det._save_models()
 
     # Reload
     det2 = AnomalyDetector(cfg_path, model_dir)

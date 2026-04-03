@@ -33,6 +33,10 @@ class AnomalyDetector:
     Scores are suppressed (returned as None) during the cold-start period.
     """
 
+    # Save models every N learn_and_score calls to reduce SD card write wear.
+    # At 60s cycles: N=10 → saves every 10 minutes instead of every minute.
+    _SAVE_EVERY_N: int = 10
+
     def __init__(self, config_path: str | Path, model_dir: str | Path) -> None:
         self._config_path = Path(config_path)
         self._model_dir = Path(model_dir)
@@ -40,6 +44,7 @@ class AnomalyDetector:
         self._config: dict = {}
         self._models: dict[str, HalfSpaceTrees] = {}
         self._n_seen: dict[str, int] = {}
+        self._calls_since_save: int = 0
         self._load_config()
         self._load_models()
 
@@ -107,7 +112,10 @@ class AnomalyDetector:
             # Suppress during cold start
             scores[ch] = None if self._n_seen[ch] < cold_start else raw_score
 
-        self._save_models()
+        self._calls_since_save += 1
+        if self._calls_since_save >= self._SAVE_EVERY_N:
+            self._save_models()
+            self._calls_since_save = 0
         return scores
 
     def anomalous_channels(self, scores: dict[str, float | None]) -> list[str]:
