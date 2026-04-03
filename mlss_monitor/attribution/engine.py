@@ -85,8 +85,11 @@ class AttributionEngine:
                 runner_up_id = second_fp.id
                 runner_up_conf = second_conf
 
-        # Fill description template (gracefully handle missing fields)
-        fv_dict = dataclasses.asdict(fv)
+        # Fill description template (gracefully handle missing fields).
+        # Replace None with 0 so numeric format specs like {tvoc_current:.0f}
+        # succeed even when a sensor field has no data.
+        fv_dict = {k: (v if v is not None else 0)
+                   for k, v in dataclasses.asdict(fv).items()}
 
         class _SafeDict(dict):
             def __missing__(self, key):
