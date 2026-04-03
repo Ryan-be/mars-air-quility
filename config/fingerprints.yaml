@@ -1,0 +1,110 @@
+# config/fingerprints.yaml
+# Source fingerprints for attribution layer.
+# sensor states: high | elevated | slight_rise | normal | absent | rising
+# temporal keys: rise_rate (fast|moderate|slow), decay_rate (fast|moderate|slow),
+#                sustain_min_minutes, sustain_max_minutes,
+#                nh3_follows_tvoc (bool), nh3_max_lag_seconds,
+#                pm25_correlated_with_tvoc (bool), co_correlated_with_tvoc (bool)
+
+sources:
+
+  - id: biological_offgas
+    label: "Biological off-gassing"
+    description: "Human or animal biological VOC source (flatulence, sweat, breath)"
+    examples: "flatulence, body odour, crowded space"
+    sensors:
+      tvoc:        high
+      nh3:         high
+      eco2:        slight_rise
+      pm25:        normal
+      co:          absent
+    temporal:
+      rise_rate:            fast
+      sustain_max_minutes:  10
+      decay_rate:           fast
+      nh3_follows_tvoc:     true
+      nh3_max_lag_seconds:  120
+    confidence_floor: 0.65
+    description_template: >
+      TVOC reached {tvoc_current:.0f} ppb with NH3 elevated to {nh3_current:.0f} ppb
+      following {nh3_lag_behind_tvoc_seconds:.0f} seconds later.
+      Pattern matches biological off-gassing.
+      No PM2.5 rise rules out combustion or cooking.
+    action_template: "The source is typically short-lived. Ventilate if the odour persists."
+
+  - id: chemical_offgassing
+    label: "Chemical off-gassing"
+    description: "Cleaning products, paint, adhesives, air fresheners, new materials"
+    examples: "cleaning products, air fresheners, paint, adhesives, new furniture, cosmetics"
+    sensors:
+      tvoc:  elevated
+      nh3:   normal
+      pm25:  normal
+      eco2:  normal
+      co:    absent
+    temporal:
+      rise_rate:            moderate
+      sustain_min_minutes:  30
+      decay_rate:           slow
+      nh3_follows_tvoc:     false
+    confidence_floor: 0.60
+    description_template: >
+      TVOC is elevated at {tvoc_current:.0f} ppb but PM2.5 and eCO2 are normal.
+      This is typical of volatile organic sources that do not produce particles or CO2:
+      {examples}.
+    action_template: "Ventilate the room. {persistence_note}"
+
+  - id: cooking
+    label: "Cooking activity"
+    description: "Cooking, frying, or baking — heat + food-based VOCs and particles"
+    examples: "frying, baking, grilling, boiling"
+    sensors:
+      tvoc:        elevated
+      pm25:        elevated
+      temperature: rising
+      co:          absent
+    temporal:
+      rise_rate:               moderate
+      sustain_min_minutes:     15
+      pm25_correlated_with_tvoc: true
+    confidence_floor: 0.55
+    description_template: >
+      TVOC at {tvoc_current:.0f} ppb and PM2.5 at {pm25_current:.1f} µg/m³ rising together
+      with temperature increasing. Pattern is consistent with cooking activity.
+    action_template: "Ensure kitchen ventilation is adequate. Open a window if PM2.5 remains elevated."
+
+  - id: combustion
+    label: "Combustion"
+    description: "Open flame, candle, fire, or smoking"
+    examples: "candle, open fire, cigarette, incense"
+    sensors:
+      tvoc:  high
+      co:    elevated
+      pm25:  high
+      no2:   elevated
+    temporal:
+      rise_rate:               fast
+      pm25_correlated_with_tvoc: true
+    confidence_floor: 0.80
+    description_template: >
+      High TVOC ({tvoc_current:.0f} ppb) with elevated CO ({co_current:.0f} ppb)
+      and high PM2.5 ({pm25_current:.1f} µg/m³). Sensor profile matches combustion.
+    action_template: "Extinguish any open flames. Ventilate immediately if CO continues to rise."
+
+  - id: external_pollution
+    label: "External pollution ingress"
+    description: "Outdoor air quality event entering via ventilation or gaps"
+    examples: "traffic fumes, bonfire smoke, agricultural spray"
+    sensors:
+      pm25:  high
+      tvoc:  normal
+      co:    normal
+      nh3:   normal
+    temporal:
+      rise_rate:            slow
+      sustain_min_minutes:  60
+    confidence_floor: 0.55
+    description_template: >
+      PM2.5 elevated at {pm25_current:.1f} µg/m³ without corresponding TVOC or CO rise.
+      Pattern suggests external pollution entering from outside.
+    action_template: "Close windows and doors. Check local air quality reports."
