@@ -1,0 +1,18 @@
+# config/anomaly.yaml
+# River HalfSpaceTrees anomaly detection configuration.
+# One model per channel, trained on cold-tier write cycles (every 60s).
+
+anomaly:
+  algorithm: half_space_trees
+  score_threshold: 0.7          # score > threshold → anomaly event
+  cold_start_readings: 1440     # suppress scores for first 24h (1440 × 60s)
+  model_dir: data/anomaly_models  # relative to project root
+  channels:
+    - tvoc_ppb
+    - eco2_ppm
+    - temperature_c
+    - humidity_pct
+    - pm25_ug_m3
+    - co_ppb       # sparse until MICS6814 has enough history
+    - no2_ppb
+    - nh3_ppb

@@ -1,0 +1,256 @@
+# config/rules.yaml
+# Declarative threshold rules evaluated against FeatureVector every 60s.
+#
+# expression: rule-engine boolean expression. All fields map to FeatureVector field names.
+#   - Comparisons against None fields return False (rule does not fire).
+#   - Use temperature_current NOT temperature_c (spec typo).
+#
+# dedupe_hours: suppress re-firing for this many hours after first fire.
+
+rules:
+
+  # ── TVOC ──────────────────────────────────────────────────────────────────────
+
+  - id: tvoc_spike
+    expression: "tvoc_peak_ratio > 2.0 and tvoc_current > 250"
+    event_type: tvoc_spike
+    severity: warning
+    dedupe_hours: 1
+    confidence: 0.8
+    title_template: "TVOC spike detected ({tvoc_current:.0f} ppb)"
+    description_template: >
+      TVOC has risen to {tvoc_current:.0f} ppb, {tvoc_peak_ratio:.1f}×
+      above the {tvoc_baseline:.0f} ppb 24-hour baseline. The sensor has been
+      elevated for {tvoc_elevated_minutes:.1f} minutes.
+    action: >
+      Open a window or turn on ventilation. If you can identify the source
+      (e.g. cleaning spray, cooking), remove or contain it. Levels should
+      return to baseline within 15–60 minutes with adequate airflow.
+
+  # ── eCO2 ──────────────────────────────────────────────────────────────────────
+
+  - id: eco2_danger
+    expression: "eco2_current >= 2000"
+    event_type: eco2_danger
+    severity: critical
+    dedupe_hours: 1
+    confidence: 0.95
+    title_template: "Dangerous CO₂ level ({eco2_current:.0f} ppm)"
+    description_template: >
+      eCO₂ has reached {eco2_current:.0f} ppm, above the 2000 ppm danger
+      threshold. Above this level, headaches, drowsiness, and significant
+      cognitive impairment are likely. Baseline is {eco2_baseline:.0f} ppm.
+    action: "Ventilate immediately — open windows and doors. Leave the room if symptoms appear."
+
+  - id: eco2_elevated
+    expression: "eco2_current >= 1000 and eco2_current < 2000"
+    event_type: eco2_elevated
+    severity: warning
+    dedupe_hours: 1
+    confidence: 0.8
+    title_template: "CO₂ elevated ({eco2_current:.0f} ppm)"
+    description_template: >
+      eCO₂ has reached {eco2_current:.0f} ppm. Above 1000 ppm, studies show
+      measurable decline in decision-making and concentration. The room
+      likely needs better ventilation.
+    action: "Open a window or activate the fan. Consider taking a break in fresh air."
+
+  # ── Temperature ───────────────────────────────────────────────────────────────
+
+  - id: temp_high
+    expression: "temperature_current > 28.0"
+    event_type: temp_high
+    severity: warning
+    dedupe_hours: 2
+    confidence: 0.85
+    title_template: "Temperature high ({temperature_current:.1f}°C)"
+    description_template: >
+      Temperature is {temperature_current:.1f}°C, above the 28°C comfort
+      threshold. This can stress plants and reduce cognitive performance.
+    action: "Improve ventilation or use cooling. Check if heat sources (lights, equipment) can be reduced."
+
+  - id: temp_low
+    expression: "temperature_current < 15.0"
+    event_type: temp_low
+    severity: warning
+    dedupe_hours: 2
+    confidence: 0.85
+    title_template: "Temperature low ({temperature_current:.1f}°C)"
+    description_template: >
+      Temperature is {temperature_current:.1f}°C, below the 15°C threshold.
+      Low temperatures slow plant growth and can be uncomfortable for occupants.
+    action: "Consider heating the space or reducing ventilation to retain warmth."
+
+  # ── Humidity ──────────────────────────────────────────────────────────────────
+
+  - id: humidity_high
+    expression: "humidity_current > 70.0"
+    event_type: humidity_high
+    severity: warning
+    dedupe_hours: 2
+    confidence: 0.8
+    title_template: "Humidity high ({humidity_current:.0f}% RH)"
+    description_template: >
+      Humidity is {humidity_current:.0f}%, above the 70% threshold. High
+      humidity promotes mould growth and dust mites. Combined with warm
+      temperatures this creates ideal conditions for fungal issues.
+    action: "Increase ventilation or use a dehumidifier. Check for water leaks or standing water."
+
+  - id: humidity_low
+    expression: "humidity_current < 30.0"
+    event_type: humidity_low
+    severity: warning
+    dedupe_hours: 2
+    confidence: 0.8
+    title_template: "Humidity low ({humidity_current:.0f}% RH)"
+    description_template: >
+      Humidity is {humidity_current:.0f}%, below the 30% threshold. Low
+      humidity causes dry skin, irritated airways, and static electricity.
+      Plants may show leaf curling and wilting.
+    action: "Use a humidifier, place water trays near heat sources, or mist plants."
+
+  # ── VPD ───────────────────────────────────────────────────────────────────────
+
+  - id: vpd_low
+    expression: "vpd_kpa < 0.4"
+    event_type: vpd_low
+    severity: warning
+    dedupe_hours: 2
+    confidence: 0.75
+    title_template: "VPD too low ({vpd_kpa:.2f} kPa)"
+    description_template: >
+      VPD is {vpd_kpa:.2f} kPa. Below 0.4 kPa the air is nearly saturated,
+      slowing transpiration and creating conditions for mould, powdery mildew,
+      and root rot.
+    action: "Increase temperature or decrease humidity. Improve air circulation around plants."
+
+  - id: vpd_high
+    expression: "vpd_kpa > 1.6"
+    event_type: vpd_high
+    severity: warning
+    dedupe_hours: 2
+    confidence: 0.75
+    title_template: "VPD too high ({vpd_kpa:.2f} kPa)"
+    description_template: >
+      VPD is {vpd_kpa:.2f} kPa. Above 1.6 kPa plants close stomata to
+      conserve water, halting photosynthesis and causing leaf tip burn
+      and wilting.
+    action: "Increase humidity (misting, humidifier) or reduce temperature. Avoid direct heat on plants."
+
+  # ── Mould risk ────────────────────────────────────────────────────────────────
+
+  - id: mould_risk
+    expression: "humidity_elevated_minutes > 240 and humidity_current > 70.0 and temperature_current > 20.0"
+    event_type: mould_risk
+    severity: warning
+    dedupe_hours: 6
+    confidence: 0.75
+    title_template: "Mould risk ({humidity_current:.0f}% RH for {humidity_elevated_minutes:.0f} min)"
+    description_template: >
+      Humidity has been above baseline for {humidity_elevated_minutes:.0f} minutes
+      at {temperature_current:.1f}°C with current reading of {humidity_current:.0f}%.
+      Sustained warm, humid conditions favour mould growth, particularly
+      Aspergillus and Cladosporium species.
+    action: >
+      Reduce humidity urgently: run a dehumidifier, increase ventilation, and check
+      for water sources (leaks, standing water, drying clothes). Inspect corners,
+      window frames, and behind furniture for early mould. Target humidity below 60%.
+
+  # ── Correlated pollution ──────────────────────────────────────────────────────
+
+  - id: correlated_pollution
+    expression: "tvoc_slope_5m > 0 and eco2_slope_5m > 0 and tvoc_current > 150 and eco2_current > 800"
+    event_type: correlated_pollution
+    severity: warning
+    dedupe_hours: 2
+    confidence: 0.7
+    title_template: "TVOC and CO₂ rising together ({tvoc_current:.0f} ppb / {eco2_current:.0f} ppm)"
+    description_template: >
+      Both TVOC ({tvoc_current:.0f} ppb, slope {tvoc_slope_5m:.1f} ppb/min) and
+      eCO₂ ({eco2_current:.0f} ppm, slope {eco2_slope_5m:.1f} ppm/min) are rising
+      simultaneously. Correlated rises suggest a common source producing both volatile
+      organics and carbon dioxide, such as combustion or heavy biological activity.
+    action: >
+      Identify and remove the source. Ventilate the space. If cooking, use an extractor
+      hood. If people-related, increase ventilation rate.
+
+  # ── Rapid changes ─────────────────────────────────────────────────────────────
+
+  - id: rapid_temp_change
+    expression: "temperature_slope_1m > 0.5 or temperature_slope_1m < -0.5"
+    event_type: rapid_temp_change
+    severity: warning
+    dedupe_hours: 1
+    confidence: 0.7
+    title_template: "Rapid temperature change ({temperature_slope_1m:+.2f}°C/min)"
+    description_template: >
+      Temperature is changing at {temperature_slope_1m:+.2f}°C/min from a current
+      reading of {temperature_current:.1f}°C. Rapid swings can stress plants and
+      indicate drafts, intermittent heating, or a door/window being opened.
+    action: "Check for drafts, open doors/windows, or thermostat cycling. Identify the source of the sudden change."
+
+  - id: rapid_humidity_change
+    expression: "humidity_slope_1m > 2.5 or humidity_slope_1m < -2.5"
+    event_type: rapid_humidity_change
+    severity: warning
+    dedupe_hours: 1
+    confidence: 0.65
+    title_template: "Rapid humidity change ({humidity_slope_1m:+.1f}%/min)"
+    description_template: >
+      Humidity is changing at {humidity_slope_1m:+.1f}%/min from a current reading
+      of {humidity_current:.0f}%. Rapid humidity swings can stress plants and indicate
+      ventilation changes, shower/cooking steam, or humidifier cycling.
+    action: "Check if a humidifier, shower, or cooking activity is the cause."
+
+  # ── Sustained poor air ────────────────────────────────────────────────────────
+
+  - id: sustained_poor_air
+    expression: "tvoc_elevated_minutes > 10 and eco2_elevated_minutes > 10"
+    event_type: sustained_poor_air
+    severity: warning
+    dedupe_hours: 3
+    confidence: 0.85
+    title_template: "Sustained poor air quality ({tvoc_elevated_minutes:.0f} min above baseline)"
+    description_template: >
+      Both TVOC ({tvoc_current:.0f} ppb) and eCO₂ ({eco2_current:.0f} ppm) have
+      been continuously above their 24-hour baselines for over {tvoc_elevated_minutes:.0f}
+      minutes. This is not a spike — it suggests a persistent source or insufficient
+      ventilation.
+    action: >
+      This needs more than just opening a window briefly. Consider running the fan
+      continuously, identifying a persistent VOC source (new furniture, paint, carpet),
+      or increasing the room's base ventilation rate.
+
+  # ── PM2.5 ─────────────────────────────────────────────────────────────────────
+
+  - id: pm25_spike
+    expression: "pm25_peak_ratio > 3.0 and pm25_current > 12.0"
+    event_type: pm25_spike
+    severity: warning
+    dedupe_hours: 1
+    confidence: 0.8
+    title_template: "PM2.5 spike ({pm25_current:.0f} µg/m³)"
+    description_template: >
+      PM2.5 has reached {pm25_current:.0f} µg/m³, {pm25_peak_ratio:.1f}×
+      above the {pm25_baseline:.0f} µg/m³ baseline. Common causes include
+      cooking (especially frying), candles, incense, or a nearby dust disturbance.
+    action: >
+      Increase ventilation immediately. If cooking is the source, use the extractor
+      fan and open a window. Levels should return to baseline within 15–30 minutes
+      with adequate airflow.
+
+  - id: pm25_elevated
+    expression: "pm25_current > 12.0 and pm25_elevated_minutes > 20"
+    event_type: pm25_elevated
+    severity: warning
+    dedupe_hours: 2
+    confidence: 0.75
+    title_template: "PM2.5 elevated ({pm25_current:.0f} µg/m³ for {pm25_elevated_minutes:.0f} min)"
+    description_template: >
+      PM2.5 has been continuously above baseline for {pm25_elevated_minutes:.0f} minutes,
+      currently reading {pm25_current:.0f} µg/m³. Sustained elevated fine particles
+      affect respiratory health over time.
+    action: >
+      Check for ongoing combustion sources (candles, incense, gas cooking). If outdoor
+      air quality is poor, keep windows closed and run ventilation with a HEPA filter
+      if available.
