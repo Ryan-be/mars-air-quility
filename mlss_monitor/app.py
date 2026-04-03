@@ -212,10 +212,6 @@ _detection_engine = DetectionEngine(
     dry_run=True,  # Shadow mode. Set to False once parity confirmed.
 )
 state.detection_engine = _detection_engine
-try:
-    _detection_engine.bootstrap_from_db(str(DB_FILE))
-except Exception as exc:
-    log.warning("DetectionEngine.bootstrap_from_db failed: %s", exc)
 
 # ── Smart plug & async event loop ────────────────────────────────────────────
 
@@ -600,6 +596,10 @@ def main():
     global hot_tier
     hot_tier = HotTier(maxlen=3600, db_file=DB_FILE)
     state.hot_tier = hot_tier
+    try:
+        _detection_engine.bootstrap_from_db(str(DB_FILE))
+    except Exception as exc:
+        log.warning("DetectionEngine.bootstrap_from_db failed: %s", exc)
     if state.github_oauth:
         log.info("🔒 Auth ENABLED — GitHub OAuth")
         if state.ALLOWED_GITHUB_USER:
