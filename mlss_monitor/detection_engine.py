@@ -25,7 +25,7 @@ from database.db_logger import (
 from mlss_monitor.anomaly_detector import AnomalyDetector
 from mlss_monitor.attribution import AttributionEngine, AttributionResult
 from mlss_monitor.feature_vector import FeatureVector
-from mlss_monitor.rule_engine import RuleEngine
+from mlss_monitor.threshold_engine import RuleEngine
 
 log = logging.getLogger(__name__)
 

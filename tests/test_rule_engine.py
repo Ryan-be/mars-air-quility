@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from mlss_monitor.feature_vector import FeatureVector
-from mlss_monitor.rule_engine import RuleEngine, RuleMatch
+from mlss_monitor.threshold_engine import RuleEngine, RuleMatch
 
 
 def _make_fv(**kwargs) -> FeatureVector:
