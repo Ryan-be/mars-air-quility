@@ -226,6 +226,25 @@ def create_db():
         VALUES (?, ?, ?, ?, ?)
         """, (0, 500, 0.0, 20.0, 0))
 
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS hot_tier (
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT    NOT NULL,
+        source    TEXT    NOT NULL,
+        tvoc_ppb      REAL,
+        eco2_ppm      REAL,
+        temperature_c REAL,
+        humidity_pct  REAL,
+        pm25_ug_m3    REAL,
+        co_ppb        REAL,
+        no2_ppb       REAL,
+        nh3_ppb       REAL
+    );
+    """)
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_hot_tier_timestamp ON hot_tier (timestamp);"
+    )
+
     conn.commit()
     conn.close()
 
