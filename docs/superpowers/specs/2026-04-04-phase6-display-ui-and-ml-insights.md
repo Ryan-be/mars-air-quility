@@ -681,11 +681,11 @@ A toggleable layer of vertical marker lines on the Correlations chart. Default s
 **Marker specification:**
 
 - Type: Plotly shape (vertical line) from y=0 to y=1 (axis fraction) at the inference timestamp.
-- Colour by severity:
-  - `alert` → red (`#ef4444`)
+- Colour by severity (DB values are `critical`, `warning`, `info`; event_type prefix used for anomaly/pattern colouring):
+  - `critical` → red (`#ef4444`)
   - `warning` → amber (`#f59e0b`)
-  - `anomaly` / `pattern` → blue (`#3b82f6`)
-  - Unknown severity → grey (`#6b7280`)
+  - `info` with event_type prefix `anomaly_` or `pattern` → blue (`#3b82f6`)
+  - All other `info` → grey (`#6b7280`)
 - Width: 1px, dashed.
 
 **Hover/tap interaction:** When hovering/tapping a marker, show a tooltip with:
@@ -971,7 +971,7 @@ The existing anomaly models table in `templates/insights_engine.html` gains two 
 
 **Update mechanism:** SSE `anomaly_scores` event (every 30s). On event receipt, for each model ID in `scores`, update the corresponding table row's progress bar.
 
-**Model ID matching:** The SSE payload's `scores` dict keys must match the model identifiers used in the table rows. Ensure the model IDs in the River anomaly detector match the keys emitted by the SSE event. If they do not currently match, normalise in the SSE handler.
+**Model ID matching:** The `anomaly_scores` SSE payload covers both per-channel models and the five multivariate composite models. Per-channel model IDs are the DB column names (`tvoc_ppb`, `eco2_ppm`, `temperature_c`, `humidity_pct`, `pm1_ug_m3`, `pm25_ug_m3`, `pm10_ug_m3`, `co_ppb`, `no2_ppb`, `nh3_ppb`). Composite model IDs are: `combustion_signature`, `particle_distribution`, `ventilation_quality`, `gas_relationship`, `thermal_moisture`. These must match the model identifiers used as table row keys in the Insights Engine page.
 
 **ⓘ on column header:**
 *"The anomaly score (0–1) shows how unusual the current sensor readings are compared to what this model has learned is normal. Scores above 0.75 trigger a detection event."*
