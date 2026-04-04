@@ -74,6 +74,19 @@ class RuleEngine:
                     exc,
                 )
 
+    def reload(self) -> None:
+        """Thread-safe hot-reload: re-read YAML and recompile rules.
+
+        Acquires the shared yaml_lock before reading so an in-progress
+        atomic_write from the API handler cannot race with this read.
+        If the YAML is malformed the error propagates to the caller;
+        the caller (API route) should catch and return HTTP 500.
+        """
+        from mlss_monitor.yaml_io import yaml_lock
+        with yaml_lock:
+            self.load()
+        log.info("RuleEngine: reloaded %d rules from %s", len(self._rules), self._rules_path.name)
+
     def evaluate(self, fv: FeatureVector) -> list[RuleMatch]:
         """Evaluate all loaded rules against the FeatureVector.
 
