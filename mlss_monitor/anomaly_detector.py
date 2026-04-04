@@ -166,3 +166,32 @@ class AnomalyDetector:
     def baseline(self, channel: str) -> float | None:
         """Return the EMA baseline for a channel, or None if not yet seen."""
         return self._ema.get(channel)
+
+    def reset_channel(self, channel: str) -> None:
+        """Reset a single channel model and delete its persisted pickle.
+
+        Use when a sensor was faulty for a period and accumulated bad training
+        data. After reset the channel re-enters the cold-start suppression
+        period and rebuilds from scratch.
+        """
+        if channel not in self._models:
+            log.warning("AnomalyDetector.reset_channel: unknown channel %r", channel)
+            return
+        self._models[channel] = HalfSpaceTrees(n_trees=10, height=8, window_size=150, seed=42)
+        self._n_seen[channel] = 0
+        self._ema.pop(channel, None)
+        pkl_path = self._model_dir / f"{channel}.pkl"
+        try:
+            pkl_path.unlink(missing_ok=True)
+        except OSError as exc:
+            log.warning("AnomalyDetector.reset_channel: could not delete %s: %s", pkl_path, exc)
+        log.info("AnomalyDetector: reset channel %r", channel)
+
+    def live_scores(self) -> dict[str, float | None]:
+        """Return the most-recent EMA value per channel (not an anomaly score).
+
+        Returns None for channels with no readings yet.  Used by the anomaly
+        settings UI to show live sensor levels without running a full detection
+        cycle.
+        """
+        return {ch: self._ema.get(ch) for ch in self._channels()}
