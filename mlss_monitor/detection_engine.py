@@ -74,6 +74,9 @@ class DetectionEngine:
         dry_run: bool = True,
     ) -> None:
         self._dry_run = dry_run
+        self._rules_path = Path(rules_path)
+        self._anomaly_config_path = Path(anomaly_config_path)
+        self._fingerprints_path = Path(fingerprints_path) if fingerprints_path is not None else None
         self._rule_engine = RuleEngine(rules_path)
         self._anomaly_detector = AnomalyDetector(anomaly_config_path, model_dir)
         self._attribution_engine: AttributionEngine | None = None
