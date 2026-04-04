@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 class ParticulateSource(DataSource):
 
     def __init__(self) -> None:
+        super().__init__()
         self._last_pm1:  float | None = None
         self._last_pm25: float | None = None
         self._last_pm10: float | None = None

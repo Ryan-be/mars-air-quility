@@ -27,6 +27,9 @@ class NormalisedReading:
 
 
 class DataSource(ABC):
+    def __init__(self) -> None:
+        self.last_reading_at: datetime | None = None
+
     @property
     @abstractmethod
     def name(self) -> str:

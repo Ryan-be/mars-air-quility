@@ -209,6 +209,9 @@ _data_sources = [
 for _ds in _data_sources:
     state.data_source_enabled.setdefault(_ds.name, True)
 
+# Expose live source objects so API routes can read last_reading_at.
+state.data_sources = _data_sources
+
 _feature_extractor = FeatureExtractor()
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -529,6 +532,7 @@ def _sensor_read_loop() -> None:
             for source in _data_sources:
                 try:
                     readings.append(source.get_latest())
+                    source.last_reading_at = datetime.utcnow()
                 except Exception as exc:
                     log.warning(
                         "DataSource %s read failed: %s", source.name, exc

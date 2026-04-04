@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 class WeatherAPISource(DataSource):
     def __init__(self, client, lat: float, lon: float) -> None:
+        super().__init__()
         self._client = client
         self._lat = lat
         self._lon = lon

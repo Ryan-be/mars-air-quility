@@ -300,12 +300,17 @@ def reset_anomaly_channel(channel: str):
 @require_role("admin")
 def get_sources():
     enabled_map = state.data_source_enabled
+    # Build a lookup from name -> DataSource instance so we can read last_reading_at.
+    source_obj_map = {ds.name: ds for ds in (state.data_sources or [])}
     result = []
     for name, enabled in enabled_map.items():
+        ds = source_obj_map.get(name)
+        lra = ds.last_reading_at if ds is not None else None
         result.append({
             "name": name,
             "enabled": enabled,
             "status": "active" if enabled else "disabled",
+            "last_reading_at": lra.isoformat() + "Z" if lra is not None else None,
         })
     return jsonify(result)
 

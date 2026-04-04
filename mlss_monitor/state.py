@@ -46,3 +46,6 @@ shadow_log: deque = deque(maxlen=50)  # recent shadow-mode detection events
 # Data source enabled/disabled flags (in-memory; reset to True on restart)
 # Keys are DataSource.name strings, values are bool.
 data_source_enabled: dict[str, bool] = {}
+
+# Live DataSource instances (set by app.py); used by API to read last_reading_at.
+data_sources: list = []
