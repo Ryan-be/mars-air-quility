@@ -90,12 +90,28 @@ class DetectionEngine:
         if self._anomaly_detector is None:
             return
 
+        # Skip if all channels already have sufficient training data persisted
+        cold_start = self._anomaly_detector._config.get("cold_start_readings", 1440)
+        min_seen = min(
+            self._anomaly_detector._n_seen.get(ch, 0)
+            for ch in self._anomaly_detector._channels()
+        )
+        if min_seen >= cold_start // 2:
+            log.info(
+                "DetectionEngine.bootstrap_from_db: models already warm "
+                "(min n_seen=%d >= %d), skipping bootstrap",
+                min_seen, cold_start // 2,
+            )
+            return
+
         _HOT_TIER_COLS = [
             "tvoc_ppb",
             "eco2_ppm",
             "temperature_c",
             "humidity_pct",
+            "pm1_ug_m3",
             "pm25_ug_m3",
+            "pm10_ug_m3",
             "co_ppb",
             "no2_ppb",
             "nh3_ppb",
@@ -124,7 +140,9 @@ class DetectionEngine:
                     "eco2":        "eco2_ppm",
                     "temperature": "temperature_c",
                     "humidity":    "humidity_pct",
+                    "pm1_0":       "pm1_ug_m3",
                     "pm2_5":       "pm25_ug_m3",
+                    "pm10":        "pm10_ug_m3",
                     "gas_co":      "co_ppb",
                     "gas_no2":     "no2_ppb",
                     "gas_nh3":     "nh3_ppb",

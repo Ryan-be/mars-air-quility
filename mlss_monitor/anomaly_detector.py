@@ -19,7 +19,9 @@ _CHANNEL_TO_FV_FIELD: dict[str, str] = {
     "eco2_ppm":      "eco2_current",
     "temperature_c": "temperature_current",
     "humidity_pct":  "humidity_current",
+    "pm1_ug_m3":     "pm1_current",
     "pm25_ug_m3":    "pm25_current",
+    "pm10_ug_m3":    "pm10_current",
     "co_ppb":        "co_current",
     "no2_ppb":       "no2_current",
     "nh3_ppb":       "nh3_current",
@@ -62,13 +64,21 @@ class AnomalyDetector:
             if model_path.exists():
                 try:
                     with open(model_path, "rb") as f:
-                        state = pickle.load(f)
-                    self._models[ch] = state["model"]
-                    self._n_seen[ch] = state["n_seen"]
+                        saved = pickle.load(f)
+                    model = saved["model"]
+                    # Recreate if params differ (avoids slow old models blocking startup)
+                    if (getattr(model, 'n_trees', None) != 10 or
+                            getattr(model, 'height', None) != 8):
+                        log.info("AnomalyDetector: model params changed for %r, recreating", ch)
+                        self._models[ch] = HalfSpaceTrees(n_trees=10, height=8, window_size=150, seed=42)
+                        self._n_seen[ch] = 0
+                        continue
+                    self._models[ch] = model
+                    self._n_seen[ch] = saved["n_seen"]
                     continue
                 except Exception as exc:
                     log.warning("AnomalyDetector: could not load model %r: %s", ch, exc)
-            self._models[ch] = HalfSpaceTrees(n_trees=25, height=15, window_size=250, seed=42)
+            self._models[ch] = HalfSpaceTrees(n_trees=10, height=8, window_size=150, seed=42)
             self._n_seen[ch] = 0
 
     def _save_models(self) -> None:
