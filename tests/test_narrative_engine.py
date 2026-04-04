@@ -22,7 +22,7 @@ def test_longest_clean_period_no_events():
     )
     assert result["hours"] == pytest.approx(24.0, abs=0.1)
     assert result["start"] == "2026-04-04T00:00:00Z"
-    assert result["end"] == "2026-04-04T24:00:00Z"
+    assert result["end"] == "2026-04-05T00:00:00Z"
 
 
 def test_longest_clean_period_single_event_in_middle():
@@ -248,3 +248,26 @@ def test_anomaly_model_narrative():
     assert "2" in text
     assert isinstance(text, str)
     assert len(text) > 30
+
+
+def test_period_summary_single_event():
+    text = generate_period_summary(
+        inferences=[{"severity": "warning"}],
+        trend_indicators=[],
+        dominant_source=None,
+    )
+    assert isinstance(text, str)
+    assert len(text) > 20
+    # Should mention "one" or "1"
+    assert "one" in text.lower() or "1" in text
+
+
+def test_anomaly_model_narrative_singular():
+    text = generate_anomaly_model_narrative(
+        model_id="thermal_moisture",
+        label="Thermal-Moisture Stress",
+        event_count=1,
+        description="Watches temperature, humidity and VPD together.",
+    )
+    assert "1 time" in text
+    assert "times" not in text

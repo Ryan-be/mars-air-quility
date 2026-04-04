@@ -6,7 +6,7 @@ This makes them trivially testable and safe to call from any context.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 
 # ---------------------------------------------------------------------------
@@ -52,8 +52,6 @@ def _parse_utc(ts: str) -> datetime:
     Handles the non-standard T24:00:00 notation (end-of-day) by converting it
     to the equivalent T00:00:00 on the following day.
     """
-    from datetime import timedelta
-
     ts = ts.rstrip("Z")
     # Handle T24:00:00 — not valid ISO 8601 but used in some test fixtures
     if "T24:" in ts:
@@ -80,12 +78,24 @@ def compute_longest_clean_period(
     t_start = _parse_utc(window_start)
     t_end = _parse_utc(window_end)
 
+    def _fmt(dt: datetime) -> str:
+        return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
     if not inferences:
         hours = (t_end - t_start).total_seconds() / 3600
-        return {"hours": hours, "start": window_start, "end": window_end}
+        return {"hours": hours, "start": _fmt(t_start), "end": _fmt(t_end)}
 
     # Sort events by time and build boundary list
-    times = sorted(_parse_utc(inf["created_at"]) for inf in inferences)
+    times = sorted(
+        _parse_utc(inf["created_at"])
+        for inf in inferences
+        if inf.get("created_at")
+    )
+
+    if not times:
+        hours = (t_end - t_start).total_seconds() / 3600
+        return {"hours": hours, "start": _fmt(t_start), "end": _fmt(t_end)}
+
     boundaries = [t_start] + times + [t_end]
 
     longest_hours = 0.0
@@ -100,9 +110,6 @@ def compute_longest_clean_period(
             longest_hours = gap_hours
             longest_start = gap_start
             longest_end = gap_end
-
-    def _fmt(dt: datetime) -> str:
-        return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
     return {
         "hours": longest_hours,
@@ -245,7 +252,10 @@ def generate_period_summary(
 
     source_sentence = ""
     if dominant_source:
-        source_sentence = f" {dominant_source.capitalize()} was the most commonly attributed source."
+        if n == 1:
+            source_sentence = f" {dominant_source.capitalize()} was the attributed source."
+        else:
+            source_sentence = f" {dominant_source.capitalize()} was the most commonly attributed source."
 
     trend_colours = [t.get("colour") for t in trend_indicators]
     if "red" in trend_colours:
