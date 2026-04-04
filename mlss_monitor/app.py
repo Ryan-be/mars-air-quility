@@ -597,12 +597,15 @@ def main():
     import signal as _signal
     import sys as _sys
 
+    _t0 = time.monotonic()
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
     create_db()
+    log.info("STARTUP: create_db (%.1fs elapsed)", time.monotonic() - _t0)
 
     def _save_models_on_exit():
         log.info("Saving anomaly models before exit")
@@ -619,11 +622,14 @@ def main():
         _sys.exit(0)  # triggers atexit handlers including _save_models_on_exit
 
     _signal.signal(_signal.SIGTERM, _graceful_shutdown)
+    log.info("STARTUP: SIGTERM/atexit setup (%.1fs elapsed)", time.monotonic() - _t0)
 
     # Reinitialise hot_tier now that the DB table is guaranteed to exist.
     global hot_tier
     hot_tier = HotTier(maxlen=3600, db_file=DB_FILE)
     state.hot_tier = hot_tier
+    log.info("STARTUP: HotTier init (%.1fs elapsed)", time.monotonic() - _t0)
+
     def _bootstrap():
         try:
             _detection_engine.bootstrap_from_db(str(DB_FILE))
@@ -633,6 +639,8 @@ def main():
     # river learn_one() calls compete for the GIL.
     from threading import Timer
     Timer(20, _bootstrap).start()
+    log.info("STARTUP: bootstrap Timer(20s) scheduled (%.1fs elapsed)", time.monotonic() - _t0)
+
     if state.github_oauth:
         log.info("🔒 Auth ENABLED — GitHub OAuth")
         if state.ALLOWED_GITHUB_USER:
@@ -641,9 +649,12 @@ def main():
     else:
         log.warning("⚠️  Auth DISABLED — set MLSS_GITHUB_CLIENT_ID / "
                     "MLSS_GITHUB_CLIENT_SECRET in .env")
+    log.info("STARTUP: auth logging (%.1fs elapsed)", time.monotonic() - _t0)
+
     # Sync fan_mode from persisted settings
     _fan_settings = get_fan_settings()
     state.fan_mode = "auto" if _fan_settings["enabled"] else "manual"
+    log.info("STARTUP: get_fan_settings (%.1fs elapsed)", time.monotonic() - _t0)
 
     # Backfill any missing long-term inferences from historical data (background)
     def _startup_analysis():
@@ -653,14 +664,17 @@ def main():
         except Exception as e:
             log.error("Startup analysis failed: %s", e)
     Thread(target=_startup_analysis, daemon=True).start()
+    log.info("STARTUP: _startup_analysis thread started (%.1fs elapsed)", time.monotonic() - _t0)
 
     Thread(target=_background_log, daemon=True).start()
     Thread(target=_weather_log_loop, daemon=True).start()
     Thread(target=_sensor_read_loop, daemon=True).start()
+    log.info("STARTUP: background threads started (%.1fs elapsed)", time.monotonic() - _t0)
 
     ssl_ctx = _build_ssl_context()
     port = 5000
     protocol = "https" if ssl_ctx else "http"
+    log.info("STARTUP: about to call app.run (%.1fs elapsed)", time.monotonic() - _t0)
     log.info("Starting server on %s://0.0.0.0:%d", protocol, port)
     app.run(host="0.0.0.0", port=port, ssl_context=ssl_ctx)
 
