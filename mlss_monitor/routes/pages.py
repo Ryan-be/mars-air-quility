@@ -71,6 +71,20 @@ def insights_engine():
                 "ready": n >= cold_start,
             })
 
+    # Multivar detector models
+    if engine and engine._multivar_detector:
+        det = engine._multivar_detector
+        cold_start = det._config.get("cold_start_readings", 500)
+        for m in det._model_defs():
+            mid = m["id"]
+            n = det._n_seen.get(mid, 0)
+            anomaly_info.append({
+                "channel": mid,
+                "n_seen": n,
+                "cold_start": cold_start,
+                "ready": n >= cold_start,
+            })
+
     return render_template(
         "insights_engine.html",
         dry_run=engine._dry_run if engine else True,
