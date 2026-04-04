@@ -4,6 +4,7 @@ import math
 import mimetypes
 import os
 import ssl
+import time as _time
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -47,6 +48,54 @@ from mlss_monitor.data_sources import (
 )
 
 log = logging.getLogger(__name__)
+
+# ── Anomaly score SSE push ─────────────────────────────────────────────────────
+
+_last_scores_push: float = 0.0
+_SCORES_PUSH_INTERVAL = 30.0
+
+_MULTIVAR_IDS = [
+    "combustion_signature", "particle_distribution",
+    "ventilation_quality", "gas_relationship", "thermal_moisture",
+]
+_PER_CHANNEL_IDS = [
+    "tvoc_ppb", "eco2_ppm", "temperature_c", "humidity_pct",
+    "pm1_ug_m3", "pm25_ug_m3", "pm10_ug_m3", "co_ppb", "no2_ppb", "nh3_ppb",
+]
+
+
+def _push_anomaly_scores():
+    """Push current River anomaly scores to SSE clients. Called from sensor loop."""
+    global _last_scores_push
+    now = _time.time()
+    if now - _last_scores_push < _SCORES_PUSH_INTERVAL:
+        return
+    _last_scores_push = now
+    try:
+        engine = state.detection_engine
+        if not engine:
+            return
+        scores: dict = {}
+        n_seen: dict = {}
+        det = engine._anomaly_detector
+        if det:
+            for ch in _PER_CHANNEL_IDS:
+                scores[ch] = (det._last_scores or {}).get(ch) if hasattr(det, "_last_scores") else None
+                n_seen[ch] = det._n_seen.get(ch, 0) if hasattr(det, "_n_seen") else 0
+        mdet = engine._multivar_detector
+        if mdet:
+            for mid in _MULTIVAR_IDS:
+                scores[mid] = (mdet._last_scores or {}).get(mid) if hasattr(mdet, "_last_scores") else None
+                n_seen[mid] = mdet._n_seen.get(mid, 0) if hasattr(mdet, "_n_seen") else 0
+        import datetime as _dt
+        from database.db_logger import _normalise_ts
+        state.event_bus.publish("anomaly_scores", {
+            "timestamp": _normalise_ts(_dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")),
+            "scores": scores,
+            "n_seen": n_seen,
+        })
+    except Exception:
+        pass  # never let SSE push break the sensor loop
 
 
 def _vpd_kpa(temp_c: float, rh: float) -> float:
@@ -519,6 +568,7 @@ def _background_log():
             except Exception as exc:
                 log.error("[shadow] DetectionEngine daily error: %s", exc)
 
+        _push_anomaly_scores()
         time.sleep(LOG_INTERVAL)
 
 

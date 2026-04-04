@@ -402,14 +402,20 @@ def save_inference(event_type, severity, title, description, action,
     try:
         from mlss_monitor import state  # pylint: disable=import-outside-toplevel
         if state.event_bus:
-            state.event_bus.publish("inference_event", {
-                "id": inf_id, "event_type": event_type,
-                "severity": severity, "title": title,
-                "description": description, "action": action,
-                "confidence": confidence,
-            })
-    except ImportError:
-        pass
+            _ev = evidence if isinstance(evidence, dict) else json.loads(evidence or "{}")
+            _pub_payload = {
+                "id": inf_id,
+                "created_at": _normalise_ts(datetime.utcnow().isoformat()),
+                "title": title,
+                "event_type": event_type,
+                "severity": severity,
+                "attribution_source": _ev.get("attribution_source"),
+                "attribution_confidence": _ev.get("attribution_confidence"),
+                "detection_method": compute_detection_method(event_type),
+            }
+            state.event_bus.publish("inference_fired", _pub_payload)
+    except Exception:
+        pass  # SSE failure must never break inference saving
 
     return inf_id
 
