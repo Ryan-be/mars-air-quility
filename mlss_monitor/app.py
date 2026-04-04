@@ -213,7 +213,7 @@ _detection_engine = DetectionEngine(
     anomaly_config_path=_PROJECT_ROOT / "config" / "anomaly.yaml",
     model_dir=_PROJECT_ROOT / "data" / "anomaly_models",
     fingerprints_path=_PROJECT_ROOT / "config" / "fingerprints.yaml",
-    dry_run=True,  # Shadow mode. Set to False once parity confirmed.
+    dry_run=False,
 )
 state.detection_engine = _detection_engine
 
@@ -458,9 +458,7 @@ def _background_log():
             except Exception as e:
                 log.error("Inference engine error: %s", e)
 
-        # Shadow mode: new DetectionEngine runs alongside run_analysis() for parallel
-        # validation. dry_run=True means no DB writes. Compare log output to verify
-        # parity, then flip dry_run=False once satisfied.
+        # DetectionEngine runs alongside run_analysis() in live mode (dry_run=False).
         if _log_cycle % _CYCLE_60S == 0:
             try:
                 if state.feature_vector is not None:
