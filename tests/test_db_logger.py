@@ -77,3 +77,22 @@ def test_get_24h_baselines_returns_none_when_no_data(tmp_path):
                 "pm1_ug_m3", "pm25_ug_m3", "pm10_ug_m3",
                 "co_ppb", "no2_ppb", "nh3_ppb"):
         assert result[key] is None
+
+
+def test_get_inferences_timestamps_are_utc_iso(db):
+    """created_at in get_inferences() must be UTC ISO 8601 with Z suffix."""
+    from database.db_logger import save_inference, get_inferences
+    save_inference(
+        event_type="tvoc_spike",
+        title="Test",
+        description="desc",
+        action="act",
+        severity="warning",
+        confidence=0.9,
+        evidence={},
+    )
+    rows = get_inferences(limit=1)
+    assert len(rows) == 1
+    ts = rows[0]["created_at"]
+    assert "T" in ts, f"Expected ISO format with T, got: {ts}"
+    assert ts.endswith("Z"), f"Expected UTC Z suffix, got: {ts}"

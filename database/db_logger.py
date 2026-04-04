@@ -8,6 +8,19 @@ from config import config
 DB_FILE = config.get("DB_FILE", "data/sensor_data.db")
 
 
+def _normalise_ts(ts: str | None) -> str | None:
+    """Convert 'YYYY-MM-DD HH:MM:SS' or 'YYYY-MM-DDTHH:MM:SS.ffffff'
+    → 'YYYY-MM-DDTHH:MM:SS[.ffffff]Z' (UTC ISO 8601 with Z suffix).
+    No-ops if ts is already normalised or is None.
+    """
+    if ts is None:
+        return None
+    if ts.endswith("Z"):
+        return ts
+    # Handle both "YYYY-MM-DD HH:MM:SS" and "YYYY-MM-DDTHH:MM:SS.ffffff"
+    return ts.replace(" ", "T") + "Z"
+
+
 def _connect():
     """Open a SQLite connection with a 15-second write-wait timeout."""
     return sqlite3.connect(DB_FILE, timeout=15)
@@ -385,6 +398,7 @@ def get_inferences(limit=50, include_dismissed=False):
     rows = [dict(r) for r in cur.fetchall()]
     conn.close()
     for r in rows:
+        r["created_at"] = _normalise_ts(r.get("created_at"))
         if r.get("evidence"):
             try:
                 r["evidence"] = json.loads(r["evidence"])
