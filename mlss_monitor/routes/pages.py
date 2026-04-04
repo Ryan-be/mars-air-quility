@@ -94,3 +94,27 @@ def insights_engine():
         rule_count=len(rules_info),
         fp_count=len(fps_info),
     )
+
+
+@pages_bp.route("/settings/insights-engine/rules")
+@require_role("admin")
+def ie_rules():
+    return render_template("ie_rules.html")
+
+
+@pages_bp.route("/settings/insights-engine/fingerprints")
+@require_role("admin")
+def ie_fingerprints():
+    return render_template("ie_fingerprints.html")
+
+
+@pages_bp.route("/settings/insights-engine/anomaly")
+@require_role("admin")
+def ie_anomaly():
+    return render_template("ie_anomaly.html")
+
+
+@pages_bp.route("/settings/insights-engine/sources")
+@require_role("admin")
+def ie_sources():
+    return render_template("ie_sources.html")

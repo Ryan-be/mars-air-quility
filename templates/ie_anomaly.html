@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}MLSS – Anomaly Settings{% endblock %}
+{% block extra_css %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+{% endblock %}
+{% block topbar_controls %}
+  <a href="/insights-engine">← Back to Insights Engine</a>
+{% endblock %}
+
+{% block content %}
+<div class="settings-grid" style="max-width:900px;margin:1.5rem auto;padding:0 1rem;">
+  <div class="card">
+    <h3>📡 Anomaly Settings</h3>
+    <p style="color:#888;margin-top:.75rem;">Loading...</p>
+  </div>
+</div>
+{% endblock %}
