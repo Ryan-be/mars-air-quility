@@ -606,13 +606,19 @@ def main():
     )
     create_db()
 
-    def _graceful_shutdown(signum, frame):
-        log.info("SIGTERM received — saving anomaly models before exit")
+    def _save_models_on_exit():
+        log.info("Saving anomaly models before exit")
         try:
             _detection_engine._anomaly_detector._save_models()
         except Exception as exc:
             log.warning("Could not save anomaly models on shutdown: %s", exc)
-        _sys.exit(0)
+
+    import atexit as _atexit
+    _atexit.register(_save_models_on_exit)
+
+    def _graceful_shutdown(signum, frame):
+        log.info("SIGTERM received")
+        _sys.exit(0)  # triggers atexit handlers including _save_models_on_exit
 
     _signal.signal(_signal.SIGTERM, _graceful_shutdown)
 
