@@ -2,14 +2,14 @@ import { toggleTheme, isLight, themeLayout } from './theme.js';
 import { renderClimateCharts, renderGasCharts } from './charts.js';
 import { renderEnvCharts } from './charts_env.js';
 import { renderCorrelationCharts, updateCorrelationData } from './charts_correlation.js';
-import { renderPatternCharts } from './charts_patterns.js';
+
 
 window.toggleTheme = () => toggleTheme(() => { _rendered = {}; renderActiveTab(); });
 window.downloadCSV = () => {
   window.open(`/api/download?range=${document.getElementById("range").value}`, "_blank");
 };
 
-const TABS = ["climate", "air-quality", "particulate", "environment", "correlation", "patterns"];
+const TABS = ["climate", "air-quality", "particulate", "environment", "correlation", "detections"];
 let _rendered    = {};
 let _sensorData  = [];
 let _weatherData = [];
@@ -38,7 +38,7 @@ function renderActiveTab() {
   if (tab === "particulate") renderPmTable(_sensorData);
   if (tab === "environment") renderEnvCharts(_sensorData, _weatherData);
   if (tab === "correlation") renderCorrelationCharts(_sensorData);
-  if (tab === "patterns")    renderPatternCharts(_sensorData);
+  if (tab === "detections")  _initDetectionsTab();
 }
 
 document.getElementById("range").addEventListener("change", fetchData);
@@ -74,6 +74,19 @@ async function fetchData() {
       "Last updated: " + new Date().toLocaleString();
   } catch (e) {
     document.getElementById("last-updated").textContent = "Fetch error: " + e.message;
+  }
+}
+
+// ── Detections & Insights tab ───────────────────────────────────────────────
+function _initDetectionsTab() {
+  if (!window._diJsLoaded) {
+    window._diJsLoaded = true;
+    const s = document.createElement('script');
+    s.src = '/static/js/detections_insights.js';
+    s.onload = function () { if (typeof DI !== 'undefined') DI.init(); };
+    document.head.appendChild(s);
+  } else {
+    if (typeof DI !== 'undefined') DI.init();
   }
 }
 

@@ -30,7 +30,7 @@
     <button class="tab-btn" data-tab="particulate">🌫️ Particulate</button>
     <button class="tab-btn" data-tab="environment">🌿 Environment</button>
     <button class="tab-btn" data-tab="correlation">🔍 Correlation</button>
-    <button class="tab-btn" data-tab="patterns">📅 Patterns</button>
+    <button class="tab-btn" data-tab="detections">📅 Detections &amp; Insights</button>
   </div>
 
   <!-- Climate tab: temperature and humidity only -->
@@ -324,24 +324,39 @@
     </div>
   </div>
 
-  <div class="tab-panel tab-hidden" id="tab-patterns">
-    <p class="patterns-note">📊 Pattern analysis works best with at least 24 hours of data.</p>
-    <div class="plot-container">
-      <div class="chart-wrapper">
-        <div class="chart-header" style="position:relative">
-          <button class="chart-info-btn" data-info="heatmap" aria-label="Chart info">i</button>
-          <div class="chart-info-popup" id="info-heatmap">Heatmap of average TVOC by hour of day and day of week. Green cells are low (good air quality), red are high. Use this to spot recurring pollution patterns — e.g. cooking times, rush hours, or when the room is occupied.</div>
-        </div>
-        <div id="hourHeatmapPlot"></div>
-      </div>
-      <div class="chart-wrapper">
-        <div class="chart-header" style="position:relative">
-          <button class="chart-info-btn" data-info="dailyBand" aria-label="Chart info">i</button>
-          <div class="chart-info-popup" id="info-dailyBand">Shows the daily temperature range as a shaded band (min to max) with the daily average as a solid line. Wider bands indicate larger daily temperature swings, which may stress plants or indicate poor climate control.</div>
-        </div>
-        <div id="dailyBandPlot"></div>
-      </div>
+  <div class="tab-panel tab-hidden" id="tab-detections">
+    <div class="window-selector" id="diWindowSelector">
+      <button class="window-btn active" data-window="6h"  onclick="diSetWindow('6h')">6h</button>
+      <button class="window-btn"        data-window="24h" onclick="diSetWindow('24h')">24h</button>
+      <button class="window-btn"        data-window="7d"  onclick="diSetWindow('7d')">7d</button>
     </div>
+    <div class="di-card" id="diPeriodSummary"><div class="di-loading">Loading…</div></div>
+    <div id="diTrendIndicators" class="trend-row"></div>
+    <div class="di-stat" id="diLongestClean"></div>
+    <div class="di-card" id="diAttributionBreakdown">
+      <h3>Attribution Breakdown <span class="info-icon" title="Attribution assigns detected events to likely real-world causes.">ⓘ</span></h3>
+      <div id="diDonutChart" style="height:220px;"></div>
+      <div id="diDominantSentence" class="di-sentence"></div>
+    </div>
+    <div class="di-card" id="diFingerprints">
+      <h3>Source Fingerprints <span class="info-icon" title="Sensor patterns associated with real-world causes.">ⓘ</span></h3>
+      <div id="diFingerprintCards"></div>
+    </div>
+    <div class="di-card" id="diAnomalyModels" style="display:none;">
+      <h3>ML Model Detections <span class="info-icon" title="Detections from ML models watching multiple sensors together.">ⓘ</span></h3>
+      <div id="diModelCards"></div>
+    </div>
+    <div class="di-card" id="diHeatmapSection">
+      <h3>Recurring Patterns <span class="info-icon" title="Events recurring at similar times across multiple days.">ⓘ</span></h3>
+      <div id="diHeatmap" style="height:200px;"></div>
+      <div id="diPatternSentence" class="di-sentence"></div>
+    </div>
+    <div class="di-card" id="diBandsSection">
+      <h3>Sensor Normal Bands <span class="info-icon" title="The shaded band shows the system's learned normal range.">ⓘ</span></h3>
+      <div class="channel-toggles" id="diToggles"></div>
+      <div id="diBandsChart" style="height:300px;"></div>
+    </div>
+    <div id="diDriftFlags"></div>
   </div>
 
 {% endblock %}
