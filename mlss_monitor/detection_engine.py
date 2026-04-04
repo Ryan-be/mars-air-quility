@@ -182,23 +182,45 @@ class DetectionEngine:
 
             # Bootstrap composite models from the same historical data
             if self._multivar_detector is not None:
+                # channel_data is keyed by DB names; multivar channels use FV field names
+                _FV_TO_DB = {
+                    "tvoc_current": "tvoc_ppb", "eco2_current": "eco2_ppm",
+                    "temperature_current": "temperature_c", "humidity_current": "humidity_pct",
+                    "pm1_current": "pm1_ug_m3", "pm25_current": "pm25_ug_m3",
+                    "pm10_current": "pm10_ug_m3", "co_current": "co_ppb",
+                    "no2_current": "no2_ppb", "nh3_current": "nh3_ppb",
+                }
+                # Pre-compute VPD series for thermal_moisture model
+                temp_vals = channel_data.get("temperature_c", [])
+                hum_vals  = channel_data.get("humidity_pct",  [])
+                vpd_vals  = [
+                    _vpd_kpa(t, h)
+                    for t, h in zip(temp_vals, hum_vals)
+                ]
+
                 mv_channel_data: dict[str, list[dict]] = {}
                 for m in self._multivar_detector._model_defs():
                     mid = m["id"]
                     channels = m["channels"]
-                    # Build list of complete readings (all channels present)
-                    lengths = [len(channel_data.get(ch, [])) for ch in channels]
+                    # Resolve each FV field name to its DB data series
+                    series: dict[str, list] = {}
+                    for ch in channels:
+                        if ch == "vpd_kpa":
+                            series[ch] = vpd_vals
+                        else:
+                            db_key = _FV_TO_DB.get(ch)
+                            if db_key:
+                                series[ch] = channel_data.get(db_key, [])
+                    # Only bootstrap if all channels have data
+                    lengths = [len(v) for v in series.values()]
                     if not lengths or min(lengths) == 0:
                         continue
                     n = min(lengths)
                     readings = []
                     for i in range(n):
-                        row = {}
-                        for ch in channels:
-                            cd = channel_data.get(ch, [])
-                            if i < len(cd):
-                                row[ch] = cd[i]
-                        if len(row) == len(channels):
+                        row = {ch: series[ch][i] for ch in channels if i < len(series.get(ch, []))}
+                        # Skip rows where any value is None (vpd_kpa can be None)
+                        if len(row) == len(channels) and all(v is not None for v in row.values()):
                             readings.append(row)
                     if readings:
                         mv_channel_data[mid] = readings
