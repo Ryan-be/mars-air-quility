@@ -2,6 +2,43 @@
 {% block title %}MLSS – Insights Engine{% endblock %}
 {% block extra_css %}
   <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+  <style>
+    /* ── Insights page: prevent table text overflow ── */
+    .card { overflow: hidden; }
+    .insights-table {
+      width: 100%;
+      font-size: .85rem;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+    .insights-table th,
+    .insights-table td {
+      padding: .3rem .5rem;
+      word-break: break-word;
+      overflow-wrap: break-word;
+    }
+    .insights-table thead tr {
+      text-align: left;
+      border-bottom: 1px solid #333;
+    }
+    .insights-table thead th { padding: .35rem .5rem; }
+    .insights-table tbody tr { border-bottom: 1px solid #222; }
+    /* Rules table column widths */
+    .rules-table col.col-id         { width: 38%; }
+    .rules-table col.col-event      { width: 30%; }
+    .rules-table col.col-severity   { width: 17%; }
+    .rules-table col.col-confidence { width: 15%; }
+    /* Source Fingerprints table column widths */
+    .fp-table col.col-id      { width: 22%; }
+    .fp-table col.col-label   { width: 20%; }
+    .fp-table col.col-floor   { width: 12%; }
+    .fp-table col.col-sensors { width: 46%; }
+    /* Anomaly Models table column widths */
+    .anomaly-table col.col-channel   { width: 30%; }
+    .anomaly-table col.col-readings  { width: 18%; }
+    .anomaly-table col.col-coldstart { width: 18%; }
+    .anomaly-table col.col-status    { width: 34%; }
+  </style>
 {% endblock %}
 {% block topbar_controls %}
   <a href="/admin">← Back to Settings</a>
@@ -33,26 +70,30 @@
   <div class="card">
     <h3>📋 Rules ({{ rule_count }})</h3>
     {% if rules %}
-    <table style="width:100%;font-size:.85rem;border-collapse:collapse;">
+    <table class="insights-table rules-table">
+      <colgroup>
+        <col class="col-id"><col class="col-event">
+        <col class="col-severity"><col class="col-confidence">
+      </colgroup>
       <thead>
-        <tr style="text-align:left;border-bottom:1px solid #333;">
-          <th style="padding:.35rem .5rem;">ID</th>
-          <th style="padding:.35rem .5rem;">Event</th>
-          <th style="padding:.35rem .5rem;">Severity</th>
-          <th style="padding:.35rem .5rem;">Confidence</th>
+        <tr>
+          <th>ID</th>
+          <th>Event</th>
+          <th>Severity</th>
+          <th>Confidence</th>
         </tr>
       </thead>
       <tbody>
       {% for r in rules %}
-        <tr style="border-bottom:1px solid #222;">
-          <td style="padding:.3rem .5rem;font-family:monospace;">{{ r.id }}</td>
-          <td style="padding:.3rem .5rem;font-family:monospace;">{{ r.event_type }}</td>
-          <td style="padding:.3rem .5rem;">
+        <tr>
+          <td style="font-family:monospace;">{{ r.id }}</td>
+          <td style="font-family:monospace;">{{ r.event_type }}</td>
+          <td>
             <span style="color:{{ '#e74c3c' if r.severity == 'critical' else '#f39c12' if r.severity == 'warning' else '#888' }}">
               {{ r.severity }}
             </span>
           </td>
-          <td style="padding:.3rem .5rem;">{{ (r.confidence * 100)|int }}%</td>
+          <td>{{ (r.confidence * 100)|int }}%</td>
         </tr>
       {% endfor %}
       </tbody>
@@ -65,22 +106,26 @@
   <div class="card">
     <h3>🔬 Source Fingerprints ({{ fp_count }})</h3>
     {% if fingerprints %}
-    <table style="width:100%;font-size:.85rem;border-collapse:collapse;">
+    <table class="insights-table fp-table">
+      <colgroup>
+        <col class="col-id"><col class="col-label">
+        <col class="col-floor"><col class="col-sensors">
+      </colgroup>
       <thead>
-        <tr style="text-align:left;border-bottom:1px solid #333;">
-          <th style="padding:.35rem .5rem;">ID</th>
-          <th style="padding:.35rem .5rem;">Label</th>
-          <th style="padding:.35rem .5rem;">Floor</th>
-          <th style="padding:.35rem .5rem;">Sensors</th>
+        <tr>
+          <th>ID</th>
+          <th>Label</th>
+          <th>Floor</th>
+          <th>Sensors</th>
         </tr>
       </thead>
       <tbody>
       {% for fp in fingerprints %}
-        <tr style="border-bottom:1px solid #222;">
-          <td style="padding:.3rem .5rem;font-family:monospace;">{{ fp.id }}</td>
-          <td style="padding:.3rem .5rem;">{{ fp.label }}</td>
-          <td style="padding:.3rem .5rem;">{{ (fp.floor * 100)|int }}%</td>
-          <td style="padding:.3rem .5rem;color:#888;font-size:.8rem;">{{ fp.sensors | join(', ') }}</td>
+        <tr>
+          <td style="font-family:monospace;">{{ fp.id }}</td>
+          <td>{{ fp.label }}</td>
+          <td>{{ (fp.floor * 100)|int }}%</td>
+          <td style="color:#888;font-size:.8rem;">{{ fp.sensors | join(', ') }}</td>
         </tr>
       {% endfor %}
       </tbody>
@@ -93,22 +138,26 @@
   <div class="card">
     <h3>📡 Anomaly Models</h3>
     {% if anomaly %}
-    <table style="width:100%;font-size:.85rem;border-collapse:collapse;">
+    <table class="insights-table anomaly-table">
+      <colgroup>
+        <col class="col-channel"><col class="col-readings">
+        <col class="col-coldstart"><col class="col-status">
+      </colgroup>
       <thead>
-        <tr style="text-align:left;border-bottom:1px solid #333;">
-          <th style="padding:.35rem .5rem;">Channel</th>
-          <th style="padding:.35rem .5rem;">Readings</th>
-          <th style="padding:.35rem .5rem;">Cold-start</th>
-          <th style="padding:.35rem .5rem;">Status</th>
+        <tr>
+          <th>Channel</th>
+          <th>Readings</th>
+          <th>Cold-start</th>
+          <th>Status</th>
         </tr>
       </thead>
       <tbody>
       {% for ch in anomaly %}
-        <tr style="border-bottom:1px solid #222;">
-          <td style="padding:.3rem .5rem;font-family:monospace;">{{ ch.channel }}</td>
-          <td style="padding:.3rem .5rem;">{{ ch.n_seen }}</td>
-          <td style="padding:.3rem .5rem;">{{ ch.cold_start }}</td>
-          <td style="padding:.3rem .5rem;">
+        <tr>
+          <td style="font-family:monospace;">{{ ch.channel }}</td>
+          <td>{{ ch.n_seen }}</td>
+          <td>{{ ch.cold_start }}</td>
+          <td>
             {% if ch.ready %}
               <span style="color:#2ecc71;">● Ready</span>
             {% else %}
