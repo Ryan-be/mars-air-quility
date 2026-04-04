@@ -541,19 +541,42 @@ function _openInferenceDialog(id) {
   document.getElementById("infDescription").textContent = inf.description;
   document.getElementById("infAction").textContent = inf.action || "No specific action needed.";
 
-  // Evidence (filter out _thresholds key)
+  // Evidence section
   const evEl = document.getElementById("infEvidence");
   const thSec = document.getElementById("infThresholdsSection");
   const thGrid = document.getElementById("infThresholds");
-  if (inf.evidence && typeof inf.evidence === "object") {
-    const thresholds = inf.evidence._thresholds;
-    const evidenceEntries = Object.entries(inf.evidence).filter(([k]) => k !== "_thresholds");
-    evEl.innerHTML = evidenceEntries.map(([k, v]) => {
-      const cls = _evidenceColor(k, v);
-      return `<div class="inf-ev-row ${cls}"><span class="fd-label">${k.replace(/_/g, " ")}</span><span class="fd-value">${v}</span></div>`;
-    }).join("") || "No detailed evidence available.";
 
-    // Expandable thresholds section
+  if (inf.evidence && typeof inf.evidence === "object") {
+    const snapshot = inf.evidence.sensor_snapshot;
+    const thresholds = inf.evidence._thresholds;
+
+    if (Array.isArray(snapshot) && snapshot.length > 0) {
+      // Structured sensor snapshot — render chips (all data pre-computed by backend)
+      const TREND_ARROW = { rising: "↑", falling: "↓", stable: "→" };
+      const BAND_CLS    = { high: "ev-bad", elevated: "ev-warn", normal: "ev-good", unknown: "" };
+
+      evEl.innerHTML = snapshot.map(s => {
+        const arrow = TREND_ARROW[s.trend] || "→";
+        const cls   = BAND_CLS[s.ratio_band] || "";
+        const ratio = s.ratio != null ? `<span class="ev-ratio">${s.ratio}× normal</span>` : "";
+        return `<div class="inf-ev-row ${cls}">
+          <span class="fd-label">${s.label}</span>
+          <span class="fd-value">${s.value} ${s.unit} <span class="ev-trend">${arrow}</span></span>
+          ${ratio}
+        </div>`;
+      }).join("");
+    } else {
+      // Fallback: generic key-value pairs (existing behaviour for older inferences)
+      const entries = Object.entries(inf.evidence).filter(
+        ([k]) => k !== "_thresholds" && k !== "sensor_snapshot" && k !== "model_id"
+      );
+      evEl.innerHTML = entries.map(([k, v]) => {
+        const cls = _evidenceColor(k, v);
+        return `<div class="inf-ev-row ${cls}"><span class="fd-label">${k.replace(/_/g, " ")}</span><span class="fd-value">${v}</span></div>`;
+      }).join("") || "No detailed evidence available.";
+    }
+
+    // Thresholds section (unchanged)
     if (thresholds && typeof thresholds === "object" && Object.keys(thresholds).length) {
       thSec.style.display = "";
       thSec.removeAttribute("open");
