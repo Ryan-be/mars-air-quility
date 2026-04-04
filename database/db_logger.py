@@ -21,6 +21,42 @@ def _normalise_ts(ts: str | None) -> str | None:
     return ts.replace(" ", "T") + "Z"
 
 
+# ---------------------------------------------------------------------------
+# Detection method classification
+# ---------------------------------------------------------------------------
+
+_ML_EVENT_TYPES = frozenset({
+    "anomaly_combustion_signature",
+    "anomaly_particle_distribution",
+    "anomaly_ventilation_quality",
+    "anomaly_gas_relationship",
+    "anomaly_thermal_moisture",
+})
+
+_STATISTICAL_SUFFIXES = frozenset({
+    "tvoc", "eco2", "temperature", "humidity",
+    "pm25", "pm1", "pm10", "co", "no2", "nh3",
+})
+
+
+def compute_detection_method(event_type: str) -> str:
+    """Classify an inference event_type as 'ml', 'statistical', or 'rule'.
+
+    'ml'          — multivariate composite River model
+    'statistical' — per-channel River anomaly detector
+    'rule'        — deterministic YAML threshold rule (default)
+    """
+    if event_type in _ML_EVENT_TYPES:
+        return "ml"
+    if event_type.startswith("anomaly_"):
+        suffix = event_type[len("anomaly_"):]
+        if suffix in _STATISTICAL_SUFFIXES:
+            return "statistical"
+    if event_type.startswith("annotation_context_"):
+        return "rule"
+    return "rule"
+
+
 def _connect():
     """Open a SQLite connection with a 15-second write-wait timeout."""
     return sqlite3.connect(DB_FILE, timeout=15)
@@ -404,6 +440,7 @@ def get_inferences(limit=50, include_dismissed=False):
                 r["evidence"] = json.loads(r["evidence"])
             except (json.JSONDecodeError, TypeError):
                 pass
+        r["detection_method"] = compute_detection_method(r.get("event_type", ""))
     return rows
 
 
