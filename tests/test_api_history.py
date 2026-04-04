@@ -143,3 +143,11 @@ def test_sparkline_returns_window_around_inference(app_client, db):
     assert "triggering_channels" in data
     assert data["inference_at"].endswith("Z")
     assert len(data["timestamps"]) >= 1
+    # All returned timestamps must be within ±15 minutes of inference_at
+    from datetime import datetime, timedelta, timezone
+    inf_dt = datetime.fromisoformat(data["inference_at"].rstrip("Z")).replace(tzinfo=timezone.utc)
+    for ts in data["timestamps"]:
+        ts_dt = datetime.fromisoformat(ts.rstrip("Z")).replace(tzinfo=timezone.utc)
+        assert abs((ts_dt - inf_dt).total_seconds()) <= 900, f"Timestamp {ts} outside ±15 min window"
+    # triggering_channels must include tvoc_ppb (from sensor_snapshot)
+    assert "tvoc_ppb" in data["triggering_channels"]
