@@ -23,7 +23,7 @@ from config import config
 from database.db_logger import (
     DB_FILE,
     cleanup_old_weather, get_24h_baselines, get_fan_settings, get_location,
-    log_sensor_data, log_weather,
+    log_sensor_data, log_weather, _normalise_ts,
 )
 from database.init_db import create_db
 from external_api_interfaces.kasa_smart_plug import KasaSmartPlug
@@ -87,10 +87,8 @@ def _push_anomaly_scores():
             for mid in _MULTIVAR_IDS:
                 scores[mid] = (mdet._last_scores or {}).get(mid) if hasattr(mdet, "_last_scores") else None
                 n_seen[mid] = mdet._n_seen.get(mid, 0) if hasattr(mdet, "_n_seen") else 0
-        import datetime as _dt
-        from database.db_logger import _normalise_ts
         state.event_bus.publish("anomaly_scores", {
-            "timestamp": _normalise_ts(_dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")),
+            "timestamp": _normalise_ts(datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")),
             "scores": scores,
             "n_seen": n_seen,
         })
