@@ -102,7 +102,7 @@ class DetectionEngine:
         ]
 
         try:
-            conn = sqlite3.connect(db_file)
+            conn = sqlite3.connect(db_file, timeout=15)
             try:
                 channel_data: dict[str, list[float]] = {}
 

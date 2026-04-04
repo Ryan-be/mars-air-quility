@@ -8,6 +8,11 @@ from config import config
 DB_FILE = config.get("DB_FILE", "data/sensor_data.db")
 
 
+def _connect():
+    """Open a SQLite connection with a 15-second write-wait timeout."""
+    return sqlite3.connect(DB_FILE, timeout=15)
+
+
 def log_sensor_data(temp, hum, eco2, tvoc, annotation=None, fan_power_w=None, vpd_kpa=None,
                     pm1_0=None, pm2_5=None, pm10=None,
                     gas_co=None, gas_no2=None, gas_nh3=None):
@@ -28,7 +33,7 @@ def log_sensor_data(temp, hum, eco2, tvoc, annotation=None, fan_power_w=None, vp
     :param gas_no2: NO2 reading from MICS6814 (None if unavailable)
     :param gas_nh3: NH3 reading from MICS6814 (None if unavailable)
     """
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     cur = conn.cursor()
 
     cur.execute("""
@@ -48,7 +53,7 @@ def get_sensor_data():
     Fetch all sensor data from the database, ordered by timestamp in descending order.
     :return:
     """
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     cur = conn.cursor()
 
     cur.execute("SELECT * FROM sensor_data ORDER BY timestamp DESC")
@@ -65,7 +70,7 @@ def get_sensor_data_by_date(start_date, end_date):
     :param end_date:
     :return:
     """
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     cur = conn.cursor()
 
     cur.execute("""
@@ -86,7 +91,7 @@ def add_annotation(sensor_id, annotation):
     :param annotation:
     :return:
     """
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     cur = conn.cursor()
 
     cur.execute("""
@@ -105,7 +110,7 @@ def remove_annotation(sensor_id):
     :param sensor_id:
     :return:
     """
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     cur = conn.cursor()
 
     cur.execute("""
@@ -125,7 +130,7 @@ def edit_annotation(sensor_id, new_annotation):
     :param new_annotation:
     :return:
     """
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     cur = conn.cursor()
 
     cur.execute("""
@@ -139,7 +144,7 @@ def edit_annotation(sensor_id, new_annotation):
 
 
 def get_fan_settings():
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     cur.execute("SELECT * FROM fan_settings ORDER BY id DESC LIMIT 1")
@@ -171,7 +176,7 @@ def get_fan_settings():
 
 def log_weather(temp, humidity, feels_like, wind_speed, weather_code, uv_index):
     """Store one hourly weather snapshot."""
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     cur = conn.cursor()
     cur.execute("""
         INSERT INTO weather_log (timestamp, temp, humidity, feels_like, wind_speed, weather_code, uv_index)
@@ -183,7 +188,7 @@ def log_weather(temp, humidity, feels_like, wind_speed, weather_code, uv_index):
 
 def get_latest_weather(max_age_minutes: int = 90):
     """Return the most recent weather row if it is newer than max_age_minutes, else None."""
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     cur = conn.cursor()
     since = (datetime.utcnow() - timedelta(minutes=max_age_minutes)).isoformat()
     cur.execute("""
@@ -206,7 +211,7 @@ def get_latest_weather(max_age_minutes: int = 90):
 
 def get_weather_history(since_iso: str) -> list:
     """Return weather_log rows newer than since_iso, oldest first."""
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     cur = conn.cursor()
     cur.execute("""
         SELECT timestamp, temp, humidity, feels_like, wind_speed, weather_code, uv_index
@@ -228,7 +233,7 @@ def get_weather_history(since_iso: str) -> list:
 
 def cleanup_old_weather(days: int = 7):
     """Delete weather rows older than `days` days."""
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     cur = conn.cursor()
     cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
     cur.execute("DELETE FROM weather_log WHERE timestamp < ?", (cutoff,))
@@ -237,7 +242,7 @@ def cleanup_old_weather(days: int = 7):
 
 
 def get_location():
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     cur = conn.cursor()
     cur.execute("SELECT key, value FROM app_settings WHERE key IN ('location_lat','location_lon','location_name')")
     rows = {r[0]: r[1] for r in cur.fetchall()}
@@ -252,7 +257,7 @@ def get_location():
 
 
 def save_location(lat, lon, name=""):
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     cur = conn.cursor()
     upsert = (
         "INSERT INTO app_settings (key, value) VALUES (?, ?) "
@@ -266,7 +271,7 @@ def save_location(lat, lon, name=""):
 
 def get_unit_rate() -> float | None:
     """Return the energy unit rate in p/kWh, or None if not set."""
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     cur = conn.cursor()
     cur.execute("SELECT value FROM app_settings WHERE key = 'energy_unit_rate_pence'")
     row = cur.fetchone()
@@ -281,7 +286,7 @@ def get_unit_rate() -> float | None:
 
 def save_unit_rate(rate_pence: float) -> None:
     """Upsert the energy unit rate (p/kWh) in app_settings."""
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     cur = conn.cursor()
     cur.execute(
         "INSERT INTO app_settings (key, value) VALUES ('energy_unit_rate_pence', ?) "
@@ -297,7 +302,7 @@ def update_fan_settings(tvoc_min, tvoc_max, temp_min, temp_max, enabled,
                         humidity_enabled=False, humidity_max=70.0,
                         pm25_enabled=False, pm25_max=25.0,
                         pm_stale_minutes=10.0):
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     cur = conn.cursor()
     cur.execute("""
         UPDATE fan_settings
@@ -314,7 +319,7 @@ def update_fan_settings(tvoc_min, tvoc_max, temp_min, temp_max, enabled,
 
 def set_fan_enabled(enabled: bool):
     """Toggle only the master auto-control flag (used by the controls page)."""
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     cur = conn.cursor()
     cur.execute(
         "UPDATE fan_settings SET enabled = ? WHERE id = (SELECT MAX(id) FROM fan_settings)",
@@ -329,7 +334,7 @@ def set_fan_enabled(enabled: bool):
 def save_inference(event_type, severity, title, description, action,
                    evidence, confidence, start_id=None, end_id=None,
                    annotation=None):
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     cur = conn.cursor()
     cur.execute("""
         INSERT INTO inferences
@@ -363,7 +368,7 @@ def save_inference(event_type, severity, title, description, action,
 
 
 def get_inferences(limit=50, include_dismissed=False):
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     if include_dismissed:
@@ -389,7 +394,7 @@ def get_inferences(limit=50, include_dismissed=False):
 
 
 def update_inference_notes(inference_id, notes):
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     cur = conn.cursor()
     cur.execute(
         "UPDATE inferences SET user_notes = ? WHERE id = ?",
@@ -400,7 +405,7 @@ def update_inference_notes(inference_id, notes):
 
 
 def dismiss_inference(inference_id):
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     cur = conn.cursor()
     cur.execute(
         "UPDATE inferences SET dismissed = 1 WHERE id = ?",
@@ -414,7 +419,7 @@ def dismiss_inference(inference_id):
 
 def get_thresholds():
     """Return all thresholds as a dict: key -> effective value (user override or default)."""
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     cur.execute("SELECT key, default_value, user_value FROM inference_thresholds")
@@ -427,7 +432,7 @@ def get_thresholds():
 
 def get_all_thresholds():
     """Return full threshold rows for the settings UI."""
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     cur.execute("SELECT * FROM inference_thresholds ORDER BY key")
@@ -438,7 +443,7 @@ def get_all_thresholds():
 
 def update_threshold(key, user_value):
     """Set or clear a user override for a threshold. Pass None to reset to default."""
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     cur = conn.cursor()
     cur.execute(
         "UPDATE inference_thresholds SET user_value = ? WHERE key = ?",
@@ -450,7 +455,7 @@ def update_threshold(key, user_value):
 
 def get_thresholds_for_evidence(keys):
     """Return threshold details for specific keys (for inference evidence)."""
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     placeholders = ",".join("?" for _ in keys)
@@ -475,7 +480,7 @@ def get_thresholds_for_evidence(keys):
 
 def get_recent_inference_by_type(event_type, hours=1):
     """Check if an inference of this type was created within the last N hours."""
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     cur = conn.cursor()
     since = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
     cur.execute(
@@ -510,7 +515,7 @@ def get_24h_baselines() -> dict[str, float | None]:
 
     conn = None
     try:
-        conn = sqlite3.connect(DB_FILE)
+        conn = _connect()
         rows = conn.execute(
             f"SELECT {cols} FROM sensor_data WHERE timestamp >= ? ORDER BY timestamp",
             (cutoff,),

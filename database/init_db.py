@@ -6,8 +6,9 @@ DB_FILE = config.get("DB_FILE", "data/sensor_data.db")
 
 
 def create_db():
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(DB_FILE, timeout=15)
     cur = conn.cursor()
+    cur.execute("PRAGMA journal_mode=WAL")  # allow concurrent reads + writes
 
     cur.execute("""
     CREATE TABLE IF NOT EXISTS sensor_data (
