@@ -81,7 +81,9 @@ def test_push_stores_all_sensor_fields(tmp_path):
         eco2_ppm=800.0,
         temperature_c=22.5,
         humidity_pct=55.0,
+        pm1_ug_m3=3.0,
         pm25_ug_m3=5.0,
+        pm10_ug_m3=8.0,
         co_ppb=None,
         no2_ppb=None,
         nh3_ppb=None,
@@ -94,16 +96,19 @@ def test_push_stores_all_sensor_fields(tmp_path):
     conn.close()
 
     # Columns: id, timestamp, source, tvoc_ppb, eco2_ppm, temperature_c,
-    #          humidity_pct, pm25_ug_m3, co_ppb, no2_ppb, nh3_ppb
+    #          humidity_pct, pm1_ug_m3, pm25_ug_m3, pm10_ug_m3,
+    #          co_ppb, no2_ppb, nh3_ppb
     assert row[2] == "test"
     assert row[3] == pytest.approx(200.0)  # tvoc_ppb
     assert row[4] == pytest.approx(800.0)  # eco2_ppm
     assert row[5] == pytest.approx(22.5)   # temperature_c
     assert row[6] == pytest.approx(55.0)   # humidity_pct
-    assert row[7] == pytest.approx(5.0)    # pm25_ug_m3
-    assert row[8] is None                  # co_ppb
-    assert row[9] is None                  # no2_ppb
-    assert row[10] is None                 # nh3_ppb
+    assert row[7] == pytest.approx(3.0)    # pm1_ug_m3
+    assert row[8] == pytest.approx(5.0)    # pm25_ug_m3
+    assert row[9] == pytest.approx(8.0)    # pm10_ug_m3
+    assert row[10] is None                 # co_ppb
+    assert row[11] is None                 # no2_ppb
+    assert row[12] is None                 # nh3_ppb
 
 
 def test_push_with_no_db_does_not_raise():

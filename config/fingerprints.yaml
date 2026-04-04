@@ -16,7 +16,9 @@ sources:
       tvoc:        high
       nh3:         high
       eco2:        slight_rise
+      pm1:         normal
       pm25:        normal
+      pm10:        normal
       co:          absent
     temporal:
       rise_rate:            fast
@@ -39,7 +41,9 @@ sources:
     sensors:
       tvoc:  elevated
       nh3:   normal
+      pm1:   normal
       pm25:  normal
+      pm10:  normal
       eco2:  normal
       co:    absent
     temporal:
@@ -60,7 +64,9 @@ sources:
     examples: "frying, baking, grilling, boiling"
     sensors:
       tvoc:        elevated
+      pm1:         elevated
       pm25:        elevated
+      pm10:        normal
       temperature: rising
       co:          absent
     temporal:
@@ -80,7 +86,9 @@ sources:
     sensors:
       tvoc:  high
       co:    elevated
+      pm1:   high
       pm25:  high
+      pm10:  high
       no2:   elevated
     temporal:
       rise_rate:               fast
@@ -96,7 +104,9 @@ sources:
     description: "Outdoor air quality event entering via ventilation or gaps"
     examples: "traffic fumes, bonfire smoke, agricultural spray"
     sensors:
+      pm1:   elevated
       pm25:  high
+      pm10:  high
       tvoc:  normal
       co:    normal
       nh3:   normal
@@ -117,7 +127,9 @@ sources:
       tvoc:        elevated
       nh3:         elevated
       eco2:        normal
+      pm1:         normal
       pm25:        absent
+      pm10:        normal
       co:          absent
       no2:         normal
       humidity:    normal
@@ -139,7 +151,9 @@ sources:
       tvoc:        slight_rise
       temperature: slight_rise
       co:          absent
+      pm1:         normal
       pm25:        normal
+      pm10:        normal
       nh3:         normal
       no2:         normal
       humidity:    normal
@@ -157,7 +171,9 @@ sources:
     sensors:
       no2:         elevated
       co:          elevated
+      pm1:         elevated
       pm25:        elevated
+      pm10:        elevated
       tvoc:        elevated
       nh3:         absent
       eco2:        normal
@@ -179,7 +195,9 @@ sources:
       tvoc:        slight_rise
       humidity:    elevated
       eco2:        normal
+      pm1:         normal
       pm25:        normal
+      pm10:        normal
       nh3:         absent
       co:          absent
       no2:         normal

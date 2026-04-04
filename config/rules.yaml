@@ -254,3 +254,63 @@ rules:
       Check for ongoing combustion sources (candles, incense, gas cooking). If outdoor
       air quality is poor, keep windows closed and run ventilation with a HEPA filter
       if available.
+
+  # ── PM1 ───────────────────────────────────────────────────────────────────────
+
+  - id: pm1_spike
+    expression: "pm1_peak_ratio > 2.5"
+    event_type: pm1_spike
+    severity: warning
+    dedupe_hours: 1
+    confidence: 0.8
+    title_template: "PM1 spike ({pm1_current:.0f} µg/m³)"
+    description_template: >
+      PM1 (ultrafine particles < 1 µm) has reached {pm1_current:.0f} µg/m³,
+      {pm1_peak_ratio:.1f}× above the {pm1_baseline:.0f} µg/m³ baseline.
+      Ultrafine particles penetrate deep into lung tissue and can enter the bloodstream.
+    action: >
+      Ventilate immediately. Ultrafine particles are typically produced by combustion,
+      cooking at high heat, candles, or cigarette smoke. Identify and remove the source.
+
+  - id: pm1_elevated
+    expression: "pm1_elevated_minutes > 15"
+    event_type: pm1_elevated
+    severity: info
+    dedupe_hours: 2
+    confidence: 0.7
+    title_template: "PM1 elevated ({pm1_current:.0f} µg/m³ for {pm1_elevated_minutes:.0f} min)"
+    description_template: >
+      PM1 (ultrafine particles) has been continuously above baseline for
+      {pm1_elevated_minutes:.0f} minutes, currently reading {pm1_current:.0f} µg/m³.
+    action: >
+      Check for low-level combustion or cooking activity. Ensure adequate ventilation.
+
+  # ── PM10 ──────────────────────────────────────────────────────────────────────
+
+  - id: pm10_spike
+    expression: "pm10_peak_ratio > 2.0"
+    event_type: pm10_spike
+    severity: warning
+    dedupe_hours: 1
+    confidence: 0.8
+    title_template: "PM10 spike ({pm10_current:.0f} µg/m³)"
+    description_template: >
+      PM10 (coarse particles < 10 µm) has reached {pm10_current:.0f} µg/m³,
+      {pm10_peak_ratio:.1f}× above the {pm10_baseline:.0f} µg/m³ baseline.
+      Coarse particles irritate the upper respiratory tract.
+    action: >
+      Identify the source — dust disturbance, outdoor pollution, or construction nearby.
+      Increase ventilation or close windows if outdoor air quality is poor.
+
+  - id: pm10_elevated
+    expression: "pm10_elevated_minutes > 20"
+    event_type: pm10_elevated
+    severity: info
+    dedupe_hours: 2
+    confidence: 0.7
+    title_template: "PM10 elevated ({pm10_current:.0f} µg/m³ for {pm10_elevated_minutes:.0f} min)"
+    description_template: >
+      PM10 (coarse particles) has been continuously above baseline for
+      {pm10_elevated_minutes:.0f} minutes, currently reading {pm10_current:.0f} µg/m³.
+    action: >
+      Check for dust sources, outdoor pollution events, or open windows in dusty conditions.

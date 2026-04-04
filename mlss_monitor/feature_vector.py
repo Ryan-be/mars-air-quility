@@ -61,6 +61,18 @@ class FeatureVector:
     humidity_decay_rate:        float | None = None
     humidity_pulse_detected:    bool  | None = None
 
+    # ── PM1 (µg/m³) ──────────────────────────────────────────────────────────
+    pm1_current:            float | None = None
+    pm1_baseline:           float | None = None
+    pm1_slope_1m:           float | None = None
+    pm1_slope_5m:           float | None = None
+    pm1_slope_30m:          float | None = None
+    pm1_elevated_minutes:   float | None = None
+    pm1_peak_ratio:         float | None = None
+    pm1_is_declining:       bool  | None = None
+    pm1_decay_rate:         float | None = None
+    pm1_pulse_detected:     bool  | None = None
+
     # ── PM2.5 (µg/m³) ────────────────────────────────────────────────────────
     pm25_current:           float | None = None
     pm25_baseline:          float | None = None
@@ -72,6 +84,18 @@ class FeatureVector:
     pm25_is_declining:      bool  | None = None
     pm25_decay_rate:        float | None = None
     pm25_pulse_detected:    bool  | None = None
+
+    # ── PM10 (µg/m³) ─────────────────────────────────────────────────────────
+    pm10_current:           float | None = None
+    pm10_baseline:          float | None = None
+    pm10_slope_1m:          float | None = None
+    pm10_slope_5m:          float | None = None
+    pm10_slope_30m:         float | None = None
+    pm10_elevated_minutes:  float | None = None
+    pm10_peak_ratio:        float | None = None
+    pm10_is_declining:      bool  | None = None
+    pm10_decay_rate:        float | None = None
+    pm10_pulse_detected:    bool  | None = None
 
     # ── CO (ppb) ─────────────────────────────────────────────────────────────
     co_current:           float | None = None

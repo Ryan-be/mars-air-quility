@@ -34,7 +34,8 @@ DB_FILE: str = config.get("DB_FILE", "data/sensor_data.db")
 # Ordered list of sensor columns in hot_tier table (matches NormalisedReading fields).
 _SENSOR_COLS: tuple[str, ...] = (
     "tvoc_ppb", "eco2_ppm", "temperature_c",
-    "humidity_pct", "pm25_ug_m3", "co_ppb", "no2_ppb", "nh3_ppb",
+    "humidity_pct", "pm1_ug_m3", "pm25_ug_m3", "pm10_ug_m3",
+    "co_ppb", "no2_ppb", "nh3_ppb",
 )
 
 

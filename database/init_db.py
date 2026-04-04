@@ -62,7 +62,9 @@ def create_db():
                 'tvoc_spike', 'eco2_danger', 'eco2_elevated',
                 'correlated_pollution', 'sustained_poor_air',
                 'mould_risk',
-                'pm25_spike', 'pm25_elevated', 'pm10_elevated',
+                'pm1_spike', 'pm1_elevated',
+                'pm25_spike', 'pm25_elevated',
+                'pm10_spike', 'pm10_elevated',
                 'temp_high', 'temp_low',
                 'humidity_high', 'humidity_low',
                 'vpd_low', 'vpd_high',
@@ -131,6 +133,8 @@ def create_db():
              "Warm temps accelerating mould growth"),
             ("mould_hours",   4,    "hrs",   "Mould Risk Duration",
              "Hours of sustained conditions before flagging"),
+            ("pm1_high",       10.0, "µg/m³", "PM1 High",
+             "Elevated ultrafine particle level (no formal WHO guideline; proxy threshold)"),
             ("pm25_moderate", 12.0, "µg/m³", "PM2.5 Moderate",
              "WHO 24-hr guideline — below this is 'good' air quality"),
             ("pm25_high",     35.0, "µg/m³", "PM2.5 High",
@@ -155,6 +159,8 @@ def create_db():
          "Warm temps accelerating mould growth"),
         ("mould_hours", 4,    "hrs", "Mould Risk Duration",
          "Hours of sustained conditions before flagging"),
+        ("pm1_high",       10.0, "µg/m³", "PM1 High",
+         "Elevated ultrafine particle level (no formal WHO guideline; proxy threshold)"),
         ("pm25_moderate", 12.0, "µg/m³", "PM2.5 Moderate",
          "WHO 24-hr guideline — below this is 'good' air quality"),
         ("pm25_high",     35.0, "µg/m³", "PM2.5 High",
@@ -188,6 +194,8 @@ def create_db():
         "ALTER TABLE sensor_data ADD COLUMN gas_co REAL",
         "ALTER TABLE sensor_data ADD COLUMN gas_no2 REAL",
         "ALTER TABLE sensor_data ADD COLUMN gas_nh3 REAL",
+        "ALTER TABLE hot_tier ADD COLUMN pm1_ug_m3 REAL",
+        "ALTER TABLE hot_tier ADD COLUMN pm10_ug_m3 REAL",
     ]:
         try:
             cur.execute(migration)
@@ -236,7 +244,9 @@ def create_db():
         eco2_ppm      REAL,
         temperature_c REAL,
         humidity_pct  REAL,
+        pm1_ug_m3     REAL,
         pm25_ug_m3    REAL,
+        pm10_ug_m3    REAL,
         co_ppb        REAL,
         no2_ppb       REAL,
         nh3_ppb       REAL

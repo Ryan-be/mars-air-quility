@@ -72,14 +72,14 @@ def _make_test_db(db_path: str) -> None:
         CREATE TABLE hot_tier (
             timestamp TEXT,
             tvoc_ppb REAL, eco2_ppm REAL, temperature_c REAL,
-            humidity_pct REAL, pm25_ug_m3 REAL, co_ppb REAL,
-            no2_ppb REAL, nh3_ppb REAL
+            humidity_pct REAL, pm1_ug_m3 REAL, pm25_ug_m3 REAL, pm10_ug_m3 REAL,
+            co_ppb REAL, no2_ppb REAL, nh3_ppb REAL
         );
         CREATE TABLE sensor_data (
             timestamp TEXT, tvoc INTEGER, eco2 INTEGER
         );
         INSERT INTO hot_tier VALUES
-            ('2026-01-01 00:00:00', 120.0, 550.0, 22.0, 45.0, 5.0, 50.0, 10.0, 2.0);
+            ('2026-01-01 00:00:00', 120.0, 550.0, 22.0, 45.0, 3.0, 5.0, 8.0, 50.0, 10.0, 2.0);
         INSERT INTO sensor_data VALUES
             ('2025-12-31 00:00:00', 100, 500);
     """)

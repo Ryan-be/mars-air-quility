@@ -12,7 +12,9 @@ anomaly:
     - eco2_ppm
     - temperature_c
     - humidity_pct
+    - pm1_ug_m3
     - pm25_ug_m3
+    - pm10_ug_m3
     - co_ppb       # sparse until MICS6814 has enough history
     - no2_ppb
     - nh3_ppb
