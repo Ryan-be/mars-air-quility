@@ -361,6 +361,36 @@ document.querySelectorAll("[data-health]").forEach(item => {
   });
 });
 
+// ── Attribution badge ────────────────────────────────────────────────────────
+const _SOURCE_META = {
+  biological_offgas:   { label: 'Biological Off-gassing', emoji: '🌿', colour: '#22c55e' },
+  chemical_offgassing: { label: 'Chemical Off-gassing',   emoji: '🧪', colour: '#a855f7' },
+  cooking:             { label: 'Cooking',                 emoji: '🍳', colour: '#f97316' },
+  combustion:          { label: 'Combustion',              emoji: '🔥', colour: '#ef4444' },
+  external_pollution:  { label: 'External Pollution',      emoji: '🌍', colour: '#6b7280' },
+};
+
+const _ATTRIBUTION_TOOLTIP =
+  'The attribution engine scores this event against known source fingerprints \u2014 ' +
+  'combinations of sensor patterns associated with specific real-world causes.';
+
+function renderAttributionBadge(inf) {
+  const src = (inf.evidence && inf.evidence.attribution_source) || inf.attribution_source;
+  const conf = (inf.evidence && inf.evidence.attribution_confidence) || inf.attribution_confidence;
+  const runnerSrc  = (inf.evidence && inf.evidence.runner_up_source) || inf.runner_up_source;
+  const runnerConf = (inf.evidence && inf.evidence.runner_up_confidence) || inf.runner_up_confidence;
+  if (!src) return '';
+  const meta = _SOURCE_META[src] || { label: src, emoji: '', colour: '#6b7280' };
+  const pct  = conf ? Math.round(conf * 100) : '?';
+  const pill = `<span class="source-pill" style="background:${meta.colour};color:#fff;" title="${_ATTRIBUTION_TOOLTIP}">${meta.emoji} ${meta.label} \u2014 ${pct}% <span class="chip-info">ⓘ</span></span>`;
+  let runnerHtml = '';
+  if (runnerSrc && runnerConf != null && conf != null && runnerConf >= conf - 0.15) {
+    const rm = _SOURCE_META[runnerSrc] || { label: runnerSrc };
+    runnerHtml = `<div class="runner-up">Also consistent with: ${rm.label} (${Math.round(runnerConf * 100)}%)</div>`;
+  }
+  return `<div class="attribution-row"><span class="attribution-label">Source:</span> ${pill}${runnerHtml}</div>`;
+}
+
 // ── Detection method chip ────────────────────────────────────────────────────
 const _CHIP_METHOD_TOOLTIP =
   'Rule = a fixed threshold was crossed. ' +
@@ -562,6 +592,14 @@ function _openInferenceDialog(id) {
     `${Math.round(inf.confidence * 100)}% confidence`;
 
   document.getElementById("infDescription").textContent = inf.description;
+
+  // Attribution badge
+  const attrEl = document.getElementById("infAttribution");
+  if (attrEl) {
+    attrEl.innerHTML = renderAttributionBadge(inf);
+    attrEl.style.display = attrEl.innerHTML ? "" : "none";
+  }
+
   document.getElementById("infAction").textContent = inf.action || "No specific action needed.";
 
   // Evidence section
