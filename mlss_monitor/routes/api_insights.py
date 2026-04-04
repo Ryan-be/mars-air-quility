@@ -8,7 +8,6 @@ from __future__ import annotations
 import dataclasses
 import logging
 
-import yaml
 from flask import Blueprint, jsonify, request
 
 from mlss_monitor import state

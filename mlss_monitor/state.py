@@ -3,6 +3,7 @@ Shared mutable state and hardware references.
 
 Initialised once by app.py at startup; imported by route blueprints.
 """
+from collections import deque
 
 # Fan control
 fan_mode = "auto"
@@ -40,7 +41,6 @@ event_bus = None
 # Detection / attribution engine (set by app.py after init)
 detection_engine = None
 
-from collections import deque
 shadow_log: deque = deque(maxlen=50)  # recent shadow-mode detection events
 
 # Data source enabled/disabled flags (in-memory; reset to True on restart)

@@ -5,7 +5,6 @@ import sqlite3
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
 import yaml
 
 from mlss_monitor.anomaly_detector import AnomalyDetector

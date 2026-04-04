@@ -1,8 +1,6 @@
 """Tests for RuleEngine: YAML loading, rule evaluation against FeatureVector."""
 from __future__ import annotations
 
-import dataclasses
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 

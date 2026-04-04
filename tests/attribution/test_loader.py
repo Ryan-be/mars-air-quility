@@ -52,7 +52,7 @@ def _write_malformed_yaml(tmp_path: Path) -> Path:
 
 def test_loader_returns_fingerprints(tmp_path):
     """load_fingerprints() returns a list of Fingerprint objects."""
-    from mlss_monitor.attribution.loader import load_fingerprints, Fingerprint
+    from mlss_monitor.attribution.loader import load_fingerprints
 
     cfg_path = _write_valid_yaml(tmp_path)
     fingerprints = load_fingerprints(cfg_path)

@@ -1,12 +1,9 @@
 """Tests for AnomalyDetector: river HalfSpaceTrees, scoring, persistence."""
 from __future__ import annotations
 
-import pickle
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-import pytest
 import yaml
 
 from mlss_monitor.feature_vector import FeatureVector

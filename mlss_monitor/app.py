@@ -206,9 +206,8 @@ _data_sources = [
 ]
 
 # Initialise enabled flags for all registered data sources
-from mlss_monitor import state as _state
 for _ds in _data_sources:
-    _state.data_source_enabled.setdefault(_ds.name, True)
+    state.data_source_enabled.setdefault(_ds.name, True)
 
 _feature_extractor = FeatureExtractor()
 

@@ -1,10 +1,6 @@
 # tests/test_multivar_anomaly_detector.py
-import pickle
-import tempfile
 from datetime import datetime, timezone
-from pathlib import Path
 
-import pytest
 
 from mlss_monitor.feature_vector import FeatureVector
 from mlss_monitor.multivar_anomaly_detector import MultivarAnomalyDetector

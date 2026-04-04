@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from pathlib import Path
 import yaml
-import pytest
 
 
 def _write_fingerprints(path: Path, sources: list[dict]) -> None:

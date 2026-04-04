@@ -1,6 +1,4 @@
 import sqlite3
-import tempfile
-import os
 import pytest
 from datetime import datetime, timedelta
 from unittest.mock import patch

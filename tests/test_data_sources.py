@@ -73,9 +73,9 @@ def test_merge_readings_empty_list():
     assert before <= merged.timestamp <= after
 
 
-from unittest.mock import patch
-from mlss_monitor.data_sources.sgp30_source import SGP30Source
-from mlss_monitor.data_sources.aht20_source import AHT20Source
+from unittest.mock import patch  # noqa: E402
+from mlss_monitor.data_sources.sgp30_source import SGP30Source  # noqa: E402
+from mlss_monitor.data_sources.aht20_source import AHT20Source  # noqa: E402
 
 
 def test_sgp30_source_name():
@@ -118,8 +118,8 @@ def test_aht20_source_returns_reading():
         assert reading.tvoc_ppb is None
 
 
-from mlss_monitor.data_sources.pm_source import ParticulateSource
-from mlss_monitor.data_sources.mics6814_source import MICS6814Source
+from mlss_monitor.data_sources.pm_source import ParticulateSource  # noqa: E402
+from mlss_monitor.data_sources.mics6814_source import MICS6814Source  # noqa: E402
 
 
 def test_particulate_source_name():
@@ -215,8 +215,8 @@ def test_mics6814_source_handles_exception():
         assert reading.nh3_ppb is None
 
 
-from unittest.mock import MagicMock
-from mlss_monitor.data_sources.weather_source import WeatherAPISource
+from unittest.mock import MagicMock  # noqa: E402
+from mlss_monitor.data_sources.weather_source import WeatherAPISource  # noqa: E402
 
 
 def test_weather_source_name():

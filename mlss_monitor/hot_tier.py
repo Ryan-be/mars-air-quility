@@ -20,15 +20,12 @@ import logging
 import sqlite3
 from collections import deque
 from datetime import datetime, timedelta, timezone
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from mlss_monitor.data_sources.base import NormalisedReading
+from config import config
 
 log = logging.getLogger(__name__)
 
 # Module-level DB_FILE so tests can patch it (same pattern as db_logger.py).
-from config import config
 DB_FILE: str = config.get("DB_FILE", "data/sensor_data.db")
 
 # Ordered list of sensor columns in hot_tier table (matches NormalisedReading fields).

@@ -5,8 +5,6 @@ state.detection_engine with real engine objects pointing at tmp config files.
 """
 from __future__ import annotations
 
-import json
-from pathlib import Path
 
 import pytest
 import yaml

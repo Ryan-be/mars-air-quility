@@ -30,7 +30,6 @@ def test_app_initialises_all_four_sources(monkeypatch):
     # We do NOT import mlss_monitor.app at module level because it performs
     # hardware initialisation on import. Instead we simulate what app.py does:
     # iterate _data_sources and call setdefault(name, True).
-    from mlss_monitor import state
 
     # Stub four minimal DataSource-like objects
     class _FakeSource:

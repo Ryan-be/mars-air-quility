@@ -4,7 +4,7 @@ import math
 from datetime import datetime, timedelta, timezone
 from statistics import StatisticsError, linear_regression
 
-from mlss_monitor.data_sources.base import SENSOR_FIELDS, NormalisedReading
+from mlss_monitor.data_sources.base import NormalisedReading
 from mlss_monitor.feature_vector import FeatureVector
 
 # Maps NormalisedReading field name → FeatureVector field prefix

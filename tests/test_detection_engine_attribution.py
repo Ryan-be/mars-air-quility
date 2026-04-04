@@ -1,12 +1,10 @@
 """Tests that DetectionEngine.run() injects attribution evidence when dry_run=False."""
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
 import yaml
 
 from mlss_monitor.detection_engine import DetectionEngine

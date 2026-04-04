@@ -15,7 +15,6 @@ import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 
-import yaml
 
 from database.db_logger import (
     DB_FILE,
@@ -23,7 +22,7 @@ from database.db_logger import (
     save_inference,
 )
 from mlss_monitor.anomaly_detector import AnomalyDetector
-from mlss_monitor.attribution import AttributionEngine, AttributionResult
+from mlss_monitor.attribution import AttributionEngine
 from mlss_monitor.feature_vector import FeatureVector
 from mlss_monitor.inference_evidence import (
     build_sensor_snapshot,
@@ -467,8 +466,10 @@ class DetectionEngine:
         eco2_slope = fv.eco2_slope_1m      or 0
 
         def _trend_word(slope, threshold=0.05):
-            if slope > threshold:   return "rising"
-            if slope < -threshold:  return "falling"
+            if slope > threshold:
+                return "rising"
+            if slope < -threshold:
+                return "falling"
             return "stable"
 
         temp_trend = _trend_word(temp_slope, 0.02)
@@ -569,7 +570,6 @@ class DetectionEngine:
 
         # Hardcoded thresholds
         tvoc_moderate = 250
-        eco2_cognitive = 1000
         temp_high = 28.0
         temp_low = 15.0
         hum_high = 70.0

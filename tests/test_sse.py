@@ -79,9 +79,9 @@ class TestSSEEndpoint:
 
         lines = raw.strip().split("\n")
         # Expect at least: id line, event line, data line
-        id_lines = [l for l in lines if l.startswith("id:")]
-        event_lines = [l for l in lines if l.startswith("event:")]
-        data_lines = [l for l in lines if l.startswith("data:")]
+        id_lines = [ln for ln in lines if ln.startswith("id:")]
+        event_lines = [ln for ln in lines if ln.startswith("event:")]
+        data_lines = [ln for ln in lines if ln.startswith("data:")]
 
         assert len(id_lines) >= 1
         assert len(event_lines) >= 1

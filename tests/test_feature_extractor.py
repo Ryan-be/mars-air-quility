@@ -171,7 +171,7 @@ def test_peak_ratio_none_when_either_none():
 
 # ── End-to-end FeatureExtractor tests ────────────────────────────────────────
 
-from mlss_monitor.feature_extractor import FeatureExtractor
+from mlss_monitor.feature_extractor import FeatureExtractor  # noqa: E402
 
 
 def test_extract_per_sensor_tvoc_rising():
