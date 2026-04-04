@@ -57,12 +57,28 @@ let _isSubset = false;
 
 // ── Public entry point ───────────────────────────────────────────────────────
 
-export function renderCorrelationCharts(data) {
+export async function renderCorrelationCharts(data) {
   if (!data || data.length === 0) return;
   _fullData = data;
   _isSubset = false;
 
-  _renderBrushChart(data);
+  // Fetch anomaly overlay data
+  try {
+    const now = new Date();
+    const start = data.length ? new Date(data[0].timestamp).toISOString() : new Date(now.getTime() - 86400000).toISOString();
+    const end   = now.toISOString();
+    const ctxResp = await fetch(`/api/history/ml-context?start=${start}&end=${end}`);
+    if (ctxResp.ok) {
+      const ctxData = await ctxResp.json();
+      const { shapes, hoverTrace } = _buildAnomalyOverlay(ctxData.inferences || []);
+      _corrOverlayShapes = shapes;
+      _renderBrushChart(data, shapes, hoverTrace);
+    } else {
+      _renderBrushChart(data);
+    }
+  } catch (e) {
+    _renderBrushChart(data);
+  }
   _renderScatterCharts(data);
   _renderInferencePanel(data, data);
 
@@ -80,7 +96,7 @@ export function renderCorrelationCharts(data) {
       // then the heavy Plotly work starts so the visual feedback is immediate.
       requestAnimationFrame(() => requestAnimationFrame(() => {
         _isSubset = false;
-        _renderBrushChart(_fullData);
+        _renderBrushChart(_fullData, _corrOverlayShapes.length ? _corrOverlayShapes : undefined);
         _renderScatterCharts(_fullData);
         _renderInferencePanel(_fullData, _fullData);
         document.getElementById("corrRangeLabel").textContent = "Showing: full range";
@@ -131,7 +147,7 @@ export function updateCorrelationData(data) {
 
 // ── Brush chart (compact TVOC + eCO₂ over time) ─────────────────────────────
 
-function _renderBrushChart(data) {
+function _renderBrushChart(data, overlayShapes, hoverTrace) {
   const ts   = data.map(d => new Date(d.timestamp));
   const tvoc = data.map(d => d.tvoc);
   const eco2 = data.map(d => d.eco2);
@@ -181,7 +197,16 @@ function _renderBrushChart(data) {
     dragmode: "zoom",
   });
 
-  Plotly.newPlot("corrBrushPlot", traces, layout, { responsive: true, displayModeBar: false });
+  // Add overlay shapes and hover trace
+  if (overlayShapes && overlayShapes.length) {
+    layout.shapes = overlayShapes;
+  }
+  const allTraces = hoverTrace ? [...traces, hoverTrace] : traces;
+  if (hoverTrace) {
+    _corrHoverTraceIdx = allTraces.length - 1;
+  }
+
+  Plotly.newPlot("corrBrushPlot", allTraces, layout, { responsive: true, displayModeBar: false });
 
   // Listen for zoom (relayout) events
   const brushEl = document.getElementById("corrBrushPlot");
@@ -654,6 +679,39 @@ function _renderInferencePanel(subset, fullData) {
       <div class="corr-insight-body">${c.html}</div>
     </div>
   `).join("");
+}
+
+// ── Anomaly event overlay ────────────────────────────────────────────────────
+
+let _corrOverlayShapes  = [];
+let _corrOverlayVisible = true;
+let _corrHoverTraceIdx  = null;
+
+function _buildAnomalyOverlay(inferences) {
+  const shapes = [], hoverX = [], hoverY = [], hoverText = [];
+  inferences.forEach(function (inf) {
+    const ts = inf.created_at;
+    let colour = '#6b7280';
+    if (inf.severity === 'critical') colour = '#ef4444';
+    else if (inf.severity === 'warning') colour = '#f59e0b';
+    else if (inf.detection_method === 'ml') colour = '#3b82f6';
+    shapes.push({ type:'line', x0:ts,x1:ts,y0:0,y1:1, xref:'x',yref:'paper', line:{color:colour,width:1,dash:'dash'} });
+    hoverX.push(ts); hoverY.push(0.5);
+    const src = inf.attribution_source ? ` | ${inf.attribution_source} (${Math.round((inf.attribution_confidence||0)*100)}%)` : '';
+    hoverText.push(`${inf.title}<br>${inf.detection_method || 'rule'}${src}`);
+  });
+  const hoverTrace = { x:hoverX, y:hoverY, mode:'markers', marker:{opacity:0,size:12}, hoverinfo:'text', hovertext:hoverText, showlegend:false, name:'detections' };
+  return { shapes, hoverTrace };
+}
+
+function corrToggleOverlay(visible) {
+  _corrOverlayVisible = visible;
+  const chartDiv = document.getElementById('corrBrushChart') || document.querySelector('[id*="corr"]');
+  if (!chartDiv) return;
+  Plotly.relayout(chartDiv, { shapes: visible ? _corrOverlayShapes : [] });
+  if (_corrHoverTraceIdx !== null) {
+    Plotly.restyle(chartDiv, { visible: [visible] }, [_corrHoverTraceIdx]);
+  }
 }
 
 // ── Channel toggle chips for Correlations tab ────────────────────────────────
