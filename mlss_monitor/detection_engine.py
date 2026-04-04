@@ -25,6 +25,11 @@ from database.db_logger import (
 from mlss_monitor.anomaly_detector import AnomalyDetector
 from mlss_monitor.attribution import AttributionEngine, AttributionResult
 from mlss_monitor.feature_vector import FeatureVector
+from mlss_monitor.inference_evidence import (
+    build_sensor_snapshot,
+    anomaly_description,
+    anomaly_action,
+)
 from mlss_monitor.threshold_engine import RuleEngine
 
 log = logging.getLogger(__name__)
@@ -51,6 +56,7 @@ class DetectionEngine:
         anomaly_config_path: str | Path,
         model_dir: str | Path,
         fingerprints_path: str | Path | None = None,
+        multivar_config_path: str | Path | None = None,
         dry_run: bool = True,
     ) -> None:
         self._dry_run = dry_run
@@ -62,6 +68,13 @@ class DetectionEngine:
                 self._attribution_engine = AttributionEngine(fingerprints_path)
             except Exception as exc:
                 log.error("DetectionEngine: could not load fingerprints: %s", exc)
+        self._multivar_detector = None
+        if multivar_config_path is not None:
+            try:
+                from mlss_monitor.multivar_anomaly_detector import MultivarAnomalyDetector
+                self._multivar_detector = MultivarAnomalyDetector(multivar_config_path, model_dir)
+            except Exception as exc:
+                log.error("DetectionEngine: could not load multivar config: %s", exc)
 
     # ── Attribution helper ────────────────────────────────────────────────────
 
@@ -167,6 +180,31 @@ class DetectionEngine:
             log.info("DetectionEngine.bootstrap_from_db: bootstrapping %d total readings", total)
             self._anomaly_detector.bootstrap(channel_data)
 
+            # Bootstrap composite models from the same historical data
+            if self._multivar_detector is not None:
+                mv_channel_data: dict[str, list[dict]] = {}
+                for m in self._multivar_detector._model_defs():
+                    mid = m["id"]
+                    channels = m["channels"]
+                    # Build list of complete readings (all channels present)
+                    lengths = [len(channel_data.get(ch, [])) for ch in channels]
+                    if not lengths or min(lengths) == 0:
+                        continue
+                    n = min(lengths)
+                    readings = []
+                    for i in range(n):
+                        row = {}
+                        for ch in channels:
+                            cd = channel_data.get(ch, [])
+                            if i < len(cd):
+                                row[ch] = cd[i]
+                        if len(row) == len(channels):
+                            readings.append(row)
+                    if readings:
+                        mv_channel_data[mid] = readings
+                if mv_channel_data:
+                    self._multivar_detector.bootstrap(mv_channel_data)
+
         except Exception as exc:
             log.error("DetectionEngine.bootstrap_from_db failed: %s", exc)
             return
@@ -223,7 +261,7 @@ class DetectionEngine:
                         exc,
                     )
 
-        # 2. Anomaly detection
+        # 2. Per-channel anomaly detection
         scores = self._anomaly_detector.learn_and_score(fv)
         anomalous = self._anomaly_detector.anomalous_channels(scores)
         for ch in anomalous:
@@ -234,28 +272,57 @@ class DetectionEngine:
             fired.append(event_type)
             if not self._dry_run:
                 try:
+                    baselines = {ch: self._anomaly_detector.baseline(ch)}
+                    snapshot = build_sensor_snapshot(fv, [ch], baselines)
+                    description = anomaly_description(snapshot)
+                    action = anomaly_action(channel=ch)
                     save_inference(
                         event_type=event_type,
                         severity="warning",
-                        title=f"Statistical anomaly: {ch.replace('_', ' ')} (score {score:.2f})",
-                        description=(
-                            f"A statistical anomaly was detected in {ch} with a score of "
-                            f"{score:.2f} (threshold 0.7). This reading is unusual compared "
-                            f"to the learned historical pattern for this sensor channel."
-                        ),
-                        action=(
-                            "Monitor the sensor. If readings persist unusually, "
-                            "investigate the cause or reset the anomaly model for this channel."
-                        ),
-                        evidence={"channel": ch, "anomaly_score": round(score, 4)},
+                        title=f"Anomaly: {snapshot[0]['label'] if snapshot else ch.replace('_', ' ')} — {score:.2f} score",
+                        description=description,
+                        action=action,
+                        evidence={
+                            "sensor_snapshot": snapshot,
+                            "anomaly_score": round(score, 4),
+                        },
                         confidence=round(score, 2),
                     )
                 except Exception as exc:
-                    log.error(
-                        "DetectionEngine: save_inference failed for anomaly %r: %s",
-                        ch,
-                        exc,
-                    )
+                    log.error("DetectionEngine: save_inference failed for anomaly %r: %s", ch, exc)
+
+        # 3. Composite multivariate anomaly detection
+        if self._multivar_detector is not None:
+            mv_scores = self._multivar_detector.learn_and_score(fv)
+            for mid in self._multivar_detector.anomalous_models(mv_scores):
+                event_type = f"anomaly_{mid}"
+                if get_recent_inference_by_type(event_type, hours=1):
+                    continue
+                score = mv_scores[mid]
+                fired.append(event_type)
+                if not self._dry_run:
+                    try:
+                        channels = self._multivar_detector.model_channels(mid)
+                        label = self._multivar_detector.model_label(mid)
+                        baselines = self._multivar_detector.baselines(mid)
+                        snapshot = build_sensor_snapshot(fv, channels, baselines)
+                        description = anomaly_description(snapshot, model_label=label)
+                        action = anomaly_action(model_id=mid)
+                        save_inference(
+                            event_type=event_type,
+                            severity="warning",
+                            title=f"Composite anomaly: {label} — {score:.2f} score",
+                            description=description,
+                            action=action,
+                            evidence={
+                                "sensor_snapshot": snapshot,
+                                "anomaly_score": round(score, 4),
+                                "model_id": mid,
+                            },
+                            confidence=round(score, 2),
+                        )
+                    except Exception as exc:
+                        log.error("DetectionEngine: save_inference failed for multivar %r: %s", mid, exc)
 
         if fired:
             mode = "DRY-RUN" if self._dry_run else "LIVE"
