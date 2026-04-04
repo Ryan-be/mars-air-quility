@@ -107,8 +107,11 @@ class TestSSEEndpoint:
         with app_module.app.test_client() as client:
             # Don't set session — unauthenticated
             resp = client.get("/api/stream")
-            # Should redirect to login
-            assert resp.status_code == 302
+            # API routes return JSON 401 (not a browser redirect) for unauthenticated requests
+            assert resp.status_code == 401
+            data = resp.get_json()
+            assert data is not None
+            assert data.get("login_required") is True
 
 
 class TestSSEAllEventTypes:
