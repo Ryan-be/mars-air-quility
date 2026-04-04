@@ -34,8 +34,8 @@ class AnomalyDetector:
     """
 
     # Save models every N learn_and_score calls to reduce SD card write wear.
-    # At 60s cycles: N=10 → saves every 10 minutes instead of every minute.
-    _SAVE_EVERY_N: int = 10
+    # At 60s cycles: N=3 → saves every ~3 minutes instead of every minute.
+    _SAVE_EVERY_N: int = 3
 
     def __init__(self, config_path: str | Path, model_dir: str | Path) -> None:
         self._config_path = Path(config_path)

@@ -461,6 +461,12 @@ def _background_log():
             try:
                 if state.feature_vector is not None:
                     fired = _detection_engine.run(state.feature_vector)
+                    for event_type in fired:
+                        from datetime import datetime, timezone
+                        state.shadow_log.appendleft({
+                            "ts": datetime.now(timezone.utc).strftime("%H:%M:%S"),
+                            "event_type": event_type,
+                        })
                     if fired:
                         log.debug("[shadow] DetectionEngine would fire: %s", fired)
             except Exception as exc:
@@ -586,12 +592,26 @@ def _build_ssl_context():
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main():
+    import signal as _signal
+    import sys as _sys
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
     create_db()
+
+    def _graceful_shutdown(signum, frame):
+        log.info("SIGTERM received — saving anomaly models before exit")
+        try:
+            _detection_engine._anomaly_detector._save_models()
+        except Exception as exc:
+            log.warning("Could not save anomaly models on shutdown: %s", exc)
+        _sys.exit(0)
+
+    _signal.signal(_signal.SIGTERM, _graceful_shutdown)
+
     # Reinitialise hot_tier now that the DB table is guaranteed to exist.
     global hot_tier
     hot_tier = HotTier(maxlen=3600, db_file=DB_FILE)
