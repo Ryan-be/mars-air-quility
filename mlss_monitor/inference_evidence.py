@@ -120,6 +120,7 @@ def build_sensor_snapshot(
         channels: FeatureVector field names to include (e.g. "tvoc_current").
         baselines: {channel: ema_baseline} — may contain None values.
     """
+    _PM_CHANNELS = {"pm1_current", "pm25_current", "pm10_current"}
     snapshot = []
     for ch in channels:
         meta = _CHANNEL_META.get(ch)
@@ -127,6 +128,9 @@ def build_sensor_snapshot(
             continue
         value = getattr(fv, ch, None)
         if value is None:
+            continue
+        # Skip zero PM readings — physically impossible, indicates sensor failure
+        if value == 0.0 and ch in _PM_CHANNELS:
             continue
         baseline = baselines.get(ch)
         ratio: float | None = None
@@ -168,6 +172,12 @@ def anomaly_description(
         s = snapshot[0]
         t = trend_text.get(s.get("trend", "stable"), "")
         if s.get("ratio") is not None and s.get("baseline") is not None:
+            if s["ratio"] < 0.5:
+                return (
+                    f"{s['label']} at {s['value']} {s['unit']} — "
+                    f"unusually low ({s['ratio']}× typical {s['baseline']} {s['unit']}){t}. "
+                    f"This may indicate a sensor read failure or unusually clean air."
+                )
             return (
                 f"{s['label']} at {s['value']} {s['unit']} — "
                 f"{s['ratio']}× your typical {s['baseline']} {s['unit']}{t}."

@@ -133,6 +133,13 @@ class MultivarAnomalyDetector:
                     break
                 x[ch] = float(val)
 
+            # PM channels cannot physically be 0 — treat as sensor failure
+            _PM_CHANNELS = {"pm1_current", "pm25_current", "pm10_current"}
+            for ch in channels:
+                if ch in _PM_CHANNELS and x.get(ch, None) == 0.0:
+                    x = {}  # skip this reading
+                    break
+
             if not x:
                 scores[mid] = None
                 continue
