@@ -167,3 +167,124 @@ def ml_context():
         "dominant_source_sentence": narrative_engine.generate_period_summary(window,[],dominant) if window else "No events detected.",
         "comovement_summary": _comovement_summary(sensor_rows),
     })
+
+
+_KNOWN_SOURCES = [
+    ("biological_offgas","Biological Off-gassing","🌿"),
+    ("chemical_offgassing","Chemical Off-gassing","🧪"),
+    ("cooking","Cooking","🍳"),
+    ("combustion","Combustion","🔥"),
+    ("external_pollution","External Pollution","🌍"),
+]
+_ML_EVENT_TYPES_SET = {
+    "anomaly_combustion_signature","anomaly_particle_distribution",
+    "anomaly_ventilation_quality","anomaly_gas_relationship","anomaly_thermal_moisture",
+}
+_MODEL_LABELS = {
+    "anomaly_combustion_signature":"Combustion Signature",
+    "anomaly_particle_distribution":"Particle Distribution",
+    "anomaly_ventilation_quality":"Ventilation Quality",
+    "anomaly_gas_relationship":"Gas Sensor Relationship",
+    "anomaly_thermal_moisture":"Thermal-Moisture Stress",
+}
+_MODEL_DESCRIPTIONS = {
+    "anomaly_combustion_signature":"Watches for co-rises in CO resistance, TVOC, and particles — a pattern typical of nearby combustion.",
+    "anomaly_particle_distribution":"Monitors the ratio relationship between PM1, PM2.5 and PM10 for unusual size distributions.",
+    "anomaly_ventilation_quality":"Tracks eCO2, TVOC and NH3 building up together — a sign of poor ventilation.",
+    "anomaly_gas_relationship":"Monitors the correlation structure of CO, NO2 and NH3 from the MICS6814 sensor.",
+    "anomaly_thermal_moisture":"Scores temperature, humidity and VPD together to detect comfort-zone stress events.",
+}
+_FV_TO_API = {
+    "tvoc_current":"tvoc_ppb","eco2_current":"eco2_ppm","temperature_current":"temperature_c",
+    "humidity_current":"humidity_pct","pm1_current":"pm1_ug_m3","pm25_current":"pm25_ug_m3",
+    "pm10_current":"pm10_ug_m3","co_current":"co_ppb","no2_current":"no2_ppb","nh3_current":"nh3_ppb",
+}
+
+
+def _get_baselines_7d_ago(db_file: str, window_start: str) -> dict:
+    try:
+        start_dt = datetime.fromisoformat(window_start.rstrip("Z")).replace(tzinfo=timezone.utc)
+        ago_end = start_dt - timedelta(days=7)
+        ago_start = ago_end - timedelta(hours=24)
+        rows = _query_sensor_data(db_file, ago_start.strftime("%Y-%m-%dT%H:%M:%SZ"), ago_end.strftime("%Y-%m-%dT%H:%M:%SZ"))
+        if not rows: return {}
+        result = {}
+        for db_col, api_key in _DB_TO_API.items():
+            vals = [r.get(db_col) for r in rows if r.get(db_col) is not None]
+            result[api_key] = sum(vals)/len(vals) if vals else None
+        return result
+    except Exception:
+        return {}
+
+
+@api_history_bp.route("/api/history/narratives")
+def narratives():
+    start = request.args.get("start",""); end = request.args.get("end","")
+    if not start or not end:
+        return jsonify({"error": "start and end are required"}), 400
+    from mlss_monitor.app import DB_FILE
+    from mlss_monitor.inference_evidence import _CHANNEL_META
+    from mlss_monitor.narrative_engine import _parse_utc
+
+    all_infs = get_inferences(limit=2000, include_dismissed=False)
+    s_db = start.rstrip("Z").replace("T"," "); e_db = end.rstrip("Z").replace("T"," ")
+    window = [i for i in all_infs if s_db <= i["created_at"].rstrip("Z").replace("T"," ") <= e_db]
+
+    engine = state.detection_engine
+    baselines_now = {}
+    if engine and engine._anomaly_detector:
+        baselines_now = {ch: engine._anomaly_detector.baseline(ch) for ch in _BASELINE_CHANNELS}
+    baselines_7d = _get_baselines_7d_ago(DB_FILE, start)
+
+    ch_meta_api = {_FV_TO_API[k]: {"label": v["label"], "unit": v["unit"]} for k, v in _CHANNEL_META.items() if k in _FV_TO_API}
+    trend_indicators = narrative_engine.compute_trend_indicators(baselines_now, baselines_7d, ch_meta_api)
+    drift_flags = narrative_engine.detect_drift_flags(baselines_now, baselines_7d)
+
+    summary: dict = {}
+    for inf in window:
+        src = _extract_attribution_source(inf)
+        if src: summary[src] = summary.get(src,0)+1
+    dominant = max(summary, key=summary.get) if summary else None
+
+    period_summary = narrative_engine.generate_period_summary(window, trend_indicators, dominant)
+    clean = narrative_engine.compute_longest_clean_period(window, start, end)
+    heatmap = narrative_engine.compute_pattern_heatmap(window)
+
+    if heatmap:
+        top_key = max(heatmap, key=heatmap.get)
+        day_i, hour_i = (int(x) for x in top_key.split("_"))
+        pattern_sentence = f"Events most frequently occur on {_DAY_NAMES[day_i]}s around {hour_i:02d}:00."
+    else:
+        pattern_sentence = "No recurring time pattern detected in this period."
+
+    fp_narratives = []
+    for src_id, label, emoji in _KNOWN_SOURCES:
+        src_events = [i for i in window if _extract_attribution_source(i)==src_id]
+        avg_conf = sum(_extract_attribution_confidence(i) for i in src_events)/len(src_events) if src_events else 0.0
+        typical_hours = [_parse_utc(i["created_at"]).hour for i in src_events if i.get("created_at")]
+        fp_narratives.append({
+            "source_id":src_id,"label":label,"emoji":emoji,
+            "event_count":len(src_events),"avg_confidence":round(avg_conf,2),
+            "typical_hours":typical_hours,
+            "narrative":narrative_engine.generate_fingerprint_narrative(src_id,label,src_events,avg_conf,typical_hours),
+        })
+
+    model_narratives = []
+    for et in sorted(_ML_EVENT_TYPES_SET):
+        evts = [i for i in window if i.get("event_type")==et]
+        if evts:
+            mid = et.replace("anomaly_",""); lbl = _MODEL_LABELS.get(et,mid); desc = _MODEL_DESCRIPTIONS.get(et,"")
+            model_narratives.append({
+                "model_id":mid,"label":lbl,"event_count":len(evts),"description":desc,
+                "narrative":narrative_engine.generate_anomaly_model_narrative(mid,lbl,len(evts),desc),
+            })
+
+    dom_sentence = (f"{dominant.capitalize()} accounts for {summary[dominant]} of {len(window)} events." if dominant and window else "No events were attributed to a source in this period.")
+
+    return jsonify({
+        "period_summary":period_summary,"trend_indicators":trend_indicators,
+        "longest_clean_hours":clean["hours"],"longest_clean_start":clean["start"],"longest_clean_end":clean["end"],
+        "attribution_breakdown":summary,"dominant_source_sentence":dom_sentence,
+        "fingerprint_narratives":fp_narratives,"anomaly_model_narratives":model_narratives,
+        "pattern_heatmap":heatmap,"pattern_sentence":pattern_sentence,"drift_flags":drift_flags,
+    })
