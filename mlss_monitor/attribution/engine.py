@@ -43,6 +43,21 @@ class AttributionEngine:
             self._config_path.name,
         )
 
+    def reload(self) -> None:
+        """Thread-safe hot-reload: re-read fingerprints.yaml.
+
+        Acquires the shared yaml_lock before reading so a concurrent
+        atomic_write cannot race with this read.
+        """
+        from mlss_monitor.yaml_io import yaml_lock
+        with yaml_lock:
+            self._fingerprints = load_fingerprints(self._config_path)
+        log.info(
+            "AttributionEngine: reloaded %d fingerprints from %s",
+            len(self._fingerprints),
+            self._config_path.name,
+        )
+
     def attribute(self, fv: FeatureVector):
         """Score all fingerprints against fv, return the best match above its floor.
 
