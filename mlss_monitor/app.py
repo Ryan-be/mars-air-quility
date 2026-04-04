@@ -205,6 +205,11 @@ _data_sources = [
     MICS6814Source(),
 ]
 
+# Initialise enabled flags for all registered data sources
+from mlss_monitor import state as _state
+for _ds in _data_sources:
+    _state.data_source_enabled.setdefault(_ds.name, True)
+
 _feature_extractor = FeatureExtractor()
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
