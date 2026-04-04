@@ -212,6 +212,37 @@
 
   <div class="tab-panel tab-hidden" id="tab-correlation">
 
+    <!-- Channel toggle chips -->
+    <div class="channel-toggles" id="corrToggles">
+      <div class="toggle-group">
+        <button class="toggle-group-label" onclick="corrToggleGroup('airquality')">Air Quality</button>
+        <button class="channel-chip active" data-channel="tvoc_ppb" data-group="airquality" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#8b5cf6"></span>TVOC</button>
+        <button class="channel-chip active" data-channel="eco2_ppm" data-group="airquality" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#06b6d4"></span>eCO2</button>
+      </div>
+      <div class="toggle-group">
+        <button class="toggle-group-label" onclick="corrToggleGroup('particles')">Particles</button>
+        <button class="channel-chip active" data-channel="pm1_ug_m3" data-group="particles" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#84cc16"></span>PM1</button>
+        <button class="channel-chip active" data-channel="pm25_ug_m3" data-group="particles" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#22c55e"></span>PM2.5</button>
+        <button class="channel-chip active" data-channel="pm10_ug_m3" data-group="particles" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#a3e635"></span>PM10</button>
+      </div>
+      <div class="toggle-group">
+        <button class="toggle-group-label" onclick="corrToggleGroup('gas')">Gas Sensors</button>
+        <button class="channel-chip active" data-channel="co_ppb" data-group="gas" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#ef4444"></span>CO (resistance) <span class="info-icon" title="CO, NO2 and NH3 are measured as electrical resistance by the MICS6814 sensor.">ⓘ</span></button>
+        <button class="channel-chip active" data-channel="no2_ppb" data-group="gas" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#f59e0b"></span>NO2 (resistance) <span class="info-icon" title="CO, NO2 and NH3 are measured as electrical resistance by the MICS6814 sensor.">ⓘ</span></button>
+        <button class="channel-chip active" data-channel="nh3_ppb" data-group="gas" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#ec4899"></span>NH3 (resistance) <span class="info-icon" title="CO, NO2 and NH3 are measured as electrical resistance by the MICS6814 sensor.">ⓘ</span></button>
+      </div>
+      <div class="toggle-group">
+        <button class="toggle-group-label" onclick="corrToggleGroup('environment')">Environment</button>
+        <button class="channel-chip active" data-channel="temperature_c" data-group="environment" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#f97316"></span>Temperature</button>
+        <button class="channel-chip active" data-channel="humidity_pct" data-group="environment" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#3b82f6"></span>Humidity</button>
+      </div>
+      <div class="toggle-presets">
+        <button onclick="corrToggleAll(true)" style="min-height:44px;padding:4px 12px;">All</button>
+        <button onclick="corrToggleAll(false)" style="min-height:44px;padding:4px 12px;">None</button>
+      </div>
+    </div>
+    <div id="corrEmptyMsg" style="display:none; text-align:center; padding:40px; color:var(--text-muted);">Select at least one channel above.</div>
+
     <!-- Brush selector -->
     <div class="corr-brush-section">
       <div class="corr-brush-header">

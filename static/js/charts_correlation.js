@@ -655,3 +655,34 @@ function _renderInferencePanel(subset, fullData) {
     </div>
   `).join("");
 }
+
+// ── Channel toggle chips for Correlations tab ────────────────────────────────
+
+const CORR_CHANNELS = ['tvoc_ppb','eco2_ppm','temperature_c','humidity_pct','pm1_ug_m3','pm25_ug_m3','pm10_ug_m3','co_ppb','no2_ppb','nh3_ppb'];
+const CORR_COLOURS  = { tvoc_ppb:'#8b5cf6', eco2_ppm:'#06b6d4', temperature_c:'#f97316', humidity_pct:'#3b82f6', pm1_ug_m3:'#84cc16', pm25_ug_m3:'#22c55e', pm10_ug_m3:'#a3e635', co_ppb:'#ef4444', no2_ppb:'#f59e0b', nh3_ppb:'#ec4899' };
+const CORR_LABELS   = { tvoc_ppb:'TVOC', eco2_ppm:'eCO2', temperature_c:'Temperature', humidity_pct:'Humidity', pm1_ug_m3:'PM1', pm25_ug_m3:'PM2.5', pm10_ug_m3:'PM10', co_ppb:'CO (resistance)', no2_ppb:'NO2 (resistance)', nh3_ppb:'NH3 (resistance)' };
+
+function corrToggleChip(btn) {
+  btn.classList.toggle('active');
+  _updateCorrVisibility();
+}
+function corrToggleGroup(group) {
+  const chips = document.querySelectorAll(`.channel-chip[data-group="${group}"]`);
+  const allActive = Array.from(chips).every(c => c.classList.contains('active'));
+  chips.forEach(c => allActive ? c.classList.remove('active') : c.classList.add('active'));
+  _updateCorrVisibility();
+}
+function corrToggleAll(state) {
+  document.querySelectorAll('.channel-chip[data-group]').forEach(c => state ? c.classList.add('active') : c.classList.remove('active'));
+  _updateCorrVisibility();
+}
+function _updateCorrVisibility() {
+  const active = new Set(Array.from(document.querySelectorAll('.channel-chip[data-group].active')).map(c => c.dataset.channel));
+  const emptyMsg = document.getElementById('corrEmptyMsg');
+  if (active.size === 0) { if (emptyMsg) emptyMsg.style.display = 'block'; return; }
+  if (emptyMsg) emptyMsg.style.display = 'none';
+  const chartDiv = document.getElementById('corrBrushChart') || document.querySelector('[id*="corr"]');
+  if (!chartDiv || !chartDiv.data) return;
+  const visible = CORR_CHANNELS.map(ch => active.has(ch) ? true : 'legendonly');
+  Plotly.restyle(chartDiv, { visible }, CORR_CHANNELS.map((_, i) => i));
+}
