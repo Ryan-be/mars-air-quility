@@ -6,12 +6,26 @@
   <title>{% block title %}MLSS{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
   {% block extra_css %}{% endblock %}
+  <!-- Apply persisted theme before first paint to avoid flash -->
+  <script>
+    if (localStorage.getItem('mlss_theme') === 'light') {
+      document.documentElement.classList.add('body-light-preload');
+    }
+  </script>
+  <style>
+    html.body-light-preload body { background: #f5f5f5; color: #111; }
+  </style>
 </head>
 <body>
 
   <div class="top-bar">
     <h2>🚀 MLSS</h2>
     {% block topbar_controls %}{% endblock %}
+    <label class="theme-switch" title="Toggle light/dark mode" style="margin-left:auto;">
+      <input type="checkbox" id="themeToggle">
+      <span class="ts-track"></span>
+      <span class="ts-label">Light</span>
+    </label>
     {% if auth_enabled %}
       {% if session_user %}
         <span class="session-user">
@@ -38,6 +52,32 @@
   {% block content %}{% endblock %}
 
   {% block scripts %}{% endblock %}
+
+  <!-- Base-level theme bootstrap: syncs body class + checkbox from localStorage.
+       The change handler delegates to window.toggleTheme (set by page JS modules)
+       so chart-heavy pages can also trigger redraws. Pages without a module just
+       get the plain class toggle. -->
+  <script>
+    (function () {
+      var isLight = localStorage.getItem('mlss_theme') === 'light';
+      document.body.classList.toggle('light', isLight);
+      var cb = document.getElementById('themeToggle');
+      if (cb) {
+        cb.checked = isLight;
+        cb.addEventListener('change', function () {
+          // Delegate to the module's toggleTheme if available (handles chart redraws).
+          if (typeof window.toggleTheme === 'function') {
+            window.toggleTheme();
+          } else {
+            isLight = !isLight;
+            document.body.classList.toggle('light', isLight);
+            localStorage.setItem('mlss_theme', isLight ? 'light' : 'dark');
+            cb.checked = isLight;
+          }
+        });
+      }
+    })();
+  </script>
 
 </body>
 </html>
