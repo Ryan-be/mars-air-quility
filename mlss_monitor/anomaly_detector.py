@@ -48,6 +48,7 @@ class AnomalyDetector:
         self._models: dict[str, HalfSpaceTrees] = {}
         self._n_seen: dict[str, int] = {}
         self._calls_since_save: int = 0
+        self._ema: dict[str, float] = {}
         self._load_config()
         self._load_models()
 
@@ -119,6 +120,8 @@ class AnomalyDetector:
                 raw_score = 0.0
             model.learn_one(x)
             self._n_seen[ch] = self._n_seen.get(ch, 0) + 1
+            _alpha = 0.05
+            self._ema[ch] = _alpha * value + (1 - _alpha) * self._ema.get(ch, value)
 
             # Suppress during cold start
             scores[ch] = None if self._n_seen[ch] < cold_start else raw_score
@@ -159,3 +162,7 @@ class AnomalyDetector:
         """Return channel names whose score exceeds the configured threshold."""
         threshold = self._config.get("score_threshold", 0.7)
         return [ch for ch, s in scores.items() if s is not None and s > threshold]
+
+    def baseline(self, channel: str) -> float | None:
+        """Return the EMA baseline for a channel, or None if not yet seen."""
+        return self._ema.get(channel)

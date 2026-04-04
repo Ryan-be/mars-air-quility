@@ -135,3 +135,32 @@ def test_models_are_saved_and_reloaded(tmp_path):
     det2 = AnomalyDetector(cfg_path, model_dir)
     assert det2._n_seen["tvoc_ppb"] == 3
     assert det2._n_seen["eco2_ppm"] == 3
+
+
+# ── EMA baseline ──────────────────────────────────────────────────────────────
+
+def _make_detector(tmp_path):
+    cfg = tmp_path / "anomaly.yaml"
+    cfg.write_text("""
+anomaly:
+  cold_start_readings: 3
+  score_threshold: 0.7
+  channels:
+    - tvoc_ppb
+""")
+    return AnomalyDetector(str(cfg), tmp_path)
+
+
+def test_baseline_returns_none_before_any_readings(tmp_path):
+    det = _make_detector(tmp_path)
+    assert det.baseline("tvoc_ppb") is None
+
+
+def test_baseline_converges_near_constant_value(tmp_path):
+    det = _make_detector(tmp_path)
+    fv = _make_fv(tvoc_current=200.0)
+    for _ in range(40):
+        det.learn_and_score(fv)
+    b = det.baseline("tvoc_ppb")
+    assert b is not None
+    assert 190.0 < b < 210.0
