@@ -5,7 +5,11 @@
 anomaly:
   algorithm: half_space_trees
   score_threshold: 0.7          # score > threshold → anomaly event
-  cold_start_readings: 1440     # suppress scores for first 24h (1440 × 60s)
+  cold_start_readings: 500      # suppress scores for first ~8h (500 × 60s); reduced from 1440
+                                # because gas sensor channels (co_ppb, no2_ppb, nh3_ppb) are
+                                # sparse in the DB (later migration) and model resets after
+                                # param changes reset n_seen to 0. 500 readings is sufficient
+                                # for HalfSpaceTrees (window_size=150) to stabilise.
   model_dir: data/anomaly_models  # relative to project root
   channels:
     - tvoc_ppb
