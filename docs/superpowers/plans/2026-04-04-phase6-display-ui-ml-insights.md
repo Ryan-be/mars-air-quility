@@ -2205,4 +2205,1380 @@ git add templates/insights_engine.html
 git commit -m "feat: add live anomaly score column to insights engine page via SSE"
 ```
 
-<!-- PART 2: Tasks 13-25 will be appended -->
+
+---
+
+## Task 13: Detection method chip on inference cards
+
+**Files:**
+- Modify: `static/js/dashboard.js`
+- Modify: `templates/dashboard.html` (or wherever inference dialog HTML lives)
+
+- [ ] **Step 1: Add chip CSS**
+
+In the page CSS (add to `templates/base.html` or `static/css/main.css` if it exists, otherwise inline in `dashboard.html`):
+
+```css
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: default;
+  user-select: none;
+}
+.chip--rule        { background: #6b7280; color: #fff; }
+.chip--statistical { background: #3b82f6; color: #fff; }
+.chip--ml          { background: #8b5cf6; color: #fff; }
+.chip-info { font-weight: 400; opacity: 0.85; }
+```
+
+- [ ] **Step 2: Add `renderDetectionChip()` helper to `dashboard.js`**
+
+```javascript
+const _CHIP_METHOD_TOOLTIP =
+  'Rule = a fixed threshold was crossed. ' +
+  'Statistical = an unusual reading compared to this sensor\u2019s learned normal. ' +
+  'ML = an unusual pattern across multiple sensors simultaneously.';
+
+function renderDetectionChip(detectionMethod) {
+  const cls = {
+    rule: 'chip--rule',
+    statistical: 'chip--statistical',
+    ml: 'chip--ml',
+  }[detectionMethod] || 'chip--rule';
+
+  const label = {
+    rule: 'Rule',
+    statistical: 'Statistical',
+    ml: 'ML',
+  }[detectionMethod] || 'Rule';
+
+  return `<span class="chip ${cls}" title="${_CHIP_METHOD_TOOLTIP}">${label} <span class="chip-info">ⓘ</span></span>`;
+}
+```
+
+- [ ] **Step 3: Render chip in the inference list card**
+
+Find the function that renders each inference item in the list (likely a loop over inferences, building HTML). Add the chip next to the severity badge:
+
+```javascript
+// Find where severity badge is rendered, e.g.:
+// `<span class="badge badge-${inf.severity}">${inf.severity}</span>`
+// Add chip immediately after:
+const chip = renderDetectionChip(inf.detection_method || 'rule');
+// Include chip in the card HTML
+```
+
+- [ ] **Step 4: Render chip in the inference dialog**
+
+In the function that populates the inference dialog (called when user clicks an inference card), find where severity is set and add the chip:
+
+```javascript
+// After setting severity badge, add:
+const chipHtml = renderDetectionChip(inf.detection_method || 'rule');
+// Insert into the dialog — find the element next to severity and append chip
+const severityEl = document.getElementById('infSeverity');
+if (severityEl) {
+  // Remove any existing chip first
+  const existing = severityEl.parentElement.querySelector('.chip');
+  if (existing) existing.remove();
+  severityEl.insertAdjacentHTML('afterend', chipHtml);
+}
+```
+
+- [ ] **Step 5: Manual verification checklist**
+
+- [ ] Open the dashboard, confirm each inference card shows a chip (Rule/Statistical/ML).
+- [ ] Open an inference dialog, confirm chip appears next to severity badge.
+- [ ] Hover the chip ⓘ icon and confirm tooltip appears.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add static/js/dashboard.js templates/dashboard.html
+git commit -m "feat: add detection method chip (Rule/Statistical/ML) to inference cards"
+```
+
+---
+
+## Task 14: Attribution badge + runner-up in inference dialog
+
+**Files:**
+- Modify: `static/js/dashboard.js`
+
+- [ ] **Step 1: Add source metadata lookup**
+
+Add to `dashboard.js`:
+
+```javascript
+const _SOURCE_META = {
+  biological_offgas:   { label: 'Biological Off-gassing', emoji: '🌿', colour: '#22c55e' },
+  chemical_offgassing: { label: 'Chemical Off-gassing',   emoji: '🧪', colour: '#a855f7' },
+  cooking:             { label: 'Cooking',                 emoji: '🍳', colour: '#f97316' },
+  combustion:          { label: 'Combustion',              emoji: '🔥', colour: '#ef4444' },
+  external_pollution:  { label: 'External Pollution',      emoji: '🌍', colour: '#6b7280' },
+};
+
+const _ATTRIBUTION_TOOLTIP =
+  'The attribution engine scores this event against known source fingerprints \u2014 ' +
+  'combinations of sensor patterns associated with specific real-world causes.';
+
+function renderAttributionBadge(inf) {
+  const src = (inf.evidence && inf.evidence.attribution_source) || inf.attribution_source;
+  const conf = (inf.evidence && inf.evidence.attribution_confidence) || inf.attribution_confidence;
+  const runnerSrc  = (inf.evidence && inf.evidence.runner_up_source) || inf.runner_up_source;
+  const runnerConf = (inf.evidence && inf.evidence.runner_up_confidence) || inf.runner_up_confidence;
+
+  if (!src) return '';
+
+  const meta = _SOURCE_META[src] || { label: src, emoji: '', colour: '#6b7280' };
+  const pct  = conf ? Math.round(conf * 100) : '?';
+  const pill = `<span class="source-pill" style="background:${meta.colour};color:#fff;" title="${_ATTRIBUTION_TOOLTIP}">${meta.emoji} ${meta.label} \u2014 ${pct}% <span class="chip-info">ⓘ</span></span>`;
+
+  let runnerHtml = '';
+  if (runnerSrc && runnerConf != null && conf != null && runnerConf >= conf - 0.15) {
+    const rm = _SOURCE_META[runnerSrc] || { label: runnerSrc };
+    const rPct = Math.round(runnerConf * 100);
+    runnerHtml = `<div class="runner-up">Also consistent with: ${rm.label} (${rPct}%)</div>`;
+  }
+
+  return `<div class="attribution-row"><span class="attribution-label">Source:</span> ${pill}${runnerHtml}</div>`;
+}
+```
+
+- [ ] **Step 2: Add attribution CSS**
+
+```css
+.source-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: default;
+}
+.attribution-row {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0;
+}
+.attribution-label {
+  font-size: 0.8rem;
+  color: var(--text-muted, #6b7280);
+  padding-top: 3px;
+}
+.runner-up {
+  width: 100%;
+  font-size: 0.78rem;
+  color: var(--text-muted, #6b7280);
+  margin-left: 4px;
+}
+```
+
+- [ ] **Step 3: Inject attribution badge into dialog**
+
+In the dialog population function, after the chip is rendered, add:
+
+```javascript
+// Find or create the attribution container in the dialog
+let attrContainer = document.getElementById('infAttribution');
+if (!attrContainer) {
+  // Create it and insert after the chip/severity area
+  attrContainer = document.createElement('div');
+  attrContainer.id = 'infAttribution';
+  const chipEl = document.querySelector('#inferenceDialog .chip');
+  if (chipEl) chipEl.parentElement.appendChild(attrContainer);
+}
+attrContainer.innerHTML = renderAttributionBadge(inf);
+```
+
+- [ ] **Step 4: Manual verification checklist**
+
+- [ ] Open an inference that has attribution in its evidence — confirm source pill appears.
+- [ ] Confirm runner-up line appears when applicable.
+- [ ] Confirm no Source row appears when attribution is absent.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add static/js/dashboard.js
+git commit -m "feat: add attribution badge and runner-up to inference dialog"
+```
+
+---
+
+## Task 15: Temporal sparkline in inference dialog
+
+**Files:**
+- Modify: `static/js/dashboard.js`
+
+- [ ] **Step 1: Add sparkline container to inference dialog HTML**
+
+In `templates/dashboard.html`, in the inference dialog, add a container div after the attribution row (before the evidence chips section):
+
+```html
+<div id="infSparkline" class="sparkline-container" style="display:none;">
+  <div class="sparkline-header">
+    Sensor activity around this event
+    <span class="info-icon" title="Shows how sensor values moved in the 30 minutes around this event, so you can see the build-up and aftermath.">ⓘ</span>
+  </div>
+  <div id="infSparklineChart" style="height:110px;"></div>
+  <div id="infSparklineLoading" style="display:none; text-align:center; padding:20px;">Loading…</div>
+  <div id="infSparklineError"   style="display:none; color: var(--text-muted, #6b7280); font-size:0.8rem; padding:8px 0;">Sparkline unavailable.</div>
+</div>
+```
+
+- [ ] **Step 2: Add `loadSparkline()` function to `dashboard.js`**
+
+```javascript
+const _CHANNEL_COLOURS = {
+  tvoc_ppb:        '#8b5cf6',
+  eco2_ppm:        '#06b6d4',
+  temperature_c:   '#f97316',
+  humidity_pct:    '#3b82f6',
+  pm1_ug_m3:       '#84cc16',
+  pm25_ug_m3:      '#22c55e',
+  pm10_ug_m3:      '#a3e635',
+  co_ppb:          '#ef4444',
+  no2_ppb:         '#f59e0b',
+  nh3_ppb:         '#ec4899',
+};
+
+async function loadSparkline(inferenceId, inferenceAt) {
+  const container = document.getElementById('infSparkline');
+  const chartDiv  = document.getElementById('infSparklineChart');
+  const loading   = document.getElementById('infSparklineLoading');
+  const error     = document.getElementById('infSparklineError');
+
+  if (!container) return;
+  container.style.display = 'block';
+  loading.style.display = 'block';
+  chartDiv.style.display = 'none';
+  error.style.display = 'none';
+
+  try {
+    const resp = await fetch(`/api/inferences/${inferenceId}/sparkline`);
+    if (!resp.ok) throw new Error('fetch failed');
+    const data = await resp.json();
+
+    loading.style.display = 'none';
+    chartDiv.style.display = 'block';
+
+    const inferenceTime = new Date(data.inference_at).getTime();
+    const traces = data.triggering_channels.map(function (ch) {
+      return {
+        x: data.timestamps.map(function (ts) {
+          return (new Date(ts).getTime() - inferenceTime) / 60000; // minutes relative to event
+        }),
+        y: data.channels[ch] || [],
+        mode: 'lines',
+        name: ch,
+        line: { color: _CHANNEL_COLOURS[ch] || '#6b7280', width: 1.5 },
+        hoverinfo: 'none',
+      };
+    });
+
+    // Vertical marker at t=0 (the event)
+    const layout = {
+      margin: { l: 10, r: 10, t: 5, b: 30 },
+      xaxis: {
+        title: { text: 'minutes', font: { size: 10 } },
+        tickfont: { size: 9 },
+        zeroline: false,
+      },
+      yaxis: { showticklabels: false, zeroline: false },
+      showlegend: false,
+      shapes: [{
+        type: 'line',
+        x0: 0, x1: 0, y0: 0, y1: 1,
+        xref: 'x', yref: 'paper',
+        line: { color: '#ef4444', width: 1.5, dash: 'dash' },
+      }],
+      annotations: [{
+        x: 0, y: 1, xref: 'x', yref: 'paper',
+        text: 'Event', showarrow: false,
+        font: { size: 9, color: '#ef4444' },
+        yanchor: 'bottom',
+      }],
+      paper_bgcolor: 'transparent',
+      plot_bgcolor: 'transparent',
+    };
+
+    Plotly.newPlot(chartDiv, traces, layout, { displayModeBar: false, responsive: true });
+  } catch (e) {
+    loading.style.display = 'none';
+    error.style.display = 'block';
+  }
+}
+```
+
+- [ ] **Step 3: Call `loadSparkline()` when dialog opens**
+
+In the dialog population function (called when user opens an inference), add at the end:
+
+```javascript
+// Hide sparkline from any previous inference, then load for this one
+const sparkline = document.getElementById('infSparkline');
+if (sparkline) sparkline.style.display = 'none';
+loadSparkline(inf.id, inf.created_at);
+```
+
+- [ ] **Step 4: Manual verification checklist**
+
+- [ ] Open an inference dialog — confirm "Loading…" appears briefly, then a sparkline chart renders.
+- [ ] Confirm the dashed vertical "Event" marker appears at t=0.
+- [ ] Confirm chart is compact (~110px tall).
+- [ ] Open an inference with no sensor data around it — confirm "Sparkline unavailable." message appears gracefully.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add static/js/dashboard.js templates/dashboard.html
+git commit -m "feat: add temporal sparkline to inference dialog (±15 min around event)"
+```
+
+---
+
+## Task 16: Full channel toggle chips on Correlations tab
+
+**Files:**
+- Modify: `static/js/charts_correlation.js`
+- Modify: `templates/history.html`
+
+- [ ] **Step 1: Add toggle chip HTML scaffold to history.html**
+
+In the Correlation tab content section of `history.html`, before the chart div, add:
+
+```html
+<div class="channel-toggles" id="corrToggles">
+  <div class="toggle-group">
+    <button class="toggle-group-label" onclick="corrToggleGroup('airquality')">Air Quality</button>
+    <button class="channel-chip active" data-channel="tvoc_ppb"   data-group="airquality" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#8b5cf6"></span>TVOC</button>
+    <button class="channel-chip active" data-channel="eco2_ppm"   data-group="airquality" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#06b6d4"></span>eCO2</button>
+  </div>
+  <div class="toggle-group">
+    <button class="toggle-group-label" onclick="corrToggleGroup('particles')">Particles</button>
+    <button class="channel-chip active" data-channel="pm1_ug_m3"  data-group="particles" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#84cc16"></span>PM1</button>
+    <button class="channel-chip active" data-channel="pm25_ug_m3" data-group="particles" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#22c55e"></span>PM2.5</button>
+    <button class="channel-chip active" data-channel="pm10_ug_m3" data-group="particles" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#a3e635"></span>PM10</button>
+  </div>
+  <div class="toggle-group">
+    <button class="toggle-group-label" onclick="corrToggleGroup('gas')">Gas Sensors</button>
+    <button class="channel-chip active" data-channel="co_ppb"  data-group="gas" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#ef4444"></span>CO (resistance) <span class="info-icon" title="CO, NO2 and NH3 are measured as electrical resistance by the MICS6814 sensor — lower resistance means more gas detected. These are raw sensor readings, not calibrated gas concentrations.">ⓘ</span></button>
+    <button class="channel-chip active" data-channel="no2_ppb" data-group="gas" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#f59e0b"></span>NO2 (resistance) <span class="info-icon" title="CO, NO2 and NH3 are measured as electrical resistance by the MICS6814 sensor — lower resistance means more gas detected. These are raw sensor readings, not calibrated gas concentrations.">ⓘ</span></button>
+    <button class="channel-chip active" data-channel="nh3_ppb" data-group="gas" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#ec4899"></span>NH3 (resistance) <span class="info-icon" title="CO, NO2 and NH3 are measured as electrical resistance by the MICS6814 sensor — lower resistance means more gas detected. These are raw sensor readings, not calibrated gas concentrations.">ⓘ</span></button>
+  </div>
+  <div class="toggle-group">
+    <button class="toggle-group-label" onclick="corrToggleGroup('environment')">Environment</button>
+    <button class="channel-chip active" data-channel="temperature_c" data-group="environment" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#f97316"></span>Temperature</button>
+    <button class="channel-chip active" data-channel="humidity_pct"  data-group="environment" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#3b82f6"></span>Humidity</button>
+  </div>
+  <div class="toggle-presets">
+    <button onclick="corrToggleAll(true)">All</button>
+    <button onclick="corrToggleAll(false)">None</button>
+  </div>
+</div>
+<div id="corrEmptyMsg" style="display:none; text-align:center; padding:40px; color:var(--text-muted);">
+  Select at least one channel above.
+</div>
+```
+
+- [ ] **Step 2: Add CSS for toggle chips**
+
+```css
+.channel-toggles { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px; align-items:flex-start; }
+.toggle-group    { display:flex; flex-wrap:wrap; gap:4px; align-items:center; border:1px solid var(--border,#e5e7eb); border-radius:8px; padding:4px 8px; }
+.toggle-group-label { background:none; border:none; font-weight:600; font-size:0.75rem; cursor:pointer; color:var(--text-muted,#6b7280); padding:2px 4px; min-height:44px; }
+.channel-chip   { display:inline-flex; align-items:center; gap:4px; padding:4px 10px; border-radius:999px; border:1.5px solid var(--border,#e5e7eb); background:transparent; cursor:pointer; font-size:0.78rem; min-height:44px; transition:all 0.15s; }
+.channel-chip.active { border-color:transparent; background:var(--chip-bg, rgba(139,92,246,0.15)); font-weight:600; }
+.chip-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.toggle-presets { display:flex; gap:4px; }
+.toggle-presets button { padding:4px 12px; border-radius:6px; border:1px solid var(--border,#e5e7eb); background:none; cursor:pointer; font-size:0.78rem; min-height:44px; }
+```
+
+- [ ] **Step 3: Add toggle functions and update chart fetch to use all 10 channels**
+
+In `charts_correlation.js`, add these functions and update the data fetch to use `/api/history/sensor`:
+
+```javascript
+// Channel order must match Plotly trace order
+const CORR_CHANNELS = [
+  'tvoc_ppb','eco2_ppm','temperature_c','humidity_pct',
+  'pm1_ug_m3','pm25_ug_m3','pm10_ug_m3','co_ppb','no2_ppb','nh3_ppb'
+];
+
+const CORR_COLOURS = {
+  tvoc_ppb:'#8b5cf6', eco2_ppm:'#06b6d4', temperature_c:'#f97316',
+  humidity_pct:'#3b82f6', pm1_ug_m3:'#84cc16', pm25_ug_m3:'#22c55e',
+  pm10_ug_m3:'#a3e635', co_ppb:'#ef4444', no2_ppb:'#f59e0b', nh3_ppb:'#ec4899'
+};
+
+const CORR_LABELS = {
+  tvoc_ppb:'TVOC', eco2_ppm:'eCO2', temperature_c:'Temperature',
+  humidity_pct:'Humidity', pm1_ug_m3:'PM1', pm25_ug_m3:'PM2.5',
+  pm10_ug_m3:'PM10', co_ppb:'CO (resistance)', no2_ppb:'NO2 (resistance)', nh3_ppb:'NH3 (resistance)'
+};
+
+function corrToggleChip(btn) {
+  btn.classList.toggle('active');
+  _updateCorrVisibility();
+}
+
+function corrToggleGroup(group) {
+  const chips = document.querySelectorAll(`.channel-chip[data-group="${group}"]`);
+  const allActive = Array.from(chips).every(c => c.classList.contains('active'));
+  chips.forEach(c => allActive ? c.classList.remove('active') : c.classList.add('active'));
+  _updateCorrVisibility();
+}
+
+function corrToggleAll(state) {
+  document.querySelectorAll('.channel-chip').forEach(c =>
+    state ? c.classList.add('active') : c.classList.remove('active'));
+  _updateCorrVisibility();
+}
+
+function _updateCorrVisibility() {
+  const activeChannels = new Set(
+    Array.from(document.querySelectorAll('.channel-chip.active'))
+      .map(c => c.dataset.channel)
+  );
+  const emptyMsg = document.getElementById('corrEmptyMsg');
+  if (activeChannels.size === 0) {
+    if (emptyMsg) emptyMsg.style.display = 'block';
+    return;
+  }
+  if (emptyMsg) emptyMsg.style.display = 'none';
+
+  // Update Plotly trace visibility
+  const chartDiv = document.getElementById('corrBrushChart'); // adjust ID as needed
+  if (!chartDiv || !chartDiv.data) return;
+  const visible = CORR_CHANNELS.map(ch => activeChannels.has(ch) ? true : 'legendonly');
+  Plotly.restyle(chartDiv, { visible }, CORR_CHANNELS.map((_, i) => i));
+}
+```
+
+- [ ] **Step 4: Update `renderCorrelationCharts()` to fetch from `/api/history/sensor` and plot all 10 channels with `showlegend: false`**
+
+Replace the existing data fetch in `renderCorrelationCharts()`:
+
+```javascript
+// Determine window (e.g. last 24h)
+const endTime   = new Date().toISOString();
+const startTime = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+const resp = await fetch(`/api/history/sensor?start=${startTime}&end=${endTime}`);
+const sensorData = await resp.json();
+
+const traces = CORR_CHANNELS.map(ch => ({
+  x: sensorData.timestamps,
+  y: sensorData.channels[ch] || [],
+  mode: 'lines',
+  name: CORR_LABELS[ch],
+  line: { color: CORR_COLOURS[ch], width: 1.5 },
+  visible: true,
+}));
+
+// Build layout with showlegend:false (chips are the legend)
+Plotly.newPlot('corrBrushChart', traces, {
+  showlegend: false,
+  margin: { l: 40, r: 20, t: 10, b: 40 },
+  // ... rest of existing layout options
+}, { displayModeBar: false, responsive: true });
+```
+
+- [ ] **Step 5: Manual verification checklist**
+
+- [ ] Open History → Correlation tab. Confirm 10 chip buttons appear in 4 groups.
+- [ ] Tap a chip — confirm its trace disappears from the chart.
+- [ ] Tap "None" — confirm empty state message appears.
+- [ ] Tap "All" — confirm all traces return.
+- [ ] On mobile, confirm chips are large enough to tap reliably (≥44px height).
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add static/js/charts_correlation.js templates/history.html
+git commit -m "feat: add full 10-channel toggle chips to correlations tab"
+```
+
+---
+
+## Task 17: Anomaly event overlay on Correlations chart
+
+**Files:**
+- Modify: `static/js/charts_correlation.js`
+
+- [ ] **Step 1: Fetch inferences for the current window and build overlay**
+
+In `renderCorrelationCharts()`, after fetching sensor data, also fetch ML context:
+
+```javascript
+const ctxResp = await fetch(
+  `/api/history/ml-context?start=${startTime}&end=${endTime}`
+);
+const ctxData = await ctxResp.json();
+const inferences = ctxData.inferences || [];
+```
+
+- [ ] **Step 2: Build Plotly shapes + hover scatter traces**
+
+```javascript
+function _buildAnomalyOverlay(inferences) {
+  const shapes = [];
+  const hoverX = [], hoverY = [], hoverText = [];
+
+  inferences.forEach(function (inf) {
+    const ts = inf.created_at;
+    let colour = '#6b7280'; // default grey
+    if (inf.severity === 'critical') colour = '#ef4444';
+    else if (inf.severity === 'warning') colour = '#f59e0b';
+    else if ((inf.event_type || '').startsWith('anomaly_') || inf.detection_method === 'ml') colour = '#3b82f6';
+
+    shapes.push({
+      type: 'line',
+      x0: ts, x1: ts, y0: 0, y1: 1,
+      xref: 'x', yref: 'paper',
+      line: { color: colour, width: 1, dash: 'dash' },
+    });
+    hoverX.push(ts);
+    hoverY.push(0.5); // middle of chart (paper fraction)
+    const src = inf.attribution_source
+      ? ` | Attributed to: ${inf.attribution_source} (${Math.round((inf.attribution_confidence||0)*100)}%)`
+      : '';
+    hoverText.push(
+      `${inf.title}<br>${inf.detection_method || 'rule'}${src}`
+    );
+  });
+
+  // Hidden scatter trace for hover (Plotly shapes don't support hover natively)
+  const hoverTrace = {
+    x: hoverX,
+    y: hoverY,
+    mode: 'markers',
+    marker: { opacity: 0, size: 12 },
+    hoverinfo: 'text',
+    hovertext: hoverText,
+    showlegend: false,
+    yaxis: 'y', // use paper coords via yref instead — see note below
+    name: 'detections',
+  };
+
+  return { shapes, hoverTrace };
+}
+```
+
+Note: Pass `shapes` to the Plotly layout and `hoverTrace` as an additional trace (append after CORR_CHANNELS traces). The yref: 'paper' shape + a visible scatter trace at a fixed y position is the standard Plotly approach.
+
+- [ ] **Step 3: Add "Show detections" toggle**
+
+In `history.html`, add a checkbox above the chart (inside the Correlation tab):
+
+```html
+<label class="overlay-toggle">
+  <input type="checkbox" id="corrShowDetections" checked onchange="corrToggleOverlay(this.checked)">
+  Show detections
+  <span class="info-icon" title="Shows when the system detected an event — align these with sensor spikes to understand what triggered each detection.">ⓘ</span>
+</label>
+```
+
+In `charts_correlation.js`:
+
+```javascript
+let _corrOverlayVisible = true;
+let _corrOverlayShapes  = [];
+let _corrHoverTraceIdx  = null; // index of the hover trace in the chart
+
+function corrToggleOverlay(visible) {
+  _corrOverlayVisible = visible;
+  const chartDiv = document.getElementById('corrBrushChart');
+  if (!chartDiv) return;
+  Plotly.relayout(chartDiv, { shapes: visible ? _corrOverlayShapes : [] });
+  if (_corrHoverTraceIdx !== null) {
+    Plotly.restyle(chartDiv, { visible: [visible] }, [_corrHoverTraceIdx]);
+  }
+}
+```
+
+Store `_corrOverlayShapes` and `_corrHoverTraceIdx` when building the chart.
+
+- [ ] **Step 4: Manual verification checklist**
+
+- [ ] Open Correlation tab — confirm dashed vertical markers appear at inference timestamps.
+- [ ] Hover a marker — confirm tooltip shows inference title + detection method.
+- [ ] Uncheck "Show detections" — confirm markers disappear.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add static/js/charts_correlation.js templates/history.html
+git commit -m "feat: add anomaly event overlay to correlations chart"
+```
+
+---
+
+## Task 18: Smarter analysis panel on Correlations tab
+
+**Files:**
+- Modify: `static/js/charts_correlation.js`
+- Modify: `templates/history.html`
+
+- [ ] **Step 1: Add analysis panel HTML scaffold to history.html**
+
+In the Correlation tab, add the panel below the chart:
+
+```html
+<div id="corrAnalysisPanel" class="analysis-panel" style="display:none;">
+  <div class="analysis-loading" id="corrAnalysisLoading">Analysing window…</div>
+  <div id="corrAnalysisContent" style="display:none;">
+    <div class="analysis-section">
+      <h4>Events in window <span class="info-icon" title="Inferences that fired within the currently zoomed time range.">ⓘ</span></h4>
+      <div id="corrEventsList"></div>
+    </div>
+    <div class="analysis-section">
+      <h4>Sensor co-movement <span class="info-icon" title="Channels that moved together strongly during this period — Pearson r > 0.7.">ⓘ</span></h4>
+      <div id="corrComovement"></div>
+    </div>
+    <div class="analysis-section">
+      <h4>Peak vs baseline <span class="info-icon" title="The highest reading in the window compared to the sensor's learned normal value.">ⓘ</span></h4>
+      <div id="corrPeakBaseline"></div>
+    </div>
+    <div class="analysis-section" id="corrAttributionSummarySection" style="display:none;">
+      <h4>Attribution summary <span class="info-icon" title="Which source was most commonly attributed to events in this window.">ⓘ</span></h4>
+      <div id="corrAttributionSummary"></div>
+    </div>
+  </div>
+</div>
+```
+
+- [ ] **Step 2: Hook into Plotly zoom event**
+
+```javascript
+// After Plotly.newPlot(), listen for zoom:
+const chartDiv = document.getElementById('corrBrushChart');
+chartDiv.on('plotly_relayout', function (eventData) {
+  if (eventData['xaxis.range[0]'] && eventData['xaxis.range[1]']) {
+    const zStart = new Date(eventData['xaxis.range[0]']).toISOString();
+    const zEnd   = new Date(eventData['xaxis.range[1]']).toISOString();
+    _loadAnalysisPanel(zStart, zEnd);
+  }
+});
+```
+
+- [ ] **Step 3: Implement `_loadAnalysisPanel()`**
+
+```javascript
+let _corrBaselines = {};
+
+async function _loadAnalysisPanel(start, end) {
+  const panel   = document.getElementById('corrAnalysisPanel');
+  const loading = document.getElementById('corrAnalysisLoading');
+  const content = document.getElementById('corrAnalysisContent');
+  if (!panel) return;
+
+  panel.style.display = 'block';
+  loading.style.display = 'block';
+  content.style.display = 'none';
+
+  try {
+    const [ctxResp, blResp] = await Promise.all([
+      fetch(`/api/history/ml-context?start=${start}&end=${end}`),
+      fetch('/api/history/baselines'),
+    ]);
+    const ctx = await ctxResp.json();
+    _corrBaselines = await blResp.json();
+
+    loading.style.display = 'none';
+    content.style.display = 'block';
+
+    // Events in window
+    const evList = document.getElementById('corrEventsList');
+    if (ctx.inferences && ctx.inferences.length > 0) {
+      evList.innerHTML = ctx.inferences.map(function (inf) {
+        const chip = renderDetectionChip(inf.detection_method || 'rule');
+        const src  = inf.attribution_source
+          ? `<span class="source-pill-sm">${inf.attribution_source}</span>` : '';
+        return `<div class="ev-row">${chip} ${inf.title} ${src}</div>`;
+      }).join('');
+    } else {
+      evList.innerHTML = '<span class="muted">No detections in this window.</span>';
+    }
+
+    // Comovement
+    document.getElementById('corrComovement').textContent =
+      ctx.comovement_summary || 'No strong correlations detected.';
+
+    // Peak vs baseline — compute from current visible sensor data
+    const activeChannels = Array.from(
+      document.querySelectorAll('.channel-chip.active')
+    ).map(c => c.dataset.channel);
+
+    const sensorResp = await fetch(`/api/history/sensor?start=${start}&end=${end}`);
+    const sensorData = await sensorResp.json();
+
+    const peakRows = activeChannels.map(function (ch) {
+      const vals = (sensorData.channels[ch] || []).filter(v => v != null);
+      if (!vals.length) return null;
+      const peak     = Math.max(...vals);
+      const baseline = _corrBaselines[ch];
+      const label    = CORR_LABELS[ch] || ch;
+      const ratioStr = baseline
+        ? `${(peak / baseline).toFixed(1)}× baseline (${baseline.toFixed(1)})`
+        : 'Baseline not yet available.';
+      return `<div class="peak-row"><strong>${label}:</strong> peak ${peak.toFixed(1)} — ${ratioStr}</div>`;
+    }).filter(Boolean);
+
+    document.getElementById('corrPeakBaseline').innerHTML =
+      peakRows.length ? peakRows.join('') : '<span class="muted">No data.</span>';
+
+    // Attribution summary
+    const attrSection = document.getElementById('corrAttributionSummarySection');
+    const attrEl      = document.getElementById('corrAttributionSummary');
+    const infs = ctx.inferences || [];
+    if (infs.length >= 2 && ctx.dominant_source) {
+      attrSection.style.display = 'block';
+      const dominated = infs.filter(i => i.attribution_source === ctx.dominant_source).length;
+      attrEl.textContent = `${dominated} of ${infs.length} events attributed to ${ctx.dominant_source}.`;
+    } else {
+      attrSection.style.display = 'none';
+    }
+  } catch (e) {
+    loading.textContent = 'Could not load analysis.';
+  }
+}
+```
+
+- [ ] **Step 4: Manual verification checklist**
+
+- [ ] Zoom into the correlations chart → analysis panel appears below with loading state then content.
+- [ ] Confirm events list shows inferences in the zoom window.
+- [ ] Confirm co-movement sentence appears.
+- [ ] Confirm peak vs baseline rows show for each active channel.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add static/js/charts_correlation.js templates/history.html
+git commit -m "feat: add ML-aware analysis panel to correlations tab zoom"
+```
+
+---
+
+## Task 19: Rename Patterns tab + scaffold Detections & Insights tab
+
+**Files:**
+- Modify: `templates/history.html`
+- Create: `static/js/detections_insights.js`
+
+- [ ] **Step 1: Rename the tab and replace content scaffold in history.html**
+
+Find the Patterns tab button:
+```html
+<button class="tab-btn" data-tab="patterns">Patterns</button>
+```
+Change to:
+```html
+<button class="tab-btn" data-tab="detections">Detections &amp; Insights</button>
+```
+
+Find the Patterns tab content div and replace its content:
+```html
+<!-- Remove all existing Patterns content and replace with: -->
+<div class="tab-content" id="tab-detections" style="display:none;">
+  <!-- Window selector -->
+  <div class="window-selector" id="diWindowSelector">
+    <button class="window-btn active" data-window="6h"  onclick="diSetWindow('6h')">6h</button>
+    <button class="window-btn"        data-window="24h" onclick="diSetWindow('24h')">24h</button>
+    <button class="window-btn"        data-window="7d"  onclick="diSetWindow('7d')">7d</button>
+  </div>
+
+  <!-- Section 1: Period summary -->
+  <div class="di-card" id="diPeriodSummary">
+    <div class="di-loading">Loading…</div>
+    <span class="info-icon" title="Generated from detection events and sensor trends — an interpretation of what actually happened in your space.">ⓘ</span>
+  </div>
+
+  <!-- Section 2: Trend indicators -->
+  <div id="diTrendIndicators" class="trend-row"></div>
+
+  <!-- Section 3: Longest clean period -->
+  <div class="di-stat" id="diLongestClean"></div>
+
+  <!-- Section 4: Attribution breakdown -->
+  <div class="di-card" id="diAttributionBreakdown">
+    <h3>Attribution Breakdown <span class="info-icon" title="Attribution assigns detected events to likely real-world causes based on sensor patterns.">ⓘ</span></h3>
+    <div id="diDonutChart" style="height:220px;"></div>
+    <div id="diDominantSentence" class="di-sentence"></div>
+  </div>
+
+  <!-- Section 5: Fingerprint narratives -->
+  <div class="di-card" id="diFingerprints">
+    <h3>Source Fingerprints <span class="info-icon" title="Each source fingerprint is a pattern of sensor behaviour associated with a real-world cause.">ⓘ</span></h3>
+    <div id="diFingerprintCards"></div>
+  </div>
+
+  <!-- Section 6: Anomaly model narratives -->
+  <div class="di-card" id="diAnomalyModels" style="display:none;">
+    <h3>ML Model Detections <span class="info-icon" title="These detections come from ML models that watch multiple sensors together, catching events no single threshold would flag.">ⓘ</span></h3>
+    <div id="diModelCards"></div>
+  </div>
+
+  <!-- Section 7: Pattern heatmap -->
+  <div class="di-card" id="diHeatmapSection">
+    <h3>Recurring Patterns <span class="info-icon" title="Patterns are detected when the same event type recurs at similar times across multiple days.">ⓘ</span></h3>
+    <div id="diHeatmap" style="height:200px;"></div>
+    <div id="diPatternSentence" class="di-sentence"></div>
+  </div>
+
+  <!-- Section 8: Normal bands chart -->
+  <div class="di-card" id="diBandsSection">
+    <h3>Sensor Normal Bands <span class="info-icon" title="The shaded band shows the system's learned normal range. Spikes outside the band trigger anomaly detections.">ⓘ</span></h3>
+    <div class="channel-toggles" id="diToggles"><!-- populated by JS --></div>
+    <div id="diBandsChart" style="height:300px;"></div>
+  </div>
+
+  <!-- Section 9: Drift flags -->
+  <div id="diDriftFlags"></div>
+</div>
+```
+
+- [ ] **Step 2: Create `static/js/detections_insights.js` skeleton**
+
+```javascript
+/**
+ * detections_insights.js — Detections & Insights tab logic.
+ * Loaded lazily on first tab activation.
+ */
+
+'use strict';
+
+const DI = (function () {
+  let _window = '24h';
+  let _narratives = null;
+  let _baselines  = null;
+  let _sseSource  = null;
+  let _initialised = false;
+
+  const _DAY_NAMES  = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  const _HOURS      = Array.from({length: 24}, (_, i) => i);
+
+  const _SOURCE_COLOURS = {
+    biological_offgas:   '#22c55e',
+    chemical_offgassing: '#a855f7',
+    cooking:             '#f97316',
+    combustion:          '#ef4444',
+    external_pollution:  '#6b7280',
+  };
+
+  function _windowMs() {
+    return { '6h': 6, '24h': 24, '7d': 168 }[_window] * 3600 * 1000;
+  }
+
+  function _range() {
+    const end   = new Date();
+    const start = new Date(end.getTime() - _windowMs());
+    return { start: start.toISOString(), end: end.toISOString() };
+  }
+
+  // -----------------------------------------------------------------------
+  // Public API
+  // -----------------------------------------------------------------------
+
+  function init() {
+    if (_initialised) return;
+    _initialised = true;
+    load();
+    _subscribeSSE();
+  }
+
+  function setWindow(w) {
+    _window = w;
+    document.querySelectorAll('.window-btn').forEach(function (b) {
+      b.classList.toggle('active', b.dataset.window === w);
+    });
+    load();
+  }
+
+  async function load() {
+    const { start, end } = _range();
+    try {
+      const [nResp, bResp] = await Promise.all([
+        fetch(`/api/history/narratives?start=${start}&end=${end}`),
+        fetch('/api/history/baselines'),
+      ]);
+      _narratives = await nResp.json();
+      _baselines  = await bResp.json();
+      _render();
+    } catch (e) {
+      console.error('DI load error', e);
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Rendering
+  // -----------------------------------------------------------------------
+
+  function _render() {
+    if (!_narratives) return;
+    _renderPeriodSummary();
+    _renderTrendIndicators();
+    _renderLongestClean();
+    _renderAttributionBreakdown();
+    _renderFingerprintNarratives();
+    _renderAnomalyModelNarratives();
+    _renderPatternHeatmap();
+    _renderNormalBandsChart();
+    _renderDriftFlags();
+  }
+
+  function _renderPeriodSummary() {
+    const el = document.getElementById('diPeriodSummary');
+    if (!el) return;
+    el.innerHTML = `<p>${_narratives.period_summary}</p>
+      <span class="info-icon" title="Generated from detection events and sensor trends — an interpretation of what actually happened in your space.">ⓘ</span>`;
+  }
+
+  function _renderTrendIndicators() {
+    const el = document.getElementById('diTrendIndicators');
+    if (!el) return;
+    const indicators = _narratives.trend_indicators || [];
+    el.innerHTML = indicators.map(function (t) {
+      const arrow = t.direction === 'up' ? '↑' : '↓';
+      const colourClass = { green: 'trend-green', amber: 'trend-amber', red: 'trend-red' }[t.colour] || '';
+      return `<div class="trend-tile ${colourClass}">
+        <div class="trend-label">${t.label}</div>
+        <div class="trend-value">${t.current_baseline != null ? t.current_baseline.toFixed(1) : '—'} ${t.unit}</div>
+        <div class="trend-change">${arrow} ${t.pct_change.toFixed(1)}%</div>
+        <div class="trend-sentence">${t.sentence}</div>
+      </div>`;
+    }).join('');
+  }
+
+  function _renderLongestClean() {
+    const el = document.getElementById('diLongestClean');
+    if (!el || _narratives.longest_clean_hours == null) return;
+    const h   = _narratives.longest_clean_hours;
+    const full = h >= (_windowMs() / 3600000 - 0.1);
+    if (full) {
+      el.textContent = 'No events detected — the entire period was clean.';
+    } else {
+      const fmt = function (iso) {
+        return new Date(iso).toLocaleString(undefined, {
+          weekday: 'short', hour: '2-digit', minute: '2-digit'
+        });
+      };
+      el.textContent = `Your longest event-free period: ${h.toFixed(1)} hours (${fmt(_narratives.longest_clean_start)} → ${fmt(_narratives.longest_clean_end)}).`;
+    }
+  }
+
+  function _renderAttributionBreakdown() {
+    const breakdown = _narratives.attribution_breakdown || {};
+    const sources   = Object.keys(breakdown);
+    const donutDiv  = document.getElementById('diDonutChart');
+    const sentEl    = document.getElementById('diDominantSentence');
+
+    if (sentEl) sentEl.textContent = _narratives.dominant_source_sentence || '';
+
+    if (!donutDiv) return;
+    if (!sources.length) {
+      Plotly.newPlot(donutDiv, [{
+        values: [1], labels: ['No events'],
+        type: 'pie', hole: 0.5,
+        marker: { colors: ['#d1d5db'] },
+        hoverinfo: 'none', textinfo: 'label',
+      }], { showlegend: false, margin: { t:0,b:0,l:0,r:0 } }, { displayModeBar: false });
+      return;
+    }
+    Plotly.newPlot(donutDiv, [{
+      values: sources.map(s => breakdown[s]),
+      labels: sources,
+      type: 'pie', hole: 0.5,
+      marker: { colors: sources.map(s => _SOURCE_COLOURS[s] || '#6b7280') },
+      hovertemplate: '%{label}: %{value} events (%{percent})<extra></extra>',
+      textinfo: 'label',
+    }], { showlegend: false, margin: { t:0,b:0,l:0,r:0 } }, { displayModeBar: false, responsive: true });
+  }
+
+  function _renderFingerprintNarratives() {
+    const el = document.getElementById('diFingerprintCards');
+    if (!el) return;
+    const fps = (_narratives.fingerprint_narratives || []).slice().sort(
+      (a, b) => b.event_count - a.event_count
+    );
+    el.innerHTML = fps.map(function (fp) {
+      const colour = _SOURCE_COLOURS[fp.source_id] || '#6b7280';
+      const badge  = fp.event_count > 0
+        ? `<span class="badge-count">${fp.event_count} event${fp.event_count !== 1 ? 's' : ''}</span>` : '';
+      const conf   = fp.event_count > 0
+        ? `<span class="fp-meta">Avg. confidence: ${Math.round(fp.avg_confidence * 100)}%</span>` : '';
+      const hours  = fp.event_count > 0 && fp.typical_hours && fp.typical_hours.length
+        ? `<span class="fp-meta">Typically: ${fp.typical_hours.map(h => `${h}:00`).join(', ')}</span>` : '';
+      return `<div class="fp-card" style="border-left: 3px solid ${colour}">
+        <div class="fp-header">${fp.emoji} <strong>${fp.label}</strong> ${badge}</div>
+        ${conf}${hours}
+        <p class="fp-narrative">${fp.narrative}</p>
+      </div>`;
+    }).join('');
+  }
+
+  function _renderAnomalyModelNarratives() {
+    const models = (_narratives.anomaly_model_narratives || []);
+    const section = document.getElementById('diAnomalyModels');
+    const el      = document.getElementById('diModelCards');
+    if (!section || !el) return;
+    if (!models.length) { section.style.display = 'none'; return; }
+    section.style.display = 'block';
+    el.innerHTML = models.map(function (m) {
+      return `<div class="model-card">
+        <div class="model-header"><strong>${m.label}</strong> <span class="badge-count">${m.event_count} event${m.event_count !== 1 ? 's' : ''}</span></div>
+        <p class="model-desc">${m.description}</p>
+        <p class="model-narrative">${m.narrative}</p>
+      </div>`;
+    }).join('');
+  }
+
+  function _renderPatternHeatmap() {
+    const heatDiv = document.getElementById('diHeatmap');
+    const sentEl  = document.getElementById('diPatternSentence');
+    if (!heatDiv) return;
+    if (sentEl) sentEl.textContent = _narratives.pattern_sentence || '';
+
+    const heatmap = _narratives.pattern_heatmap || {};
+    const maxVal  = Math.max(1, ...Object.values(heatmap));
+
+    // Build 7x24 z matrix
+    const z = _DAY_NAMES.map(function (_, d) {
+      return _HOURS.map(function (h) {
+        return heatmap[`${d}_${h}`] || 0;
+      });
+    });
+
+    Plotly.newPlot(heatDiv, [{
+      z: z,
+      x: _HOURS,
+      y: _DAY_NAMES,
+      type: 'heatmap',
+      colorscale: [[0, '#f0f9ff'], [1, '#1e40af']],
+      zmin: 0, zmax: maxVal,
+      showscale: false,
+      hovertemplate: '%{y} %{x}:00 — %{z} event(s)<extra></extra>',
+    }], {
+      margin: { l: 40, r: 10, t: 5, b: 30 },
+      xaxis: { tickvals: [0,3,6,9,12,15,18,21], ticktext: ['0h','3h','6h','9h','12h','15h','18h','21h'], tickfont: { size: 10 } },
+      yaxis: { tickfont: { size: 10 } },
+      paper_bgcolor: 'transparent',
+      plot_bgcolor: 'transparent',
+    }, { displayModeBar: false, responsive: true });
+  }
+
+  function _renderNormalBandsChart() {
+    // Full implementation in Task 20
+  }
+
+  function _renderDriftFlags() {
+    const el = document.getElementById('diDriftFlags');
+    if (!el) return;
+    const flags = _narratives.drift_flags || [];
+    if (!flags.length) { el.style.display = 'none'; return; }
+    el.style.display = 'block';
+    el.innerHTML = `<div class="di-card drift-section">
+      <h3>Sensor Drift Flags <span class="info-icon" title="Baseline shift is detected by comparing the sensor's recent typical value to its value from 7 days ago.">ⓘ</span></h3>
+      ${flags.map(f => `<div class="drift-card">
+        ⚠ <strong>${f.channel}</strong> — ${f.message}
+        <span class="drift-shift">${f.direction === 'up' ? '↑' : '↓'} ${f.shift_pct}%</span>
+      </div>`).join('')}
+    </div>`;
+  }
+
+  function _subscribeSSE() {
+    if (_sseSource) return;
+    _sseSource = new EventSource('/api/stream');
+    _sseSource.addEventListener('inference_fired', function () {
+      // Re-fetch narratives on new inference
+      load();
+    });
+  }
+
+  // Expose public API
+  return { init, setWindow, load };
+})();
+
+function diSetWindow(w) { DI.setWindow(w); }
+```
+
+- [ ] **Step 3: Load the JS lazily on tab activation**
+
+In the existing tab-switching JS in `history.html` or `history.js`, when the "detections" tab is activated:
+
+```javascript
+// When tab-detections is shown:
+if (tabId === 'detections') {
+  if (!window._diJsLoaded) {
+    window._diJsLoaded = true;
+    const s = document.createElement('script');
+    s.src = '/static/js/detections_insights.js';
+    s.onload = function () { DI.init(); };
+    document.head.appendChild(s);
+  } else {
+    DI.init();
+  }
+}
+```
+
+- [ ] **Step 4: Manual verification checklist**
+
+- [ ] Click "Detections & Insights" tab — confirm it loads without errors.
+- [ ] Confirm period summary card appears.
+- [ ] Confirm window selector buttons work (6h/24h/7d).
+- [ ] Confirm SSE subscription re-fetches on new inference.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add templates/history.html static/js/detections_insights.js
+git commit -m "feat: scaffold Detections & Insights tab with all 9 section containers"
+```
+
+---
+
+## Task 20: Normal bands chart in Detections & Insights tab
+
+**Files:**
+- Modify: `static/js/detections_insights.js`
+
+- [ ] **Step 1: Implement `_renderNormalBandsChart()`**
+
+Replace the stub in `detections_insights.js`:
+
+```javascript
+async function _renderNormalBandsChart() {
+  const chartDiv = document.getElementById('diBandsChart');
+  if (!chartDiv || !_baselines) return;
+
+  const { start, end } = _range();
+  let sensorData;
+  try {
+    const resp = await fetch(`/api/history/sensor?start=${start}&end=${end}`);
+    sensorData = await resp.json();
+  } catch (e) {
+    return;
+  }
+
+  const factor = _baselines.anomaly_threshold_factor || 0.25;
+
+  // Determine which channels have baselines (skip null)
+  const channelsToDraw = CORR_CHANNELS.filter(ch => _baselines[ch] != null);
+
+  const traces = [];
+  channelsToDraw.forEach(function (ch) {
+    const baseline = _baselines[ch];
+    const xs  = sensorData.timestamps;
+    const ys  = sensorData.channels[ch] || [];
+    const colour = CORR_COLOURS[ch];
+    const label  = CORR_LABELS[ch];
+    const upper  = baseline * (1 + factor);
+    const lower  = baseline * (1 - factor);
+
+    // Upper band boundary (invisible line for fill reference)
+    traces.push({
+      x: xs, y: xs.map(() => upper),
+      mode: 'lines', line: { width: 0 },
+      showlegend: false, hoverinfo: 'none', name: ch + '_upper',
+    });
+    // Lower band boundary with fill to upper
+    traces.push({
+      x: xs, y: xs.map(() => lower),
+      mode: 'lines', fill: 'tonexty',
+      fillcolor: colour + '26', // hex alpha ~15%
+      line: { width: 0 },
+      showlegend: false, hoverinfo: 'none', name: ch + '_lower',
+    });
+    // Actual sensor line
+    traces.push({
+      x: xs, y: ys,
+      mode: 'lines', name: label,
+      line: { color: colour, width: 1.5 },
+      showlegend: false,
+    });
+  });
+
+  Plotly.newPlot(chartDiv, traces, {
+    showlegend: false,
+    margin: { l: 40, r: 20, t: 10, b: 40 },
+    xaxis: { type: 'date' },
+    yaxis: { zeroline: false },
+    paper_bgcolor: 'transparent',
+    plot_bgcolor: 'transparent',
+  }, { displayModeBar: false, responsive: true });
+
+  // Subscribe SSE for live extension
+  if (!window._diBandsSseActive) {
+    window._diBandsSseActive = true;
+    const sseSource = new EventSource('/api/stream');
+    sseSource.addEventListener('sensor_reading', function (e) {
+      const payload = JSON.parse(e.data);
+      const newTs   = payload.timestamp || payload.data && payload.data.timestamp;
+      if (!newTs || !chartDiv.data) return;
+      const ext = { x: [[newTs]] };
+      channelsToDraw.forEach(function (ch, i) {
+        const traceIdx = i * 3 + 2; // actual sensor line is 3rd trace per channel
+        Plotly.extendTraces(chartDiv, { y: [[payload[ch] || payload.data && payload.data[ch]]] }, [traceIdx]);
+      });
+      Plotly.extendTraces(chartDiv, { x: channelsToDraw.map(() => [[newTs]]) },
+        channelsToDraw.map((_, i) => i * 3 + 2));
+    });
+  }
+}
+```
+
+- [ ] **Step 2: Wire up channel toggles for bands chart**
+
+Reuse the same chip pattern from the correlations tab. In `DI.init()`, after `_render()`, call a function to build the toggle chips for the bands chart from `CORR_CHANNELS` (the same array used by correlations). Chips control `Plotly.restyle()` on `diBandsChart`.
+
+```javascript
+function _buildBandsToggles() {
+  const container = document.getElementById('diToggles');
+  if (!container) return;
+  // Reuse same group/chip HTML pattern as corrToggles but with diToggleChip()
+  container.innerHTML = `
+    <button onclick="corrToggleAll(true,'di')" style="min-height:44px;padding:4px 10px;">All</button>
+    <button onclick="corrToggleAll(false,'di')" style="min-height:44px;padding:4px 10px;">None</button>
+    ${CORR_CHANNELS.map(ch =>
+      `<button class="channel-chip active" data-channel="${ch}" data-context="di" onclick="diToggleChip(this)">
+        <span class="chip-dot" style="background:${CORR_COLOURS[ch]}"></span>${CORR_LABELS[ch]}
+      </button>`
+    ).join('')}`;
+}
+
+function diToggleChip(btn) {
+  btn.classList.toggle('active');
+  const chartDiv = document.getElementById('diBandsChart');
+  if (!chartDiv || !chartDiv.data) return;
+  const active = new Set(
+    Array.from(document.querySelectorAll('[data-context="di"].channel-chip.active'))
+      .map(c => c.dataset.channel)
+  );
+  // Each channel has 3 traces (upper, lower, line). Toggle all 3.
+  CORR_CHANNELS.forEach(function (ch, i) {
+    const vis = active.has(ch);
+    Plotly.restyle(chartDiv, { visible: [vis, vis, vis] }, [i*3, i*3+1, i*3+2]);
+  });
+}
+```
+
+- [ ] **Step 3: Manual verification checklist**
+
+- [ ] Open Detections & Insights tab — scroll to Normal Bands chart.
+- [ ] Confirm shaded bands appear around each sensor line.
+- [ ] Toggle a chip — confirm the band and line disappear together.
+- [ ] Wait for a new SSE reading — confirm chart extends in real time.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add static/js/detections_insights.js
+git commit -m "feat: add normal bands chart with EMA shading to Detections & Insights tab"
+```
+
+---
+
+## Task 21: Final CSS polish + end-to-end verification
+
+**Files:**
+- Modify: `templates/base.html` (or a shared CSS file)
+
+- [ ] **Step 1: Add missing utility CSS**
+
+```css
+/* Detections & Insights tab */
+.di-card      { background:var(--card-bg,#fff); border-radius:10px; padding:16px; margin-bottom:16px; box-shadow:0 1px 4px rgba(0,0,0,0.06); }
+.di-loading   { color:var(--text-muted,#6b7280); font-style:italic; }
+.di-stat      { padding:12px 16px; font-size:0.95rem; color:var(--text-secondary,#374151); }
+.di-sentence  { font-size:0.88rem; color:var(--text-muted,#6b7280); margin-top:8px; }
+.window-selector { display:flex; gap:6px; margin-bottom:16px; }
+.window-btn   { padding:6px 16px; border-radius:6px; border:1px solid var(--border,#e5e7eb); background:none; cursor:pointer; font-size:0.85rem; min-height:44px; }
+.window-btn.active { background:var(--accent,#3b82f6); color:#fff; border-color:transparent; }
+.trend-row    { display:flex; flex-wrap:wrap; gap:10px; margin-bottom:16px; }
+.trend-tile   { flex:1; min-width:130px; border-radius:8px; padding:10px 12px; border:1.5px solid var(--border,#e5e7eb); }
+.trend-green  { border-color:#22c55e; }
+.trend-amber  { border-color:#f59e0b; }
+.trend-red    { border-color:#ef4444; }
+.trend-label  { font-size:0.72rem; color:var(--text-muted,#6b7280); text-transform:uppercase; letter-spacing:0.05em; }
+.trend-value  { font-size:1.1rem; font-weight:700; margin:4px 0; }
+.trend-change { font-size:0.82rem; font-weight:600; }
+.trend-sentence { font-size:0.75rem; color:var(--text-muted,#6b7280); margin-top:4px; }
+.fp-card      { border-left:3px solid #e5e7eb; padding:10px 14px; margin-bottom:10px; border-radius:0 6px 6px 0; }
+.fp-header    { font-size:0.95rem; margin-bottom:4px; }
+.fp-meta      { display:block; font-size:0.78rem; color:var(--text-muted,#6b7280); }
+.fp-narrative { font-size:0.85rem; margin:6px 0 0; line-height:1.5; }
+.badge-count  { background:var(--accent,#3b82f6); color:#fff; border-radius:999px; padding:1px 8px; font-size:0.72rem; font-weight:600; }
+.model-card   { padding:10px 14px; margin-bottom:10px; border:1px solid var(--border,#e5e7eb); border-radius:6px; }
+.model-desc   { font-size:0.8rem; color:var(--text-muted,#6b7280); margin:4px 0; }
+.model-narrative { font-size:0.85rem; margin:0; line-height:1.5; }
+.drift-card   { padding:8px 12px; margin-bottom:8px; background:#fef2f2; border-left:3px solid #ef4444; border-radius:0 6px 6px 0; font-size:0.85rem; }
+.drift-shift  { font-weight:700; margin-left:8px; }
+.analysis-panel { background:var(--card-bg,#fff); border-radius:10px; padding:14px; margin-top:12px; }
+.analysis-section { margin-bottom:14px; }
+.analysis-section h4 { font-size:0.85rem; margin:0 0 6px; color:var(--text-secondary,#374151); }
+.muted        { color:var(--text-muted,#6b7280); font-size:0.85rem; }
+.ev-row       { display:flex; align-items:center; gap:6px; margin-bottom:4px; font-size:0.85rem; }
+.peak-row     { font-size:0.82rem; margin-bottom:4px; }
+.info-icon    { cursor:help; opacity:0.6; font-size:0.8em; }
+.overlay-toggle { display:flex; align-items:center; gap:6px; font-size:0.82rem; cursor:pointer; margin-bottom:8px; }
+```
+
+- [ ] **Step 2: End-to-end smoke test checklist**
+
+Run the full test suite:
+
+```bash
+python -m pytest tests/ -v --tb=short
+```
+
+Expected: all tests pass. Note any failures and fix before proceeding.
+
+- [ ] **Step 3: Manual end-to-end checklist**
+
+- [ ] Dashboard: every inference card shows a detection method chip.
+- [ ] Dashboard: opening inference dialog shows attribution badge, sparkline, evidence ⓘ tooltips.
+- [ ] History → Correlation: 10-channel chips, anomaly overlay, analysis panel on zoom.
+- [ ] History → Detections & Insights: all 9 sections render; window selector works; live SSE updates.
+- [ ] Settings → Insights Engine: live anomaly score bars update every ~30s.
+- [ ] All timestamps on all pages display in browser local time (not UTC).
+- [ ] CO/NO2/NH3 show "kΩ" unit and "(resistance)" label everywhere.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add templates/base.html
+git commit -m "feat: add utility CSS for Phase 6 UI components"
+```
+
+---
+
+## Implementation-Phase Extras (not blocking Phase 6 tests)
+
+These tasks are tracked separately and should be completed before opening the PR:
+
+### Extra Task A: README documentation pass
+
+- [ ] Open `README.md` (create if absent).
+- [ ] Add section: **Inference Engine** — explain the three detection methods (Rule/Statistical/ML), what each does, and when it fires. Plain English, no jargon without explanation.
+- [ ] Add section: **FeatureVector** — what it is, which fields it contains, how it is computed from raw sensor readings, and how it feeds the detection pipeline.
+- [ ] Add section: **Data flow** — sensors → NormalisedReading → HotTier → FeatureVector → DetectionEngine (rules + River + multivar) → AttributionEngine → inference saved → SSE push → dashboard card.
+- [ ] Link to the spec files in `docs/superpowers/specs/`.
+- [ ] Commit: `docs: add comprehensive README covering inference engine and FeatureVector`
+
+### Extra Task B: Add `.claude/` to `.gitignore`
+
+- [ ] Open `.gitignore`.
+- [ ] Add `.claude/` if not already present.
+- [ ] Commit: `chore: add .claude/ to .gitignore`
