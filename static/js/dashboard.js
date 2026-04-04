@@ -361,6 +361,18 @@ document.querySelectorAll("[data-health]").forEach(item => {
   });
 });
 
+// ── Detection method chip ────────────────────────────────────────────────────
+const _CHIP_METHOD_TOOLTIP =
+  'Rule = a fixed threshold was crossed. ' +
+  'Statistical = an unusual reading compared to this sensor\u2019s learned normal. ' +
+  'ML = an unusual pattern across multiple sensors simultaneously.';
+
+function renderDetectionChip(detectionMethod) {
+  const cls = { rule: 'chip--rule', statistical: 'chip--statistical', ml: 'chip--ml' }[detectionMethod] || 'chip--rule';
+  const label = { rule: 'Rule', statistical: 'Statistical', ml: 'ML' }[detectionMethod] || 'Rule';
+  return `<span class="chip ${cls}" title="${_CHIP_METHOD_TOOLTIP}">${label} <span class="chip-info">ⓘ</span></span>`;
+}
+
 // ── Environment inference feed ───────────────────────────────────────────────
 const SEVERITY_LABEL = { info: "Info", warning: "Warning", critical: "Critical" };
 const SEVERITY_CLS   = { info: "inf-info", warning: "inf-warning", critical: "inf-critical" };
@@ -433,10 +445,12 @@ function _renderInferenceFeed() {
     const time = new Date(inf.created_at).toLocaleString(undefined, {
       month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"
     });
+    const chip = renderDetectionChip(inf.detection_method || 'rule');
     return `
       <button class="inference-card ${sev} inf-cat-${inf.category ?? 'other'}${inf.dismissed ? ' dismissed' : ''}"
               data-inf-id="${inf.id}" title="Tap for details">
         <div class="inf-card-left">
+          <div class="inf-card-badges">${chip} <span class="inf-badge ${SEVERITY_CLS[inf.severity] || 'inf-info'} inf-badge-sm">${SEVERITY_LABEL[inf.severity] || inf.severity}</span></div>
           <span class="inf-card-type">${inf.event_type.replace(/_/g, " ")}</span>
           <span class="inf-card-summary">${inf.title}</span>
         </div>
@@ -532,6 +546,15 @@ function _openInferenceDialog(id) {
   const badge = document.getElementById("infSeverity");
   badge.textContent = SEVERITY_LABEL[inf.severity] || inf.severity;
   badge.className = `inf-badge ${SEVERITY_CLS[inf.severity] || ""}`;
+
+  // Detection method chip
+  const metaEl = document.getElementById("infMeta");
+  if (metaEl) {
+    const chipEl = metaEl.querySelector(".inf-detection-chip");
+    if (chipEl) {
+      chipEl.innerHTML = renderDetectionChip(inf.detection_method || 'rule');
+    }
+  }
 
   document.getElementById("infTime").textContent =
     new Date(inf.created_at).toLocaleString();

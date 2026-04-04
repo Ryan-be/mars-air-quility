@@ -6,6 +6,19 @@
   <title>{% block title %}MLSS{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
   {% block extra_css %}{% endblock %}
+  <style>
+    /* ── Detection method chips ── */
+    .chip { display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:999px; font-size:0.72rem; font-weight:600; letter-spacing:0.02em; cursor:default; user-select:none; }
+    .chip--rule        { background:#6b7280; color:#fff; }
+    .chip--statistical { background:#3b82f6; color:#fff; }
+    .chip--ml          { background:#8b5cf6; color:#fff; }
+    .chip-info { font-weight:400; opacity:0.85; }
+    /* ── Attribution pill ── */
+    .source-pill { display:inline-flex; align-items:center; gap:4px; padding:3px 10px; border-radius:999px; font-size:0.8rem; font-weight:600; cursor:default; }
+    .attribution-row { display:flex; align-items:flex-start; flex-wrap:wrap; gap:6px; margin:6px 0; }
+    .attribution-label { font-size:0.8rem; color:var(--text-muted,#6b7280); padding-top:3px; }
+    .runner-up { width:100%; font-size:0.78rem; color:var(--text-muted,#6b7280); margin-left:4px; }
+  </style>
   <!-- Apply persisted theme before first paint to avoid flash -->
   <script>
     if (localStorage.getItem('mlss_theme') === 'light') {
