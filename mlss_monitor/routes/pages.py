@@ -29,7 +29,7 @@ def admin():
     return render_template("admin.html")
 
 
-@pages_bp.route("/insights-engine")
+@pages_bp.route("/settings/insights-engine")
 @require_role("admin")
 def insights_engine():
     engine = state.detection_engine
