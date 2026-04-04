@@ -108,3 +108,85 @@ sources:
       PM2.5 elevated at {pm25_current:.1f} µg/m³ without corresponding TVOC or CO rise.
       Pattern suggests external pollution entering from outside.
     action_template: "Close windows and doors. Check local air quality reports."
+
+  - id: cleaning_products
+    label: "Cleaning products"
+    description: "Human cleaning activity — bleach, detergents, floor cleaners"
+    examples: "bleach, floor cleaner, disinfectant spray, detergent, bathroom cleaner"
+    sensors:
+      tvoc:        elevated
+      nh3:         elevated
+      eco2:        normal
+      pm25:        absent
+      co:          absent
+      no2:         normal
+      humidity:    normal
+      temperature: normal
+    temporal:
+      sustain_min_minutes:  15
+      nh3_follows_tvoc:     false
+    confidence_floor: 0.55
+    description_template: >
+      Cleaning products detected — TVOC {tvoc_current:.0f} ppb with elevated NH3
+    action_template: "Increase ventilation. Avoid prolonged exposure to cleaning fumes."
+
+  - id: human_activity
+    label: "Human activity / occupancy"
+    description: "Breathing/occupancy — elevated CO2 and slight TVOC from breath/skin"
+    examples: "occupied room, crowded space, poor ventilation with occupants"
+    sensors:
+      eco2:        elevated
+      tvoc:        slight_rise
+      temperature: slight_rise
+      co:          absent
+      pm25:        normal
+      nh3:         normal
+      no2:         normal
+      humidity:    normal
+    temporal:
+      sustain_min_minutes:  20
+    confidence_floor: 0.45
+    description_template: >
+      Elevated occupancy detected — eCO2 {eco2_current:.0f} ppm with slight TVOC rise
+    action_template: "Room may be occupied with limited ventilation. Consider fresh air."
+
+  - id: vehicle_exhaust
+    label: "Vehicle exhaust"
+    description: "Vehicle/diesel fumes entering from outside"
+    examples: "car exhaust, diesel engine, traffic fumes, garage fumes"
+    sensors:
+      no2:         elevated
+      co:          elevated
+      pm25:        elevated
+      tvoc:        elevated
+      nh3:         absent
+      eco2:        normal
+      humidity:    normal
+      temperature: normal
+    temporal:
+      pm25_correlated_with_tvoc: true
+      sustain_min_minutes:       10
+    confidence_floor: 0.65
+    description_template: >
+      Vehicle exhaust signature — NO2 {no2_current:.0f} ppb, CO {co_current:.0f} ppb, PM2.5 {pm25_current:.1f} µg/m³
+    action_template: "Close windows facing road/garage. Source appears to be vehicle exhaust."
+
+  - id: mould_voc
+    label: "Mould / fungal VOC"
+    description: "Mould/fungal VOC emission — musty TVOC with high humidity"
+    examples: "mould growth, damp walls, wet cellar, condensation, fungal spores"
+    sensors:
+      tvoc:        slight_rise
+      humidity:    elevated
+      eco2:        normal
+      pm25:        normal
+      nh3:         absent
+      co:          absent
+      no2:         normal
+      temperature: normal
+    temporal:
+      sustain_min_minutes:  60
+    confidence_floor: 0.40
+    description_template: >
+      Possible mould VOC — TVOC {tvoc_current:.0f} ppb with elevated humidity {humidity_current:.0f}%
+    action_template: "Check for mould in damp areas. Improve ventilation and reduce humidity."
