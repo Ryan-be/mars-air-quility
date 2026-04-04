@@ -34,6 +34,20 @@ from mlss_monitor.threshold_engine import RuleEngine
 
 log = logging.getLogger(__name__)
 
+# Maps DB/anomaly-config channel name → FeatureVector field name used by inference_evidence
+_DB_CH_TO_FV_FIELD: dict[str, str] = {
+    "tvoc_ppb":      "tvoc_current",
+    "eco2_ppm":      "eco2_current",
+    "temperature_c": "temperature_current",
+    "humidity_pct":  "humidity_current",
+    "pm1_ug_m3":     "pm1_current",
+    "pm25_ug_m3":    "pm25_current",
+    "pm10_ug_m3":    "pm10_current",
+    "co_ppb":        "co_current",
+    "no2_ppb":       "no2_current",
+    "nh3_ppb":       "nh3_current",
+}
+
 
 def _vpd_kpa(temp_c: float | None, rh: float | None) -> float | None:
     """Vapour pressure deficit in kPa."""
@@ -103,17 +117,28 @@ class DetectionEngine:
         if self._anomaly_detector is None:
             return
 
-        # Skip if all channels already have sufficient training data persisted
+        # Check if per-channel models need bootstrapping
         cold_start = self._anomaly_detector._config.get("cold_start_readings", 1440)
         min_seen = min(
             self._anomaly_detector._n_seen.get(ch, 0)
             for ch in self._anomaly_detector._channels()
         )
-        if min_seen >= cold_start // 2:
+        per_channel_warm = min_seen >= cold_start // 2
+
+        # Check if multivar models need bootstrapping
+        multivar_warm = True
+        if self._multivar_detector is not None:
+            mv_cold_start = self._multivar_detector._config.get("cold_start_readings", 500)
+            if self._multivar_detector._n_seen:
+                multivar_warm = min(self._multivar_detector._n_seen.values()) >= mv_cold_start // 2
+            else:
+                multivar_warm = False  # no models yet = not warm
+
+        if per_channel_warm and multivar_warm:
             log.info(
-                "DetectionEngine.bootstrap_from_db: models already warm "
-                "(min n_seen=%d >= %d), skipping bootstrap",
-                min_seen, cold_start // 2,
+                "DetectionEngine.bootstrap_from_db: all models already warm "
+                "(per-channel min n_seen=%d >= %d, multivar warm=%s), skipping bootstrap",
+                min_seen, cold_start // 2, multivar_warm,
             )
             return
 
@@ -177,11 +202,14 @@ class DetectionEngine:
                 conn.close()
 
             total = sum(len(v) for v in channel_data.values())
-            log.info("DetectionEngine.bootstrap_from_db: bootstrapping %d total readings", total)
-            self._anomaly_detector.bootstrap(channel_data)
+            log.info("DetectionEngine.bootstrap_from_db: fetched %d total readings", total)
+
+            if not per_channel_warm:
+                log.info("DetectionEngine.bootstrap_from_db: bootstrapping per-channel models")
+                self._anomaly_detector.bootstrap(channel_data)
 
             # Bootstrap composite models from the same historical data
-            if self._multivar_detector is not None:
+            if not multivar_warm and self._multivar_detector is not None:
                 # channel_data is keyed by DB names; multivar channels use FV field names
                 _FV_TO_DB = {
                     "tvoc_current": "tvoc_ppb", "eco2_current": "eco2_ppm",
@@ -294,8 +322,9 @@ class DetectionEngine:
             fired.append(event_type)
             if not self._dry_run:
                 try:
-                    baselines = {ch: self._anomaly_detector.baseline(ch)}
-                    snapshot = build_sensor_snapshot(fv, [ch], baselines)
+                    fv_field = _DB_CH_TO_FV_FIELD.get(ch, ch)  # translate to FV field name
+                    baselines = {fv_field: self._anomaly_detector.baseline(ch)}
+                    snapshot = build_sensor_snapshot(fv, [fv_field], baselines)
                     description = anomaly_description(snapshot)
                     action = anomaly_action(channel=ch)
                     save_inference(
