@@ -70,8 +70,14 @@ def create_db():
                 'vpd_low', 'vpd_high',
                 'rapid_temp_change', 'rapid_humidity_change',
                 'hourly_summary', 'daily_summary',
-                'daily_pattern', 'overnight_buildup'
+                'daily_pattern', 'overnight_buildup',
+                'anomaly_combustion_signature',
+                'anomaly_particle_distribution',
+                'anomaly_ventilation_quality',
+                'anomaly_gas_relationship',
+                'anomaly_thermal_moisture'
             ) OR event_type LIKE 'annotation_context_%'
+              OR event_type LIKE 'anomaly_%'
         ),
         severity TEXT NOT NULL DEFAULT 'info'
             CHECK(severity IN ('info', 'warning', 'critical')),
