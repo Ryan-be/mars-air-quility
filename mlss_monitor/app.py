@@ -213,6 +213,7 @@ _detection_engine = DetectionEngine(
     anomaly_config_path=_PROJECT_ROOT / "config" / "anomaly.yaml",
     model_dir=_PROJECT_ROOT / "data" / "anomaly_models",
     fingerprints_path=_PROJECT_ROOT / "config" / "fingerprints.yaml",
+    multivar_config_path=_PROJECT_ROOT / "config" / "multivar_anomaly.yaml",
     dry_run=False,
 )
 state.detection_engine = _detection_engine
@@ -613,6 +614,11 @@ def main():
             _detection_engine._anomaly_detector._save_models()
         except Exception as exc:
             log.warning("Could not save anomaly models on shutdown: %s", exc)
+        try:
+            if _detection_engine._multivar_detector is not None:
+                _detection_engine._multivar_detector._save_models()
+        except Exception as exc:
+            log.warning("Could not save multivar models on shutdown: %s", exc)
 
     import atexit as _atexit
     _atexit.register(_save_models_on_exit)
