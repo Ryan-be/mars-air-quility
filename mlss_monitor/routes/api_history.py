@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, jsonify, request
 
+import database.db_logger as _dbl
 from database.db_logger import _normalise_ts, compute_detection_method, get_inferences
 from mlss_monitor import narrative_engine, state
 from mlss_monitor.narrative_engine import _DAY_NAMES
@@ -46,8 +47,7 @@ def sensor_history():
     end = request.args.get("end", "")
     if not start or not end:
         return jsonify({"error": "start and end are required"}), 400
-    from mlss_monitor.app import DB_FILE
-    rows = _query_sensor_data(DB_FILE, start, end)
+    rows = _query_sensor_data(_dbl.DB_FILE, start, end)
     timestamps = [_normalise_ts(r["timestamp"]) for r in rows]
     channels: dict = {ch: [] for ch in _ALL_CHANNELS}
     for row in rows:
@@ -135,7 +135,6 @@ def ml_context():
     start = request.args.get("start",""); end = request.args.get("end","")
     if not start or not end:
         return jsonify({"error": "start and end are required"}), 400
-    from mlss_monitor.app import DB_FILE
     all_infs = get_inferences(limit=1000, include_dismissed=False)
     s_db = start.rstrip("Z").replace("T"," "); e_db = end.rstrip("Z").replace("T"," ")
     window = [i for i in all_infs if s_db <= i["created_at"].rstrip("Z").replace("T"," ") <= e_db]
@@ -144,7 +143,7 @@ def ml_context():
         src = _extract_attribution_source(inf)
         if src: summary[src] = summary.get(src,0) + 1
     dominant = max(summary, key=summary.get) if summary else None
-    sensor_rows = _query_sensor_data(DB_FILE, start, end)
+    sensor_rows = _query_sensor_data(_dbl.DB_FILE, start, end)
     enriched = []
     for inf in window:
         ev = inf.get("evidence") or {}
@@ -222,7 +221,6 @@ def narratives():
     start = request.args.get("start",""); end = request.args.get("end","")
     if not start or not end:
         return jsonify({"error": "start and end are required"}), 400
-    from mlss_monitor.app import DB_FILE
     from mlss_monitor.inference_evidence import _CHANNEL_META
     from mlss_monitor.narrative_engine import _parse_utc
 
@@ -234,7 +232,7 @@ def narratives():
     baselines_now = {}
     if engine and engine._anomaly_detector:
         baselines_now = {ch: engine._anomaly_detector.baseline(ch) for ch in _BASELINE_CHANNELS}
-    baselines_7d = _get_baselines_7d_ago(DB_FILE, start)
+    baselines_7d = _get_baselines_7d_ago(_dbl.DB_FILE, start)
 
     ch_meta_api = {_FV_TO_API[k]: {"label": v["label"], "unit": v["unit"]} for k, v in _CHANNEL_META.items() if k in _FV_TO_API}
     trend_indicators = narrative_engine.compute_trend_indicators(baselines_now, baselines_7d, ch_meta_api)

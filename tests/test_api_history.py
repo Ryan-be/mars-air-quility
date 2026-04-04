@@ -119,9 +119,12 @@ def test_narratives_endpoint_returns_required_keys(app_client, db):
 def test_sparkline_returns_window_around_inference(app_client, db):
     client, _ = app_client
     from database.db_logger import save_inference
-    _insert_sensor_row(db, "2026-04-04 14:15:00", tvoc=100)
-    _insert_sensor_row(db, "2026-04-04 14:30:00", tvoc=350)
-    _insert_sensor_row(db, "2026-04-04 14:45:00", tvoc=200)
+    from datetime import datetime, timedelta, timezone
+    _now = datetime.now(timezone.utc)
+    _fmt = lambda dt: dt.strftime("%Y-%m-%d %H:%M:%S")
+    _insert_sensor_row(db, _fmt(_now - timedelta(minutes=10)), tvoc=100)
+    _insert_sensor_row(db, _fmt(_now), tvoc=350)
+    _insert_sensor_row(db, _fmt(_now + timedelta(minutes=5)), tvoc=200)
     inf_id = save_inference(
         event_type="tvoc_spike",
         title="TVOC spike",

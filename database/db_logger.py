@@ -442,6 +442,20 @@ def get_inferences(limit=50, include_dismissed=False):
     return rows
 
 
+def get_inference_by_id(inference_id: int) -> dict | None:
+    """Return a single inference dict by ID, or None if not found."""
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute("SELECT * FROM inferences WHERE id = ?", (inference_id,)).fetchone()
+    conn.close()
+    if row is None:
+        return None
+    d = dict(row)
+    d["created_at"] = _normalise_ts(d.get("created_at"))
+    d["detection_method"] = compute_detection_method(d.get("event_type", ""))
+    return d
+
+
 def update_inference_notes(inference_id, notes):
     conn = _connect()
     cur = conn.cursor()
