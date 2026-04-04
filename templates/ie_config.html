@@ -1,0 +1,810 @@
+{% extends "base.html" %}
+{% block title %}MLSS – Insights Engine Config{% endblock %}
+{% block extra_css %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+  <style>
+    /* ── Sticky section navigation ──────────────────────────────────────────── */
+    .config-nav {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      background: #141414;
+      border-bottom: 1px solid #333;
+      display: flex;
+      align-items: center;
+      gap: .25rem;
+      padding: .45rem 1rem;
+      font-size: .85rem;
+      flex-wrap: wrap;
+    }
+    .config-nav a {
+      color: #aaa;
+      text-decoration: none;
+      padding: .3em .65em;
+      border-radius: 4px;
+      transition: background .12s, color .12s;
+      white-space: nowrap;
+    }
+    .config-nav a:hover { background: #252525; color: #eee; }
+    .config-nav a.nav-active { background: #1e3a5f; color: #7ec8ff; }
+    .config-nav .nav-back { border-right: 1px solid #333; margin-right: .35rem; padding-right: .85rem; }
+    .config-nav .nav-sep { color: #444; padding: 0 .1rem; }
+
+    /* ── Section anchors: offset for sticky bar ─────────────────────────────── */
+    .config-section { scroll-margin-top: 46px; }
+
+    /* ── Shared table / form styles ─────────────────────────────────────────── */
+    .rules-table, .fp-table, .anomaly-table, .sources-table {
+      width: 100%; border-collapse: collapse; font-size: .85rem;
+    }
+    .rules-table th, .rules-table td,
+    .fp-table th, .fp-table td,
+    .anomaly-table th, .anomaly-table td,
+    .sources-table th, .sources-table td {
+      padding: .4rem .6rem; border-bottom: 1px solid #333; vertical-align: top;
+    }
+    .rules-table thead th,
+    .fp-table thead th,
+    .anomaly-table thead th {
+      text-align: left; border-bottom: 2px solid #555;
+    }
+    .sources-table thead th {
+      text-align: left; border-bottom: 2px solid #555;
+      color: #999; font-size: .78rem; text-transform: uppercase; letter-spacing: .04em;
+    }
+    .sources-table th, .sources-table td { vertical-align: middle; }
+
+    .rule-expr { font-family: monospace; font-size: .8rem; }
+    .badge-warning  { background: #a06000; color: #fff; border-radius: 3px; padding: 1px 5px; font-size: .75rem; }
+    .badge-critical { background: #8b0000; color: #fff; border-radius: 3px; padding: 1px 5px; font-size: .75rem; }
+    .badge-info     { background: #004080; color: #fff; border-radius: 3px; padding: 1px 5px; font-size: .75rem; }
+    .badge-ready    { background: #1b5e20; color: #fff; border-radius: 3px; padding: 1px 6px; font-size: .75rem; }
+    .badge-learning { background: #4a3800; color: #fff; border-radius: 3px; padding: 1px 6px; font-size: .75rem; }
+    .badge-active   { background: #1b5e20; color: #fff; border-radius: 3px; padding: 2px 7px; font-size: .75rem; }
+    .badge-disabled { background: #4a0000; color: #ff9999; border-radius: 3px; padding: 2px 7px; font-size: .75rem; }
+    .badge-error    { background: #4a2500; color: #ffb74d; border-radius: 3px; padding: 2px 7px; font-size: .75rem; }
+
+    .status-msg { font-size: .85rem; color: #4caf50; min-height: 1.2em; margin: .5rem 0; }
+    .status-err { color: #f44336 !important; }
+
+    input.inline-edit {
+      background: #1a1a1a; border: 1px solid #555; color: #eee;
+      padding: 2px 4px; border-radius: 3px; width: 100%; box-sizing: border-box;
+    }
+    select.inline-edit {
+      background: #1a1a1a; border: 1px solid #555; color: #eee;
+      padding: 2px 4px; border-radius: 3px;
+    }
+    .disabled-row { opacity: .45; }
+
+    /* ── Rules modal ──────────────────────────────────────────────────────────── */
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.65); z-index: 100; align-items: center; justify-content: center; }
+    .modal-overlay.open { display: flex; }
+    .modal-box { background: #1e1e1e; border: 1px solid #444; border-radius: 6px; padding: 1.5rem; width: 100%; max-width: 480px; }
+    .modal-box h4 { margin: 0 0 1rem; font-size: 1rem; }
+    .modal-field { margin-bottom: .75rem; }
+    .modal-field label { display: block; font-size: .8rem; color: #aaa; margin-bottom: .25rem; }
+    .modal-field input, .modal-field select {
+      width: 100%; box-sizing: border-box;
+      background: #111; border: 1px solid #555; color: #eee;
+      padding: .35rem .5rem; border-radius: 3px; font-size: .85rem;
+    }
+    .modal-actions { display: flex; gap: .5rem; justify-content: flex-end; margin-top: 1rem; }
+    .modal-status { font-size: .82rem; min-height: 1.1em; margin-bottom: .5rem; color: #4caf50; }
+    .modal-status.err { color: #f44336; }
+
+    /* ── Fingerprints ─────────────────────────────────────────────────────────── */
+    .sensor-chips span {
+      display: inline-block; background: #222; border: 1px solid #444;
+      border-radius: 3px; padding: 1px 5px; margin: 1px; font-size: .75rem;
+    }
+    .preview-result { font-size: .8rem; color: #80cbc4; margin-top: .25rem; }
+
+    /* ── Anomaly ──────────────────────────────────────────────────────────────── */
+    .global-form .field-row { align-items: flex-end; }
+
+    /* ── Sources ──────────────────────────────────────────────────────────────── */
+    .source-name { font-family: monospace; font-size: .9rem; color: #e0e0e0; }
+    .last-seen { color: #888; font-size: .82rem; }
+    .btn-toggle-enable {
+      padding: .3em .75em; background: #1a3a1a; color: #69f069;
+      border: 1px solid #2e5e2e; border-radius: 4px; cursor: pointer;
+      font-size: .82em; line-height: 1; transition: background .15s; white-space: nowrap;
+    }
+    .btn-toggle-enable:hover { background: #254a25; }
+    .btn-toggle-disable {
+      padding: .3em .75em; background: #3a1a1a; color: #ff8080;
+      border: 1px solid #5e2e2e; border-radius: 4px; cursor: pointer;
+      font-size: .82em; line-height: 1; transition: background .15s; white-space: nowrap;
+    }
+    .btn-toggle-disable:hover { background: #4a2222; }
+    .btn-toggle-enable:disabled, .btn-toggle-disable:disabled { opacity: .45; cursor: not-allowed; }
+    .refresh-note { font-size: .75rem; color: #555; margin-top: .75rem; }
+    .empty-row td { color: #666; font-style: italic; }
+  </style>
+{% endblock %}
+{% block topbar_controls %}
+  <a href="/insights-engine">← Insights Engine</a>
+{% endblock %}
+
+{% block content %}
+
+<!-- ── Sticky in-page nav ─────────────────────────────────────────────────── -->
+<nav class="config-nav" id="config-nav" aria-label="Config sections">
+  <a href="/insights-engine" class="nav-back">← Insights Engine</a>
+  <a href="#rules"        class="nav-link" data-section="rules">Rules</a>
+  <span class="nav-sep">|</span>
+  <a href="#fingerprints" class="nav-link" data-section="fingerprints">Fingerprints</a>
+  <span class="nav-sep">|</span>
+  <a href="#anomaly"      class="nav-link" data-section="anomaly">Anomaly</a>
+  <span class="nav-sep">|</span>
+  <a href="#sources"      class="nav-link" data-section="sources">Data Sources</a>
+</nav>
+
+<div style="max-width:1100px;margin:1.5rem auto;padding:0 1rem;">
+
+  <!-- ══════════════════════════════════════════════════════════════
+       #rules — Rule Manager
+  ══════════════════════════════════════════════════════════════ -->
+  <section id="rules" class="config-section">
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem;">
+        <h3>📋 Rule Manager</h3>
+        <button class="btn btn-secondary" onclick="openAddRuleModal()">+ Add Rule</button>
+      </div>
+      <p style="color:#888;font-size:.85rem;margin:.4rem 0 .8rem;">
+        Changes write to <code>config/rules.yaml</code> and hot-reload immediately. No restart required.
+      </p>
+      <div id="rules-status" class="status-msg"></div>
+      <table class="rules-table" id="rules-table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Expression</th>
+            <th>Severity</th>
+            <th>Confidence</th>
+            <th>Enabled</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="rules-body">
+          <tr><td colspan="6" style="color:#888;">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       #fingerprints — Fingerprint Manager
+  ══════════════════════════════════════════════════════════════ -->
+  <section id="fingerprints" class="config-section" style="margin-top:1.5rem;">
+    <div class="card">
+      <h3>🔍 Fingerprint Manager</h3>
+      <p style="color:#888;font-size:.85rem;margin:.4rem 0 .8rem;">
+        Changes write to <code>config/fingerprints.yaml</code> and hot-reload immediately.
+        Preview score uses current live sensor readings.
+      </p>
+      <div id="fp-status" class="status-msg"></div>
+      <table class="fp-table" id="fp-table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Label</th>
+            <th>Sensor states</th>
+            <th>Conf. floor</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="fp-body">
+          <tr><td colspan="5" style="color:#888;">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       #anomaly — Anomaly Settings
+  ══════════════════════════════════════════════════════════════ -->
+  <section id="anomaly" class="config-section" style="margin-top:1.5rem;">
+    <!-- Global settings card -->
+    <div class="card" style="margin-bottom:1rem;">
+      <h3>⚙️ Global Anomaly Settings</h3>
+      <p class="card-desc">
+        Score threshold controls how sensitive the detector is (0&thinsp;=&thinsp;very sensitive, 1&thinsp;=&thinsp;never fires).
+        Cold-start count is the number of readings each channel must accumulate before its model is considered ready.
+      </p>
+      <div id="anomaly-status-global" class="status-msg"></div>
+      <div class="global-form">
+        <div class="field-row" style="max-width:480px;gap:.75rem;">
+          <div class="field">
+            <label for="threshold-input">Score threshold (0&ndash;1)</label>
+            <input type="number" id="threshold-input" min="0" max="1" step="0.01" value="0.70">
+          </div>
+          <div class="field">
+            <label for="cold-start-input">Cold-start readings</label>
+            <input type="number" id="cold-start-input" min="0" max="100000" step="1" value="1440">
+          </div>
+        </div>
+        <div style="margin-top:.75rem;">
+          <button class="btn-save" style="width:auto;padding:.5rem 1.5rem;" onclick="saveAnomalyGlobal()">Save</button>
+        </div>
+      </div>
+    </div>
+    <!-- Per-channel table card -->
+    <div class="card">
+      <h3>📊 Channel Status</h3>
+      <p class="card-desc">
+        EMA values are the exponential moving averages used internally by each channel&rsquo;s anomaly model.
+        Reset a channel if its model was trained on faulty data.
+        The table refreshes automatically every 30&thinsp;s.
+      </p>
+      <div id="anomaly-status-channel" class="status-msg"></div>
+      <table class="anomaly-table" id="anomaly-table">
+        <thead>
+          <tr>
+            <th>Channel</th>
+            <th>Readings seen</th>
+            <th>Cold-start target</th>
+            <th>Status</th>
+            <th>EMA value</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="anomaly-body">
+          <tr><td colspan="6" style="color:#888;">Loading&hellip;</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       #sources — Data Sources
+  ══════════════════════════════════════════════════════════════ -->
+  <section id="sources" class="config-section" style="margin-top:1.5rem;margin-bottom:2rem;">
+    <div class="card">
+      <h3>🔌 Data Source Manager</h3>
+      <p style="color:#888;font-size:.85rem;margin:.4rem 0 .8rem;">
+        Disable a source to exclude its readings from the detection pipeline.
+        Enable state resets to active on service restart.
+      </p>
+      <div id="sources-status" class="status-msg" aria-live="polite"></div>
+      <table class="sources-table" id="sources-table">
+        <thead>
+          <tr>
+            <th>Source</th>
+            <th>Status</th>
+            <th>Last Reading</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="sources-body">
+          <tr><td colspan="4" style="color:#888;">Loading…</td></tr>
+        </tbody>
+      </table>
+      <p class="refresh-note">Auto-refreshes every 15 seconds.</p>
+    </div>
+  </section>
+
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     Add Rule modal
+══════════════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="add-rule-modal" role="dialog" aria-modal="true" aria-labelledby="add-rule-modal-title">
+  <div class="modal-box">
+    <h4 id="add-rule-modal-title">Add New Rule</h4>
+    <div class="modal-field">
+      <label for="new-rule-id">Rule ID <span style="color:#f44336">*</span></label>
+      <input type="text" id="new-rule-id" placeholder="e.g. high_pm25" autocomplete="off">
+    </div>
+    <div class="modal-field">
+      <label for="new-rule-expr">Expression <span style="color:#f44336">*</span></label>
+      <input type="text" id="new-rule-expr" placeholder="e.g. pm25 > 150" autocomplete="off" class="rule-expr">
+    </div>
+    <div class="modal-field">
+      <label for="new-rule-severity">Severity</label>
+      <select id="new-rule-severity">
+        <option value="info">info</option>
+        <option value="warning" selected>warning</option>
+        <option value="alert">alert</option>
+        <option value="critical">critical</option>
+      </select>
+    </div>
+    <div class="modal-status" id="add-rule-modal-status"></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeAddRuleModal()">Cancel</button>
+      <button class="btn" onclick="submitAddRule()">Create Rule</button>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+// Shared utilities
+// ═══════════════════════════════════════════════════════════════════════════
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function showSectionStatus(id, msg, isError) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = msg;
+  el.className = 'status-msg' + (isError ? ' status-err' : '');
+  setTimeout(function () {
+    el.textContent = '';
+    el.className = 'status-msg';
+  }, 4000);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Sticky nav: IntersectionObserver highlights current section
+// ═══════════════════════════════════════════════════════════════════════════
+
+(function () {
+  var sections = ['rules', 'fingerprints', 'anomaly', 'sources'];
+  var links = {};
+  sections.forEach(function (id) {
+    links[id] = document.querySelector('.nav-link[data-section="' + id + '"]');
+  });
+
+  var activeId = null;
+
+  function setActive(id) {
+    if (id === activeId) return;
+    activeId = id;
+    sections.forEach(function (sid) {
+      if (links[sid]) {
+        links[sid].classList.toggle('nav-active', sid === id);
+      }
+    });
+  }
+
+  // Use IntersectionObserver to track which section is in view
+  var observer = new IntersectionObserver(function (entries) {
+    entries.forEach(function (entry) {
+      if (entry.isIntersecting) {
+        setActive(entry.target.id);
+      }
+    });
+  }, {
+    rootMargin: '-10% 0px -80% 0px',
+    threshold: 0
+  });
+
+  sections.forEach(function (id) {
+    var el = document.getElementById(id);
+    if (el) observer.observe(el);
+  });
+
+  // Also activate on hash change / anchor clicks
+  function activateFromHash() {
+    var hash = location.hash.replace('#', '');
+    if (hash && links[hash]) setActive(hash);
+  }
+  window.addEventListener('hashchange', activateFromHash);
+  activateFromHash();
+})();
+
+// ═══════════════════════════════════════════════════════════════════════════
+// #rules — Rule Manager
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function loadRules() {
+  const resp = await fetch('/api/insights-engine/rules');
+  if (!resp.ok) { showSectionStatus('rules-status', 'Failed to load rules', true); return; }
+  const rules = await resp.json();
+  renderRules(rules);
+}
+
+function renderRules(rules) {
+  const tbody = document.getElementById('rules-body');
+  tbody.innerHTML = '';
+  if (!rules.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="color:#888;">No rules defined.</td></tr>';
+    return;
+  }
+  rules.forEach(function (rule) {
+    const enabled = rule.enabled !== false;
+    const tr = document.createElement('tr');
+    if (!enabled) tr.classList.add('disabled-row');
+    tr.innerHTML =
+      '<td><code>' + escHtml(rule.id) + '</code></td>' +
+      '<td><input class="inline-edit rule-expr" data-id="' + escHtml(rule.id) + '" data-field="expression"' +
+      '     value="' + escHtml(rule.expression) + '" title="Edit expression"></td>' +
+      '<td><select class="inline-edit" data-id="' + escHtml(rule.id) + '" data-field="severity">' +
+        ['info','warning','alert','critical'].map(function (s) {
+          return '<option value="' + s + '"' + (rule.severity === s ? ' selected' : '') + '>' + s + '</option>';
+        }).join('') +
+      '</select></td>' +
+      '<td><input class="inline-edit" type="number" step="0.05" min="0" max="1"' +
+      '     data-id="' + escHtml(rule.id) + '" data-field="confidence"' +
+      '     value="' + (rule.confidence != null ? rule.confidence : '') + '" style="width:5rem;"></td>' +
+      '<td><input type="checkbox" data-id="' + escHtml(rule.id) + '" data-field="enabled"' +
+      '     ' + (enabled ? 'checked' : '') + ' class="toggle-enabled"' +
+      '     onchange="ruleRowToggleEnabled(this)"></td>' +
+      '<td><button class="btn btn-sm" onclick="saveRule(\'' + escHtml(rule.id) + '\')">Save</button></td>';
+    tbody.appendChild(tr);
+  });
+}
+
+function ruleRowToggleEnabled(checkbox) {
+  const tr = checkbox.closest('tr');
+  if (checkbox.checked) { tr.classList.remove('disabled-row'); }
+  else { tr.classList.add('disabled-row'); }
+}
+
+async function saveRule(ruleId) {
+  const row = [...document.querySelectorAll('[data-id]')].filter(function (el) { return el.dataset.id === ruleId; });
+  const patch = {};
+  row.forEach(function (el) {
+    if (el.dataset.field === 'enabled') {
+      patch.enabled = el.checked;
+    } else if (el.dataset.field === 'confidence') {
+      patch.confidence = parseFloat(el.value);
+    } else {
+      patch[el.dataset.field] = el.value;
+    }
+  });
+  const resp = await fetch('/api/insights-engine/rules/' + ruleId, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(patch),
+  });
+  const data = await resp.json();
+  if (resp.ok) {
+    showSectionStatus('rules-status', data.message || 'Saved ✓');
+    loadRules();
+  } else {
+    showSectionStatus('rules-status', data.error || 'Save failed', true);
+  }
+}
+
+/* Add Rule modal */
+function openAddRuleModal() {
+  document.getElementById('new-rule-id').value = '';
+  document.getElementById('new-rule-expr').value = '';
+  document.getElementById('new-rule-severity').value = 'warning';
+  setAddRuleModalStatus('', false);
+  document.getElementById('add-rule-modal').classList.add('open');
+  document.getElementById('new-rule-id').focus();
+}
+
+function closeAddRuleModal() {
+  document.getElementById('add-rule-modal').classList.remove('open');
+}
+
+function setAddRuleModalStatus(msg, isError) {
+  const el = document.getElementById('add-rule-modal-status');
+  el.textContent = msg;
+  el.className = 'modal-status' + (isError ? ' err' : '');
+}
+
+async function submitAddRule() {
+  const id       = document.getElementById('new-rule-id').value.trim();
+  const expr     = document.getElementById('new-rule-expr').value.trim();
+  const severity = document.getElementById('new-rule-severity').value;
+  if (!id)   { setAddRuleModalStatus('Rule ID is required.', true); return; }
+  if (!expr) { setAddRuleModalStatus('Expression is required.', true); return; }
+  const resp = await fetch('/api/insights-engine/rules', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ id: id, expression: expr, severity: severity }),
+  });
+  const data = await resp.json();
+  if (resp.ok) {
+    closeAddRuleModal();
+    showSectionStatus('rules-status', data.message || 'Rule created ✓');
+    loadRules();
+  } else {
+    setAddRuleModalStatus(data.error || 'Create failed', true);
+  }
+}
+
+document.getElementById('add-rule-modal').addEventListener('click', function (e) {
+  if (e.target === this) closeAddRuleModal();
+});
+
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape') closeAddRuleModal();
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// #fingerprints — Fingerprint Manager
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function loadFingerprints() {
+  const resp = await fetch('/api/insights-engine/fingerprints');
+  if (!resp.ok) { showSectionStatus('fp-status', 'Failed to load fingerprints', true); return; }
+  const fps = await resp.json();
+  renderFingerprints(fps);
+}
+
+function renderFingerprints(fps) {
+  const tbody = document.getElementById('fp-body');
+  tbody.innerHTML = '';
+  if (!fps.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="color:#888;">No fingerprints loaded.</td></tr>';
+    return;
+  }
+  fps.forEach(function (fp) {
+    const sensorChips = Object.entries(fp.sensors || {})
+      .map(function ([k, v]) { return '<span>' + escHtml(k) + ': <b>' + escHtml(v) + '</b></span>'; }).join('');
+    const tr = document.createElement('tr');
+    tr.id = 'fp-row-' + fp.id;
+    tr.innerHTML =
+      '<td><code>' + escHtml(fp.id) + '</code></td>' +
+      '<td>' + escHtml(fp.label) + '</td>' +
+      '<td><div class="sensor-chips">' + (sensorChips || '<span style="color:#666;">—</span>') + '</div></td>' +
+      '<td><input class="inline-edit" type="number" step="0.05" min="0" max="1"' +
+      '     id="fp-floor-' + escHtml(fp.id) + '" value="' + fp.confidence_floor + '" style="width:5rem;"></td>' +
+      '<td>' +
+        '<button class="btn btn-sm" onclick="saveFpFloor(\'' + escHtml(fp.id) + '\')">Save</button> ' +
+        '<button class="btn btn-sm btn-secondary" onclick="previewFp(\'' + escHtml(fp.id) + '\')">Preview Score</button>' +
+        '<div class="preview-result" id="fp-preview-' + escHtml(fp.id) + '"></div>' +
+      '</td>';
+    tbody.appendChild(tr);
+  });
+}
+
+async function saveFpFloor(fpId) {
+  const input = document.getElementById('fp-floor-' + fpId);
+  const floor = parseFloat(input.value);
+  if (isNaN(floor) || floor < 0 || floor > 1) {
+    showSectionStatus('fp-status', 'Confidence floor must be between 0 and 1', true);
+    return;
+  }
+  const resp = await fetch('/api/insights-engine/fingerprints/' + encodeURIComponent(fpId), {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({confidence_floor: floor}),
+  });
+  const data = await resp.json();
+  if (resp.ok) { showSectionStatus('fp-status', data.message || 'Saved'); }
+  else { showSectionStatus('fp-status', data.error || 'Save failed', true); }
+}
+
+async function previewFp(fpId) {
+  const el = document.getElementById('fp-preview-' + fpId);
+  el.textContent = 'Scoring…';
+  const resp = await fetch('/api/insights-engine/fingerprints/' + encodeURIComponent(fpId) + '/preview', {method: 'POST'});
+  if (resp.status === 503) { el.textContent = 'No live data yet (cold start)'; return; }
+  const data = await resp.json();
+  if (!resp.ok) { el.textContent = data.error || 'Preview failed'; return; }
+  const matched = data.clears_floor ? '✓ clears floor' : '✗ below floor';
+  el.textContent = 'conf=' + data.confidence.toFixed(3) +
+    ' (sensor=' + data.sensor_score.toFixed(3) +
+    ', temporal=' + data.temporal_score.toFixed(3) +
+    ') — ' + matched;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// #anomaly — Anomaly Settings
+// ═══════════════════════════════════════════════════════════════════════════
+
+function loadAnomalyData() {
+  fetch('/api/insights-engine/anomaly')
+    .then(function (resp) {
+      if (!resp.ok) {
+        showSectionStatus('anomaly-status-channel', 'Failed to load anomaly data', true);
+        return null;
+      }
+      return resp.json();
+    })
+    .then(function (data) {
+      if (!data) return;
+
+      if (document.activeElement !== document.getElementById('threshold-input')) {
+        document.getElementById('threshold-input').value = data.score_threshold;
+      }
+      if (document.activeElement !== document.getElementById('cold-start-input')) {
+        document.getElementById('cold-start-input').value = data.cold_start_readings;
+      }
+
+      var tbody = document.getElementById('anomaly-body');
+      tbody.innerHTML = '';
+      var channels = data.channels || [];
+      if (channels.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" style="color:#888;">No channels configured.</td></tr>';
+        return;
+      }
+      channels.forEach(function (ch) {
+        var badge = ch.ready
+          ? '<span class="badge-ready">Ready</span>'
+          : '<span class="badge-learning">Learning (' + ch.n_seen.toLocaleString() + '&thinsp;/&thinsp;' + ch.cold_start.toLocaleString() + ')</span>';
+        var ema = ch.live_ema != null ? Number(ch.live_ema).toFixed(4) : '&mdash;';
+        var tr = document.createElement('tr');
+        tr.setAttribute('data-channel', ch.channel);
+        tr.innerHTML =
+          '<td><code>' + escHtml(ch.channel) + '</code></td>' +
+          '<td>' + ch.n_seen.toLocaleString() + '</td>' +
+          '<td>' + ch.cold_start.toLocaleString() + '</td>' +
+          '<td>' + badge + '</td>' +
+          '<td style="font-family:monospace;">' + ema + '</td>' +
+          '<td><button class="btn-reset" onclick="resetAnomalyChannel(\'' + escHtml(ch.channel) + '\')">Reset Model</button></td>';
+        tbody.appendChild(tr);
+      });
+    })
+    .catch(function (err) {
+      showSectionStatus('anomaly-status-channel', 'Error: ' + err, true);
+    });
+}
+
+function saveAnomalyGlobal() {
+  var thresholdVal = parseFloat(document.getElementById('threshold-input').value);
+  var coldStartVal = parseInt(document.getElementById('cold-start-input').value, 10);
+  if (isNaN(thresholdVal) || thresholdVal < 0 || thresholdVal > 1) {
+    showSectionStatus('anomaly-status-global', 'Score threshold must be between 0 and 1', true);
+    return;
+  }
+  if (isNaN(coldStartVal) || coldStartVal < 0) {
+    showSectionStatus('anomaly-status-global', 'Cold-start readings must be a non-negative integer', true);
+    return;
+  }
+  fetch('/api/insights-engine/anomaly', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({score_threshold: thresholdVal, cold_start_readings: coldStartVal}),
+  })
+    .then(function (resp) { return resp.json().then(function (data) { return {ok: resp.ok, data: data}; }); })
+    .then(function (r) {
+      if (r.ok) {
+        showSectionStatus('anomaly-status-global', r.data.message || 'Saved');
+        loadAnomalyData();
+      } else {
+        showSectionStatus('anomaly-status-global', r.data.error || 'Save failed', true);
+      }
+    })
+    .catch(function (err) {
+      showSectionStatus('anomaly-status-global', 'Error: ' + err, true);
+    });
+}
+
+function resetAnomalyChannel(channel) {
+  if (!confirm('Reset ' + channel + ' model? This will delete learned history.')) return;
+  fetch('/api/insights-engine/anomaly/' + encodeURIComponent(channel) + '/reset', {method: 'POST'})
+    .then(function (resp) { return resp.json().then(function (data) { return {ok: resp.ok, data: data}; }); })
+    .then(function (r) {
+      if (r.ok) {
+        showSectionStatus('anomaly-status-channel', r.data.message || 'Reset');
+        loadAnomalyData();
+      } else {
+        showSectionStatus('anomaly-status-channel', r.data.error || 'Reset failed', true);
+      }
+    })
+    .catch(function (err) {
+      showSectionStatus('anomaly-status-channel', 'Error: ' + err, true);
+    });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// #sources — Data Sources
+// ═══════════════════════════════════════════════════════════════════════════
+
+(function () {
+  'use strict';
+
+  var SOURCES_REFRESH_MS = 15000;
+  var sourcesRefreshTimer = null;
+  var sourcesStatusTimer = null;
+
+  function showSourcesStatus(msg, isError) {
+    var el = document.getElementById('sources-status');
+    el.textContent = msg;
+    el.className = 'status-msg' + (isError ? ' status-err' : '');
+    clearTimeout(sourcesStatusTimer);
+    sourcesStatusTimer = setTimeout(function () {
+      el.textContent = '';
+      el.className = 'status-msg';
+    }, 4000);
+  }
+
+  function relativeTime(ts) {
+    if (ts === null || ts === undefined) return '—';
+    var date = (typeof ts === 'number') ? new Date(ts * 1000) : new Date(ts);
+    if (isNaN(date.getTime())) return '—';
+    var diffSec = Math.floor((Date.now() - date.getTime()) / 1000);
+    if (diffSec < 5)    return 'just now';
+    if (diffSec < 60)   return diffSec + 's ago';
+    if (diffSec < 3600) return Math.floor(diffSec / 60) + ' min ago';
+    if (diffSec < 86400) return Math.floor(diffSec / 3600) + 'h ago';
+    return Math.floor(diffSec / 86400) + 'd ago';
+  }
+
+  function sourceBadge(src) {
+    var st = (src.status || (src.enabled ? 'active' : 'disabled')).toLowerCase();
+    if (st === 'active')  return '<span class="badge-active">Active</span>';
+    if (st === 'error')   return '<span class="badge-error">Error</span>';
+    return '<span class="badge-disabled">Disabled</span>';
+  }
+
+  function renderSources(sources) {
+    var tbody = document.getElementById('sources-body');
+    if (!sources || sources.length === 0) {
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="4">No data sources registered.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = '';
+    sources.forEach(function (src) {
+      var badge    = sourceBadge(src);
+      var lastSeen = '<span class="last-seen">' + escHtml(relativeTime(src.last_reading_at)) + '</span>';
+      var btn = src.enabled
+        ? '<button class="btn-toggle-disable" onclick="toggleSource(\'' + escHtml(src.name) + '\', false, this)">Disable</button>'
+        : '<button class="btn-toggle-enable"  onclick="toggleSource(\'' + escHtml(src.name) + '\', true,  this)">Enable</button>';
+      var tr = document.createElement('tr');
+      tr.setAttribute('data-source', src.name);
+      tr.innerHTML =
+        '<td><span class="source-name">' + escHtml(src.name) + '</span></td>' +
+        '<td>' + badge + '</td>' +
+        '<td>' + lastSeen + '</td>' +
+        '<td>' + btn + '</td>';
+      tbody.appendChild(tr);
+    });
+  }
+
+  async function loadSources() {
+    var resp;
+    try { resp = await fetch('/api/insights-engine/sources'); }
+    catch (e) { showSourcesStatus('Network error loading sources', true); return; }
+    if (!resp.ok) { showSourcesStatus('Failed to load sources (HTTP ' + resp.status + ')', true); return; }
+    renderSources(await resp.json());
+  }
+
+  function scheduleSourcesRefresh() {
+    clearTimeout(sourcesRefreshTimer);
+    sourcesRefreshTimer = setTimeout(function () { loadSources().then(scheduleSourcesRefresh); }, SOURCES_REFRESH_MS);
+  }
+
+  window.toggleSource = async function (name, enable, btn) {
+    if (btn) btn.disabled = true;
+    var action = enable ? 'enable' : 'disable';
+    var resp;
+    try {
+      resp = await fetch('/api/insights-engine/sources/' + encodeURIComponent(name) + '/' + action, {
+        method: 'POST', headers: {'Content-Type': 'application/json'}
+      });
+    } catch (e) {
+      showSourcesStatus('Network error: ' + e.message, true);
+      if (btn) btn.disabled = false;
+      return;
+    }
+    var data = await resp.json();
+    if (resp.ok) {
+      showSourcesStatus(data.message || 'Updated');
+      var row = document.querySelector('tr[data-source="' + CSS.escape(name) + '"]');
+      if (row) {
+        if (enable) {
+          row.cells[1].innerHTML = '<span class="badge-active">Active</span>';
+          row.cells[3].innerHTML = '<button class="btn-toggle-disable" onclick="toggleSource(\'' + escHtml(name) + '\', false, this)">Disable</button>';
+        } else {
+          row.cells[1].innerHTML = '<span class="badge-disabled">Disabled</span>';
+          row.cells[3].innerHTML = '<button class="btn-toggle-enable" onclick="toggleSource(\'' + escHtml(name) + '\', true, this)">Enable</button>';
+        }
+      }
+    } else {
+      showSourcesStatus(data.error || 'Update failed', true);
+      if (btn) btn.disabled = false;
+    }
+  };
+
+  loadSources().then(scheduleSourcesRefresh);
+})();
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Bootstrap: load all sections on page load
+// ═══════════════════════════════════════════════════════════════════════════
+
+loadRules();
+loadFingerprints();
+loadAnomalyData();
+setInterval(loadAnomalyData, 30000);
+</script>
+{% endblock %}

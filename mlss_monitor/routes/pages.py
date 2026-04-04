@@ -1,6 +1,6 @@
 """Page routes: dashboard, history, controls, admin."""
 
-from flask import Blueprint, render_template
+from flask import Blueprint, redirect, render_template, url_for
 
 from mlss_monitor import state
 from mlss_monitor.rbac import require_role
@@ -96,25 +96,32 @@ def insights_engine():
     )
 
 
+@pages_bp.route("/settings/insights-engine/config")
+@require_role("admin")
+def ie_config():
+    return render_template("ie_config.html")
+
+
+# Legacy per-section routes — redirect to the unified config page with an anchor
 @pages_bp.route("/settings/insights-engine/rules")
 @require_role("admin")
 def ie_rules():
-    return render_template("ie_rules.html")
+    return redirect(url_for("pages.ie_config") + "#rules")
 
 
 @pages_bp.route("/settings/insights-engine/fingerprints")
 @require_role("admin")
 def ie_fingerprints():
-    return render_template("ie_fingerprints.html")
+    return redirect(url_for("pages.ie_config") + "#fingerprints")
 
 
 @pages_bp.route("/settings/insights-engine/anomaly")
 @require_role("admin")
 def ie_anomaly():
-    return render_template("ie_anomaly.html")
+    return redirect(url_for("pages.ie_config") + "#anomaly")
 
 
 @pages_bp.route("/settings/insights-engine/sources")
 @require_role("admin")
 def ie_sources():
-    return render_template("ie_sources.html")
+    return redirect(url_for("pages.ie_config") + "#sources")
