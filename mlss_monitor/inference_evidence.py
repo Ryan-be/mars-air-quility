@@ -22,9 +22,9 @@ _CHANNEL_META: dict[str, dict] = {
     "pm1_current":         {"label": "PM1",         "unit": "µg/m³", "slope_field": "pm1_slope_1m",         "slope_thresh": 1.0},
     "pm25_current":        {"label": "PM2.5",       "unit": "µg/m³", "slope_field": "pm25_slope_1m",        "slope_thresh": 1.0},
     "pm10_current":        {"label": "PM10",        "unit": "µg/m³", "slope_field": "pm10_slope_1m",        "slope_thresh": 1.0},
-    "co_current":          {"label": "CO",          "unit": "ppb",    "slope_field": "co_slope_1m",          "slope_thresh": 2.0},
-    "no2_current":         {"label": "NO2",         "unit": "ppb",    "slope_field": "no2_slope_1m",         "slope_thresh": 2.0},
-    "nh3_current":         {"label": "NH3",         "unit": "ppb",    "slope_field": "nh3_slope_1m",         "slope_thresh": 2.0},
+    "co_current":          {"label": "CO (resistance)",          "unit": "kΩ",    "slope_field": "co_slope_1m",          "slope_thresh": 2.0},
+    "no2_current":         {"label": "NO2 (resistance)",         "unit": "kΩ",    "slope_field": "no2_slope_1m",         "slope_thresh": 2.0},
+    "nh3_current":         {"label": "NH3 (resistance)",         "unit": "kΩ",    "slope_field": "nh3_slope_1m",         "slope_thresh": 2.0},
     "vpd_kpa":             {"label": "VPD",         "unit": "kPa",    "slope_field": None,                   "slope_thresh": None},
 }
 

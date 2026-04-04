@@ -123,3 +123,16 @@ def test_action_single_channel_tvoc():
 def test_action_unknown_returns_generic():
     action = anomaly_action(model_id="nonexistent_model")
     assert action  # non-empty string, not blank
+
+
+def test_mics6814_channels_use_resistance_units():
+    """CO, NO2, NH3 must show kΩ units and (resistance) in labels — MICS6814 outputs resistance."""
+    from mlss_monitor.inference_evidence import _CHANNEL_META
+    for fv_key in ("co_current", "no2_current", "nh3_current"):
+        meta = _CHANNEL_META[fv_key]
+        assert meta["unit"] == "kΩ", (
+            f"{fv_key} unit should be kΩ (MICS6814 resistance), got {meta['unit']!r}"
+        )
+        assert "(resistance)" in meta["label"], (
+            f"{fv_key} label should include '(resistance)', got {meta['label']!r}"
+        )
