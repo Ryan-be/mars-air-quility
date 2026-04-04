@@ -39,3 +39,6 @@ event_bus = None
 
 # Detection / attribution engine (set by app.py after init)
 detection_engine = None
+
+from collections import deque
+shadow_log: deque = deque(maxlen=50)  # recent shadow-mode detection events
