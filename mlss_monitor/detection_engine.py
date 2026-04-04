@@ -106,9 +106,9 @@ class DetectionEngine:
             try:
                 channel_data: dict[str, list[float]] = {}
 
-                # Cap per-channel to last 1440 rows — enough to warm HalfSpaceTrees;
-                # more rows just waste startup time with no accuracy benefit.
-                _LIMIT = 1440
+                # Cap per-channel to last 300 rows — enough to meaningfully warm
+                # HalfSpaceTrees without blocking Flask startup for minutes.
+                _LIMIT = 300
 
                 # Fetch hot_tier columns (1s resolution, up to 60 min)
                 for col in _HOT_TIER_COLS:

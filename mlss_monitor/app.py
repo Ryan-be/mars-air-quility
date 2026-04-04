@@ -621,7 +621,10 @@ def main():
             _detection_engine.bootstrap_from_db(str(DB_FILE))
         except Exception as exc:
             log.warning("DetectionEngine.bootstrap_from_db failed: %s", exc)
-    Thread(target=_bootstrap, daemon=True).start()
+    # Delay bootstrap 20s so Flask can fully bind before the CPU-heavy
+    # river learn_one() calls compete for the GIL.
+    from threading import Timer
+    Timer(20, _bootstrap).start()
     if state.github_oauth:
         log.info("🔒 Auth ENABLED — GitHub OAuth")
         if state.ALLOWED_GITHUB_USER:

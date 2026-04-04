@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import pickle
+import time
 from pathlib import Path
 
 import yaml
@@ -132,9 +133,11 @@ class AnomalyDetector:
             if ch not in self._models:
                 continue
             model = self._models[ch]
-            for v in values:
+            for i, v in enumerate(values):
                 model.learn_one({"value": float(v)})
                 self._n_seen[ch] = self._n_seen.get(ch, 0) + 1
+                if i % 100 == 0:
+                    time.sleep(0)  # yield GIL to keep Flask responsive
             log.info(
                 "AnomalyDetector.bootstrap: fed %d readings into channel %r",
                 len(values),
