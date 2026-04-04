@@ -54,3 +54,16 @@ def sensor_history():
         for db_col, api_key in _DB_TO_API.items():
             channels[api_key].append(row.get(db_col))
     return jsonify({"timestamps": timestamps, "channels": channels})
+
+
+@api_history_bp.route("/api/history/baselines")
+def baselines():
+    engine = state.detection_engine
+    result: dict = {}
+    if engine and engine._anomaly_detector:
+        for ch in _BASELINE_CHANNELS:
+            result[ch] = engine._anomaly_detector.baseline(ch)
+    else:
+        result = {ch: None for ch in _BASELINE_CHANNELS}
+    result["anomaly_threshold_factor"] = _ANOMALY_THRESHOLD_FACTOR
+    return jsonify(result)
