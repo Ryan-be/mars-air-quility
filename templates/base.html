@@ -26,6 +26,45 @@
     .attribution-row { display:flex; align-items:flex-start; flex-wrap:wrap; gap:6px; margin:6px 0; }
     .attribution-label { font-size:0.8rem; color:var(--text-muted,#6b7280); padding-top:3px; }
     .runner-up { width:100%; font-size:0.78rem; color:var(--text-muted,#6b7280); margin-left:4px; }
+
+    /* ── Detections & Insights tab ── */
+    .di-card      { background:var(--card-bg,#fff); border-radius:10px; padding:16px; margin-bottom:16px; box-shadow:0 1px 4px rgba(0,0,0,0.06); }
+    .di-loading   { color:var(--text-muted,#6b7280); font-style:italic; }
+    .di-stat      { padding:12px 16px; font-size:0.95rem; color:var(--text-secondary,#374151); }
+    .di-sentence  { font-size:0.88rem; color:var(--text-muted,#6b7280); margin-top:8px; }
+    .window-selector { display:flex; gap:6px; margin-bottom:16px; }
+    .window-btn   { padding:6px 16px; border-radius:6px; border:1px solid var(--border,#e5e7eb); background:none; cursor:pointer; font-size:0.85rem; min-height:44px; }
+    .window-btn.active { background:var(--accent,#3b82f6); color:#fff; border-color:transparent; }
+    .trend-row    { display:flex; flex-wrap:wrap; gap:10px; margin-bottom:16px; }
+    .trend-tile   { flex:1; min-width:130px; border-radius:8px; padding:10px 12px; border:1.5px solid var(--border,#e5e7eb); }
+    .trend-green  { border-color:#22c55e; }
+    .trend-amber  { border-color:#f59e0b; }
+    .trend-red    { border-color:#ef4444; }
+    .trend-label  { font-size:0.72rem; color:var(--text-muted,#6b7280); text-transform:uppercase; letter-spacing:0.05em; }
+    .trend-value  { font-size:1.1rem; font-weight:700; margin:4px 0; }
+    .trend-change { font-size:0.82rem; font-weight:600; }
+    .trend-sentence { font-size:0.75rem; color:var(--text-muted,#6b7280); margin-top:4px; }
+    .fp-card      { border-left:3px solid #e5e7eb; padding:10px 14px; margin-bottom:10px; border-radius:0 6px 6px 0; }
+    .fp-header    { font-size:0.95rem; margin-bottom:4px; }
+    .fp-meta      { display:block; font-size:0.78rem; color:var(--text-muted,#6b7280); }
+    .fp-narrative { font-size:0.85rem; margin:6px 0 0; line-height:1.5; }
+    .badge-count  { background:var(--accent,#3b82f6); color:#fff; border-radius:999px; padding:1px 8px; font-size:0.72rem; font-weight:600; }
+    .model-card   { padding:10px 14px; margin-bottom:10px; border:1px solid var(--border,#e5e7eb); border-radius:6px; }
+    .model-desc   { font-size:0.8rem; color:var(--text-muted,#6b7280); margin:4px 0; }
+    .model-narrative { font-size:0.85rem; margin:0; line-height:1.5; }
+    .drift-card   { padding:8px 12px; margin-bottom:8px; background:#fef2f2; border-left:3px solid #ef4444; border-radius:0 6px 6px 0; font-size:0.85rem; }
+    .drift-shift  { font-weight:700; margin-left:8px; }
+    .analysis-panel { background:var(--card-bg,#fff); border-radius:10px; padding:14px; margin-top:12px; }
+    .analysis-section { margin-bottom:14px; }
+    .analysis-section h4 { font-size:0.85rem; margin:0 0 6px; color:var(--text-secondary,#374151); }
+    .muted        { color:var(--text-muted,#6b7280); font-size:0.85rem; }
+    .ev-row       { display:flex; align-items:center; gap:6px; margin-bottom:4px; font-size:0.85rem; }
+    .peak-row     { font-size:0.82rem; margin-bottom:4px; }
+    .info-icon    { cursor:help; opacity:0.6; font-size:0.8em; }
+    .overlay-toggle { display:flex; align-items:center; gap:6px; font-size:0.82rem; cursor:pointer; margin-bottom:8px; }
+    .sparkline-container { margin:12px 0; padding:10px; background:var(--card-bg,#fff); border-radius:8px; border:1px solid var(--border,#e5e7eb); }
+    .sparkline-header { font-size:0.82rem; color:var(--text-muted,#6b7280); margin-bottom:6px; }
+    .source-pill-sm { display:inline-flex; align-items:center; gap:3px; padding:1px 6px; border-radius:999px; font-size:0.72rem; background:#e5e7eb; }
   </style>
   <!-- Apply persisted theme before first paint to avoid flash -->
   <script>
