@@ -3,37 +3,37 @@ import pytest
 from database.db_logger import compute_detection_method
 
 
-def test_ml_event_types_return_ml():
-    for et in [
-        "anomaly_combustion_signature",
-        "anomaly_particle_distribution",
-        "anomaly_ventilation_quality",
-        "anomaly_gas_relationship",
-        "anomaly_thermal_moisture",
-    ]:
-        assert compute_detection_method(et) == "ml", f"Expected 'ml' for {et}"
+@pytest.mark.parametrize("event_type", [
+    "anomaly_combustion_signature",
+    "anomaly_particle_distribution",
+    "anomaly_ventilation_quality",
+    "anomaly_gas_relationship",
+    "anomaly_thermal_moisture",
+])
+def test_ml_event_types_return_ml(event_type):
+    assert compute_detection_method(event_type) == "ml"
 
 
-def test_statistical_event_types_return_statistical():
-    for et in [
-        "anomaly_tvoc", "anomaly_eco2", "anomaly_temperature",
-        "anomaly_humidity", "anomaly_pm25", "anomaly_pm1",
-        "anomaly_pm10", "anomaly_co", "anomaly_no2", "anomaly_nh3",
-    ]:
-        assert compute_detection_method(et) == "statistical", f"Expected 'statistical' for {et}"
+@pytest.mark.parametrize("event_type", [
+    "anomaly_tvoc", "anomaly_eco2", "anomaly_temperature",
+    "anomaly_humidity", "anomaly_pm25", "anomaly_pm1",
+    "anomaly_pm10", "anomaly_co", "anomaly_no2", "anomaly_nh3",
+])
+def test_statistical_event_types_return_statistical(event_type):
+    assert compute_detection_method(event_type) == "statistical"
 
 
-def test_rule_event_types_return_rule():
-    for et in [
-        "tvoc_spike", "eco2_danger", "eco2_elevated", "mould_risk",
-        "correlated_pollution", "sustained_poor_air",
-        "pm1_spike", "pm25_spike", "pm10_spike",
-        "temp_high", "temp_low", "humidity_high", "humidity_low",
-        "vpd_high", "vpd_low",
-        "rapid_tvoc_rise", "rapid_eco2_rise", "rapid_pm25_rise",
-        "hourly_summary", "daily_summary",
-    ]:
-        assert compute_detection_method(et) == "rule", f"Expected 'rule' for {et}"
+@pytest.mark.parametrize("event_type", [
+    "tvoc_spike", "eco2_danger", "eco2_elevated", "mould_risk",
+    "correlated_pollution", "sustained_poor_air",
+    "pm1_spike", "pm25_spike", "pm10_spike",
+    "temp_high", "temp_low", "humidity_high", "humidity_low",
+    "vpd_high", "vpd_low",
+    "rapid_tvoc_rise", "rapid_eco2_rise", "rapid_pm25_rise",
+    "hourly_summary", "daily_summary",
+])
+def test_rule_event_types_return_rule(event_type):
+    assert compute_detection_method(event_type) == "rule"
 
 
 def test_annotation_context_prefix_returns_rule():
@@ -43,6 +43,10 @@ def test_annotation_context_prefix_returns_rule():
 
 def test_unknown_event_type_returns_rule():
     assert compute_detection_method("totally_unknown_type") == "rule"
+
+
+def test_anomaly_unknown_suffix_returns_rule():
+    assert compute_detection_method("anomaly_some_new_sensor") == "rule"
 
 
 def test_get_inferences_includes_detection_method(db):

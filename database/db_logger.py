@@ -52,8 +52,6 @@ def compute_detection_method(event_type: str) -> str:
         suffix = event_type[len("anomaly_"):]
         if suffix in _STATISTICAL_SUFFIXES:
             return "statistical"
-    if event_type.startswith("annotation_context_"):
-        return "rule"
     return "rule"
 
 
