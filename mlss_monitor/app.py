@@ -641,12 +641,14 @@ def main():
     _fan_settings = get_fan_settings()
     state.fan_mode = "auto" if _fan_settings["enabled"] else "manual"
 
-    # Backfill any missing long-term inferences from historical data
-    try:
-        from mlss_monitor.inference_engine import run_startup_analysis
-        run_startup_analysis()
-    except Exception as e:
-        log.error("Startup analysis failed: %s", e)
+    # Backfill any missing long-term inferences from historical data (background)
+    def _startup_analysis():
+        try:
+            from mlss_monitor.inference_engine import run_startup_analysis
+            run_startup_analysis()
+        except Exception as e:
+            log.error("Startup analysis failed: %s", e)
+    Thread(target=_startup_analysis, daemon=True).start()
 
     Thread(target=_background_log, daemon=True).start()
     Thread(target=_weather_log_loop, daemon=True).start()
