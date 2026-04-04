@@ -34,10 +34,30 @@
     .fp-table col.col-floor   { width: 12%; }
     .fp-table col.col-sensors { width: 46%; }
     /* Anomaly Models table column widths */
-    .anomaly-table col.col-channel   { width: 30%; }
-    .anomaly-table col.col-readings  { width: 18%; }
-    .anomaly-table col.col-coldstart { width: 18%; }
-    .anomaly-table col.col-status    { width: 34%; }
+    .anomaly-table col.col-channel   { width: 25%; }
+    .anomaly-table col.col-readings  { width: 15%; }
+    .anomaly-table col.col-coldstart { width: 15%; }
+    .anomaly-table col.col-score     { width: 25%; }
+    .anomaly-table col.col-status    { width: 20%; }
+    /* Score bar */
+    .score-bar-wrap {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 120px;
+    }
+    .score-bar {
+      height: 10px;
+      border-radius: 5px;
+      transition: width 0.4s ease, background-color 0.4s ease;
+      min-width: 0;
+    }
+    .score-bar--green  { background: #22c55e; }
+    .score-bar--amber  { background: #f59e0b; }
+    .score-bar--red    { background: #ef4444; }
+    .score-bar--none   { background: #d1d5db; width: 4px !important; }
+    .score-label { font-size: 0.8rem; color: var(--text-muted, #6b7280); min-width: 32px; }
+    .status-elevated { color: #ef4444; font-weight: 600; }
   </style>
 {% endblock %}
 {% block topbar_controls %}
@@ -148,23 +168,33 @@
     <table class="insights-table anomaly-table">
       <colgroup>
         <col class="col-channel"><col class="col-readings">
-        <col class="col-coldstart"><col class="col-status">
+        <col class="col-coldstart"><col class="col-score"><col class="col-status">
       </colgroup>
       <thead>
         <tr>
           <th>Channel</th>
           <th>Readings</th>
           <th>Cold-start</th>
+          <th>
+            Current Score
+            <span class="info-icon" title="The anomaly score (0–1) shows how unusual the current sensor readings are compared to what this model has learned is normal. Scores above 0.75 trigger a detection event.">ⓘ</span>
+          </th>
           <th>Status</th>
         </tr>
       </thead>
       <tbody>
       {% for ch in anomaly %}
-        <tr>
+        <tr data-model-id="{{ ch.channel }}">
           <td style="font-family:monospace;">{{ ch.channel }}</td>
           <td>{{ ch.n_seen }}</td>
           <td>{{ ch.cold_start }}</td>
-          <td>
+          <td class="score-cell">
+            <div class="score-bar-wrap">
+              <div class="score-bar score-bar--none" style="width:0%"></div>
+              <span class="score-label">—</span>
+            </div>
+          </td>
+          <td class="status-cell">
             {% if ch.ready %}
               <span style="color:#2ecc71;">● Ready</span>
             {% else %}
@@ -197,5 +227,49 @@ document.getElementById('toggle-mode').addEventListener('click', function() {
     location.reload();
   });
 });
+</script>
+
+<script>
+(function () {
+  const es = new EventSource('/api/stream');
+
+  es.addEventListener('anomaly_scores', function (e) {
+    const payload = JSON.parse(e.data);
+    const scores = payload.scores || {};
+
+    Object.entries(scores).forEach(function ([modelId, score]) {
+      const row = document.querySelector(`tr[data-model-id="${modelId}"]`);
+      if (!row) return;
+
+      const bar   = row.querySelector('.score-bar');
+      const label = row.querySelector('.score-label');
+      const statusCell = row.querySelector('.status-cell');
+
+      if (score === null || score === undefined) {
+        bar.style.width = '4px';
+        bar.className = 'score-bar score-bar--none';
+        label.textContent = 'Learning\u2026';
+        return;
+      }
+
+      const pct = Math.round(score * 100);
+      bar.style.width = pct + '%';
+      label.textContent = score.toFixed(2);
+
+      if (score >= 0.75) {
+        bar.className = 'score-bar score-bar--red';
+        if (statusCell) {
+          statusCell.innerHTML = '<span class="status-elevated">\u26a0 Elevated</span>';
+        }
+      } else if (score >= 0.60) {
+        bar.className = 'score-bar score-bar--amber';
+      } else {
+        bar.className = 'score-bar score-bar--green';
+      }
+    });
+  });
+
+  es.onerror = function () {};
+})();
 </script>
 {% endblock %}
