@@ -2,16 +2,209 @@
 {% block title %}MLSS – Anomaly Settings{% endblock %}
 {% block extra_css %}
   <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+  <style>
+    .anomaly-table { width:100%; border-collapse:collapse; font-size:.85rem; }
+    .anomaly-table th, .anomaly-table td { padding:.4rem .6rem; border-bottom:1px solid #333; }
+    .anomaly-table thead th { text-align:left; border-bottom:2px solid #555; }
+    .badge-ready    { background:#1b5e20; color:#fff; border-radius:3px; padding:1px 6px; font-size:.75rem; }
+    .badge-learning { background:#4a3800; color:#fff; border-radius:3px; padding:1px 6px; font-size:.75rem; }
+    .status-msg { font-size:.85rem; color:#4caf50; min-height:1.2em; margin:.5rem 0; }
+    .status-err { color:#f44336; }
+    .global-form .field-row { align-items: flex-end; }
+  </style>
 {% endblock %}
 {% block topbar_controls %}
-  <a href="/insights-engine">← Back to Insights Engine</a>
+  <a href="/insights-engine">&#8592; Back to Insights Engine</a>
 {% endblock %}
 
 {% block content %}
-<div class="settings-grid" style="max-width:900px;margin:1.5rem auto;padding:0 1rem;">
-  <div class="card">
-    <h3>📡 Anomaly Settings</h3>
-    <p style="color:#888;margin-top:.75rem;">Loading...</p>
+<div style="max-width:900px;margin:1.5rem auto;padding:0 1rem;">
+
+  <!-- Global settings card -->
+  <div class="card" style="margin-bottom:1rem;">
+    <h3>&#9881;&#65039; Global Anomaly Settings</h3>
+    <p class="card-desc">
+      Score threshold controls how sensitive the detector is (0&thinsp;=&thinsp;very sensitive, 1&thinsp;=&thinsp;never fires).
+      Cold-start count is the number of readings each channel must accumulate before its model is considered ready.
+    </p>
+    <div id="status-global" class="status-msg"></div>
+    <div class="global-form">
+      <div class="field-row" style="max-width:480px;gap:.75rem;">
+        <div class="field">
+          <label for="threshold-input">Score threshold (0&ndash;1)</label>
+          <input type="number" id="threshold-input" min="0" max="1" step="0.01" value="0.70">
+        </div>
+        <div class="field">
+          <label for="cold-start-input">Cold-start readings</label>
+          <input type="number" id="cold-start-input" min="0" max="100000" step="1" value="1440">
+        </div>
+      </div>
+      <div style="margin-top:.75rem;">
+        <button class="btn-save" style="width:auto;padding:.5rem 1.5rem;" onclick="saveGlobal()">Save</button>
+      </div>
+    </div>
   </div>
+
+  <!-- Per-channel table card -->
+  <div class="card">
+    <h3>&#128202; Channel Status</h3>
+    <p class="card-desc">
+      EMA values are the exponential moving averages used internally by each channel&rsquo;s anomaly model.
+      Reset a channel if its model was trained on faulty data.
+      The table refreshes automatically every 30&thinsp;s.
+    </p>
+    <div id="status-channel" class="status-msg"></div>
+    <table class="anomaly-table" id="anomaly-table">
+      <thead>
+        <tr>
+          <th>Channel</th>
+          <th>Readings seen</th>
+          <th>Cold-start target</th>
+          <th>Status</th>
+          <th>EMA value</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="anomaly-body">
+        <tr><td colspan="6" style="color:#888;">Loading&hellip;</td></tr>
+      </tbody>
+    </table>
+  </div>
+
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── Utility ─────────────────────────────────────────────────────────────────
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function showStatus(id, msg, isError) {
+  var el = document.getElementById(id);
+  el.textContent = msg;
+  el.className = 'status-msg' + (isError ? ' status-err' : '');
+  setTimeout(function () {
+    el.textContent = '';
+    el.className = 'status-msg';
+  }, 4000);
+}
+
+// ── Load / render ────────────────────────────────────────────────────────────
+
+function loadAnomalyData() {
+  fetch('/api/insights-engine/anomaly')
+    .then(function (resp) {
+      if (!resp.ok) {
+        showStatus('status-channel', 'Failed to load anomaly data', true);
+        return null;
+      }
+      return resp.json();
+    })
+    .then(function (data) {
+      if (!data) return;
+
+      // Populate global fields (only when not actively editing to avoid clobbering)
+      if (document.activeElement !== document.getElementById('threshold-input')) {
+        document.getElementById('threshold-input').value = data.score_threshold;
+      }
+      if (document.activeElement !== document.getElementById('cold-start-input')) {
+        document.getElementById('cold-start-input').value = data.cold_start_readings;
+      }
+
+      // Rebuild channel table
+      var tbody = document.getElementById('anomaly-body');
+      tbody.innerHTML = '';
+      var channels = data.channels || [];
+      if (channels.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" style="color:#888;">No channels configured.</td></tr>';
+        return;
+      }
+      channels.forEach(function (ch) {
+        var badge = ch.ready
+          ? '<span class="badge-ready">Ready</span>'
+          : '<span class="badge-learning">Learning (' + ch.n_seen.toLocaleString() + '&thinsp;/&thinsp;' + ch.cold_start.toLocaleString() + ')</span>';
+        var ema = ch.live_ema != null ? Number(ch.live_ema).toFixed(4) : '&mdash;';
+        var tr = document.createElement('tr');
+        tr.setAttribute('data-channel', ch.channel);
+        tr.innerHTML =
+          '<td><code>' + escHtml(ch.channel) + '</code></td>' +
+          '<td>' + ch.n_seen.toLocaleString() + '</td>' +
+          '<td>' + ch.cold_start.toLocaleString() + '</td>' +
+          '<td>' + badge + '</td>' +
+          '<td style="font-family:monospace;">' + ema + '</td>' +
+          '<td><button class="btn-reset" onclick="resetChannel(\'' + escHtml(ch.channel) + '\')">Reset Model</button></td>';
+        tbody.appendChild(tr);
+      });
+    })
+    .catch(function (err) {
+      showStatus('status-channel', 'Error: ' + err, true);
+    });
+}
+
+// ── Save global settings ─────────────────────────────────────────────────────
+
+function saveGlobal() {
+  var thresholdVal = parseFloat(document.getElementById('threshold-input').value);
+  var coldStartVal = parseInt(document.getElementById('cold-start-input').value, 10);
+
+  if (isNaN(thresholdVal) || thresholdVal < 0 || thresholdVal > 1) {
+    showStatus('status-global', 'Score threshold must be between 0 and 1', true);
+    return;
+  }
+  if (isNaN(coldStartVal) || coldStartVal < 0) {
+    showStatus('status-global', 'Cold-start readings must be a non-negative integer', true);
+    return;
+  }
+
+  fetch('/api/insights-engine/anomaly', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({score_threshold: thresholdVal, cold_start_readings: coldStartVal}),
+  })
+    .then(function (resp) { return resp.json().then(function (data) { return {ok: resp.ok, data: data}; }); })
+    .then(function (r) {
+      if (r.ok) {
+        showStatus('status-global', r.data.message || 'Saved');
+        loadAnomalyData();
+      } else {
+        showStatus('status-global', r.data.error || 'Save failed', true);
+      }
+    })
+    .catch(function (err) {
+      showStatus('status-global', 'Error: ' + err, true);
+    });
+}
+
+// ── Reset a channel model ────────────────────────────────────────────────────
+
+function resetChannel(channel) {
+  if (!confirm('Reset ' + channel + ' model? This will delete learned history.')) return;
+
+  fetch('/api/insights-engine/anomaly/' + encodeURIComponent(channel) + '/reset', {method: 'POST'})
+    .then(function (resp) { return resp.json().then(function (data) { return {ok: resp.ok, data: data}; }); })
+    .then(function (r) {
+      if (r.ok) {
+        showStatus('status-channel', r.data.message || 'Reset');
+        loadAnomalyData();
+      } else {
+        showStatus('status-channel', r.data.error || 'Reset failed', true);
+      }
+    })
+    .catch(function (err) {
+      showStatus('status-channel', 'Error: ' + err, true);
+    });
+}
+
+// ── Bootstrap ────────────────────────────────────────────────────────────────
+
+loadAnomalyData();
+setInterval(loadAnomalyData, 30000);  // auto-refresh every 30 s
+</script>
 {% endblock %}
