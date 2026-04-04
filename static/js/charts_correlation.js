@@ -233,6 +233,11 @@ function _renderBrushChart(data, overlayShapes, hoverTrace) {
     const dateStr = new Date(x0).toLocaleDateString([], { day: "numeric", month: "short" });
     document.getElementById("corrRangeLabel").textContent =
       `Showing: ${dateStr} ${fmt(x0)} – ${fmt(x1)} (${subset.length} readings)`;
+
+    // Load ML-aware analysis panel
+    const zStart = new Date(x0).toISOString();
+    const zEnd   = new Date(x1).toISOString();
+    _loadAnalysisPanel(zStart, zEnd);
   });
 }
 
@@ -679,6 +684,69 @@ function _renderInferencePanel(subset, fullData) {
       <div class="corr-insight-body">${c.html}</div>
     </div>
   `).join("");
+}
+
+// ── ML-aware analysis panel ──────────────────────────────────────────────────
+
+let _corrBaselines = {};
+
+async function _loadAnalysisPanel(start, end) {
+  const panel   = document.getElementById('corrAnalysisPanel');
+  const loading = document.getElementById('corrAnalysisLoading');
+  const content = document.getElementById('corrAnalysisContent');
+  if (!panel) return;
+  panel.style.display = 'block';
+  loading.style.display = 'block';
+  content.style.display = 'none';
+  try {
+    const [ctxResp, blResp, sensorResp] = await Promise.all([
+      fetch(`/api/history/ml-context?start=${start}&end=${end}`),
+      fetch('/api/history/baselines'),
+      fetch(`/api/history/sensor?start=${start}&end=${end}`),
+    ]);
+    const ctx = await ctxResp.json();
+    _corrBaselines = await blResp.json();
+    const sensorData = await sensorResp.json();
+    loading.style.display = 'none';
+    content.style.display = 'block';
+
+    const evList = document.getElementById('corrEventsList');
+    if (ctx.inferences && ctx.inferences.length > 0) {
+      evList.innerHTML = ctx.inferences.map(function (inf) {
+        const chipFn = typeof renderDetectionChip === 'function';
+        const chip = chipFn ? renderDetectionChip(inf.detection_method || 'rule') : `<span>[${inf.detection_method||'rule'}]</span>`;
+        return `<div class="ev-row">${chip} ${inf.title}</div>`;
+      }).join('');
+    } else {
+      evList.innerHTML = '<span class="muted">No detections in this window.</span>';
+    }
+
+    document.getElementById('corrComovement').textContent = ctx.comovement_summary || 'No strong correlations detected.';
+
+    const activeChannels = Array.from(document.querySelectorAll('.channel-chip[data-group].active')).map(c => c.dataset.channel);
+    const peakRows = activeChannels.map(function (ch) {
+      const vals = (sensorData.channels && sensorData.channels[ch] || []).filter(v => v != null);
+      if (!vals.length) return null;
+      const peak = Math.max(...vals);
+      const baseline = _corrBaselines[ch];
+      const label = CORR_LABELS[ch] || ch;
+      const ratioStr = baseline ? `${(peak/baseline).toFixed(1)}\u00d7 baseline (${baseline.toFixed(1)})` : 'Baseline not yet available.';
+      return `<div class="peak-row"><strong>${label}:</strong> peak ${peak.toFixed(1)} \u2014 ${ratioStr}</div>`;
+    }).filter(Boolean);
+    document.getElementById('corrPeakBaseline').innerHTML = peakRows.length ? peakRows.join('') : '<span class="muted">No data.</span>';
+
+    const attrSection = document.getElementById('corrAttributionSummarySection');
+    const attrEl = document.getElementById('corrAttributionSummary');
+    if (ctx.inferences && ctx.inferences.length >= 2 && ctx.dominant_source) {
+      attrSection.style.display = 'block';
+      const dominated = ctx.inferences.filter(i => i.attribution_source === ctx.dominant_source).length;
+      attrEl.textContent = `${dominated} of ${ctx.inferences.length} events attributed to ${ctx.dominant_source}.`;
+    } else {
+      attrSection.style.display = 'none';
+    }
+  } catch (e) {
+    loading.textContent = 'Could not load analysis.';
+  }
 }
 
 // ── Anomaly event overlay ────────────────────────────────────────────────────
