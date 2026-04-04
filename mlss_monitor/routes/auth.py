@@ -98,6 +98,7 @@ def github_callback():
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _set_session(username: str, role: str, user_id):
+    session.permanent   = True   # survive browser close / service restart
     session["logged_in"] = True
     session["user"]      = username
     session["user_role"] = role

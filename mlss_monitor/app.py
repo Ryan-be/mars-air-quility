@@ -70,6 +70,7 @@ LOG_INTERVAL = int(config.get("LOG_INTERVAL", "10"))
 FAN_KASA_SMART_PLUG_IP = config.get("FAN_KASA_SMART_PLUG_IP", "192.168.1.63")
 SECRET_KEY = config.get("SECRET_KEY", "mlss-dev-key-change-me-in-production")
 app.secret_key = SECRET_KEY
+app.permanent_session_lifetime = timedelta(days=30)
 
 # ── HTTPS / TLS ──────────────────────────────────────────────────────────────
 HTTPS_ENABLED = str(config.get("HTTPS_ENABLED", "true")).lower() == "true"
@@ -135,6 +136,9 @@ def check_auth():
         and request.endpoint not in _PUBLIC_ENDPOINTS
         and not session.get("logged_in")
     ):
+        if request.path.startswith("/api/"):
+            from flask import jsonify as _jsonify
+            return _jsonify({"error": "Unauthorised", "login_required": True}), 401
         return redirect(url_for("auth.login"))
     return None
 
