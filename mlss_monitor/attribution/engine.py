@@ -75,11 +75,11 @@ class AttributionEngine:
         return self._config_path.parent.parent / "data" / "classifier.pkl"
 
     @property
-    def valid_tags(self) -> frozenset:
+    def valid_tags(self) -> frozenset[str]:
         """Frozenset of canonical tag IDs derived from loaded fingerprints."""
         return frozenset(fp.id for fp in self._fingerprints)
 
-    def tags_with_labels(self) -> list:
+    def tags_with_labels(self) -> list[dict]:
         """Return [{"id": ..., "label": ...}, ...] for all loaded fingerprints."""
         return [{"id": fp.id, "label": fp.label} for fp in self._fingerprints]
 
