@@ -100,20 +100,20 @@ export async function renderCorrelationCharts(data) {
       _renderBrushChart(_fullData, _corrOverlayShapes.length ? _corrOverlayShapes : undefined);
       _renderScatterCharts(_fullData);
       _renderInferencePanel(_fullData, _fullData);
-        
-        // Hide analysis panel and range tagging when resetting to full range
-        const analysisPanel = document.getElementById('corrAnalysisPanel');
-        if (analysisPanel) {
-          analysisPanel.style.display = 'none';
-        }
-        const tagSection = document.getElementById('corrRangeTagSection');
-        if (tagSection) {
-          tagSection.style.display = 'none';
-        }
-        
-        document.getElementById("corrRangeLabel").textContent = "Showing: full range";
-        resetBtn.textContent = "Reset to full range";
-        resetBtn.disabled = false;
+      
+      // Hide analysis panel and range tagging when resetting to full range
+      const analysisPanel = document.getElementById('corrAnalysisPanel');
+      if (analysisPanel) {
+        analysisPanel.style.display = 'none';
+      }
+      const tagSection = document.getElementById('corrRangeTagSection');
+      if (tagSection) {
+        tagSection.style.display = 'none';
+      }
+      
+      document.getElementById("corrRangeLabel").textContent = "Showing: full range";
+      resetBtn.textContent = "Reset to full range";
+      resetBtn.disabled = false;
       });
     };
   }
