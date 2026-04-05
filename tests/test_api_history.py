@@ -231,6 +231,11 @@ def test_range_tag_endpoint(app_client, db):
     assert inference is not None
     assert inference["event_type"] == "annotation_context_user_range"
     assert inference["title"] == "User-tagged event"
+    assert isinstance(inference["evidence"], dict)
+    assert inference["evidence"]["feature_vector"]["tvoc_current"] == 200.0
+    assert inference["evidence"]["feature_vector"]["eco2_current"] == 500.0
+    assert isinstance(inference["evidence"]["readings"], list)
+    assert len(inference["evidence"]["readings"]) == 3
 
     # Verify the tag was added
     tags = get_inference_tags(data["id"])

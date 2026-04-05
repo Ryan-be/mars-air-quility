@@ -557,6 +557,38 @@ function openInferenceDialog(id) {
     return rows.join('');
   }
 
+  function _renderRangeReadingsEvidence(evidence) {
+    const readings = Array.isArray(evidence.readings) ? evidence.readings : [];
+    if (!readings.length) return '';
+
+    const latest = readings[readings.length - 1];
+    const mapping = [
+      ['tvoc_ppb', 'TVOC', 'ppb', 'tvoc_baseline'],
+      ['eco2_ppm', 'eCO₂', 'ppm', 'eco2_baseline'],
+      ['temperature_c', 'Temperature', '°C', 'temperature_baseline'],
+      ['humidity_pct', 'Humidity', '%', 'humidity_baseline'],
+      ['pm1_ug_m3', 'PM1', 'µg/m³', 'pm1_baseline'],
+      ['pm25_ug_m3', 'PM2.5', 'µg/m³', 'pm25_baseline'],
+      ['pm10_ug_m3', 'PM10', 'µg/m³', 'pm10_baseline'],
+      ['co_ppb', 'CO (resistance)', 'Ω', 'co_baseline'],
+      ['no2_ppb', 'NO₂ (resistance)', 'Ω', 'no2_baseline'],
+      ['nh3_ppb', 'NH₃ (resistance)', 'Ω', 'nh3_baseline'],
+    ];
+
+    const summary = `<div class="inf-ev-row"><span class="fd-label">Selected range</span><span class="fd-value">${readings.length} readings from ${new Date(readings[0].timestamp).toLocaleString()} to ${new Date(latest.timestamp).toLocaleString()}</span></div>`;
+    const rows = mapping.map(([key, label, unit, baselineKey]) => {
+      const value = latest[key];
+      if (value == null) return null;
+      const baseline = evidence.feature_vector ? evidence.feature_vector[baselineKey] : null;
+      const status = baseline != null ? (value > baseline ? 'above baseline' : value < baseline ? 'below baseline' : 'at baseline') : '';
+      const statusText = status ? ` (${status})` : '';
+      const baselineText = baseline != null ? ` / baseline ${baseline} ${unit}` : '';
+      return `<div class="inf-ev-row"><span class="fd-label">${label}</span><span class="fd-value">${value} ${unit}${baselineText}${statusText}</span></div>`;
+    }).filter(Boolean);
+
+    return summary + rows.join('');
+  }
+
   // Evidence section
   const evEl  = document.getElementById('infEvidence');
   const thSec = document.getElementById('infThresholdsSection');
@@ -576,6 +608,8 @@ function openInferenceDialog(id) {
           '<span class="fd-value">' + s.value + ' ' + s.unit + ' <span class="ev-trend">' + arrow + '</span></span>' +
           ratio + '</div>';
       }).join('');
+    } else if (inf.evidence.readings && Array.isArray(inf.evidence.readings) && inf.evidence.readings.length > 0) {
+      evEl.innerHTML = _renderRangeReadingsEvidence(inf.evidence);
     } else if (inf.evidence.feature_vector && typeof inf.evidence.feature_vector === 'object') {
       const featureHtml = _renderFeatureVectorEvidence(inf.evidence.feature_vector);
       evEl.innerHTML = featureHtml || 'No detailed evidence available.';

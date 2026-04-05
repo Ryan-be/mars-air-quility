@@ -281,6 +281,7 @@ def tag_range():
     evidence.setdefault("range_start", start)
     evidence.setdefault("range_end", end)
     evidence.setdefault("feature_vector", fv_result["feature_vector"])
+    evidence.setdefault("readings", fv_result["readings"])
 
     inference_id = save_inference(
         event_type=event_type,
