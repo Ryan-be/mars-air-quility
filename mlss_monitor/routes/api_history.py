@@ -295,10 +295,29 @@ def narratives():
 
     dom_sentence = (f"{dominant.capitalize()} accounts for {summary[dominant]} of {len(window)} events." if dominant and window else "No events were attributed to a source in this period.")
 
+    method_breakdown: dict = {}
+    for inf in window:
+        m = inf.get("detection_method", "rule") or "rule"
+        method_breakdown[m] = method_breakdown.get(m, 0) + 1
+
+    window_infs_slim = []
+    for inf in sorted(window, key=lambda x: x.get("created_at", ""), reverse=True)[:100]:
+        window_infs_slim.append({
+            "id": inf.get("id"),
+            "event_type": inf.get("event_type", ""),
+            "title": inf.get("title", ""),
+            "severity": inf.get("severity", ""),
+            "confidence": inf.get("confidence"),
+            "created_at": inf.get("created_at", ""),
+            "detection_method": inf.get("detection_method", "rule") or "rule",
+        })
+
     return jsonify({
         "period_summary":period_summary,"trend_indicators":trend_indicators,
         "longest_clean_hours":clean["hours"],"longest_clean_start":clean["start"],"longest_clean_end":clean["end"],
         "attribution_breakdown":summary,"dominant_source_sentence":dom_sentence,
         "fingerprint_narratives":fp_narratives,"anomaly_model_narratives":model_narratives,
         "pattern_heatmap":heatmap,"pattern_sentence":pattern_sentence,"drift_flags":drift_flags,
+        "detection_method_breakdown":method_breakdown,"total_events":len(window),
+        "inferences":window_infs_slim,
     })

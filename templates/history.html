@@ -335,6 +335,7 @@
     <div class="di-stat" id="diLongestClean"></div>
     <div class="di-card" id="diAttributionBreakdown">
       <h3>Attribution Breakdown <span class="info-icon" title="Attribution assigns detected events to likely real-world causes.">ⓘ</span></h3>
+      <div id="diAttributionSubtitle" class="di-subtitle"></div>
       <div id="diDonutChart" style="height:220px;"></div>
       <div id="diDominantSentence" class="di-sentence"></div>
     </div>
@@ -355,6 +356,10 @@
       <h3>Sensor Normal Bands <span class="info-icon" title="The shaded band shows the system's learned normal range.">ⓘ</span></h3>
       <div class="channel-toggles" id="diToggles"></div>
       <div id="diBandsChart" style="height:300px;"></div>
+    </div>
+    <div id="diEventsList" class="di-card" style="display:none;">
+      <h3>Detection Events <span id="diEventsCount" class="badge-count"></span></h3>
+      <div id="diEventsScroll" style="max-height:400px;overflow-y:auto;"></div>
     </div>
     <div id="diDriftFlags"></div>
   </div>

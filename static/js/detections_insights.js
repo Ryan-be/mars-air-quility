@@ -18,6 +18,9 @@ const DI = (function () {
     cooking:'#f97316', combustion:'#ef4444', external_pollution:'#6b7280',
   };
 
+  const _METHOD_COLOURS = { rule:'#6366f1', statistical:'#f59e0b', ml:'#10b981' };
+  const _METHOD_LABELS  = { rule:'Rule-based', statistical:'Statistical', ml:'ML Model' };
+
   // CORR_CHANNELS etc. are defined in charts_correlation.js which is loaded first
   // If not available, define fallbacks
   function _corrChannels() {
@@ -83,6 +86,7 @@ const DI = (function () {
     _renderAnomalyModelNarratives();
     _renderPatternHeatmap();
     _renderDriftFlags();
+    _renderEventsList();
     // Defer the normal bands chart — it makes its own fetch() for sensor history,
     // so schedule it after the main sections have painted.
     requestAnimationFrame(function () { _renderNormalBandsChart(); });
@@ -90,10 +94,17 @@ const DI = (function () {
 
   function _renderPeriodSummary() {
     const el = document.getElementById('diPeriodSummary');
-    if (el) el.innerHTML = `<p>${_narratives.period_summary}</p>`;
+    if (!el) return;
+    const total = _narratives.total_events || 0;
+    let summary = _narratives.period_summary || '';
+    if (total > 0) {
+      summary = summary.replace(/(\d+)\s*(detection\s+)?event(s?)/gi, function(match) {
+        return '<a href="#diEventsList" class="di-events-link" onclick="document.getElementById('diEventsList').scrollIntoView({behavior:'smooth'});return false;">' + match + '</a>';
+      });
+    }
+    el.innerHTML = '<p>' + summary + '</p>';
   }
-
-  function _renderTrendIndicators() {
+    function _renderTrendIndicators() {
     const el = document.getElementById('diTrendIndicators');
     if (!el) return;
     el.innerHTML = (_narratives.trend_indicators || []).map(function (t) {
@@ -128,14 +139,38 @@ const DI = (function () {
     if (sentEl) sentEl.textContent = _narratives.dominant_source_sentence || '';
     const donutDiv = document.getElementById('diDonutChart');
     if (!donutDiv) return;
+
+    const totalEvents = _narratives.total_events || 0;
+
     if (!sources.length) {
-      Plotly.newPlot(donutDiv, [{ values:[1], labels:['No events'], type:'pie', hole:0.5, marker:{colors:['#d1d5db']}, hoverinfo:'none', textinfo:'label' }], { showlegend:false, margin:{t:0,b:0,l:0,r:0}, paper_bgcolor:'transparent', plot_bgcolor:'transparent' }, { displayModeBar:false });
+      const methodBreakdown = _narratives.detection_method_breakdown || {};
+      const methods = Object.keys(methodBreakdown);
+      if (totalEvents > 0 && methods.length) {
+        const subtitleEl = document.getElementById('diAttributionSubtitle');
+        if (subtitleEl) subtitleEl.textContent = 'Breakdown by detection method (no source attribution yet)';
+        Plotly.newPlot(
+          donutDiv,
+          [{ values: methods.map(m => methodBreakdown[m]),
+             labels: methods.map(m => _METHOD_LABELS[m] || m),
+             type: 'pie', hole: 0.5,
+             marker: { colors: methods.map(m => _METHOD_COLOURS[m] || '#6b7280') },
+             hovertemplate: '%{label}: %{value} events<extra></extra>',
+             textinfo: 'label' }],
+          { showlegend: false, margin: {t:0,b:0,l:0,r:0}, paper_bgcolor: 'transparent', plot_bgcolor: 'transparent' },
+          { displayModeBar: false, responsive: true }
+        );
+      } else {
+        const subtitleEl = document.getElementById('diAttributionSubtitle');
+        if (subtitleEl) subtitleEl.textContent = '';
+        Plotly.newPlot(donutDiv, [{ values:[1], labels:["No events"], type:"pie", hole:0.5, marker:{colors:["#d1d5db"]}, hoverinfo:"none", textinfo:"label" }], { showlegend:false, margin:{t:0,b:0,l:0,r:0}, paper_bgcolor:"transparent", plot_bgcolor:"transparent" }, { displayModeBar:false });
+      }
       return;
     }
-    Plotly.newPlot(donutDiv, [{ values:sources.map(s=>breakdown[s]), labels:sources, type:'pie', hole:0.5, marker:{colors:sources.map(s=>_SOURCE_COLOURS[s]||'#6b7280')}, hovertemplate:'%{label}: %{value} events<extra></extra>', textinfo:'label' }], { showlegend:false, margin:{t:0,b:0,l:0,r:0}, paper_bgcolor:'transparent', plot_bgcolor:'transparent' }, { displayModeBar:false, responsive:true });
+    const subtitleEl = document.getElementById('diAttributionSubtitle');
+    if (subtitleEl) subtitleEl.textContent = '';
+    Plotly.newPlot(donutDiv, [{ values:sources.map(s=>breakdown[s]), labels:sources, type:"pie", hole:0.5, marker:{colors:sources.map(s=>_SOURCE_COLOURS[s]||"#6b7280")}, hovertemplate:"%{label}: %{value} events<extra></extra>", textinfo:"label" }], { showlegend:false, margin:{t:0,b:0,l:0,r:0}, paper_bgcolor:"transparent", plot_bgcolor:"transparent" }, { displayModeBar:false, responsive:true });
   }
-
-  function _renderFingerprintNarratives() {
+    function _renderFingerprintNarratives() {
     const el = document.getElementById('diFingerprintCards');
     if (!el) return;
     const fps = (_narratives.fingerprint_narratives || []).slice().sort((a,b) => b.event_count - a.event_count);
@@ -222,7 +257,40 @@ const DI = (function () {
     ).join('');
   }
 
-  function _renderDriftFlags() {
+  function _renderEventsList() {
+    const section = document.getElementById('diEventsList');
+    const countEl = document.getElementById('diEventsCount');
+    const scrollEl = document.getElementById('diEventsScroll');
+    if (!section || !scrollEl) return;
+    const inferences = _narratives.inferences || [];
+    if (!inferences.length) { section.style.display = 'none'; return; }
+    section.style.display = 'block';
+    if (countEl) countEl.textContent = inferences.length;
+
+    const SEV_COLOUR = { critical:'#ef4444', high:'#f97316', medium:'#f59e0b', low:'#22c55e', info:'#6b7280' };
+    const SEV_BG     = { critical:'#fef2f2', high:'#fff7ed', medium:'#fffbeb', low:'#f0fdf4', info:'#f9fafb' };
+
+    scrollEl.innerHTML = inferences.map(function (inf) {
+      const sev = (inf.severity || 'info').toLowerCase();
+      const method = inf.detection_method || 'rule';
+      const methodLabel = _METHOD_LABELS[method] || method;
+      const methodColour = _METHOD_COLOURS[method] || '#6b7280';
+      const sevColour = SEV_COLOUR[sev] || '#6b7280';
+      const sevBg = SEV_BG[sev] || '#f9fafb';
+      const ts = inf.created_at ? new Date(inf.created_at).toLocaleString(undefined, {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '';
+      const conf = inf.confidence != null ? '<span class="ev-conf">' + Math.round(inf.confidence * 100) + '%</span>' : '';
+      const canOpen = typeof openInferenceDialog === 'function' && inf.id;
+      const clickAttr = canOpen ? 'onclick="openInferenceDialog(' + inf.id + ')" style="cursor:pointer;"' : '';
+      return '<div class="ev-card" ' + clickAttr + '>' +
+        '<span class="ev-sev-badge" style="background:' + sevBg + ';color:' + sevColour + ';border:1px solid ' + sevColour + ';">' + sev + '</span>' +
+        '<span class="ev-method-chip" style="background:' + methodColour + '20;color:' + methodColour + ';border:1px solid ' + methodColour + '40;">' + methodLabel + '</span>' +
+        '<span class="ev-title">' + (inf.title || inf.event_type || 'Event') + '</span>' +
+        '<span class="ev-ts">' + ts + '</span>' +
+        conf + '</div>';
+    }).join('');
+  }
+
+    function _renderDriftFlags() {
     const el = document.getElementById('diDriftFlags');
     if (!el) return;
     const flags = _narratives.drift_flags || [];
