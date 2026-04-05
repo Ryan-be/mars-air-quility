@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import pickle
 from pathlib import Path
 
 from river import linear_model, preprocessing  # pylint: disable=import-error
 
+from database.db_logger import get_inferences  # pylint: disable=import-outside-toplevel
 from mlss_monitor.attribution.loader import Fingerprint, load_fingerprints
 from mlss_monitor.attribution.scorer import combine, sensor_score, temporal_score
 from mlss_monitor.feature_vector import FeatureVector
@@ -15,6 +17,7 @@ log = logging.getLogger(__name__)
 
 # If the runner-up confidence is within this delta of the primary, it is surfaced.
 _RUNNER_UP_DELTA = 0.15
+_READY_THRESHOLD = 5  # minimum tagged samples for a label to be "ready"
 
 
 @dataclasses.dataclass
@@ -45,9 +48,31 @@ class AttributionEngine:
             len(self._fingerprints),
             self._config_path.name,
         )
-        # Train the River classifier from existing tagged events at startup,
-        # so the model is not empty after a restart.
+        # Try loading persisted classifier; fall back to DB retraining.
+        pkl = self._pkl_path
+        if pkl.exists():
+            try:
+                with open(pkl, "rb") as fh:
+                    self._ml_model = pickle.load(fh)
+                log.info("AttributionEngine: loaded classifier from disk (%s)", pkl.name)
+                return
+            except Exception as exc:
+                log.warning(
+                    "AttributionEngine: corrupt pickle %s (%s) — retraining from DB",
+                    pkl, exc,
+                )
+                try:
+                    pkl.unlink()
+                except OSError:
+                    pass
         self.train_on_tags()
+
+    @property
+    def _pkl_path(self) -> Path:
+        """Path to the persisted classifier: <project_root>/data/classifier.pkl."""
+        data_dir = self._config_path.parent.parent / "data"
+        data_dir.mkdir(exist_ok=True)
+        return data_dir / "classifier.pkl"
 
     def reload(self) -> None:
         """Thread-safe hot-reload: re-read fingerprints.yaml.
@@ -155,7 +180,6 @@ class AttributionEngine:
         and logs confusion matrix.
         """
         try:
-            from database.db_logger import get_inferences  # pylint: disable=import-outside-toplevel
             # Get recent inferences with tags
             rows = get_inferences(limit=100, include_dismissed=False)
             tagged = [r for r in rows if r.get("tags")]
@@ -194,7 +218,6 @@ class AttributionEngine:
     def train_on_tags(self):
         """Train ML model on tagged events."""
         try:
-            from database.db_logger import get_inferences  # pylint: disable=import-outside-toplevel
             rows = get_inferences(limit=1000, include_dismissed=False)
             tagged = [r for r in rows if r.get("tags")]
             trained = 0
@@ -212,6 +235,13 @@ class AttributionEngine:
                     trained += 1
             if trained:
                 log.info("AttributionEngine: trained on %d tagged samples", trained)
+            # Persist model to disk so restarts don't lose learned state.
+            try:
+                with open(self._pkl_path, "wb") as fh:
+                    pickle.dump(self._ml_model, fh)
+                log.info("AttributionEngine: classifier saved to disk")
+            except Exception as exc:
+                log.warning("AttributionEngine: could not save classifier: %s", exc)
         except Exception as exc:
             log.warning("AttributionEngine: training error: %s", exc)
 
