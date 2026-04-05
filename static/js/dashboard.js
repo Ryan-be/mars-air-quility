@@ -672,7 +672,9 @@ function _openInferenceDialog(id) {
       evEl.innerHTML = snapshot.map(s => {
         const arrow = TREND_ARROW[s.trend] || "→";
         const cls   = BAND_CLS[s.ratio_band] || "";
-        const ratio = s.ratio != null ? `<span class="ev-ratio">${s.ratio}× normal</span>` : "";
+        const ratioDesc = s.ratio_description || (s.ratio != null ? `${s.ratio.toFixed(1)}× normal` : '');
+        const infoIcon = ratioDesc ? `<span class="ev-info" title="${ratioDesc}" style="cursor:help;opacity:0.6;font-size:0.8em;margin-left:3px;">ⓘ</span>` : '';
+        const ratio = s.ratio != null ? `<span class="ev-ratio">${s.ratio}× normal</span>${infoIcon}` : "";
         return `<div class="inf-ev-row ${cls}">
           <span class="fd-label">${s.label}</span>
           <span class="fd-value">${s.value} ${s.unit} <span class="ev-trend">${arrow}</span></span>
@@ -740,6 +742,12 @@ function _openInferenceDialog(id) {
   loadSparkline(inf.id, inf.created_at);
 
   dialog.showModal();
+  // Resize the sparkline chart after the dialog is visible so Plotly measures
+  // the correct dimensions (it renders before the dialog is fully painted).
+  setTimeout(() => {
+    const chartDiv = document.getElementById('infSparklineChart');
+    if (chartDiv && window.Plotly) Plotly.Plots.resize(chartDiv);
+  }, 50);
   dialog.onclick = (e) => { if (e.target === dialog) dialog.close(); };
 }
 

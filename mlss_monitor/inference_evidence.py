@@ -14,6 +14,8 @@ from mlss_monitor.feature_vector import FeatureVector
 # slope_field: FeatureVector field name for 1-minute slope (None = not available)
 # slope_thresh: units/min above which a reading is considered "rising" or "falling"
 
+_INVERTED_CHANNELS = {"co_current", "no2_current", "nh3_current", "co_ppb", "no2_ppb", "nh3_ppb"}
+
 _CHANNEL_META: dict[str, dict] = {
     "tvoc_current":        {"label": "TVOC",        "unit": "ppb",    "slope_field": "tvoc_slope_1m",        "slope_thresh": 5.0},
     "eco2_current":        {"label": "eCO2",        "unit": "ppm",    "slope_field": "eco2_slope_1m",        "slope_thresh": 10.0},
@@ -136,6 +138,18 @@ def build_sensor_snapshot(
         ratio: float | None = None
         if baseline is not None and baseline > 0:
             ratio = round(value / baseline, 2)
+        ratio_direction = "low" if ch in _INVERTED_CHANNELS else "high"
+        if ratio is not None:
+            if ratio_direction == "low" and ratio < 1:
+                ratio_description = f"{ratio:.1f}× typical — lower resistance indicates elevated gas concentration."
+            elif ratio > 1:
+                ratio_description = f"{ratio:.1f}× normal — this channel was {ratio:.1f} times higher than its recent typical value when this event was detected."
+            elif ratio < 0.5:
+                ratio_description = f"{ratio:.1f}× normal — this channel was unusually low when this event was detected."
+            else:
+                ratio_description = f"{ratio:.1f}× normal — within typical range."
+        else:
+            ratio_description = "No baseline available yet."
         snapshot.append({
             "channel": ch,
             "label": meta["label"],
@@ -144,6 +158,8 @@ def build_sensor_snapshot(
             "baseline": round(float(baseline), 2) if baseline is not None else None,
             "ratio": ratio,
             "ratio_band": _ratio_band(ratio),
+            "ratio_direction": ratio_direction,
+            "ratio_description": ratio_description,
             "trend": _slope_trend(fv, meta["slope_field"], meta["slope_thresh"]),
         })
     return snapshot
