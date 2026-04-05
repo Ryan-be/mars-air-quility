@@ -161,8 +161,12 @@ def _build_feature_vector(start: str, end: str) -> dict[str, object]:
         ]:
             baselines[field] = None
     fv = FeatureExtractor().extract(readings, baselines)
+    fv_dict = dataclasses.asdict(fv)
+    # Convert datetime to ISO string for JSON serialization
+    if fv_dict.get("timestamp"):
+        fv_dict["timestamp"] = fv_dict["timestamp"].isoformat()
     return {
-        "feature_vector": dataclasses.asdict(fv),
+        "feature_vector": fv_dict,
         "readings": [
             {
                 "timestamp": r.timestamp.isoformat(),
