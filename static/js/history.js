@@ -14,16 +14,22 @@ let _rendered    = {};
 let _sensorData  = [];
 let _weatherData = [];
 
-document.querySelectorAll(".tab-btn").forEach(btn => {
-  btn.addEventListener("click", () => {
-    document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("tab-active"));
-    btn.classList.add("tab-active");
-    TABS.forEach(t => {
-      document.getElementById(`tab-${t}`).classList.toggle("tab-hidden", t !== btn.dataset.tab);
+function _initHistoryTabs() {
+  const buttons = document.querySelectorAll(".tab-btn");
+  if (!buttons || buttons.length === 0) return;
+
+  buttons.forEach(btn => {
+    btn.addEventListener("click", () => {
+      buttons.forEach(b => b.classList.remove("tab-active"));
+      btn.classList.add("tab-active");
+      TABS.forEach(t => {
+        const panel = document.getElementById(`tab-${t}`);
+        if (panel) panel.classList.toggle("tab-hidden", t !== btn.dataset.tab);
+      });
+      renderActiveTab();
     });
-    renderActiveTab();
   });
-});
+}
 
 function activeTab() {
   return document.querySelector(".tab-btn.tab-active")?.dataset.tab ?? "climate";
@@ -41,13 +47,19 @@ function renderActiveTab() {
   if (tab === "detections")  _initDetectionsTab();
 }
 
-document.getElementById("range").addEventListener("change", fetchData);
 document.addEventListener("DOMContentLoaded", () => {
+  _initHistoryTabs();
+
+  const rangeSelect = document.getElementById("range");
+  if (rangeSelect) {
+    rangeSelect.addEventListener("change", fetchData);
+  }
+
   const tagSelect = document.getElementById('corrRangeTagSelect');
   const saveBtn = document.getElementById('corrCreateRangeInferenceBtn');
   const status = document.getElementById('corrRangeInferenceStatus');
 
-  if (tagSelect && saveBtn) {
+  if (tagSelect && saveBtn && status) {
     tagSelect.addEventListener('change', () => {
       saveBtn.disabled = !tagSelect.value;
       status.textContent = '';
@@ -96,6 +108,8 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     });
   }
+
+  fetchData();
 });
 async function fetchData() {
   const range = document.getElementById("range").value;
@@ -357,8 +371,6 @@ document.addEventListener("click", (e) => {
   const popup = document.getElementById(`info-${btn.dataset.info}`);
   if (popup) popup.classList.toggle("visible");
 });
-
-fetchData();
 
 // ── SSE: refresh charts when new sensor data arrives (throttled to ~30s) ─────
 let _histSSE = null;
