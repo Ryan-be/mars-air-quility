@@ -774,7 +774,7 @@ function _buildAnomalyOverlay(inferences) {
 
 function corrToggleOverlay(visible) {
   _corrOverlayVisible = visible;
-  const chartDiv = document.getElementById('corrBrushChart') || document.querySelector('[id*="corr"]');
+  const chartDiv = document.getElementById('corrBrushPlot');
   if (!chartDiv) return;
   Plotly.relayout(chartDiv, { shapes: visible ? _corrOverlayShapes : [] });
   if (_corrHoverTraceIdx !== null) {
@@ -787,6 +787,13 @@ function corrToggleOverlay(visible) {
 const CORR_CHANNELS = ['tvoc_ppb','eco2_ppm','temperature_c','humidity_pct','pm1_ug_m3','pm25_ug_m3','pm10_ug_m3','co_ppb','no2_ppb','nh3_ppb'];
 const CORR_COLOURS  = { tvoc_ppb:'#8b5cf6', eco2_ppm:'#06b6d4', temperature_c:'#f97316', humidity_pct:'#3b82f6', pm1_ug_m3:'#84cc16', pm25_ug_m3:'#22c55e', pm10_ug_m3:'#a3e635', co_ppb:'#ef4444', no2_ppb:'#f59e0b', nh3_ppb:'#ec4899' };
 const CORR_LABELS   = { tvoc_ppb:'TVOC', eco2_ppm:'eCO2', temperature_c:'Temperature', humidity_pct:'Humidity', pm1_ug_m3:'PM1', pm25_ug_m3:'PM2.5', pm10_ug_m3:'PM10', co_ppb:'CO (resistance)', no2_ppb:'NO2 (resistance)', nh3_ppb:'NH3 (resistance)' };
+
+// Mapping from chip data-channel to brush chart trace name (as set in _renderBrushChart)
+const CORR_BRUSH_TRACE_NAMES = {
+  tvoc_ppb:    'TVOC (ppb)',
+  eco2_ppm:    'eCO₂ (ppm)',
+  pm25_ug_m3:  'PM2.5 (µg/m³)',
+};
 
 function corrToggleChip(btn) {
   btn.classList.toggle('active');
@@ -807,8 +814,22 @@ function _updateCorrVisibility() {
   const emptyMsg = document.getElementById('corrEmptyMsg');
   if (active.size === 0) { if (emptyMsg) emptyMsg.style.display = 'block'; return; }
   if (emptyMsg) emptyMsg.style.display = 'none';
-  const chartDiv = document.getElementById('corrBrushChart') || document.querySelector('[id*="corr"]');
-  if (!chartDiv || !chartDiv.data) return;
-  const visible = CORR_CHANNELS.map(ch => active.has(ch) ? true : 'legendonly');
-  Plotly.restyle(chartDiv, { visible }, CORR_CHANNELS.map((_, i) => i));
+
+  // Control visibility of traces in the brush overview chart.
+  // The brush chart only plots TVOC, eCO2, and optionally PM2.5 — match by trace name.
+  const chartDiv = document.getElementById('corrBrushPlot');
+  if (chartDiv && chartDiv.data && chartDiv.data.length > 0) {
+    chartDiv.data.forEach(function (trace, idx) {
+      // Skip the invisible hover-detection trace
+      if (trace.name === 'detections') return;
+      // Find which chip channel this trace corresponds to
+      const matchingChannel = Object.keys(CORR_BRUSH_TRACE_NAMES).find(
+        ch => CORR_BRUSH_TRACE_NAMES[ch] === trace.name
+      );
+      if (matchingChannel !== undefined) {
+        const shouldShow = active.has(matchingChannel);
+        Plotly.restyle(chartDiv, { visible: [shouldShow ? true : 'legendonly'] }, [idx]);
+      }
+    });
+  }
 }

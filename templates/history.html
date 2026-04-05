@@ -216,29 +216,29 @@
     <div class="channel-toggles" id="corrToggles">
       <div class="toggle-group">
         <button class="toggle-group-label" onclick="corrToggleGroup('airquality')">Air Quality</button>
-        <button class="channel-chip active" data-channel="tvoc_ppb" data-group="airquality" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#8b5cf6"></span>TVOC</button>
-        <button class="channel-chip active" data-channel="eco2_ppm" data-group="airquality" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#06b6d4"></span>eCO2</button>
+        <button class="channel-chip active" data-channel="tvoc_ppb" data-group="airquality" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#8b5cf6"></span>TVOC <span class="chip-info" title="Total Volatile Organic Compounds — measures off-gassing from materials, cleaning products, and biological sources.">ⓘ</span></button>
+        <button class="channel-chip active" data-channel="eco2_ppm" data-group="airquality" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#06b6d4"></span>eCO2 <span class="chip-info" title="Equivalent CO2 — estimated from TVOC; rises with poor ventilation and occupancy.">ⓘ</span></button>
       </div>
       <div class="toggle-group">
         <button class="toggle-group-label" onclick="corrToggleGroup('particles')">Particles</button>
-        <button class="channel-chip active" data-channel="pm1_ug_m3" data-group="particles" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#84cc16"></span>PM1</button>
-        <button class="channel-chip active" data-channel="pm25_ug_m3" data-group="particles" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#22c55e"></span>PM2.5</button>
-        <button class="channel-chip active" data-channel="pm10_ug_m3" data-group="particles" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#a3e635"></span>PM10</button>
+        <button class="channel-chip active" data-channel="pm1_ug_m3" data-group="particles" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#84cc16"></span>PM1 <span class="chip-info" title="Particulate matter smaller than 1 µm — ultrafine particles from combustion.">ⓘ</span></button>
+        <button class="channel-chip active" data-channel="pm25_ug_m3" data-group="particles" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#22c55e"></span>PM2.5 <span class="chip-info" title="Particulate matter smaller than 2.5 µm — fine particles; WHO guideline 15 µg/m³ annual mean.">ⓘ</span></button>
+        <button class="channel-chip active" data-channel="pm10_ug_m3" data-group="particles" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#a3e635"></span>PM10 <span class="chip-info" title="Particulate matter smaller than 10 µm — coarse dust, pollen, mould spores.">ⓘ</span></button>
       </div>
       <div class="toggle-group">
         <button class="toggle-group-label" onclick="corrToggleGroup('gas')">Gas Sensors</button>
-        <button class="channel-chip active" data-channel="co_ppb" data-group="gas" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#ef4444"></span>CO (resistance) <span class="info-icon" title="CO, NO2 and NH3 are measured as electrical resistance by the MICS6814 sensor.">ⓘ</span></button>
-        <button class="channel-chip active" data-channel="no2_ppb" data-group="gas" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#f59e0b"></span>NO2 (resistance) <span class="info-icon" title="CO, NO2 and NH3 are measured as electrical resistance by the MICS6814 sensor.">ⓘ</span></button>
-        <button class="channel-chip active" data-channel="nh3_ppb" data-group="gas" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#ec4899"></span>NH3 (resistance) <span class="info-icon" title="CO, NO2 and NH3 are measured as electrical resistance by the MICS6814 sensor.">ⓘ</span></button>
+        <button class="channel-chip active" data-channel="co_ppb" data-group="gas" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#ef4444"></span>CO (resistance) <span class="chip-info" title="Carbon monoxide proxy via MICS6814 resistance (kΩ). Lower resistance = higher CO concentration.">ⓘ</span></button>
+        <button class="channel-chip active" data-channel="no2_ppb" data-group="gas" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#f59e0b"></span>NO2 (resistance) <span class="chip-info" title="Nitrogen dioxide proxy via MICS6814 resistance (kΩ). Lower resistance = higher NO2 concentration.">ⓘ</span></button>
+        <button class="channel-chip active" data-channel="nh3_ppb" data-group="gas" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#ec4899"></span>NH3 (resistance) <span class="chip-info" title="Ammonia proxy via MICS6814 resistance (kΩ). Lower resistance = higher NH3 concentration.">ⓘ</span></button>
       </div>
       <div class="toggle-group">
         <button class="toggle-group-label" onclick="corrToggleGroup('environment')">Environment</button>
-        <button class="channel-chip active" data-channel="temperature_c" data-group="environment" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#f97316"></span>Temperature</button>
-        <button class="channel-chip active" data-channel="humidity_pct" data-group="environment" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#3b82f6"></span>Humidity</button>
+        <button class="channel-chip active" data-channel="temperature_c" data-group="environment" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#f97316"></span>Temperature <span class="chip-info" title="Ambient temperature in °C.">ⓘ</span></button>
+        <button class="channel-chip active" data-channel="humidity_pct" data-group="environment" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#3b82f6"></span>Humidity <span class="chip-info" title="Relative humidity percentage.">ⓘ</span></button>
       </div>
       <div class="toggle-presets">
-        <button onclick="corrToggleAll(true)" style="min-height:44px;padding:4px 12px;">All</button>
-        <button onclick="corrToggleAll(false)" style="min-height:44px;padding:4px 12px;">None</button>
+        <button class="btn btn-sm" onclick="corrToggleAll(true)">All</button>
+        <button class="btn btn-sm" onclick="corrToggleAll(false)">None</button>
       </div>
     </div>
     <div id="corrEmptyMsg" style="display:none; text-align:center; padding:40px; color:var(--text-muted);">Select at least one channel above.</div>
