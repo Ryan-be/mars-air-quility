@@ -232,9 +232,15 @@ def _make_readings_with_fields(
 # ── NH3 lag ──────────────────────────────────────────────────────────────────
 
 def test_nh3_lag_detected():
-    """NH3 peaks 30 seconds after TVOC peak → lag = 30.0."""
-    tvoc_vals = [100.0] * 50 + [500.0] + [100.0] * 69  # peak at index 50
-    nh3_vals  = [10.0]  * 80 + [80.0]  + [10.0]  * 39  # peak at index 80
+    """NH3 concentration peaks 30 seconds after TVOC peak → lag = 30.0.
+
+    MICS6814 reports NH3 as resistance (kΩ): lower resistance = higher
+    concentration.  The NH3 concentration peak is therefore the *minimum*
+    nh3_ppb value in the window.
+    """
+    tvoc_vals = [100.0] * 50 + [500.0] + [100.0] * 69  # TVOC peak at index 50
+    # NH3 resistance drops to minimum at index 80 (30 s after TVOC peak)
+    nh3_vals  = [30.0]  * 80 + [10.0]  + [30.0]  * 39  # resistance dip at index 80
 
     readings = _make_readings_with_fields({"tvoc_ppb": tvoc_vals, "nh3_ppb": nh3_vals})
     fv = FeatureExtractor().extract(readings, {})
@@ -243,18 +249,23 @@ def test_nh3_lag_detected():
 
 
 def test_nh3_lag_none_when_nh3_before_tvoc():
-    """NH3 peaked before TVOC → no lag (None)."""
-    tvoc_vals = [100.0] * 80 + [500.0] + [100.0] * 39  # peak at index 80
-    nh3_vals  = [10.0]  * 50 + [80.0]  + [10.0]  * 69  # peak at index 50
+    """NH3 concentration peaked before TVOC → no lag (None).
+
+    NH3 resistance minimum (= concentration peak) occurs before the TVOC peak.
+    """
+    tvoc_vals = [100.0] * 80 + [500.0] + [100.0] * 39  # TVOC peak at index 80
+    # NH3 resistance dip at index 50 — before TVOC peak
+    nh3_vals  = [30.0]  * 50 + [10.0]  + [30.0]  * 69
     readings = _make_readings_with_fields({"tvoc_ppb": tvoc_vals, "nh3_ppb": nh3_vals})
     fv = FeatureExtractor().extract(readings, {})
     assert fv.nh3_lag_behind_tvoc_seconds is None
 
 
 def test_nh3_lag_none_when_lag_too_large():
-    """NH3 peaked 150 seconds after TVOC → beyond 120s limit → None."""
-    tvoc_vals = [500.0] + [100.0] * 170  # peak at index 0
-    nh3_vals  = [10.0]  * 150 + [80.0] + [10.0] * 20  # peak at index 150
+    """NH3 concentration peaked 150 seconds after TVOC → beyond 120s limit → None."""
+    tvoc_vals = [500.0] + [100.0] * 170  # TVOC peak at index 0
+    # NH3 resistance dip at index 150 — 150 s after TVOC peak
+    nh3_vals  = [30.0]  * 150 + [10.0] + [30.0] * 20
     readings = _make_readings_with_fields({"tvoc_ppb": tvoc_vals, "nh3_ppb": nh3_vals})
     fv = FeatureExtractor().extract(readings, {})
     assert fv.nh3_lag_behind_tvoc_seconds is None
@@ -309,3 +320,66 @@ def test_vpd_none_when_no_temperature():
     readings = [NormalisedReading(timestamp=now, source="test", humidity_pct=60.0)]
     fv = FeatureExtractor().extract(readings, {})
     assert fv.vpd_kpa is None
+
+
+# ── CO correlation (inverted channel) ────────────────────────────────────────
+
+def test_co_correlated_with_tvoc_true_when_co_resistance_falls():
+    """TVOC rising and CO *resistance* falling → co_correlated_with_tvoc = True.
+
+    The MICS6814 CO channel is a reducing-gas resistor: higher CO concentration
+    causes lower resistance.  So when a deodorant spray raises both TVOC and CO
+    concentration, tvoc_ppb rises while co_ppb (raw resistance) falls.
+    The extractor must treat a falling CO resistance as correlated with a rising
+    TVOC, not anti-correlated.
+    """
+    n = 300  # 5 minutes of 1-second readings
+    tvoc_vals = [float(100 + i) for i in range(n)]       # rising TVOC
+    co_vals   = [float(30_000 - i * 50) for i in range(n)]  # falling CO resistance
+    readings = _make_readings_with_fields({"tvoc_ppb": tvoc_vals, "co_ppb": co_vals})
+    fv = FeatureExtractor().extract(readings, {})
+    assert fv.co_correlated_with_tvoc is True
+
+
+def test_co_correlated_with_tvoc_false_when_both_rise_in_resistance():
+    """TVOC rising, CO resistance also rising (concentration falling) → False.
+
+    If CO resistance rises while TVOC goes up, CO concentration is actually
+    decreasing — that is *not* correlated with the TVOC spike.
+    """
+    n = 300
+    tvoc_vals = [float(100 + i) for i in range(n)]        # rising TVOC
+    co_vals   = [float(20_000 + i * 50) for i in range(n)]  # rising CO resistance = falling conc
+    readings = _make_readings_with_fields({"tvoc_ppb": tvoc_vals, "co_ppb": co_vals})
+    fv = FeatureExtractor().extract(readings, {})
+    assert fv.co_correlated_with_tvoc is False
+
+
+# ── personal_care regression ──────────────────────────────────────────────────
+
+def test_personal_care_deodorant_nh3_lag_detected():
+    """Regression: deodorant spray scenario — NH3 resistance drops AFTER TVOC peak.
+
+    Before the fix, _nh3_lag_behind_tvoc() searched for the maximum nh3_ppb
+    value (highest resistance = ambient baseline), so it never found a lag and
+    returned None, causing temporal_score to return 0.0 for personal_care.
+
+    After the fix it searches for the minimum nh3_ppb (lowest resistance =
+    highest NH3 concentration), and correctly detects a lag of ~60 s.
+    """
+    # Simulate: TVOC spikes at second 30 (index 30 in 1-s readings)
+    # NH3 resistance drops to minimum at second 90 (60 s lag)
+    n = 200
+    tvoc_vals = [150.0] * 30 + [4500.0] + [150.0] * (n - 31)   # 20-30x spike
+    # NH3 baseline resistance ~30 kΩ; drops to ~10 kΩ at index 90
+    nh3_vals  = [30.0] * 90 + [10.0] + [30.0] * (n - 91)
+
+    readings = _make_readings_with_fields({"tvoc_ppb": tvoc_vals, "nh3_ppb": nh3_vals})
+    fv = FeatureExtractor().extract(readings, {})
+
+    assert fv.nh3_lag_behind_tvoc_seconds is not None, (
+        "nh3_lag_behind_tvoc_seconds must not be None during a deodorant spray "
+        "(NH3 resistance dip after TVOC spike). Likely the function is still "
+        "searching for a NH3 *maximum* instead of minimum."
+    )
+    assert 55.0 <= fv.nh3_lag_behind_tvoc_seconds <= 65.0

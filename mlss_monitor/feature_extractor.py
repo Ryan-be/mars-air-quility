@@ -152,23 +152,31 @@ def _nh3_lag_behind_tvoc(
 ) -> float | None:
     """Return NH3 lag behind TVOC peak in seconds, or None.
 
-    Looks for the peak of each sensor in the readings window.
-    Returns the lag only if TVOC peaked before NH3 and lag <= max_lag_seconds.
+    TVOC peak is the maximum ppb reading.  NH3 is reported as raw resistance
+    (kΩ) by the MICS6814 — lower resistance = higher NH3 concentration — so
+    the NH3 *concentration* peak corresponds to the **minimum** nh3_ppb value.
+
+    Returns the lag only if TVOC peaked before the NH3 concentration peak and
+    the lag is within max_lag_seconds.
     """
     tvoc_peak_ts: datetime | None = None
     tvoc_peak_val: float = 0.0
+    # Track minimum NH3 resistance (= maximum NH3 concentration)
     nh3_peak_ts: datetime | None = None
-    nh3_peak_val: float = 0.0
+    nh3_min_val: float = float("inf")  # start at +inf; lower resistance = higher conc
 
     for r in readings:
         if r.tvoc_ppb is not None and r.tvoc_ppb > tvoc_peak_val:
             tvoc_peak_val = r.tvoc_ppb
             tvoc_peak_ts = r.timestamp
-        if r.nh3_ppb is not None and r.nh3_ppb > nh3_peak_val:
-            nh3_peak_val = r.nh3_ppb
+        if r.nh3_ppb is not None and r.nh3_ppb < nh3_min_val:
+            nh3_min_val = r.nh3_ppb
             nh3_peak_ts = r.timestamp
 
     if tvoc_peak_ts is None or nh3_peak_ts is None:
+        return None
+    # Guard: if no NH3 readings were seen nh3_min_val stays inf
+    if nh3_min_val == float("inf"):
         return None
 
     lag = (nh3_peak_ts - tvoc_peak_ts).total_seconds()
@@ -182,8 +190,15 @@ def _sensors_correlated(
     field_a: str,
     field_b: str,
     window_seconds: int = 300,
+    invert_b: bool = False,
 ) -> bool | None:
-    """True if both sensors have positive slope over window_seconds.
+    """True if both sensors are moving in the same direction over window_seconds.
+
+    By default "same direction" means both have a positive slope (both rising).
+    Set ``invert_b=True`` for sensors whose raw value is inversely proportional
+    to concentration (e.g. MICS6814 CO/NH3 resistance channels): a *negative*
+    slope on field_b then indicates a *rising* concentration, which is treated
+    as correlated with a rising field_a.
 
     Returns None if either sensor has no data in the window.
     """
@@ -191,7 +206,8 @@ def _sensors_correlated(
     slope_b = _slope(readings, field_b, window_seconds)
     if slope_a is None or slope_b is None:
         return None
-    return slope_a > 0 and slope_b > 0
+    effective_b = -slope_b if invert_b else slope_b
+    return slope_a > 0 and effective_b > 0
 
 
 # ── FeatureExtractor ─────────────────────────────────────────────────────────
@@ -226,7 +242,7 @@ class FeatureExtractor:
             hot_readings, "tvoc_ppb", "pm25_ug_m3"
         )
         fields["co_correlated_with_tvoc"] = _sensors_correlated(
-            hot_readings, "tvoc_ppb", "co_ppb"
+            hot_readings, "tvoc_ppb", "co_ppb", invert_b=True
         )
         fields["vpd_kpa"] = _vpd_kpa(
             _current(hot_readings, "temperature_c"),
