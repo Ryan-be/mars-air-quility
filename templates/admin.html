@@ -16,6 +16,7 @@
 <div class="tab-bar">
   <button class="tab-btn tab-active" data-tab="settings">🔧 Settings</button>
   <button class="tab-btn" data-tab="users">👥 Users</button>
+  <button class="tab-btn" data-tab="insights-engine">🧠 Insights Engine</button>
 </div>
 
 <!-- ── Settings tab ─────────────────────────────────────────────────────── -->
@@ -167,13 +168,6 @@
     <p id="locStatus"></p>
   </div>
 
-  <!-- Insights Engine card -->
-  <div class="card">
-    <h3>🧠 Insights Engine</h3>
-    <p class="card-desc">Configure the Smart Inference Engine: manage data sources, model settings, and anomaly detection parameters.</p>
-    <a href="/settings/insights-engine" class="btn-save" style="display:inline-block;text-decoration:none;text-align:center;">Open Insights Engine</a>
-  </div>
-
   <!-- Inference thresholds card -->
   <div class="card">
     <h3>🔬 Inference Thresholds</h3>
@@ -247,12 +241,17 @@
 </div><!-- /.settings-grid -->
 </div><!-- /#tab-users -->
 
+<!-- ── Insights Engine tab ────────────────────────────────────────────────── -->
+<div class="tab-panel tab-hidden" id="tab-insights-engine">
+  <iframe src="/settings/insights-engine" style="width:100%;height:800px;border:none;" title="Insights Engine"></iframe>
+</div><!-- /#tab-insights-engine -->
+
 {% endblock %}
 
 {% block scripts %}
   <script>
     // ── Tab switching ─────────────────────────────────────────────────────────
-    const ADMIN_TABS = ["settings", "users"];
+    const ADMIN_TABS = ["settings", "users", "insights-engine"];
     document.querySelectorAll(".tab-btn").forEach(btn => {
       btn.addEventListener("click", () => {
         document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("tab-active"));

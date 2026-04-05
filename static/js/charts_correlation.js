@@ -815,7 +815,7 @@ function _updateCorrVisibility() {
   if (active.size === 0) { if (emptyMsg) emptyMsg.style.display = 'block'; return; }
   if (emptyMsg) emptyMsg.style.display = 'none';
 
-  // Control visibility of traces in the brush overview chart.
+  // Toggles affect trace visibility on the overview chart only; analysis panel reflects all channels in the selected window.
   // The brush chart only plots TVOC, eCO2, and optionally PM2.5 — match by trace name.
   const chartDiv = document.getElementById('corrBrushPlot');
   if (chartDiv && chartDiv.data && chartDiv.data.length > 0) {
@@ -833,3 +833,10 @@ function _updateCorrVisibility() {
     });
   }
 }
+
+// Expose toggle functions to window so inline onclick handlers in the HTML can call them.
+// (This file is loaded as an ES module and module-scope functions are not globally accessible.)
+window.corrToggleChip  = corrToggleChip;
+window.corrToggleGroup = corrToggleGroup;
+window.corrToggleAll   = corrToggleAll;
+window.corrToggleOverlay = corrToggleOverlay;
