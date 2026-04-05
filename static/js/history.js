@@ -1,7 +1,7 @@
 import { toggleTheme, isLight, themeLayout } from './theme.js';
 import { renderClimateCharts, renderGasCharts } from './charts.js';
 import { renderEnvCharts } from './charts_env.js';
-import { renderCorrelationCharts, updateCorrelationData, getSelectedAnalysisRange, getSelectedAnalysisRange } from './charts_correlation.js';
+import { renderCorrelationCharts, updateCorrelationData, getSelectedAnalysisRange } from './charts_correlation.js';
 
 
 window.toggleTheme = () => toggleTheme(() => { _rendered = {}; renderActiveTab(); });

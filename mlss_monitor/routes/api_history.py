@@ -124,7 +124,7 @@ def _rows_to_readings(rows: list[dict], source: str) -> list[NormalisedReading]:
 
 
 def _build_range_readings(start: str, end: str) -> list[NormalisedReading]:
-    sensor_rows = _query_sensor_data(start, end)
+    sensor_rows = _query_sensor_data(_dbl.DB_FILE, start, end)
     hot_rows = _query_hot_tier(_dbl.DB_FILE, start, end)
     merged: dict[str, dict] = {}
     for row in sensor_rows:
