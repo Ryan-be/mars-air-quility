@@ -116,6 +116,54 @@ def test_narratives_endpoint_returns_required_keys(app_client, db):
         assert key in data, f"Missing key: {key}"
 
 
+def test_narratives_fingerprint_counts_rule_fired_attribution(app_client, db):
+    """Rule-fired inferences that store attribution under 'attribution' (not
+    'attribution_source') must be counted in fingerprint_narratives event_count."""
+    client, _ = app_client
+    from database.db_logger import save_inference
+
+    # Simulate two rule-fired inferences with attribution stored in the rule key.
+    # Both event_types must be in the schema's CHECK constraint allowlist.
+    save_inference(
+        event_type="eco2_elevated",
+        title="eCO2 elevated — Cooking activity (100%)",
+        description="desc",
+        action="act",
+        severity="warning",
+        confidence=1.0,
+        evidence={"attribution": "cooking", "attribution_confidence": 1.0, "fv_timestamp": "2026-04-04T12:00:00"},
+    )
+    save_inference(
+        event_type="tvoc_spike",
+        title="TVOC spike — Cooking activity (95%)",
+        description="desc",
+        action="act",
+        severity="warning",
+        confidence=0.95,
+        evidence={"attribution": "cooking", "attribution_confidence": 0.95, "fv_timestamp": "2026-04-04T12:05:00"},
+    )
+
+    resp = client.get(
+        "/api/history/narratives?start=2020-01-01T00:00:00Z&end=2030-01-01T00:00:00Z"
+    )
+    assert resp.status_code == 200
+    data = resp.get_json()
+
+    # attribution_breakdown must include cooking
+    assert "cooking" in data["attribution_breakdown"], (
+        "cooking must appear in attribution_breakdown for rule-fired inferences"
+    )
+    assert data["attribution_breakdown"]["cooking"] == 2
+
+    # fingerprint_narratives for cooking must have event_count == 2
+    fp_map = {fp["source_id"]: fp for fp in data["fingerprint_narratives"]}
+    assert "cooking" in fp_map
+    assert fp_map["cooking"]["event_count"] == 2, (
+        f"Expected 2 cooking events in fingerprint_narratives, got {fp_map['cooking']['event_count']}"
+    )
+    assert fp_map["cooking"]["avg_confidence"] == pytest.approx(0.975, abs=0.01)
+
+
 def test_sparkline_returns_window_around_inference(app_client, db):
     client, _ = app_client
     from database.db_logger import save_inference

@@ -94,7 +94,11 @@ def _extract_attribution_source(inf: dict) -> str | None:
     if isinstance(ev, str):
         try: ev = json.loads(ev)
         except Exception: return None
-    return ev.get("attribution_source")
+    if not isinstance(ev, dict):
+        return None
+    # ML/anomaly inferences store the source as "attribution_source";
+    # rule-fired inferences store it as "attribution".  Accept both.
+    return ev.get("attribution_source") or ev.get("attribution") or None
 
 
 def _extract_attribution_confidence(inf: dict) -> float:
@@ -102,6 +106,8 @@ def _extract_attribution_confidence(inf: dict) -> float:
     if isinstance(ev, str):
         try: ev = json.loads(ev)
         except Exception: return 0.0
+    if not isinstance(ev, dict):
+        return 0.0
     return float(ev.get("attribution_confidence") or 0.0)
 
 
@@ -172,9 +178,9 @@ def ml_context():
             "id": inf["id"], "created_at": inf["created_at"],
             "title": inf.get("title",""), "event_type": inf.get("event_type",""),
             "severity": inf.get("severity",""),
-            "attribution_source": ev.get("attribution_source"),
+            "attribution_source": ev.get("attribution_source") or ev.get("attribution") or None,
             "attribution_confidence": ev.get("attribution_confidence"),
-            "runner_up_source": ev.get("runner_up_source"),
+            "runner_up_source": ev.get("runner_up_source") or ev.get("runner_up") or None,
             "runner_up_confidence": ev.get("runner_up_confidence"),
             "detection_method": inf.get("detection_method","rule"),
         })
