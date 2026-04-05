@@ -213,7 +213,7 @@ const SENSOR_INFO = {
     sensor: "SGP30 (I²C)",
     unit: "ppm",
     range: "400 – 800 ppm (normal indoor)",
-    desc: "Equivalent CO₂ estimated by the SGP30 metal-oxide sensor. Above 1000 ppm cognitive function declines. Above 2000 ppm consider immediate ventilation. The sensor needs ~15s warm-up after power-on; first readings may be inaccurate.",
+    desc: "Estimated CO₂ from the SGP30 metal-oxide sensor. Estimated from TVOC via SGP30 algorithm — not a direct CO₂ measurement. Above 1000 ppm cognitive function declines. Above 2000 ppm consider immediate ventilation. The sensor needs ~15s warm-up after power-on; first readings may be inaccurate.",
   },
   tvoc: {
     title: "🧪 TVOC",
@@ -273,7 +273,7 @@ const INSIGHT_INFO = {
     desc: "How the temperature actually feels to a person, accounting for humidity. High humidity makes warm air feel hotter because sweat evaporates more slowly. Calculated using the Australian Bureau of Meteorology apparent temperature formula (indoor version, no wind component). Useful for assessing comfort even when the thermometer looks fine.",
   },
   co2: {
-    title: "🧠 CO₂ Cognitive Alert",
+    title: "🧠 eCO₂ Cognitive Alert",
     range: "Normal ≤ 800 / Elevated ≤ 1000 / Impaired ≤ 2000",
     desc: "Research shows CO₂ above 1000 ppm reduces decision-making performance by up to 15%. Above 2000 ppm causes headaches, drowsiness, and difficulty concentrating. This alert monitors your eCO₂ levels against these cognitive impact thresholds. In a sealed room with one person, CO₂ can rise from 400 to 1000 ppm in under 2 hours.",
   },
@@ -283,7 +283,7 @@ const INSIGHT_INFO = {
     desc: "VPD measures the 'drying power' of the air — how strongly the atmosphere pulls moisture from leaf surfaces. Low VPD (< 0.4 kPa) means the air is nearly saturated, slowing transpiration and promoting mould. High VPD (> 1.6 kPa) means the air is very dry, causing stomata to close and stressing the plant. It combines temperature and humidity into the single most useful metric for plant health.",
   },
   ttt: {
-    title: "⏱️ Time to CO₂ Threshold",
+    title: "⏱️ Time to eCO₂ Threshold",
     range: "Stable = not rising",
     desc: "A linear extrapolation from the last 6 readings predicting when eCO₂ will reach 1000 ppm (the cognitive impairment threshold). If CO₂ is falling or steady, it shows 'Stable'. Under 10 minutes means you should ventilate soon. This is an estimate — opening a window or door will reset the trend immediately.",
   },
@@ -361,6 +361,49 @@ document.querySelectorAll("[data-health]").forEach(item => {
   });
 });
 
+// ── Attribution badge ────────────────────────────────────────────────────────
+const _SOURCE_META = {
+  biological_offgas:   { label: 'Biological Off-gassing', emoji: '🌿', colour: '#22c55e' },
+  chemical_offgassing: { label: 'Chemical Off-gassing',   emoji: '🧪', colour: '#a855f7' },
+  cooking:             { label: 'Cooking',                 emoji: '🍳', colour: '#f97316' },
+  combustion:          { label: 'Combustion',              emoji: '🔥', colour: '#ef4444' },
+  external_pollution:  { label: 'External Pollution',      emoji: '🌍', colour: '#6b7280' },
+  personal_care:       { label: 'Personal Care Products',  emoji: '🧴', colour: '#ec4899' },
+};
+
+const _ATTRIBUTION_TOOLTIP =
+  'The attribution engine scores this event against known source fingerprints \u2014 ' +
+  'combinations of sensor patterns associated with specific real-world causes.';
+
+function renderAttributionBadge(inf) {
+  const src = (inf.evidence && inf.evidence.attribution_source) || inf.attribution_source;
+  const conf = (inf.evidence && inf.evidence.attribution_confidence) || inf.attribution_confidence;
+  const runnerSrc  = (inf.evidence && inf.evidence.runner_up_source) || inf.runner_up_source;
+  const runnerConf = (inf.evidence && inf.evidence.runner_up_confidence) || inf.runner_up_confidence;
+  if (!src) return '';
+  const meta = _SOURCE_META[src] || { label: src, emoji: '', colour: '#6b7280' };
+  const pct  = conf ? Math.round(conf * 100) : '?';
+  const pill = `<span class="source-pill" style="background:${meta.colour};color:#fff;" title="${_ATTRIBUTION_TOOLTIP}">${meta.emoji} ${meta.label} \u2014 ${pct}% <span class="chip-info">ⓘ</span></span>`;
+  let runnerHtml = '';
+  if (runnerSrc && runnerConf != null && conf != null && runnerConf >= conf - 0.15) {
+    const rm = _SOURCE_META[runnerSrc] || { label: runnerSrc };
+    runnerHtml = `<div class="runner-up">Also consistent with: ${rm.label} (${Math.round(runnerConf * 100)}%)</div>`;
+  }
+  return `<div class="attribution-row"><span class="attribution-label">Source:</span> ${pill}${runnerHtml}</div>`;
+}
+
+// ── Detection method chip ────────────────────────────────────────────────────
+const _CHIP_METHOD_TOOLTIP =
+  'Rule = a fixed threshold was crossed. ' +
+  'Statistical = an unusual reading compared to this sensor\u2019s learned normal. ' +
+  'ML = an unusual pattern across multiple sensors simultaneously.';
+
+function renderDetectionChip(detectionMethod) {
+  const cls = { rule: 'chip--rule', statistical: 'chip--statistical', ml: 'chip--ml' }[detectionMethod] || 'chip--rule';
+  const label = { rule: 'Rule', statistical: 'Statistical', ml: 'ML' }[detectionMethod] || 'Rule';
+  return `<span class="chip ${cls}" title="${_CHIP_METHOD_TOOLTIP}">${label} <span class="chip-info">ⓘ</span></span>`;
+}
+
 // ── Environment inference feed ───────────────────────────────────────────────
 const SEVERITY_LABEL = { info: "Info", warning: "Warning", critical: "Critical" };
 const SEVERITY_CLS   = { info: "inf-info", warning: "inf-warning", critical: "inf-critical" };
@@ -433,10 +476,12 @@ function _renderInferenceFeed() {
     const time = new Date(inf.created_at).toLocaleString(undefined, {
       month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"
     });
+    const chip = renderDetectionChip(inf.detection_method || 'rule');
     return `
       <button class="inference-card ${sev} inf-cat-${inf.category ?? 'other'}${inf.dismissed ? ' dismissed' : ''}"
               data-inf-id="${inf.id}" title="Tap for details">
         <div class="inf-card-left">
+          <div class="inf-card-badges">${chip} <span class="inf-badge ${SEVERITY_CLS[inf.severity] || 'inf-info'} inf-badge-sm">${SEVERITY_LABEL[inf.severity] || inf.severity}</span></div>
           <span class="inf-card-type">${inf.event_type.replace(/_/g, " ")}</span>
           <span class="inf-card-summary">${inf.title}</span>
         </div>
@@ -501,7 +546,7 @@ function _evidenceColor(key, val) {
     if (n <= 500) return "ev-warn";
     return "ev-bad";
   }
-  // eCO2
+  // CO2 (estimated)
   if (/eco2|co2/.test(key) && /ppm/.test(val)) {
     if (n <= 800) return "ev-good";
     if (n <= 1500) return "ev-warn";
@@ -522,6 +567,11 @@ function _evidenceColor(key, val) {
   return "";
 }
 
+// ── Inference sparkline ──────────────────────────────────────────────────────
+// loadSparkline() is defined in sparkline.js (loaded as a plain script before
+// this module so it is available as a global on both the dashboard and history
+// pages).
+
 function _openInferenceDialog(id) {
   const inf = _inferences.find(i => i.id === id);
   if (!inf) return;
@@ -533,27 +583,69 @@ function _openInferenceDialog(id) {
   badge.textContent = SEVERITY_LABEL[inf.severity] || inf.severity;
   badge.className = `inf-badge ${SEVERITY_CLS[inf.severity] || ""}`;
 
+  // Detection method chip
+  const metaEl = document.getElementById("infMeta");
+  if (metaEl) {
+    const chipEl = metaEl.querySelector(".inf-detection-chip");
+    if (chipEl) {
+      chipEl.innerHTML = renderDetectionChip(inf.detection_method || 'rule');
+    }
+  }
+
   document.getElementById("infTime").textContent =
     new Date(inf.created_at).toLocaleString();
   document.getElementById("infConfidence").textContent =
     `${Math.round(inf.confidence * 100)}% confidence`;
 
   document.getElementById("infDescription").textContent = inf.description;
+
+  // Attribution badge
+  const attrEl = document.getElementById("infAttribution");
+  if (attrEl) {
+    attrEl.innerHTML = renderAttributionBadge(inf);
+    attrEl.style.display = attrEl.innerHTML ? "" : "none";
+  }
+
   document.getElementById("infAction").textContent = inf.action || "No specific action needed.";
 
-  // Evidence (filter out _thresholds key)
+  // Evidence section
   const evEl = document.getElementById("infEvidence");
   const thSec = document.getElementById("infThresholdsSection");
   const thGrid = document.getElementById("infThresholds");
-  if (inf.evidence && typeof inf.evidence === "object") {
-    const thresholds = inf.evidence._thresholds;
-    const evidenceEntries = Object.entries(inf.evidence).filter(([k]) => k !== "_thresholds");
-    evEl.innerHTML = evidenceEntries.map(([k, v]) => {
-      const cls = _evidenceColor(k, v);
-      return `<div class="inf-ev-row ${cls}"><span class="fd-label">${k.replace(/_/g, " ")}</span><span class="fd-value">${v}</span></div>`;
-    }).join("") || "No detailed evidence available.";
 
-    // Expandable thresholds section
+  if (inf.evidence && typeof inf.evidence === "object") {
+    const snapshot = inf.evidence.sensor_snapshot;
+    const thresholds = inf.evidence._thresholds;
+
+    if (Array.isArray(snapshot) && snapshot.length > 0) {
+      // Structured sensor snapshot — render chips (all data pre-computed by backend)
+      const TREND_ARROW = { rising: "↑", falling: "↓", stable: "→" };
+      const BAND_CLS    = { high: "ev-bad", elevated: "ev-warn", normal: "ev-good", unknown: "" };
+
+      evEl.innerHTML = snapshot.map(s => {
+        const arrow = TREND_ARROW[s.trend] || "→";
+        const cls   = BAND_CLS[s.ratio_band] || "";
+        const ratioDesc = s.ratio_description || (s.ratio != null ? `${s.ratio.toFixed(1)}× normal` : '');
+        const infoIcon = ratioDesc ? `<span class="ev-info" title="${ratioDesc}" style="cursor:help;opacity:0.6;font-size:0.8em;margin-left:3px;">ⓘ</span>` : '';
+        const ratio = s.ratio != null ? `<span class="ev-ratio">${s.ratio}× normal</span>${infoIcon}` : "";
+        return `<div class="inf-ev-row ${cls}">
+          <span class="fd-label">${s.label}</span>
+          <span class="fd-value">${s.value} ${s.unit} <span class="ev-trend">${arrow}</span></span>
+          ${ratio}
+        </div>`;
+      }).join("");
+    } else {
+      // Fallback: generic key-value pairs (existing behaviour for older inferences)
+      const entries = Object.entries(inf.evidence).filter(
+        ([k]) => k !== "_thresholds" && k !== "sensor_snapshot" && k !== "model_id"
+      );
+      evEl.innerHTML = entries.map(([k, v]) => {
+        const cls = _evidenceColor(k, v);
+        return `<div class="inf-ev-row ${cls}"><span class="fd-label">${k.replace(/_/g, " ")}</span><span class="fd-value">${v}</span></div>`;
+      }).join("") || "No detailed evidence available.";
+    }
+
+    // Thresholds section (unchanged)
     if (thresholds && typeof thresholds === "object" && Object.keys(thresholds).length) {
       thSec.style.display = "";
       thSec.removeAttribute("open");
@@ -597,7 +689,20 @@ function _openInferenceDialog(id) {
     } catch { /* ignore */ }
   };
 
+  // Sparkline — guard in case sparkline.js failed to load
+  const sparkline = document.getElementById('infSparkline');
+  if (sparkline) sparkline.style.display = 'none';
+  if (typeof loadSparkline === 'function') {
+    loadSparkline(inf.id, inf.created_at);
+  }
+
   dialog.showModal();
+  // Resize the sparkline chart after the dialog is visible so Plotly measures
+  // the correct dimensions (it renders before the dialog is fully painted).
+  setTimeout(() => {
+    const chartDiv = document.getElementById('infSparklineChart');
+    if (chartDiv && window.Plotly) Plotly.Plots.resize(chartDiv);
+  }, 50);
   dialog.onclick = (e) => { if (e.target === dialog) dialog.close(); };
 }
 
@@ -634,7 +739,7 @@ function connectSSE() {
       "Last updated: " + new Date().toLocaleString();
   });
 
-  _evtSource.addEventListener("inference_event", () => {
+  _evtSource.addEventListener("inference_fired", () => {
     fetchInferences();
   });
 

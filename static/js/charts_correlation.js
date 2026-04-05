@@ -57,12 +57,28 @@ let _isSubset = false;
 
 // ── Public entry point ───────────────────────────────────────────────────────
 
-export function renderCorrelationCharts(data) {
+export async function renderCorrelationCharts(data) {
   if (!data || data.length === 0) return;
   _fullData = data;
   _isSubset = false;
 
-  _renderBrushChart(data);
+  // Fetch anomaly overlay data
+  try {
+    const now = new Date();
+    const start = data.length ? new Date(data[0].timestamp).toISOString() : new Date(now.getTime() - 86400000).toISOString();
+    const end   = now.toISOString();
+    const ctxResp = await fetch(`/api/history/ml-context?start=${start}&end=${end}`);
+    if (ctxResp.ok) {
+      const ctxData = await ctxResp.json();
+      const { shapes, hoverTrace } = _buildAnomalyOverlay(ctxData.inferences || []);
+      _corrOverlayShapes = shapes;
+      _renderBrushChart(data, shapes, hoverTrace);
+    } else {
+      _renderBrushChart(data);
+    }
+  } catch (e) {
+    _renderBrushChart(data);
+  }
   _renderScatterCharts(data);
   _renderInferencePanel(data, data);
 
@@ -80,7 +96,7 @@ export function renderCorrelationCharts(data) {
       // then the heavy Plotly work starts so the visual feedback is immediate.
       requestAnimationFrame(() => requestAnimationFrame(() => {
         _isSubset = false;
-        _renderBrushChart(_fullData);
+        _renderBrushChart(_fullData, _corrOverlayShapes.length ? _corrOverlayShapes : undefined);
         _renderScatterCharts(_fullData);
         _renderInferencePanel(_fullData, _fullData);
         document.getElementById("corrRangeLabel").textContent = "Showing: full range";
@@ -131,7 +147,7 @@ export function updateCorrelationData(data) {
 
 // ── Brush chart (compact TVOC + eCO₂ over time) ─────────────────────────────
 
-function _renderBrushChart(data) {
+function _renderBrushChart(data, overlayShapes, hoverTrace) {
   const ts   = data.map(d => new Date(d.timestamp));
   const tvoc = data.map(d => d.tvoc);
   const eco2 = data.map(d => d.eco2);
@@ -181,7 +197,16 @@ function _renderBrushChart(data) {
     dragmode: "zoom",
   });
 
-  Plotly.newPlot("corrBrushPlot", traces, layout, { responsive: true, displayModeBar: false });
+  // Add overlay shapes and hover trace
+  if (overlayShapes && overlayShapes.length) {
+    layout.shapes = overlayShapes;
+  }
+  const allTraces = hoverTrace ? [...traces, hoverTrace] : traces;
+  if (hoverTrace) {
+    _corrHoverTraceIdx = allTraces.length - 1;
+  }
+
+  Plotly.newPlot("corrBrushPlot", allTraces, layout, { responsive: true, displayModeBar: false });
 
   // Listen for zoom (relayout) events
   const brushEl = document.getElementById("corrBrushPlot");
@@ -208,6 +233,11 @@ function _renderBrushChart(data) {
     const dateStr = new Date(x0).toLocaleDateString([], { day: "numeric", month: "short" });
     document.getElementById("corrRangeLabel").textContent =
       `Showing: ${dateStr} ${fmt(x0)} – ${fmt(x1)} (${subset.length} readings)`;
+
+    // Load ML-aware analysis panel
+    const zStart = new Date(x0).toISOString();
+    const zEnd   = new Date(x1).toISOString();
+    _loadAnalysisPanel(zStart, zEnd);
   });
 }
 
@@ -462,9 +492,9 @@ function _renderInferencePanel(subset, fullData) {
     if (selTvoc.length)  levels.push(`TVOC: <strong>${avgTvocSel != null ? Math.round(avgTvocSel) : "–"} ppb</strong> ${tvocHigh ? "⚠️" : "✅"}`);
     if (selEco2.length)  levels.push(`eCO₂: <strong>${avgEco2Sel != null ? Math.round(avgEco2Sel) : "–"} ppm</strong> ${eco2High ? "⚠️" : "✅"}`);
     const corrParts = [];
-    if (reg)        corrParts.push(`TVOC↔eCO₂ R² = ${reg.r2.toFixed(2)}`);
+    if (reg)        corrParts.push(`TVOC↔CO₂ R² = ${reg.r2.toFixed(2)}`);
     if (regPmTvoc)  corrParts.push(`PM2.5↔TVOC R² = ${regPmTvoc.r2.toFixed(2)}`);
-    if (regPmEco2)  corrParts.push(`PM2.5↔eCO₂ R² = ${regPmEco2.r2.toFixed(2)}`);
+    if (regPmEco2)  corrParts.push(`PM2.5↔CO₂ R² = ${regPmEco2.r2.toFixed(2)}`);
     const anyHigh = pmHigh || tvocHigh || eco2High;
     cards.push({
       icon: anyHigh ? "📊" : "📊",
@@ -511,17 +541,17 @@ function _renderInferencePanel(subset, fullData) {
       if (tvocHigh && !eco2High) {
         srcIcon = "🧴"; srcCls = "insight-warn";
         srcTitle = "Chemical off-gassing (no combustion)";
-        srcDesc = `TVOC is elevated (${avgTvocSel != null ? Math.round(avgTvocSel) : "–"} ppb) but PM2.5 and eCO₂ are normal. This is typical of volatile organic sources that don't produce particles or CO₂: cleaning products, air fresheners, paint, adhesives, new furniture, or cosmetics.`;
+        srcDesc = `TVOC is elevated (${avgTvocSel != null ? Math.round(avgTvocSel) : "–"} ppb) but PM2.5 and eCO₂ are normal. This is typical of volatile organic sources that don't produce particles or eCO₂: cleaning products, air fresheners, paint, adhesives, new furniture, or cosmetics.`;
         srcTip = "These sources can persist for hours or days. TVOC off-gassing from new furniture peaks in the first few weeks. Ventilation helps but the source needs to be removed or contained.";
       } else if (tvocHigh && eco2High && tvocEco2R2 > 0.4) {
         srcIcon = "👥"; srcCls = "insight-neutral";
         srcTitle = "Occupancy / breathing";
-        srcDesc = `eCO₂ and TVOC are both elevated and correlated (R² = ${tvocEco2R2.toFixed(2)}), but PM2.5 is normal. This is the signature of human presence without combustion — CO₂ and body VOCs from breathing, metabolism, and skin.`;
-        srcTip = "Open a window or increase the ventilation rate. CO₂ and TVOC from occupancy drop quickly with fresh air flow.";
+        srcDesc = `eCO₂ and TVOC are both elevated and correlated (R² = ${tvocEco2R2.toFixed(2)}), but PM2.5 is normal. This is the signature of human presence without combustion — eCO₂ and body VOCs from breathing, metabolism, and skin.`;
+        srcTip = "Open a window or increase the ventilation rate. eCO₂ and TVOC from occupancy drop quickly with fresh air flow.";
       } else if (eco2High && !tvocHigh) {
         srcIcon = "🫁"; srcCls = "insight-neutral";
-        srcTitle = "CO₂ build-up (minimal VOCs)";
-        srcDesc = `eCO₂ is elevated (${avgEco2Sel != null ? Math.round(avgEco2Sel) : "–"} ppm) but TVOC and PM2.5 are normal. Pure CO₂ build-up with no matching VOCs or particles typically means occupants in a sealed room with minimal activity.`;
+        srcTitle = "eCO₂ build-up (minimal VOCs)";
+        srcDesc = `eCO₂ is elevated (${avgEco2Sel != null ? Math.round(avgEco2Sel) : "–"} ppm) but TVOC and PM2.5 are normal. Pure eCO₂ build-up with no matching VOCs or particles typically means occupants in a sealed room with minimal activity.`;
         srcTip = "Ventilate the room. If this repeats at the same time daily, the room needs a higher base ventilation rate.";
       } else {
         srcIcon = "✅"; srcCls = "insight-good";
@@ -567,10 +597,10 @@ function _renderInferencePanel(subset, fullData) {
       trendText = `<strong>TVOC and eCO₂ rising</strong><br>Air quality is getting worse. ${hasPm && pm25Dir === "rising" ? "PM2.5 is also rising. " : ""}Common during cooking, gatherings, or when windows are closed.`;
     } else if (tvocDir === "rising" && eco2Dir !== "rising") {
       trendIcon = "🧪"; trendClass = "insight-warn";
-      trendText = `<strong>TVOC rising, eCO₂ ${eco2Dir}</strong><br>A VOC source is active without extra CO₂. Likely: cleaning products, paint, adhesives, cosmetics, or new materials.${hasPm && pm25Dir === "rising" ? " PM2.5 also rising — possibly a combustion source." : ""}`;
+      trendText = `<strong>TVOC rising, eCO₂ ${eco2Dir}</strong><br>A VOC source is active without extra eCO₂. Likely: cleaning products, paint, adhesives, cosmetics, or new materials.${hasPm && pm25Dir === "rising" ? " PM2.5 also rising — possibly a combustion source." : ""}`;
     } else if (eco2Dir === "rising" && tvocDir !== "rising") {
       trendIcon = "🫁"; trendClass = "insight-warn";
-      trendText = `<strong>eCO₂ rising, TVOC ${tvocDir}</strong><br>CO₂ building up from occupants. The air feels stuffy before TVOC catches up. ${hasPm && pm25Dir === "rising" ? "PM2.5 also rising — check for a concurrent particle source." : ""}`;
+      trendText = `<strong>eCO₂ rising, TVOC ${tvocDir}</strong><br>eCO₂ building up from occupants. The air feels stuffy before TVOC catches up. ${hasPm && pm25Dir === "rising" ? "PM2.5 also rising — check for a concurrent particle source." : ""}`;
     } else {
       trendIcon = "➡️"; trendClass = "insight-neutral";
       trendText = `<strong>Pollutant levels are stable</strong><br>No significant change in this window. The environment is in a steady state.`;
@@ -655,3 +685,158 @@ function _renderInferencePanel(subset, fullData) {
     </div>
   `).join("");
 }
+
+// ── ML-aware analysis panel ──────────────────────────────────────────────────
+
+let _corrBaselines = {};
+
+async function _loadAnalysisPanel(start, end) {
+  const panel   = document.getElementById('corrAnalysisPanel');
+  const loading = document.getElementById('corrAnalysisLoading');
+  const content = document.getElementById('corrAnalysisContent');
+  if (!panel) return;
+  panel.style.display = 'block';
+  loading.style.display = 'block';
+  content.style.display = 'none';
+  try {
+    const [ctxResp, blResp, sensorResp] = await Promise.all([
+      fetch(`/api/history/ml-context?start=${start}&end=${end}`),
+      fetch('/api/history/baselines'),
+      fetch(`/api/history/sensor?start=${start}&end=${end}`),
+    ]);
+    const ctx = await ctxResp.json();
+    _corrBaselines = await blResp.json();
+    const sensorData = await sensorResp.json();
+    loading.style.display = 'none';
+    content.style.display = 'block';
+
+    const evList = document.getElementById('corrEventsList');
+    if (ctx.inferences && ctx.inferences.length > 0) {
+      evList.innerHTML = ctx.inferences.map(function (inf) {
+        const chipFn = typeof renderDetectionChip === 'function';
+        const chip = chipFn ? renderDetectionChip(inf.detection_method || 'rule') : `<span>[${inf.detection_method||'rule'}]</span>`;
+        return `<div class="ev-row">${chip} ${inf.title}</div>`;
+      }).join('');
+    } else {
+      evList.innerHTML = '<span class="muted">No detections in this window.</span>';
+    }
+
+    document.getElementById('corrComovement').textContent = ctx.comovement_summary || 'No strong correlations detected.';
+
+    const activeChannels = Array.from(document.querySelectorAll('.channel-chip[data-group].active')).map(c => c.dataset.channel);
+    const peakRows = activeChannels.map(function (ch) {
+      const vals = (sensorData.channels && sensorData.channels[ch] || []).filter(v => v != null);
+      if (!vals.length) return null;
+      const peak = Math.max(...vals);
+      const baseline = _corrBaselines[ch];
+      const label = CORR_LABELS[ch] || ch;
+      const ratioStr = baseline ? `${(peak/baseline).toFixed(1)}\u00d7 baseline (${baseline.toFixed(1)})` : 'Baseline not yet available.';
+      return `<div class="peak-row"><strong>${label}:</strong> peak ${peak.toFixed(1)} \u2014 ${ratioStr}</div>`;
+    }).filter(Boolean);
+    document.getElementById('corrPeakBaseline').innerHTML = peakRows.length ? peakRows.join('') : '<span class="muted">No data.</span>';
+
+    const attrSection = document.getElementById('corrAttributionSummarySection');
+    const attrEl = document.getElementById('corrAttributionSummary');
+    if (ctx.inferences && ctx.inferences.length >= 2 && ctx.dominant_source) {
+      attrSection.style.display = 'block';
+      const dominated = ctx.inferences.filter(i => i.attribution_source === ctx.dominant_source).length;
+      attrEl.textContent = `${dominated} of ${ctx.inferences.length} events attributed to ${ctx.dominant_source}.`;
+    } else {
+      attrSection.style.display = 'none';
+    }
+  } catch (e) {
+    loading.textContent = 'Could not load analysis.';
+  }
+}
+
+// ── Anomaly event overlay ────────────────────────────────────────────────────
+
+let _corrOverlayShapes  = [];
+let _corrOverlayVisible = true;
+let _corrHoverTraceIdx  = null;
+
+function _buildAnomalyOverlay(inferences) {
+  const shapes = [], hoverX = [], hoverY = [], hoverText = [];
+  inferences.forEach(function (inf) {
+    const ts = inf.created_at;
+    let colour = '#6b7280';
+    if (inf.severity === 'critical') colour = '#ef4444';
+    else if (inf.severity === 'warning') colour = '#f59e0b';
+    else if (inf.detection_method === 'ml') colour = '#3b82f6';
+    shapes.push({ type:'line', x0:ts,x1:ts,y0:0,y1:1, xref:'x',yref:'paper', line:{color:colour,width:1,dash:'dash'} });
+    hoverX.push(ts); hoverY.push(0.5);
+    const src = inf.attribution_source ? ` | ${inf.attribution_source} (${Math.round((inf.attribution_confidence||0)*100)}%)` : '';
+    hoverText.push(`${inf.title}<br>${inf.detection_method || 'rule'}${src}`);
+  });
+  const hoverTrace = { x:hoverX, y:hoverY, mode:'markers', marker:{opacity:0,size:12}, hoverinfo:'text', hovertext:hoverText, showlegend:false, name:'detections' };
+  return { shapes, hoverTrace };
+}
+
+function corrToggleOverlay(visible) {
+  _corrOverlayVisible = visible;
+  const chartDiv = document.getElementById('corrBrushPlot');
+  if (!chartDiv) return;
+  Plotly.relayout(chartDiv, { shapes: visible ? _corrOverlayShapes : [] });
+  if (_corrHoverTraceIdx !== null) {
+    Plotly.restyle(chartDiv, { visible: [visible] }, [_corrHoverTraceIdx]);
+  }
+}
+
+// ── Channel toggle chips for Correlations tab ────────────────────────────────
+
+const CORR_CHANNELS = ['tvoc_ppb','eco2_ppm','temperature_c','humidity_pct','pm1_ug_m3','pm25_ug_m3','pm10_ug_m3','co_ppb','no2_ppb','nh3_ppb'];
+const CORR_COLOURS  = { tvoc_ppb:'#8b5cf6', eco2_ppm:'#06b6d4', temperature_c:'#f97316', humidity_pct:'#3b82f6', pm1_ug_m3:'#84cc16', pm25_ug_m3:'#22c55e', pm10_ug_m3:'#a3e635', co_ppb:'#ef4444', no2_ppb:'#f59e0b', nh3_ppb:'#ec4899' };
+const CORR_LABELS   = { tvoc_ppb:'TVOC', eco2_ppm:'eCO₂', temperature_c:'Temperature', humidity_pct:'Humidity', pm1_ug_m3:'PM1', pm25_ug_m3:'PM2.5', pm10_ug_m3:'PM10', co_ppb:'CO (resistance)', no2_ppb:'NO2 (resistance)', nh3_ppb:'NH3 (resistance)' };
+
+// Mapping from chip data-channel to brush chart trace name (as set in _renderBrushChart)
+const CORR_BRUSH_TRACE_NAMES = {
+  tvoc_ppb:    'TVOC (ppb)',
+  eco2_ppm:    'eCO₂ (ppm)',
+  pm25_ug_m3:  'PM2.5 (µg/m³)',
+};
+
+function corrToggleChip(btn) {
+  btn.classList.toggle('active');
+  _updateCorrVisibility();
+}
+function corrToggleGroup(group) {
+  const chips = document.querySelectorAll(`.channel-chip[data-group="${group}"]`);
+  const allActive = Array.from(chips).every(c => c.classList.contains('active'));
+  chips.forEach(c => allActive ? c.classList.remove('active') : c.classList.add('active'));
+  _updateCorrVisibility();
+}
+function corrToggleAll(state) {
+  document.querySelectorAll('.channel-chip[data-group]').forEach(c => state ? c.classList.add('active') : c.classList.remove('active'));
+  _updateCorrVisibility();
+}
+function _updateCorrVisibility() {
+  const active = new Set(Array.from(document.querySelectorAll('.channel-chip[data-group].active')).map(c => c.dataset.channel));
+  const emptyMsg = document.getElementById('corrEmptyMsg');
+  if (active.size === 0) { if (emptyMsg) emptyMsg.style.display = 'block'; return; }
+  if (emptyMsg) emptyMsg.style.display = 'none';
+
+  // Toggles affect trace visibility on the overview chart only; analysis panel reflects all channels in the selected window.
+  // The brush chart only plots TVOC, eCO2, and optionally PM2.5 — match by trace name.
+  const chartDiv = document.getElementById('corrBrushPlot');
+  if (chartDiv && chartDiv.data && chartDiv.data.length > 0) {
+    chartDiv.data.forEach(function (trace, idx) {
+      // Skip the invisible hover-detection trace
+      if (trace.name === 'detections') return;
+      // Find which chip channel this trace corresponds to
+      const matchingChannel = Object.keys(CORR_BRUSH_TRACE_NAMES).find(
+        ch => CORR_BRUSH_TRACE_NAMES[ch] === trace.name
+      );
+      if (matchingChannel !== undefined) {
+        const shouldShow = active.has(matchingChannel);
+        Plotly.restyle(chartDiv, { visible: [shouldShow ? true : 'legendonly'] }, [idx]);
+      }
+    });
+  }
+}
+
+// Expose toggle functions to window so inline onclick handlers in the HTML can call them.
+// (This file is loaded as an ES module and module-scope functions are not globally accessible.)
+window.corrToggleChip  = corrToggleChip;
+window.corrToggleGroup = corrToggleGroup;
+window.corrToggleAll   = corrToggleAll;
+window.corrToggleOverlay = corrToggleOverlay;

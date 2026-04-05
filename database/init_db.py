@@ -6,8 +6,9 @@ DB_FILE = config.get("DB_FILE", "data/sensor_data.db")
 
 
 def create_db():
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(DB_FILE, timeout=15)
     cur = conn.cursor()
+    cur.execute("PRAGMA journal_mode=WAL")  # allow concurrent reads + writes
 
     cur.execute("""
     CREATE TABLE IF NOT EXISTS sensor_data (
@@ -61,14 +62,22 @@ def create_db():
                 'tvoc_spike', 'eco2_danger', 'eco2_elevated',
                 'correlated_pollution', 'sustained_poor_air',
                 'mould_risk',
-                'pm25_spike', 'pm25_elevated', 'pm10_elevated',
+                'pm1_spike', 'pm1_elevated',
+                'pm25_spike', 'pm25_elevated',
+                'pm10_spike', 'pm10_elevated',
                 'temp_high', 'temp_low',
                 'humidity_high', 'humidity_low',
                 'vpd_low', 'vpd_high',
                 'rapid_temp_change', 'rapid_humidity_change',
                 'hourly_summary', 'daily_summary',
-                'daily_pattern', 'overnight_buildup'
+                'daily_pattern', 'overnight_buildup',
+                'anomaly_combustion_signature',
+                'anomaly_particle_distribution',
+                'anomaly_ventilation_quality',
+                'anomaly_gas_relationship',
+                'anomaly_thermal_moisture'
             ) OR event_type LIKE 'annotation_context_%'
+              OR event_type LIKE 'anomaly_%'
         ),
         severity TEXT NOT NULL DEFAULT 'info'
             CHECK(severity IN ('info', 'warning', 'critical')),
@@ -130,6 +139,8 @@ def create_db():
              "Warm temps accelerating mould growth"),
             ("mould_hours",   4,    "hrs",   "Mould Risk Duration",
              "Hours of sustained conditions before flagging"),
+            ("pm1_high",       10.0, "µg/m³", "PM1 High",
+             "Elevated ultrafine particle level (no formal WHO guideline; proxy threshold)"),
             ("pm25_moderate", 12.0, "µg/m³", "PM2.5 Moderate",
              "WHO 24-hr guideline — below this is 'good' air quality"),
             ("pm25_high",     35.0, "µg/m³", "PM2.5 High",
@@ -154,6 +165,8 @@ def create_db():
          "Warm temps accelerating mould growth"),
         ("mould_hours", 4,    "hrs", "Mould Risk Duration",
          "Hours of sustained conditions before flagging"),
+        ("pm1_high",       10.0, "µg/m³", "PM1 High",
+         "Elevated ultrafine particle level (no formal WHO guideline; proxy threshold)"),
         ("pm25_moderate", 12.0, "µg/m³", "PM2.5 Moderate",
          "WHO 24-hr guideline — below this is 'good' air quality"),
         ("pm25_high",     35.0, "µg/m³", "PM2.5 High",
@@ -187,6 +200,8 @@ def create_db():
         "ALTER TABLE sensor_data ADD COLUMN gas_co REAL",
         "ALTER TABLE sensor_data ADD COLUMN gas_no2 REAL",
         "ALTER TABLE sensor_data ADD COLUMN gas_nh3 REAL",
+        "ALTER TABLE hot_tier ADD COLUMN pm1_ug_m3 REAL",
+        "ALTER TABLE hot_tier ADD COLUMN pm10_ug_m3 REAL",
     ]:
         try:
             cur.execute(migration)
@@ -225,6 +240,27 @@ def create_db():
         INSERT INTO fan_settings (tvoc_min, tvoc_max, temp_min, temp_max, enabled)
         VALUES (?, ?, ?, ?, ?)
         """, (0, 500, 0.0, 20.0, 0))
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS hot_tier (
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT    NOT NULL,
+        source    TEXT    NOT NULL,
+        tvoc_ppb      REAL,
+        eco2_ppm      REAL,
+        temperature_c REAL,
+        humidity_pct  REAL,
+        pm1_ug_m3     REAL,
+        pm25_ug_m3    REAL,
+        pm10_ug_m3    REAL,
+        co_ppb        REAL,
+        no2_ppb       REAL,
+        nh3_ppb       REAL
+    );
+    """)
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_hot_tier_timestamp ON hot_tier (timestamp);"
+    )
 
     conn.commit()
     conn.close()

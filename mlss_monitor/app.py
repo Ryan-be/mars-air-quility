@@ -5,7 +5,8 @@ import mimetypes
 import os
 import ssl
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from threading import Thread
 
 import psutil
@@ -19,15 +20,26 @@ from flask import Flask, redirect, request, session, url_for
 
 from config import config
 from database.db_logger import (
-    cleanup_old_weather, get_fan_settings, get_location,
-    log_sensor_data, log_weather,
+    DB_FILE,
+    cleanup_old_weather, get_24h_baselines, get_fan_settings, get_location,
+    log_sensor_data, log_weather, _normalise_ts,
 )
 from database.init_db import create_db
 from external_api_interfaces.kasa_smart_plug import KasaSmartPlug
 from external_api_interfaces.open_meteo import OpenMeteoClient
 from mlss_monitor import state
+from mlss_monitor.data_sources import (
+    SGP30Source,
+    AHT20Source,
+    ParticulateSource,
+    MICS6814Source,
+    merge_readings,
+)
+from mlss_monitor.detection_engine import DetectionEngine
 from mlss_monitor.event_bus import EventBus
 from mlss_monitor.fan_controller import SensorReading, build_default_controller
+from mlss_monitor.feature_extractor import FeatureExtractor
+from mlss_monitor.hot_tier import HotTier
 from mlss_monitor.routes import register_routes
 from sensor_interfaces.aht20 import read_aht20
 from sensor_interfaces.mics6814 import init_mics6814, read_mics6814
@@ -35,6 +47,52 @@ from sensor_interfaces.sb_components_pm_sensor import init_pm_sensor, read_pm
 from sensor_interfaces.sgp30 import read_sgp30
 
 log = logging.getLogger(__name__)
+
+# ── Anomaly score SSE push ─────────────────────────────────────────────────────
+
+_last_scores_push: float = 0.0
+_SCORES_PUSH_INTERVAL = 30.0
+
+_MULTIVAR_IDS = [
+    "combustion_signature", "particle_distribution",
+    "ventilation_quality", "gas_relationship", "thermal_moisture",
+]
+_PER_CHANNEL_IDS = [
+    "tvoc_ppb", "eco2_ppm", "temperature_c", "humidity_pct",
+    "pm1_ug_m3", "pm25_ug_m3", "pm10_ug_m3", "co_ppb", "no2_ppb", "nh3_ppb",
+]
+
+
+def _push_anomaly_scores():
+    """Push current River anomaly scores to SSE clients. Called from sensor loop."""
+    global _last_scores_push
+    now = time.time()
+    if now - _last_scores_push < _SCORES_PUSH_INTERVAL:
+        return
+    _last_scores_push = now
+    try:
+        engine = state.detection_engine
+        if not engine:
+            return
+        scores: dict = {}
+        n_seen: dict = {}
+        det = engine._anomaly_detector
+        if det:
+            for ch in _PER_CHANNEL_IDS:
+                scores[ch] = (det._last_scores or {}).get(ch) if hasattr(det, "_last_scores") else None
+                n_seen[ch] = det._n_seen.get(ch, 0) if hasattr(det, "_n_seen") else 0
+        mdet = engine._multivar_detector
+        if mdet:
+            for mid in _MULTIVAR_IDS:
+                scores[mid] = (mdet._last_scores or {}).get(mid) if hasattr(mdet, "_last_scores") else None
+                n_seen[mid] = mdet._n_seen.get(mid, 0) if hasattr(mdet, "_n_seen") else 0
+        state.event_bus.publish("anomaly_scores", {
+            "timestamp": _normalise_ts(datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")),
+            "scores": scores,
+            "n_seen": n_seen,
+        })
+    except Exception:
+        pass  # never let SSE push break the sensor loop
 
 
 def _vpd_kpa(temp_c: float, rh: float) -> float:
@@ -58,6 +116,7 @@ LOG_INTERVAL = int(config.get("LOG_INTERVAL", "10"))
 FAN_KASA_SMART_PLUG_IP = config.get("FAN_KASA_SMART_PLUG_IP", "192.168.1.63")
 SECRET_KEY = config.get("SECRET_KEY", "mlss-dev-key-change-me-in-production")
 app.secret_key = SECRET_KEY
+app.permanent_session_lifetime = timedelta(days=30)
 
 # ── HTTPS / TLS ──────────────────────────────────────────────────────────────
 HTTPS_ENABLED = str(config.get("HTTPS_ENABLED", "true")).lower() == "true"
@@ -123,8 +182,20 @@ def check_auth():
         and request.endpoint not in _PUBLIC_ENDPOINTS
         and not session.get("logged_in")
     ):
+        if request.path.startswith("/api/"):
+            from flask import jsonify as _jsonify
+            return _jsonify({"error": "Unauthorised", "login_required": True}), 401
         return redirect(url_for("auth.login"))
     return None
+
+
+@app.after_request
+def add_security_headers(response):
+    # Allow same-origin iframes (e.g. Insights Engine tab embedded in admin.html).
+    # SAMEORIGIN permits framing by pages on the same host; DENY would break the
+    # Settings → Insights Engine iframe.
+    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    return response
 
 
 @app.context_processor
@@ -174,6 +245,40 @@ if pm_sensor:
 mics6814_sensor = init_mics6814()
 if mics6814_sensor:
     state.mics6814 = mics6814_sensor
+
+# --- Hot tier and data source abstraction (parallel addition) ---
+# Initialised without DB here so importing app.py never touches the database.
+# main() reinitialises with db_file=DB_FILE after create_db() so that the
+# hot_tier table exists before _load_from_db() is called.
+hot_tier = HotTier(maxlen=3600)
+state.hot_tier = hot_tier
+
+_data_sources = [
+    SGP30Source(),
+    AHT20Source(),
+    ParticulateSource(),    # uses module-level read_pm() — no arg needed
+    MICS6814Source(),
+]
+
+# Initialise enabled flags for all registered data sources
+for _ds in _data_sources:
+    state.data_source_enabled.setdefault(_ds.name, True)
+
+# Expose live source objects so API routes can read last_reading_at.
+state.data_sources = _data_sources
+
+_feature_extractor = FeatureExtractor()
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_detection_engine = DetectionEngine(
+    rules_path=_PROJECT_ROOT / "config" / "rules.yaml",
+    anomaly_config_path=_PROJECT_ROOT / "config" / "anomaly.yaml",
+    model_dir=_PROJECT_ROOT / "data" / "anomaly_models",
+    fingerprints_path=_PROJECT_ROOT / "config" / "fingerprints.yaml",
+    multivar_config_path=_PROJECT_ROOT / "config" / "multivar_anomaly.yaml",
+    dry_run=False,
+)
+state.detection_engine = _detection_engine
 
 # ── Smart plug & async event loop ────────────────────────────────────────────
 
@@ -397,12 +502,46 @@ def _background_log():
         _log_cycle += 1
 
         # Short-term detectors every ~60s
+        # The two try/except blocks (log_data and feature extraction) are intentionally
+        # independent: FeatureVector updates proceed even if log_data fails, because the
+        # hot tier is populated by a separate _sensor_read_loop thread.
+        if _log_cycle % _CYCLE_60S == 0:
+            try:
+                baselines = get_24h_baselines()
+                hot_snap = state.hot_tier.snapshot() if state.hot_tier else []
+                state.feature_vector = _feature_extractor.extract(hot_snap, baselines)
+            except Exception as exc:
+                log.error("FeatureExtractor error: %s", exc)
+
+        # Run inference engine every ~60s
         if _log_cycle % _CYCLE_60S == 0:
             try:
                 from mlss_monitor.inference_engine import run_analysis
                 run_analysis()
             except Exception as e:
                 log.error("Inference engine error: %s", e)
+
+        # DetectionEngine runs alongside run_analysis() in live mode (dry_run=False).
+        if _log_cycle % _CYCLE_60S == 0:
+            try:
+                if state.feature_vector is not None:
+                    fired = _detection_engine.run(state.feature_vector)
+                    for event_type in fired:
+                        state.shadow_log.appendleft({
+                            "ts": datetime.now(timezone.utc).strftime("%H:%M:%S"),
+                            "event_type": event_type,
+                        })
+                    if fired:
+                        log.debug("[shadow] DetectionEngine would fire: %s", fired)
+            except Exception as exc:
+                log.error("[shadow] DetectionEngine short-term error: %s", exc)
+
+        # Prune hot_tier DB rows older than 60 minutes to cap table size.
+        if _log_cycle % _CYCLE_60S == 0:
+            try:
+                hot_tier.prune_old()
+            except Exception as exc:
+                log.error("hot_tier.prune_old error: %s", exc)
 
         # Hourly detectors every ~1h
         if _log_cycle % _CYCLE_1H == 0:
@@ -412,6 +551,13 @@ def _background_log():
             except Exception as e:
                 log.error("Hourly inference error: %s", e)
 
+        if _log_cycle % _CYCLE_1H == 0:
+            try:
+                if state.feature_vector is not None:
+                    _detection_engine.run_hourly(state.feature_vector)
+            except Exception as exc:
+                log.error("[shadow] DetectionEngine hourly error: %s", exc)
+
         # Daily detectors every ~24h
         if _log_cycle % _CYCLE_24H == 0:
             try:
@@ -420,7 +566,37 @@ def _background_log():
             except Exception as e:
                 log.error("Daily inference error: %s", e)
 
+        if _log_cycle % _CYCLE_24H == 0:
+            try:
+                if state.feature_vector is not None:
+                    _detection_engine.run_daily(state.feature_vector)
+            except Exception as exc:
+                log.error("[shadow] DetectionEngine daily error: %s", exc)
+
+        _push_anomaly_scores()
         time.sleep(LOG_INTERVAL)
+
+
+def _sensor_read_loop() -> None:
+    """Reads all DataSources every second, merges into one NormalisedReading,
+    and pushes to the hot tier. Does not write to DB.
+    """
+    while True:
+        try:
+            readings = []
+            for source in _data_sources:
+                try:
+                    readings.append(source.get_latest())
+                    source.last_reading_at = datetime.utcnow()
+                except Exception as exc:
+                    log.warning(
+                        "DataSource %s read failed: %s", source.name, exc
+                    )
+            if readings:
+                hot_tier.push(merge_readings(readings))
+        except Exception as exc:
+            log.error("_sensor_read_loop unexpected error: %s", exc)
+        time.sleep(1)
 
 
 def _weather_log_once():
@@ -482,12 +658,58 @@ def _build_ssl_context():
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main():
+    import signal as _signal
+    import sys as _sys
+
+    _t0 = time.monotonic()
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
     create_db()
+    log.info("STARTUP: create_db (%.1fs elapsed)", time.monotonic() - _t0)
+
+    def _save_models_on_exit():
+        log.info("Saving anomaly models before exit")
+        try:
+            _detection_engine._anomaly_detector._save_models()
+        except Exception as exc:
+            log.warning("Could not save anomaly models on shutdown: %s", exc)
+        try:
+            if _detection_engine._multivar_detector is not None:
+                _detection_engine._multivar_detector._save_models()
+        except Exception as exc:
+            log.warning("Could not save multivar models on shutdown: %s", exc)
+
+    import atexit as _atexit
+    _atexit.register(_save_models_on_exit)
+
+    def _graceful_shutdown(signum, frame):
+        log.info("SIGTERM received")
+        _sys.exit(0)  # triggers atexit handlers including _save_models_on_exit
+
+    _signal.signal(_signal.SIGTERM, _graceful_shutdown)
+    log.info("STARTUP: SIGTERM/atexit setup (%.1fs elapsed)", time.monotonic() - _t0)
+
+    # Reinitialise hot_tier now that the DB table is guaranteed to exist.
+    global hot_tier
+    hot_tier = HotTier(maxlen=3600, db_file=DB_FILE)
+    state.hot_tier = hot_tier
+    log.info("STARTUP: HotTier init (%.1fs elapsed)", time.monotonic() - _t0)
+
+    def _bootstrap():
+        try:
+            _detection_engine.bootstrap_from_db(str(DB_FILE))
+        except Exception as exc:
+            log.warning("DetectionEngine.bootstrap_from_db failed: %s", exc)
+    # Delay bootstrap 20s so Flask can fully bind before the CPU-heavy
+    # river learn_one() calls compete for the GIL.
+    from threading import Timer
+    Timer(20, _bootstrap).start()
+    log.info("STARTUP: bootstrap Timer(20s) scheduled (%.1fs elapsed)", time.monotonic() - _t0)
+
     if state.github_oauth:
         log.info("🔒 Auth ENABLED — GitHub OAuth")
         if state.ALLOWED_GITHUB_USER:
@@ -496,23 +718,32 @@ def main():
     else:
         log.warning("⚠️  Auth DISABLED — set MLSS_GITHUB_CLIENT_ID / "
                     "MLSS_GITHUB_CLIENT_SECRET in .env")
+    log.info("STARTUP: auth logging (%.1fs elapsed)", time.monotonic() - _t0)
+
     # Sync fan_mode from persisted settings
     _fan_settings = get_fan_settings()
     state.fan_mode = "auto" if _fan_settings["enabled"] else "manual"
+    log.info("STARTUP: get_fan_settings (%.1fs elapsed)", time.monotonic() - _t0)
 
-    # Backfill any missing long-term inferences from historical data
-    try:
-        from mlss_monitor.inference_engine import run_startup_analysis
-        run_startup_analysis()
-    except Exception as e:
-        log.error("Startup analysis failed: %s", e)
+    # Backfill any missing long-term inferences from historical data (background)
+    def _startup_analysis():
+        try:
+            from mlss_monitor.inference_engine import run_startup_analysis
+            run_startup_analysis()
+        except Exception as e:
+            log.error("Startup analysis failed: %s", e)
+    Thread(target=_startup_analysis, daemon=True).start()
+    log.info("STARTUP: _startup_analysis thread started (%.1fs elapsed)", time.monotonic() - _t0)
 
     Thread(target=_background_log, daemon=True).start()
     Thread(target=_weather_log_loop, daemon=True).start()
+    Thread(target=_sensor_read_loop, daemon=True).start()
+    log.info("STARTUP: background threads started (%.1fs elapsed)", time.monotonic() - _t0)
 
     ssl_ctx = _build_ssl_context()
     port = 5000
     protocol = "https" if ssl_ctx else "http"
+    log.info("STARTUP: about to call app.run (%.1fs elapsed)", time.monotonic() - _t0)
     log.info("Starting server on %s://0.0.0.0:%d", protocol, port)
     app.run(host="0.0.0.0", port=port, ssl_context=ssl_ctx)
 

@@ -7,13 +7,6 @@
 {% endblock %}
 
 {% block topbar_controls %}
-  <div class="controls">
-    <label class="theme-switch" title="Toggle light/dark mode">
-      <input type="checkbox" id="themeToggle" onchange="toggleTheme()">
-      <span class="ts-track"></span>
-      <span class="ts-label">Light</span>
-    </label>
-  </div>
   <p id="last-updated">Last updated: never</p>
 {% endblock %}
 
@@ -31,7 +24,7 @@
       <div class="current" id="humValue">--</div>
     </button>
     <button class="stat-card eco2" data-sensor="eco2">
-      <div class="label">🫁 eCO₂</div>
+      <div class="label" title="Estimated from TVOC via SGP30 algorithm — not a direct CO₂ measurement.">🫁 eCO₂</div>
       <div class="current" id="eco2Value">--</div>
     </button>
     <button class="stat-card tvoc" data-sensor="tvoc">
@@ -92,7 +85,7 @@
       <div class="sub">Apparent temperature (no wind)</div>
     </button>
     <button class="insight-card" id="co2Card" data-insight="co2">
-      <div class="label">🧠 CO₂ Alert</div>
+      <div class="label">🧠 eCO₂ Alert</div>
       <div class="value" id="co2AlertValue">--</div>
       <div class="sub" id="co2AlertSub">--</div>
     </button>
@@ -102,7 +95,7 @@
       <div class="sub" id="vpdSub">--</div>
     </button>
     <button class="insight-card" data-insight="ttt">
-      <div class="label">⏱️ Time to CO₂ Threshold</div>
+      <div class="label">⏱️ Time to eCO₂ Threshold</div>
       <div class="value neutral" id="tttValue">--</div>
       <div class="sub">At current rate of change</div>
     </button>
@@ -229,14 +222,25 @@
               onclick="document.getElementById('inferenceDialog').close()">✕</button>
     </div>
     <div class="inf-body">
-      <div class="inf-meta">
+      <div class="inf-meta" id="infMeta">
         <span class="inf-badge" id="infSeverity"></span>
+        <span class="inf-detection-chip"></span>
         <span class="inf-time" id="infTime"></span>
         <span class="inf-confidence" id="infConfidence"></span>
       </div>
       <div class="inf-section">
         <div class="inf-section-title">What was detected</div>
         <div id="infDescription"></div>
+        <div id="infAttribution" style="display:none;"></div>
+      </div>
+      <div id="infSparkline" class="sparkline-container" style="display:none;">
+        <div class="sparkline-header">
+          Sensor activity around this event
+          <span class="info-icon" title="Shows how sensor values moved in the 30 minutes around this event.">ⓘ</span>
+        </div>
+        <div id="infSparklineChart" style="height:180px;"></div>
+        <div id="infSparklineLoading" style="display:none; text-align:center; padding:20px;">Loading…</div>
+        <div id="infSparklineError" style="display:none; color:var(--text-muted,#6b7280); font-size:0.8rem; padding:8px 0;">Sparkline unavailable.</div>
       </div>
       <div class="inf-section">
         <div class="inf-section-title">Evidence</div>
@@ -316,5 +320,7 @@
 {% endblock %}
 
 {% block scripts %}
+  <script src="https://cdn.plot.ly/plotly-basic-2.35.2.min.js" charset="utf-8"></script>
+  <script src="{{ url_for('static', filename='js/sparkline.js') }}"></script>
   <script type="module" src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
 {% endblock %}

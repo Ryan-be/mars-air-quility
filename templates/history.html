@@ -18,11 +18,6 @@
       <option value="all">All time</option>
     </select>
     <button class="btn" onclick="downloadCSV()">Download CSV</button>
-    <label class="theme-switch" title="Toggle light/dark mode">
-      <input type="checkbox" id="themeToggle" onchange="toggleTheme()">
-      <span class="ts-track"></span>
-      <span class="ts-label">Light</span>
-    </label>
   </div>
   <p id="last-updated">Last updated: never</p>
 {% endblock %}
@@ -35,7 +30,7 @@
     <button class="tab-btn" data-tab="particulate">🌫️ Particulate</button>
     <button class="tab-btn" data-tab="environment">🌿 Environment</button>
     <button class="tab-btn" data-tab="correlation">🔍 Correlation</button>
-    <button class="tab-btn" data-tab="patterns">📅 Patterns</button>
+    <button class="tab-btn" data-tab="detections">📅 Detections &amp; Insights</button>
   </div>
 
   <!-- Climate tab: temperature and humidity only -->
@@ -217,6 +212,37 @@
 
   <div class="tab-panel tab-hidden" id="tab-correlation">
 
+    <!-- Channel toggle chips -->
+    <div class="channel-toggles" id="corrToggles">
+      <div class="toggle-group">
+        <button class="toggle-group-label" onclick="corrToggleGroup('airquality')">Air Quality</button>
+        <button class="channel-chip active" data-channel="tvoc_ppb" data-group="airquality" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#8b5cf6"></span>TVOC <span class="chip-info" title="Total Volatile Organic Compounds — measures off-gassing from materials, cleaning products, and biological sources.">ⓘ</span></button>
+        <button class="channel-chip active" data-channel="eco2_ppm" data-group="airquality" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#06b6d4"></span>eCO₂ <span class="chip-info" title="Estimated from TVOC via SGP30 algorithm — not a direct CO₂ measurement.">ⓘ</span></button>
+      </div>
+      <div class="toggle-group">
+        <button class="toggle-group-label" onclick="corrToggleGroup('particles')">Particles</button>
+        <button class="channel-chip active" data-channel="pm1_ug_m3" data-group="particles" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#84cc16"></span>PM1 <span class="chip-info" title="Particulate matter smaller than 1 µm — ultrafine particles from combustion.">ⓘ</span></button>
+        <button class="channel-chip active" data-channel="pm25_ug_m3" data-group="particles" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#22c55e"></span>PM2.5 <span class="chip-info" title="Particulate matter smaller than 2.5 µm — fine particles; WHO guideline 15 µg/m³ annual mean.">ⓘ</span></button>
+        <button class="channel-chip active" data-channel="pm10_ug_m3" data-group="particles" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#a3e635"></span>PM10 <span class="chip-info" title="Particulate matter smaller than 10 µm — coarse dust, pollen, mould spores.">ⓘ</span></button>
+      </div>
+      <div class="toggle-group">
+        <button class="toggle-group-label" onclick="corrToggleGroup('gas')">Gas Sensors</button>
+        <button class="channel-chip active" data-channel="co_ppb" data-group="gas" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#ef4444"></span>CO (resistance) <span class="chip-info" title="Carbon monoxide proxy via MICS6814 resistance (kΩ). Lower resistance = higher CO concentration.">ⓘ</span></button>
+        <button class="channel-chip active" data-channel="no2_ppb" data-group="gas" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#f59e0b"></span>NO2 (resistance) <span class="chip-info" title="Nitrogen dioxide proxy via MICS6814 resistance (kΩ). Lower resistance = higher NO2 concentration.">ⓘ</span></button>
+        <button class="channel-chip active" data-channel="nh3_ppb" data-group="gas" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#ec4899"></span>NH3 (resistance) <span class="chip-info" title="Ammonia proxy via MICS6814 resistance (kΩ). Lower resistance = higher NH3 concentration.">ⓘ</span></button>
+      </div>
+      <div class="toggle-group">
+        <button class="toggle-group-label" onclick="corrToggleGroup('environment')">Environment</button>
+        <button class="channel-chip active" data-channel="temperature_c" data-group="environment" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#f97316"></span>Temperature <span class="chip-info" title="Ambient temperature in °C.">ⓘ</span></button>
+        <button class="channel-chip active" data-channel="humidity_pct" data-group="environment" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#3b82f6"></span>Humidity <span class="chip-info" title="Relative humidity percentage.">ⓘ</span></button>
+      </div>
+      <div class="toggle-presets">
+        <button class="btn btn-sm" onclick="corrToggleAll(true)">All</button>
+        <button class="btn btn-sm" onclick="corrToggleAll(false)">None</button>
+      </div>
+    </div>
+    <div id="corrEmptyMsg" style="display:none; text-align:center; padding:40px; color:var(--text-muted);">Select at least one channel above.</div>
+
     <!-- Brush selector -->
     <div class="corr-brush-section">
       <div class="corr-brush-header">
@@ -227,6 +253,11 @@
       <div class="corr-brush-controls">
         <button class="btn btn-sm" id="corrResetBtn">Reset to full range</button>
         <span class="corr-range-label" id="corrRangeLabel">Showing: full range</span>
+        <label class="overlay-toggle">
+          <input type="checkbox" id="corrShowDetections" checked onchange="corrToggleOverlay(this.checked)">
+          Show detections
+          <span class="info-icon" title="Shows when events were detected — align these with sensor spikes to understand what triggered each detection.">ⓘ</span>
+        </label>
       </div>
     </div>
 
@@ -235,6 +266,29 @@
       <h4>📊 Analysis</h4>
       <div class="corr-inference-grid" id="corrInferenceGrid">
         <p class="corr-inference-placeholder">Select a time range above to see analysis.</p>
+      </div>
+    </div>
+
+    <!-- ML-aware analysis panel (zoom-triggered) -->
+    <div id="corrAnalysisPanel" class="analysis-panel" style="display:none;">
+      <div class="analysis-loading" id="corrAnalysisLoading">Analysing window…</div>
+      <div id="corrAnalysisContent" style="display:none;">
+        <div class="analysis-section">
+          <h4>Events in window <span class="info-icon" title="Inferences that fired within the zoomed time range.">ⓘ</span></h4>
+          <div id="corrEventsList"></div>
+        </div>
+        <div class="analysis-section">
+          <h4>Sensor co-movement <span class="info-icon" title="Channels that moved together strongly (Pearson r > 0.7).">ⓘ</span></h4>
+          <div id="corrComovement"></div>
+        </div>
+        <div class="analysis-section">
+          <h4>Peak vs baseline <span class="info-icon" title="Highest reading vs learned normal value.">ⓘ</span></h4>
+          <div id="corrPeakBaseline"></div>
+        </div>
+        <div class="analysis-section" id="corrAttributionSummarySection" style="display:none;">
+          <h4>Attribution summary</h4>
+          <div id="corrAttributionSummary"></div>
+        </div>
       </div>
     </div>
 
@@ -270,29 +324,107 @@
     </div>
   </div>
 
-  <div class="tab-panel tab-hidden" id="tab-patterns">
-    <p class="patterns-note">📊 Pattern analysis works best with at least 24 hours of data.</p>
-    <div class="plot-container">
-      <div class="chart-wrapper">
-        <div class="chart-header" style="position:relative">
-          <button class="chart-info-btn" data-info="heatmap" aria-label="Chart info">i</button>
-          <div class="chart-info-popup" id="info-heatmap">Heatmap of average TVOC by hour of day and day of week. Green cells are low (good air quality), red are high. Use this to spot recurring pollution patterns — e.g. cooking times, rush hours, or when the room is occupied.</div>
-        </div>
-        <div id="hourHeatmapPlot"></div>
+  <div class="tab-panel tab-hidden" id="tab-detections">
+    <div class="window-selector" id="diWindowSelector">
+      <button class="window-btn active" data-window="6h"  onclick="diSetWindow('6h')">6h</button>
+      <button class="window-btn"        data-window="24h" onclick="diSetWindow('24h')">24h</button>
+      <button class="window-btn"        data-window="7d"  onclick="diSetWindow('7d')">7d</button>
+    </div>
+    <div class="di-card" id="diPeriodSummary"><div class="di-loading">Loading…</div></div>
+    <div id="diTrendIndicators" class="trend-row"></div>
+    <div class="di-stat" id="diLongestClean"></div>
+    <div class="di-card" id="diAttributionBreakdown">
+      <h3>Attribution Breakdown <span class="info-icon" title="Attribution assigns detected events to likely real-world causes.">ⓘ</span></h3>
+      <div id="diAttributionSubtitle" class="di-subtitle"></div>
+      <div id="diDonutChart"></div>
+      <div id="diDominantSentence" class="di-sentence"></div>
+    </div>
+    <div class="di-card" id="diFingerprints">
+      <h3>Source Fingerprints <span class="info-icon" title="Sensor patterns associated with real-world causes.">ⓘ</span></h3>
+      <div id="diFingerprintCards"></div>
+    </div>
+    <div class="di-card" id="diAnomalyModels" style="display:none;">
+      <h3>ML Model Detections <span class="info-icon" title="Detections from ML models watching multiple sensors together.">ⓘ</span></h3>
+      <div id="diModelCards"></div>
+    </div>
+    <div class="di-card" id="diHeatmapSection">
+      <h3>Recurring Patterns <span class="info-icon" title="Events recurring at similar times across multiple days.">ⓘ</span></h3>
+      <div id="diHeatmap" style="height:200px;"></div>
+      <div id="diPatternSentence" class="di-sentence"></div>
+    </div>
+    <div class="di-card" id="diBandsSection">
+      <h3>Sensor Normal Bands <span class="info-icon" title="The shaded band shows the system's learned normal range.">ⓘ</span></h3>
+      <div class="channel-toggles" id="diToggles"></div>
+      <div id="diBandsChart" style="height:300px;"></div>
+    </div>
+    <div id="diEventsList" class="di-card" style="display:none;">
+      <h3>Detection Events <span id="diEventsCount" class="badge-count inference-count"></span></h3>
+      <div class="inference-filters" id="diInferenceFilters">
+        <button class="inf-filter active" data-category="all">All</button>
       </div>
-      <div class="chart-wrapper">
-        <div class="chart-header" style="position:relative">
-          <button class="chart-info-btn" data-info="dailyBand" aria-label="Chart info">i</button>
-          <div class="chart-info-popup" id="info-dailyBand">Shows the daily temperature range as a shaded band (min to max) with the daily average as a solid line. Wider bands indicate larger daily temperature swings, which may stress plants or indicate poor climate control.</div>
-        </div>
-        <div id="dailyBandPlot"></div>
+      <div class="inference-feed" id="diInferenceFeed">
+        <div class="inference-empty">Loading…</div>
       </div>
     </div>
+    <div id="diDriftFlags"></div>
   </div>
+
+  <!-- Inference detail dialog (shared with DI tab) -->
+  <dialog id="inferenceDialog" aria-modal="true" aria-labelledby="infTitle">
+    <div class="fd-header">
+      <div><h3 id="infTitle"></h3></div>
+      <button class="fd-close btn" aria-label="Close"
+              onclick="document.getElementById('inferenceDialog').close()">✕</button>
+    </div>
+    <div class="inf-body">
+      <div class="inf-meta" id="infMeta">
+        <span class="inf-badge" id="infSeverity"></span>
+        <span class="inf-detection-chip"></span>
+        <span class="inf-time" id="infTime"></span>
+        <span class="inf-confidence" id="infConfidence"></span>
+      </div>
+      <div class="inf-section">
+        <div class="inf-section-title">What was detected</div>
+        <div id="infDescription"></div>
+        <div id="infAttribution" style="display:none;"></div>
+      </div>
+      <div id="infSparkline" class="sparkline-container" style="display:none;">
+        <div class="sparkline-header">
+          Sensor activity around this event
+          <span class="info-icon" title="Shows how sensor values moved in the 30 minutes around this event.">ⓘ</span>
+        </div>
+        <div id="infSparklineChart" style="height:180px;"></div>
+        <div id="infSparklineLoading" style="display:none; text-align:center; padding:20px;">Loading…</div>
+        <div id="infSparklineError" style="display:none; color:var(--text-muted,#6b7280); font-size:0.8rem; padding:8px 0;">Sparkline unavailable.</div>
+      </div>
+      <div class="inf-section">
+        <div class="inf-section-title">Evidence</div>
+        <div class="inf-evidence" id="infEvidence"></div>
+      </div>
+      <div class="inf-section">
+        <div class="inf-section-title">Recommended action</div>
+        <div id="infAction"></div>
+      </div>
+      <details class="inf-thresholds-section" id="infThresholdsSection" style="display:none">
+        <summary class="inf-section-title">Thresholds used</summary>
+        <div class="inf-thresholds-grid" id="infThresholds"></div>
+      </details>
+      <div class="inf-section" id="infAnnotationSection" style="display:none">
+        <div class="inf-section-title">Your annotation</div>
+        <div id="infAnnotationText"></div>
+      </div>
+      <div class="inf-section">
+        <div class="inf-section-title">Notes</div>
+        <textarea id="infNotes" rows="2" placeholder="Add your own notes to this inference…"></textarea>
+        <button class="btn inf-save-note" id="infSaveNote">Save note</button>
+      </div>
+    </div>
+  </dialog>
 
 {% endblock %}
 
 {% block scripts %}
   <script src="https://cdn.plot.ly/plotly-2.24.2.min.js"></script>
+  <script src="{{ url_for('static', filename='js/sparkline.js') }}"></script>
   <script type="module" src="{{ url_for('static', filename='js/history.js') }}"></script>
 {% endblock %}

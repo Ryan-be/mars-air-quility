@@ -1,0 +1,275 @@
+{% extends "base.html" %}
+{% block title %}MLSS – Insights Engine{% endblock %}
+{% block extra_css %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+  <style>
+    /* ── Insights page: prevent table text overflow ── */
+    .card { overflow: hidden; }
+    .insights-table {
+      width: 100%;
+      font-size: .85rem;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+    .insights-table th,
+    .insights-table td {
+      padding: .3rem .5rem;
+      word-break: break-word;
+      overflow-wrap: break-word;
+    }
+    .insights-table thead tr {
+      text-align: left;
+      border-bottom: 1px solid #333;
+    }
+    .insights-table thead th { padding: .35rem .5rem; }
+    .insights-table tbody tr { border-bottom: 1px solid #222; }
+    /* Rules table column widths */
+    .rules-table col.col-id         { width: 38%; }
+    .rules-table col.col-event      { width: 30%; }
+    .rules-table col.col-severity   { width: 17%; }
+    .rules-table col.col-confidence { width: 15%; }
+    /* Source Fingerprints table column widths */
+    .fp-table col.col-id      { width: 22%; }
+    .fp-table col.col-label   { width: 20%; }
+    .fp-table col.col-floor   { width: 12%; }
+    .fp-table col.col-sensors { width: 46%; }
+    /* Anomaly Models table column widths */
+    .anomaly-table col.col-channel   { width: 25%; }
+    .anomaly-table col.col-readings  { width: 15%; }
+    .anomaly-table col.col-coldstart { width: 15%; }
+    .anomaly-table col.col-score     { width: 25%; }
+    .anomaly-table col.col-status    { width: 20%; }
+    /* Score bar */
+    .score-bar-wrap {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 120px;
+    }
+    .score-bar {
+      height: 10px;
+      border-radius: 5px;
+      transition: width 0.4s ease, background-color 0.4s ease;
+      min-width: 0;
+    }
+    .score-bar--green  { background: #22c55e; }
+    .score-bar--amber  { background: #f59e0b; }
+    .score-bar--red    { background: #ef4444; }
+    .score-bar--none   { background: #d1d5db; width: 4px !important; }
+    .score-label { font-size: 0.8rem; color: var(--text-muted, #6b7280); min-width: 32px; }
+    .status-elevated { color: #ef4444; font-weight: 600; }
+  </style>
+{% endblock %}
+{% block topbar_controls %}
+  <a href="/admin">← Back to Settings</a>
+{% endblock %}
+
+{% block content %}
+<div class="settings-grid" style="max-width:900px;margin:1.5rem auto;padding:0 1rem;">
+
+  <div class="card">
+    <h3>🤖 Detection Engine</h3>
+    <div style="display:flex;align-items:center;gap:1rem;margin-top:.75rem;">
+      <span>Mode:</span>
+      <strong id="mode-label">{{ "Shadow (dry run)" if dry_run else "Live" }}</strong>
+      <button id="toggle-mode" class="btn {{ 'btn-warning' if dry_run else 'btn-danger' }}"
+              style="margin-left:auto;">
+        {{ "Go Live" if dry_run else "Back to Shadow" }}
+      </button>
+    </div>
+    <p style="margin-top:.5rem;color:#888;font-size:.85rem;">
+      Shadow mode logs what would fire but does not save inferences.
+      Live mode saves attributed inferences to the database.
+    </p>
+    <div style="margin-top:.5rem;font-size:.9rem;">
+      <strong>{{ rule_count }}</strong> rules &nbsp;·&nbsp;
+      <strong>{{ fp_count }}</strong> source fingerprints
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:1rem;">
+    <h3>⚙️ Configuration</h3>
+    <div style="margin-top:.75rem;">
+      <a class="btn btn-secondary" href="/settings/insights-engine/config">⚙ Open Configuration</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>📋 Rules ({{ rule_count }})</h3>
+    {% if rules %}
+    <table class="insights-table rules-table">
+      <colgroup>
+        <col class="col-id"><col class="col-event">
+        <col class="col-severity"><col class="col-confidence">
+      </colgroup>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Event</th>
+          <th>Severity</th>
+          <th>Confidence</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for r in rules %}
+        <tr>
+          <td style="font-family:monospace;">{{ r.id }}</td>
+          <td style="font-family:monospace;">{{ r.event_type }}</td>
+          <td>
+            <span style="color:{{ '#e74c3c' if r.severity == 'critical' else '#f39c12' if r.severity == 'warning' else '#888' }}">
+              {{ r.severity }}
+            </span>
+          </td>
+          <td>{{ (r.confidence * 100)|int }}%</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p style="color:#888;">No rules loaded.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h3>🔬 Source Fingerprints ({{ fp_count }})</h3>
+    {% if fingerprints %}
+    <table class="insights-table fp-table">
+      <colgroup>
+        <col class="col-id"><col class="col-label">
+        <col class="col-floor"><col class="col-sensors">
+      </colgroup>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Label</th>
+          <th>Floor</th>
+          <th>Sensors</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for fp in fingerprints %}
+        <tr>
+          <td style="font-family:monospace;">{{ fp.id }}</td>
+          <td>{{ fp.label }}</td>
+          <td>{{ (fp.floor * 100)|int }}%</td>
+          <td style="color:#888;font-size:.8rem;">{{ fp.sensors | join(', ') }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p style="color:#888;">No fingerprints loaded.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h3>📡 Anomaly Models</h3>
+    {% if anomaly %}
+    <table class="insights-table anomaly-table">
+      <colgroup>
+        <col class="col-channel"><col class="col-readings">
+        <col class="col-coldstart"><col class="col-score"><col class="col-status">
+      </colgroup>
+      <thead>
+        <tr>
+          <th>Channel</th>
+          <th>Readings</th>
+          <th>Cold-start</th>
+          <th>
+            Current Score
+            <span class="info-icon" title="The anomaly score (0–1) shows how unusual the current sensor readings are compared to what this model has learned is normal. Scores above 0.75 trigger a detection event.">ⓘ</span>
+          </th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for ch in anomaly %}
+        <tr data-model-id="{{ ch.channel }}">
+          <td style="font-family:monospace;">{{ ch.channel }}</td>
+          <td>{{ ch.n_seen }}</td>
+          <td>{{ ch.cold_start }}</td>
+          <td class="score-cell">
+            <div class="score-bar-wrap">
+              <div class="score-bar score-bar--none" style="width:0%"></div>
+              <span class="score-label">—</span>
+            </div>
+          </td>
+          <td class="status-cell">
+            {% if ch.ready %}
+              <span style="color:#2ecc71;">● Ready</span>
+            {% else %}
+              <span style="color:#888;">⏳ Learning ({{ ((ch.n_seen / ch.cold_start) * 100)|int }}%)</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p style="color:#888;">No anomaly channels configured.</p>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('toggle-mode').addEventListener('click', function() {
+  const currentDryRun = {{ 'true' if dry_run else 'false' }};
+  fetch('/insights-engine/dry-run', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({dry_run: !currentDryRun})
+  })
+  .then(r => r.json())
+  .then(function() {
+    location.reload();
+  });
+});
+</script>
+
+<script>
+(function () {
+  const es = new EventSource('/api/stream');
+
+  es.addEventListener('anomaly_scores', function (e) {
+    const payload = JSON.parse(e.data);
+    const scores = payload.scores || {};
+
+    Object.entries(scores).forEach(function ([modelId, score]) {
+      const row = document.querySelector(`tr[data-model-id="${modelId}"]`);
+      if (!row) return;
+
+      const bar   = row.querySelector('.score-bar');
+      const label = row.querySelector('.score-label');
+      const statusCell = row.querySelector('.status-cell');
+
+      if (score === null || score === undefined) {
+        bar.style.width = '4px';
+        bar.className = 'score-bar score-bar--none';
+        label.textContent = 'Learning\u2026';
+        return;
+      }
+
+      const pct = Math.round(score * 100);
+      bar.style.width = pct + '%';
+      label.textContent = score.toFixed(2);
+
+      if (score >= 0.75) {
+        bar.className = 'score-bar score-bar--red';
+        if (statusCell) {
+          statusCell.innerHTML = '<span class="status-elevated">\u26a0 Elevated</span>';
+        }
+      } else if (score >= 0.60) {
+        bar.className = 'score-bar score-bar--amber';
+      } else {
+        bar.className = 'score-bar score-bar--green';
+      }
+    });
+  });
+
+  es.onerror = function () {};
+})();
+</script>
+{% endblock %}

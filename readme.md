@@ -12,6 +12,8 @@ A lightweight environmental monitoring system for Raspberry Pi, designed as a pr
 - [Database design](#database-design)
 - [Effector control system](#effector-control-system)
 - [Inference engine](#inference-engine)
+- [FeatureVector](#featurevector)
+- [Data flow](#data-flow)
 - [Installation](#installation)
 - [Running](#running)
 - [Web interface](#web-interface)
@@ -548,9 +550,116 @@ The inference engine (`mlss_monitor/inference_engine.py`) continuously analyses 
 | Daily patterns | `daily_pattern` | Recurring pollution at specific hours |
 | Overnight build-up | `overnight_buildup` | eCO2 rising > 200 ppm between 23:00-07:00 |
 
+### Detection methods
+
+Every inference carries a `detection_method` field that describes how it was generated:
+
+| Method | Description | When it fires |
+|---|---|---|
+| **Rule** | A fixed threshold was crossed | TVOC > 500 ppb, eCO2 > 1000 ppm, temperature outside 15-28 C, etc. Rules are declared in `config/rules.yaml` and evaluated with the `rule-engine` library. Instantaneous and deterministic. |
+| **Statistical** | A single sensor reading is unusually high for that specific sensor | The `AnomalyDetector` runs a per-channel [River `HalfSpaceTrees`](https://riverml.xyz/latest/api/anomaly/HalfSpaceTrees/) model. Each model learns continuously from the live stream and scores each new reading. Scores above the configured threshold (default 0.75) trigger an inference. Requires a cold-start window of ~1,440 readings per channel before it fires. |
+| **ML** | An unusual pattern across multiple sensors simultaneously | Five composite [River `HalfSpaceTrees`](https://riverml.xyz/latest/api/anomaly/HalfSpaceTrees/) models, each watching a different group of channels (combustion signature, particle distribution, ventilation quality, gas relationship, thermal-moisture). Catches correlated anomalies that no single threshold would catch. Requires ~500 readings per model for cold-start. |
+
+The dashboard displays a coloured chip (grey = Rule, blue = Statistical, purple = ML) on each inference card and in the detail dialog.
+
+### Attribution engine
+
+After a detection fires, the attribution engine (`attribution_engine.py`) scores the event against known source fingerprints -- combinations of sensor patterns linked to real-world causes:
+
+| Source | Key sensor signals |
+|---|---|
+| Combustion | PM2.5 and TVOC both elevated and correlated; high PM2.5/PM10 ratio |
+| Cooking | PM2.5 spike with TVOC rise; CO resistance drop |
+| Chemical off-gassing | TVOC elevated but PM2.5 and eCO2 normal |
+| Biological off-gassing | Gradual TVOC rise, often overnight |
+| External pollution | PM2.5 elevated without indoor VOC or CO2 rise |
+
+The top-scoring source and a runner-up (if confidence is within 15%) are stored on the inference and shown in the dialog as a coloured attribution badge.
+
 ### Configurable thresholds
 
 All inference thresholds are stored in the `inference_thresholds` table and can be customised via the admin settings page or `POST /api/settings/thresholds`. See the [Configuration reference](docs/CONFIGURATION.md#inference-thresholds) for the full list of threshold keys and defaults.
+
+---
+
+## FeatureVector
+
+A `FeatureVector` is a structured snapshot of derived sensor metrics computed from a window of raw readings, used as input to all statistical and ML detectors.
+
+### Key fields
+
+| Field | Description |
+|---|---|
+| `timestamp` | Centre of the analysis window |
+| `tvoc_ppb` | Current TVOC reading in parts per billion |
+| `eco2_ppm` | Current eCO2 in parts per million |
+| `temperature_c` | Current temperature in Celsius |
+| `humidity_pct` | Relative humidity percentage |
+| `pm1_ug_m3` / `pm25_ug_m3` / `pm10_ug_m3` | Particulate fractions in µg/m³ |
+| `co_ppb` / `no2_ppb` / `nh3_ppb` | MICS6814 gas sensor resistance values in kΩ (lower resistance = higher gas concentration) |
+| `tvoc_current` / `eco2_current` / … | Aliased names used inside the detection rules (same values, different names) |
+| `tvoc_baseline` / `eco2_baseline` | EMA baseline — exponentially weighted average over recent history, updated continuously by the `AnomalyDetector` |
+| `tvoc_ratio` / `eco2_ratio` | Current value divided by baseline (1.0 = at normal; 2.0 = twice normal) |
+| `tvoc_slope_1m` / `eco2_slope_1m` | Rate of change over the last 1 minute; used for trend arrows in inference cards |
+| `tvoc_slope_5m` / `eco2_slope_5m` | Rate of change over the last 5 minutes; used by attribution engine |
+| `pearson_tvoc_eco2` | Pearson r between TVOC and eCO2 over the analysis window |
+| `vpd_kpa` | Vapour pressure deficit derived from temperature and humidity |
+
+### How it is computed
+
+1. The `FeatureExtractor` fetches the last N readings (configurable; default 30 minutes).
+2. It computes rolling baselines from the last 24 hours of data.
+3. Ratios and trends are derived in-process -- no external calls.
+4. The resulting `FeatureVector` is passed to each registered detector in turn.
+
+See `mlss_monitor/feature_vector.py` and the spec at `docs/superpowers/specs/2026-03-31-smart-inference-engine-design.md`.
+
+---
+
+## Data flow
+
+```
+Sensor hardware
+  │
+  ▼
+SensorPoller (background thread, every LOG_INTERVAL seconds)
+  │  reads raw values from AHT20, SGP30, PMSA003, MICS6814
+  ▼
+NormalisedReading (dataclass)
+  │  unit conversion, null handling, stale-PM detection
+  ▼
+HotTier (in-memory deque, 60 min, persisted to SQLite for restarts)
+  │  merges all DataSource outputs into one reading/second
+  ▼
+FeatureExtractor
+  │  computes baselines, ratios, slopes, Pearson correlations
+  ▼
+FeatureVector
+  │
+  ├──► Rule engine (rule-engine + config/rules.yaml) ──┐
+  ├──► AnomalyDetector (River HalfSpaceTrees,        ──┤──► DetectionEngine
+  │      one model per channel)                        │
+  └──► MultivarAnomalyDetector (River HalfSpaceTrees,──┘       │
+         5 composite models)                                     │
+                                                     ▼                          │
+                                               AttributionEngine                │
+                                                     │  fingerprint scoring     │
+                                                     ▼                          │
+                                               Inference record                 │
+                                                 (saved to inferences table) ───┘
+                                                     │
+                                                     ▼
+                                               EventBus.publish('inference_fired')
+                                                     │
+                                                     ▼
+                                               SSE /api/stream  ──► Browser dashboard
+                                               (inference_event pushed to all clients)
+```
+
+See spec files in `docs/superpowers/specs/` for full design documentation:
+- `2026-03-31-smart-inference-engine-design.md` -- original engine architecture
+- `2026-04-04-phase5-multivariate-actionable-inferences.md` -- multivariate ML models and actionable inference evidence
+- `2026-04-04-phase6-display-ui-and-ml-insights.md` -- Detections & Insights UI, normal bands chart, and inference card enrichment
 
 ---
 

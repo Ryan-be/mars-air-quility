@@ -11,10 +11,10 @@ _hw_mocks = [
 for _mod in _hw_mocks:
     sys.modules[_mod] = MagicMock()
 
-import pytest
-import database.init_db as dbi
-import database.db_logger as dbl
-import database.user_db as udb
+import pytest  # noqa: E402
+import database.init_db as dbi  # noqa: E402
+import database.db_logger as dbl  # noqa: E402
+import database.user_db as udb  # noqa: E402
 
 
 def fake_sensors(temp=22.0, hum=50.0, eco2=400, tvoc=100):
@@ -23,9 +23,11 @@ def fake_sensors(temp=22.0, hum=50.0, eco2=400, tvoc=100):
 
 
 def _patch_db(path: str):
+    import mlss_monitor.hot_tier as ht_mod
     dbi.DB_FILE = path
     dbl.DB_FILE = path
     udb.DB_FILE = path
+    ht_mod.DB_FILE = path
 
 
 @pytest.fixture

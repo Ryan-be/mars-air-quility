@@ -644,6 +644,13 @@ body.light button.health-item:focus-visible { background: #f0f4ff; border-color:
 .inf-ev-row.ev-warn .fd-value  { color: #fbbf24; }
 .inf-ev-row.ev-bad .fd-value   { color: #f87171; }
 
+/* Anomaly evidence chips */
+.ev-ratio  { font-size: 0.78rem; color: #aaa; margin-left: 0.4rem; }
+.ev-trend  { font-size: 0.85rem; }
+.ev-good   .ev-ratio { color: #4caf50; }
+.ev-warn   .ev-ratio { color: #ff9800; }
+.ev-bad    .ev-ratio { color: #f44336; }
+
 #inferenceDialog textarea {
   width: 100%;
   background: #2a2a2a;

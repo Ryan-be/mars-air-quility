@@ -24,7 +24,7 @@ def _wake_sensor(set_pin):
         GPIO.setup(set_pin, GPIO.OUT)
         GPIO.output(set_pin, GPIO.HIGH)
         log.info("PM sensor: SET pin (GPIO%d) pulled HIGH — waking sensor", set_pin)
-        time.sleep(3)  # sensor needs ~2-3s to spin up fan and stabilise
+        time.sleep(5)  # sensor needs ~2-3s to spin up fan and stabilise
     except ImportError:
         log.warning("RPi.GPIO not available — cannot control PM sensor SET pin")
     except Exception as e:
@@ -40,11 +40,14 @@ class AirMonitoringHAT_PM:
     The HAT's SET pin (GPIO27) must be held HIGH for the sensor to stream data.
     """
 
-    def __init__(self, port="/dev/serial0", baudrate=9600, timeout=2):
+    def __init__(self, port="/dev/serial0", baudrate=9600, timeout=5,
+                 set_pin=_DEFAULT_SET_PIN):
         self._port = port
         self._baudrate = baudrate
         self._timeout = timeout
+        self._set_pin = set_pin
         self._ser = None
+        self._consecutive_failures = 0
 
     def _open(self):
         if self._ser is None or not self._ser.is_open:
@@ -110,6 +113,15 @@ class AirMonitoringHAT_PM:
             pm1_0 = (frame[10] << 8) | frame[11]
             pm2_5 = (frame[12] << 8) | frame[13]
             pm10  = (frame[14] << 8) | frame[15]
+
+            # PM1.0 <= PM2.5 <= PM10 is a physical requirement
+            if not pm1_0 <= pm2_5 <= pm10:
+                log.debug(
+                    "PM sensor: rejected frame — PM values out of order (pm1=%s pm2.5=%s pm10=%s)",
+                    pm1_0, pm2_5, pm10,
+                )
+                return None
+
             return {"pm1_0": pm1_0, "pm2_5": pm2_5, "pm10": pm10}
 
         except serial.SerialException as e:
@@ -124,16 +136,31 @@ class AirMonitoringHAT_PM:
         """Read one PM frame with up to 3 retries.
 
         Returns dict with pm1_0, pm2_5, pm10 (ug/m3), or None on failure.
+        Tracks consecutive failures; after 5 in a row the sensor is re-woken
+        via GPIO reset to recover from lock-up conditions.
         """
         for attempt in range(3):
+            if attempt == 1 and self._ser is not None and self._ser.is_open:
+                # second attempt, flush stale buffer
+                self._ser.reset_input_buffer()
             result = self._try_read_frame(attempt)
             if result is not None:
+                self._consecutive_failures = 0
                 return result
             if attempt < 2:
                 # Wait for the next 1 Hz frame to arrive before retrying
                 time.sleep(1.2)
 
-        log.warning("PM sensor: could not read a valid frame after 3 attempts")
+        self._consecutive_failures += 1
+        log.warning("PM sensor: could not read a valid frame after 3 attempts "
+                    "(consecutive failures: %d)", self._consecutive_failures)
+
+        if self._consecutive_failures >= 5:
+            log.warning("PM sensor: %d consecutive failures — re-waking sensor",
+                        self._consecutive_failures)
+            _wake_sensor(self._set_pin)
+            self._consecutive_failures = 0
+
         return None
 
 
@@ -145,7 +172,7 @@ def init_pm_sensor(port="/dev/serial0", set_pin=_DEFAULT_SET_PIN):
     global _sensor
     try:
         _wake_sensor(set_pin)
-        _sensor = AirMonitoringHAT_PM(port=port)
+        _sensor = AirMonitoringHAT_PM(port=port, set_pin=set_pin)
         # Do a test read to confirm sensor is responding
         result = _sensor.read_pm()
         if result is not None:

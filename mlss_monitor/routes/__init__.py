@@ -10,6 +10,8 @@ from .api_users import api_users_bp
 from .system import system_bp
 from .api_inferences import api_inferences_bp
 from .api_stream import api_stream_bp
+from .api_insights import api_insights_bp
+from .api_history import api_history_bp
 
 
 def register_routes(app):
@@ -23,3 +25,5 @@ def register_routes(app):
     app.register_blueprint(system_bp)
     app.register_blueprint(api_inferences_bp)
     app.register_blueprint(api_stream_bp)
+    app.register_blueprint(api_insights_bp)
+    app.register_blueprint(api_history_bp)

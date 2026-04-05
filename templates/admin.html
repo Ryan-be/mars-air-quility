@@ -5,6 +5,62 @@
 {% block extra_css %}
   <link rel="stylesheet" href="{{ url_for('static', filename='css/history.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+  <style>
+    /* ── Insights Engine tab: table styles ── */
+    .insights-table {
+      width: 100%;
+      font-size: .85rem;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+    .insights-table th,
+    .insights-table td {
+      padding: .3rem .5rem;
+      word-break: break-word;
+      overflow-wrap: break-word;
+    }
+    .insights-table thead tr {
+      text-align: left;
+      border-bottom: 1px solid #333;
+    }
+    .insights-table thead th { padding: .35rem .5rem; }
+    .insights-table tbody tr { border-bottom: 1px solid #222; }
+    /* Rules table column widths */
+    .rules-table col.col-id         { width: 38%; }
+    .rules-table col.col-event      { width: 30%; }
+    .rules-table col.col-severity   { width: 17%; }
+    .rules-table col.col-confidence { width: 15%; }
+    /* Source Fingerprints table column widths */
+    .fp-table col.col-id      { width: 22%; }
+    .fp-table col.col-label   { width: 20%; }
+    .fp-table col.col-floor   { width: 12%; }
+    .fp-table col.col-sensors { width: 46%; }
+    /* Anomaly Models table column widths */
+    .anomaly-table col.col-channel   { width: 25%; }
+    .anomaly-table col.col-readings  { width: 15%; }
+    .anomaly-table col.col-coldstart { width: 15%; }
+    .anomaly-table col.col-score     { width: 25%; }
+    .anomaly-table col.col-status    { width: 20%; }
+    /* Score bar */
+    .score-bar-wrap {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 120px;
+    }
+    .score-bar {
+      height: 10px;
+      border-radius: 5px;
+      transition: width 0.4s ease, background-color 0.4s ease;
+      min-width: 0;
+    }
+    .score-bar--green  { background: #22c55e; }
+    .score-bar--amber  { background: #f59e0b; }
+    .score-bar--red    { background: #ef4444; }
+    .score-bar--none   { background: #d1d5db; width: 4px !important; }
+    .score-label { font-size: 0.8rem; color: var(--text-muted, #6b7280); min-width: 32px; }
+    .status-elevated { color: #ef4444; font-weight: 600; }
+  </style>
 {% endblock %}
 
 {% block topbar_controls %}
@@ -16,6 +72,7 @@
 <div class="tab-bar">
   <button class="tab-btn tab-active" data-tab="settings">🔧 Settings</button>
   <button class="tab-btn" data-tab="users">👥 Users</button>
+  <button class="tab-btn" data-tab="insights-engine">🧠 Insights Engine</button>
 </div>
 
 <!-- ── Settings tab ─────────────────────────────────────────────────────── -->
@@ -240,12 +297,19 @@
 </div><!-- /.settings-grid -->
 </div><!-- /#tab-users -->
 
+<!-- ── Insights Engine tab ────────────────────────────────────────────────── -->
+<div class="tab-panel tab-hidden" id="tab-insights-engine">
+  <div id="ieContent" class="settings-grid">
+    <p class="loading-text" style="padding:1rem;color:#888;">Loading Insights Engine status…</p>
+  </div>
+</div><!-- /#tab-insights-engine -->
+
 {% endblock %}
 
 {% block scripts %}
   <script>
     // ── Tab switching ─────────────────────────────────────────────────────────
-    const ADMIN_TABS = ["settings", "users"];
+    const ADMIN_TABS = ["settings", "users", "insights-engine"];
     document.querySelectorAll(".tab-btn").forEach(btn => {
       btn.addEventListener("click", () => {
         document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("tab-active"));
@@ -253,6 +317,7 @@
         ADMIN_TABS.forEach(t => {
           document.getElementById(`tab-${t}`).classList.toggle("tab-hidden", t !== btn.dataset.tab);
         });
+        if (btn.dataset.tab === "insights-engine") loadInsightsEngine();
       });
     });
 
@@ -619,5 +684,196 @@
     }
 
     loadUsers();
+
+    // ── Insights Engine tab ───────────────────────────────────────────────────
+    let _ieCached = false;
+
+    function _sevColor(sev) {
+      if (sev === 'critical') return '#e74c3c';
+      if (sev === 'warning')  return '#f39c12';
+      return '#888';
+    }
+
+    function _renderIE(d) {
+      const modeBadge = d.dry_run
+        ? '<span style="color:#f39c12;font-weight:600;">Shadow (dry run)</span>'
+        : '<span style="color:#2ecc71;font-weight:600;">Live</span>';
+
+      const rulesRows = d.rules.length
+        ? d.rules.map(r => `
+            <tr>
+              <td style="font-family:monospace;">${r.id}</td>
+              <td style="font-family:monospace;">${r.event_type}</td>
+              <td><span style="color:${_sevColor(r.severity)}">${r.severity}</span></td>
+              <td>${Math.round(r.confidence * 100)}%</td>
+            </tr>`).join("")
+        : '<tr><td colspan="4" style="color:#888;">No rules loaded.</td></tr>';
+
+      const fpRows = d.fingerprints.length
+        ? d.fingerprints.map(fp => `
+            <tr>
+              <td style="font-family:monospace;">${fp.id}</td>
+              <td>${fp.label}</td>
+              <td>${Math.round(fp.floor * 100)}%</td>
+              <td style="color:#888;font-size:.8rem;">${(fp.sensors || []).join(', ')}</td>
+            </tr>`).join("")
+        : '<tr><td colspan="4" style="color:#888;">No fingerprints loaded.</td></tr>';
+
+      const acRows = d.anomaly_channels.length
+        ? d.anomaly_channels.map(ch => {
+            const readyBadge = ch.ready
+              ? '<span style="color:#2ecc71;">● Ready</span>'
+              : `<span style="color:#888;">⏳ Learning (${Math.round((ch.n_seen / ch.cold_start) * 100)}%)</span>`;
+            return `
+              <tr data-model-id="${ch.channel}">
+                <td style="font-family:monospace;">${ch.channel}</td>
+                <td>${ch.n_seen}</td>
+                <td>${ch.cold_start}</td>
+                <td class="score-cell">
+                  <div class="score-bar-wrap">
+                    <div class="score-bar score-bar--none" style="width:0%"></div>
+                    <span class="score-label">—</span>
+                  </div>
+                </td>
+                <td class="status-cell">${readyBadge}</td>
+              </tr>`;
+          }).join("")
+        : '<tr><td colspan="5" style="color:#888;">No anomaly channels configured.</td></tr>';
+
+      document.getElementById("ieContent").innerHTML = `
+        <div class="card">
+          <h3>🤖 Detection Engine</h3>
+          <div style="display:flex;align-items:center;gap:1rem;margin-top:.75rem;">
+            <span>Mode:</span>
+            <strong>${modeBadge}</strong>
+            <button id="ie-toggle-mode" class="btn ${d.dry_run ? 'btn-warning' : 'btn-danger'}"
+                    style="margin-left:auto;">
+              ${d.dry_run ? 'Go Live' : 'Back to Shadow'}
+            </button>
+          </div>
+          <p style="margin-top:.5rem;color:#888;font-size:.85rem;">
+            Shadow mode logs what would fire but does not save inferences.
+            Live mode saves attributed inferences to the database.
+          </p>
+          <div style="margin-top:.5rem;font-size:.9rem;">
+            <strong>${d.rule_count}</strong> rules &nbsp;·&nbsp;
+            <strong>${d.fp_count}</strong> source fingerprints
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:1rem;">
+          <h3>⚙️ Configuration</h3>
+          <div style="margin-top:.75rem;">
+            <a class="btn btn-secondary" href="/settings/insights-engine/config">⚙ Open Configuration</a>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>📋 Rules (${d.rule_count})</h3>
+          <table class="insights-table rules-table">
+            <colgroup>
+              <col class="col-id"><col class="col-event">
+              <col class="col-severity"><col class="col-confidence">
+            </colgroup>
+            <thead>
+              <tr><th>ID</th><th>Event</th><th>Severity</th><th>Confidence</th></tr>
+            </thead>
+            <tbody>${rulesRows}</tbody>
+          </table>
+        </div>
+
+        <div class="card">
+          <h3>🔬 Source Fingerprints (${d.fp_count})</h3>
+          <table class="insights-table fp-table">
+            <colgroup>
+              <col class="col-id"><col class="col-label">
+              <col class="col-floor"><col class="col-sensors">
+            </colgroup>
+            <thead>
+              <tr><th>ID</th><th>Label</th><th>Floor</th><th>Sensors</th></tr>
+            </thead>
+            <tbody>${fpRows}</tbody>
+          </table>
+        </div>
+
+        <div class="card">
+          <h3>📡 Anomaly Models</h3>
+          <table class="insights-table anomaly-table">
+            <colgroup>
+              <col class="col-channel"><col class="col-readings">
+              <col class="col-coldstart"><col class="col-score"><col class="col-status">
+            </colgroup>
+            <thead>
+              <tr>
+                <th>Channel</th><th>Readings</th><th>Cold-start</th>
+                <th>Current Score <span title="Anomaly score (0–1). Scores above 0.75 trigger a detection event." style="cursor:help;">ⓘ</span></th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>${acRows}</tbody>
+          </table>
+        </div>`;
+
+      // Wire up dry-run toggle
+      document.getElementById("ie-toggle-mode").addEventListener("click", async function() {
+        const res = await fetch('/insights-engine/dry-run', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({dry_run: !d.dry_run})
+        });
+        if (res.ok) {
+          _ieCached = false;
+          loadInsightsEngine();
+        }
+      });
+
+      // Wire up SSE for live anomaly scores inside this tab
+      if (window._ieEsAttached) return;
+      window._ieEsAttached = true;
+      const ieEs = new EventSource('/api/stream');
+      ieEs.addEventListener('anomaly_scores', function(e) {
+        const payload = JSON.parse(e.data);
+        const scores = payload.scores || {};
+        Object.entries(scores).forEach(function([modelId, score]) {
+          const row = document.querySelector(`#ieContent tr[data-model-id="${modelId}"]`);
+          if (!row) return;
+          const bar   = row.querySelector('.score-bar');
+          const label = row.querySelector('.score-label');
+          const statusCell = row.querySelector('.status-cell');
+          if (score === null || score === undefined) {
+            bar.style.width = '4px';
+            bar.className = 'score-bar score-bar--none';
+            label.textContent = 'Learning\u2026';
+            return;
+          }
+          const pct = Math.round(score * 100);
+          bar.style.width = pct + '%';
+          label.textContent = score.toFixed(2);
+          if (score >= 0.75) {
+            bar.className = 'score-bar score-bar--red';
+            if (statusCell) statusCell.innerHTML = '<span class="status-elevated">\u26a0 Elevated</span>';
+          } else if (score >= 0.60) {
+            bar.className = 'score-bar score-bar--amber';
+          } else {
+            bar.className = 'score-bar score-bar--green';
+          }
+        });
+      });
+      ieEs.onerror = function() {};
+    }
+
+    async function loadInsightsEngine() {
+      if (_ieCached) return;
+      try {
+        const res = await fetch('/api/insights/engine-status');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        _ieCached = true;
+        _renderIE(data);
+      } catch (err) {
+        document.getElementById("ieContent").innerHTML =
+          `<p style="padding:1rem;color:#e74c3c;">Failed to load Insights Engine status: ${err.message}</p>`;
+      }
+    }
   </script>
 {% endblock %}

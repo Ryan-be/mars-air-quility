@@ -7,13 +7,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/controls.css') }}">
 {% endblock %}
 
-{% block topbar_controls %}
-  <label class="theme-switch" title="Toggle light/dark mode">
-    <input type="checkbox" id="themeToggle" onchange="toggleTheme()">
-    <span class="ts-track"></span>
-    <span class="ts-label">Light</span>
-  </label>
-{% endblock %}
+{% block topbar_controls %}{% endblock %}
 
 {% block content %}
 

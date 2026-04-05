@@ -35,7 +35,7 @@ EVENT_TYPES = {
     "eco2_elevated":         "alert",
     "correlated_pollution":  "alert",
     "sustained_poor_air":    "alert",
-    "mould_risk":            "alert",
+    "mould_risk":            "warning",
     "pm25_spike":            "alert",
     "pm25_elevated":         "alert",
     "pm10_elevated":         "warning",
@@ -64,13 +64,17 @@ CATEGORIES = {
     "warning": "Warnings",
     "summary": "Summaries",
     "pattern": "Patterns",
+    "anomaly": "Anomalies",
     "other":   "Other",
 }
+
 
 def event_category(event_type):
     """Return the category for an event type."""
     if event_type.startswith(_ANNOTATION_PREFIX):
-        return "other"
+        return "pattern"
+    if event_type.startswith("anomaly_"):
+        return "anomaly"
     return EVENT_TYPES.get(event_type, "other")
 
 

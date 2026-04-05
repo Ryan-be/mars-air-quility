@@ -61,14 +61,14 @@ class TestSSEEndpoint:
 
         bus.publish("sensor_update", {"temp": 20})
         bus.publish("fan_status", {"state": "on"})
-        bus.publish("inference_event", {"title": "TVOC spike"})
+        bus.publish("inference_fired", {"title": "TVOC spike"})
 
         resp = client.get("/api/stream")
         raw = resp.get_data(as_text=True)
 
         assert "event: sensor_update" in raw
         assert "event: fan_status" in raw
-        assert "event: inference_event" in raw
+        assert "event: inference_fired" in raw
 
     def test_stream_sse_format_has_id_event_data(self, sse_app):
         client, bus = sse_app
@@ -79,9 +79,9 @@ class TestSSEEndpoint:
 
         lines = raw.strip().split("\n")
         # Expect at least: id line, event line, data line
-        id_lines = [l for l in lines if l.startswith("id:")]
-        event_lines = [l for l in lines if l.startswith("event:")]
-        data_lines = [l for l in lines if l.startswith("data:")]
+        id_lines = [ln for ln in lines if ln.startswith("id:")]
+        event_lines = [ln for ln in lines if ln.startswith("event:")]
+        data_lines = [ln for ln in lines if ln.startswith("data:")]
 
         assert len(id_lines) >= 1
         assert len(event_lines) >= 1
@@ -107,8 +107,11 @@ class TestSSEEndpoint:
         with app_module.app.test_client() as client:
             # Don't set session — unauthenticated
             resp = client.get("/api/stream")
-            # Should redirect to login
-            assert resp.status_code == 302
+            # API routes return JSON 401 (not a browser redirect) for unauthenticated requests
+            assert resp.status_code == 401
+            data = resp.get_json()
+            assert data is not None
+            assert data.get("login_required") is True
 
 
 class TestSSEAllEventTypes:
@@ -150,7 +153,7 @@ class TestSSEAllEventTypes:
         client, bus = sse_app
         bus.publish("sensor_update", {"temp": 22})
         bus.publish("fan_status", {"state": "on"})
-        bus.publish("inference_event", {"title": "spike"})
+        bus.publish("inference_fired", {"title": "spike"})
         bus.publish("weather_update", {"temp": 10})
         bus.publish("health_update", {"cpu_usage": "5%"})
         bus.publish("forecast_update", {"hours": []})
@@ -158,7 +161,7 @@ class TestSSEAllEventTypes:
 
         resp = client.get("/api/stream")
         raw = resp.get_data(as_text=True)
-        for event_type in ("sensor_update", "fan_status", "inference_event",
+        for event_type in ("sensor_update", "fan_status", "inference_fired",
                            "weather_update", "health_update",
                            "forecast_update", "daily_forecast_update"):
             assert f"event: {event_type}" in raw, f"Missing {event_type}"

@@ -98,6 +98,91 @@ body.light .chart-info-popup { background: #fff; border-color: #ddd; color: #555
 }
 body.light .aq-section-title { color: #888; background: #f5f5f5; border-left-color: #ccc; }
 
+/* ── Correlation channel toggle chips ── */
+.channel-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5em;
+  align-items: center;
+  margin-bottom: 0.75em;
+}
+.toggle-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35em;
+  padding: 0.3em 0.5em;
+  border: 1px solid var(--border, #333);
+  border-radius: 8px;
+  background: var(--card-bg, #1e1e1e);
+}
+.toggle-group-label {
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 0.72em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  padding: 0.15em 0.3em;
+  border-radius: 4px;
+  transition: color 0.15s;
+}
+.toggle-group-label:hover { color: #ccc; }
+.channel-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 20px;
+  padding: 0.25em 0.65em;
+  font-size: 0.82em;
+  color: #888;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s, opacity 0.15s;
+  opacity: 0.5;
+  user-select: none;
+  white-space: nowrap;
+}
+.channel-chip:hover { opacity: 0.8; color: #ccc; }
+.channel-chip.active {
+  color: #ddd;
+  border-color: #666;
+  opacity: 1;
+}
+.chip-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.chip-info {
+  font-size: 0.85em;
+  color: #666;
+  cursor: help;
+  margin-left: 0.1em;
+  transition: color 0.15s;
+}
+.chip-info:hover { color: #aaa; }
+.toggle-presets {
+  display: flex;
+  gap: 0.35em;
+  align-items: center;
+  margin-left: auto;
+}
+/* Light mode */
+body.light .toggle-group       { background: #fff; border-color: #ddd; }
+body.light .toggle-group-label { color: #aaa; }
+body.light .toggle-group-label:hover { color: #555; }
+body.light .channel-chip       { background: #f5f5f5; border-color: #ccc; color: #aaa; }
+body.light .channel-chip:hover { color: #555; }
+body.light .channel-chip.active { color: #333; border-color: #999; }
+body.light .chip-info          { color: #bbb; }
+body.light .chip-info:hover    { color: #777; }
+
 /* ── Correlation brush & inference ── */
 .corr-brush-section {
   background: #1a1a1a;

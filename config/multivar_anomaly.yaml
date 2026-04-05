@@ -1,0 +1,68 @@
+# config/multivar_anomaly.yaml
+# Composite multi-dimensional anomaly models.
+# Each model feeds a multi-field dict to a single HalfSpaceTrees instance.
+# channels: list of FeatureVector field names to include in each reading.
+# A reading is only learned/scored when ALL listed channels have non-None values.
+
+multivar_anomaly:
+  threshold: 0.75
+  cold_start_readings: 500
+
+  models:
+    - id: combustion_signature
+      label: "Combustion signature"
+      description: >
+        Detects combustion events (candles, cooking, wood-burning) as a joint
+        pattern across CO, NO2, PM2.5 and PM10. Catches events where all four
+        rise moderately together — a pattern missed by individual thresholds.
+      channels:
+        - co_current
+        - no2_current
+        - pm25_current
+        - pm10_current
+
+    - id: particle_distribution
+      label: "Particle size distribution"
+      description: >
+        Monitors the ratio relationship between PM1, PM2.5 and PM10.
+        PM1≈PM2.5 (ultrafine) indicates combustion or smoke; PM10>>PM2.5
+        indicates coarse dust or pollen. Flags when the size distribution
+        becomes unusual even if absolute levels are not threshold-breaking.
+      channels:
+        - pm1_current
+        - pm25_current
+        - pm10_current
+
+    - id: ventilation_quality
+      label: "Ventilation quality"
+      description: >
+        Tracks the joint build-up of eCO2, TVOC and NH3. All three rise
+        together in a poorly-ventilated space even when no single channel
+        breaches its threshold. Flags stale-air conditions earlier than
+        rule-based detection.
+      channels:
+        - eco2_current
+        - tvoc_current
+        - nh3_current
+
+    - id: gas_relationship
+      label: "Gas sensor relationship"
+      description: >
+        Monitors the normal correlation structure of CO, NO2 and NH3 from the
+        MICS6814. When one channel breaks its expected relationship with the
+        others this may indicate sensor drift or a genuinely unusual gas mixture.
+      channels:
+        - co_current
+        - no2_current
+        - nh3_current
+
+    - id: thermal_moisture
+      label: "Thermal-moisture stress"
+      description: >
+        Scores temperature, humidity and VPD together. Catches comfort-zone
+        stress as a combined signal — HVAC failure shows as a correlated drift
+        across all three dimensions before any single threshold is breached.
+      channels:
+        - temperature_current
+        - humidity_current
+        - vpd_kpa

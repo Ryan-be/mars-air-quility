@@ -3,6 +3,7 @@ Shared mutable state and hardware references.
 
 Initialised once by app.py at startup; imported by route blueprints.
 """
+from collections import deque
 
 # Fan control
 fan_mode = "auto"
@@ -19,6 +20,8 @@ aht20 = None
 sgp30 = None
 pm_sensor = None
 mics6814 = None
+hot_tier = None
+feature_vector = None
 
 # API clients
 open_meteo = None
@@ -34,3 +37,15 @@ github_oauth = None
 
 # Event bus (SSE push)
 event_bus = None
+
+# Detection / attribution engine (set by app.py after init)
+detection_engine = None
+
+shadow_log: deque = deque(maxlen=50)  # recent shadow-mode detection events
+
+# Data source enabled/disabled flags (in-memory; reset to True on restart)
+# Keys are DataSource.name strings, values are bool.
+data_source_enabled: dict[str, bool] = {}
+
+# Live DataSource instances (set by app.py); used by API to read last_reading_at.
+data_sources: list = []
