@@ -61,6 +61,21 @@ def sparkline(inference_id):
     from mlss_monitor.routes.api_history import _query_sensor_data, _DB_TO_API
     from database.db_logger import _normalise_ts
 
+    # Map rule-based event_type values to the channels most relevant to them.
+    _RULE_CHANNEL_MAP = {
+        "high_tvoc":        ["tvoc_ppb"],
+        "high_eco2":        ["eco2_ppm"],
+        "high_temperature": ["temperature_c"],
+        "low_temperature":  ["temperature_c"],
+        "high_humidity":    ["humidity_pct"],
+        "low_humidity":     ["humidity_pct"],
+        "high_pm25":        ["pm25_ug_m3", "pm1_ug_m3", "pm10_ug_m3"],
+        "high_pm10":        ["pm10_ug_m3", "pm25_ug_m3"],
+        "high_co":          ["co_ppb"],
+        "high_no2":         ["no2_ppb"],
+        "high_nh3":         ["nh3_ppb"],
+    }
+
     inf = get_inference_by_id(inference_id)
     if inf is None:
         return jsonify({"error": "not found"}), 404

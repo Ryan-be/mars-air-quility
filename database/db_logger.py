@@ -485,6 +485,11 @@ def get_inference_by_id(inference_id: int) -> dict | None:
         return None
     d = dict(row)
     d["created_at"] = _normalise_ts(d.get("created_at"))
+    if d.get("evidence"):
+        try:
+            d["evidence"] = json.loads(d["evidence"])
+        except (json.JSONDecodeError, TypeError):
+            pass
     d["detection_method"] = compute_detection_method(d.get("event_type", ""))
     return d
 
