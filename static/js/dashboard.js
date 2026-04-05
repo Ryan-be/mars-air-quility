@@ -784,7 +784,7 @@ function connectSSE() {
       "Last updated: " + new Date().toLocaleString();
   });
 
-  _evtSource.addEventListener("inference_event", () => {
+  _evtSource.addEventListener("inference_fired", () => {
     fetchInferences();
   });
 

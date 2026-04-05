@@ -96,3 +96,36 @@ def test_get_inferences_timestamps_are_utc_iso(db):
     ts = rows[0]["created_at"]
     assert "T" in ts, f"Expected ISO format with T, got: {ts}"
     assert ts.endswith("Z"), f"Expected UTC Z suffix, got: {ts}"
+
+
+def test_save_inference_publishes_inference_fired_sse(db):
+    """save_inference() must push an inference_fired SSE event via state.event_bus."""
+    from unittest.mock import MagicMock
+    from database.db_logger import save_inference
+    import mlss_monitor.state as state
+
+    mock_bus = MagicMock()
+    state.event_bus = mock_bus
+
+    try:
+        save_inference(
+            event_type="tvoc_spike",
+            title="TVOC spike",
+            description="TVOC elevated",
+            action="ventilate",
+            severity="warning",
+            confidence=0.9,
+            evidence={},
+        )
+    finally:
+        state.event_bus = None
+
+    mock_bus.publish.assert_called_once()
+    call_args = mock_bus.publish.call_args
+    assert call_args[0][0] == "inference_fired"
+    payload = call_args[0][1]
+    assert payload["event_type"] == "tvoc_spike"
+    assert payload["severity"] == "warning"
+    assert payload["title"] == "TVOC spike"
+    assert "id" in payload
+    assert "detection_method" in payload
