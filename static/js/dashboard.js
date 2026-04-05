@@ -689,10 +689,12 @@ function _openInferenceDialog(id) {
     } catch { /* ignore */ }
   };
 
-  // Sparkline
+  // Sparkline — guard in case sparkline.js failed to load
   const sparkline = document.getElementById('infSparkline');
   if (sparkline) sparkline.style.display = 'none';
-  loadSparkline(inf.id, inf.created_at);
+  if (typeof loadSparkline === 'function') {
+    loadSparkline(inf.id, inf.created_at);
+  }
 
   dialog.showModal();
   // Resize the sparkline chart after the dialog is visible so Plotly measures

@@ -67,3 +67,9 @@ async function loadSparkline(inferenceId, inferenceAt) {
     error.style.display = 'block';
   }
 }
+
+// Expose as an explicit window property so that ES-module scripts (dashboard.js,
+// history.js) and dynamically-loaded plain scripts (detections_insights.js) can
+// all reach it regardless of how the browser resolves bare-name globals from
+// module scope.
+window.loadSparkline = loadSparkline;
