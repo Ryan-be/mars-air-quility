@@ -293,7 +293,19 @@ def tag_range():
         confidence=confidence,
     )
     if tag:
-        add_inference_tag(inference_id, tag, 1.0)
+        from mlss_monitor import state as _state  # pylint: disable=import-outside-toplevel
+        _engine = _state.detection_engine
+        _allowed = (
+            _engine._attribution_engine.valid_tags
+            if _engine and _engine._attribution_engine
+            else None
+        )
+        if _allowed is not None and tag not in _allowed:
+            return jsonify({
+                "error": "invalid_tag",
+                "valid_tags": sorted(_allowed),
+            }), 400
+        add_inference_tag(inference_id, tag, 1.0, allowed_tags=_allowed)
 
     return jsonify({
         "id": inference_id,

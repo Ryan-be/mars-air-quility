@@ -66,8 +66,24 @@ def tags(inference_id):
         data = request.get_json(force=True)
         tag = data.get("tag", "").strip()
         confidence = data.get("confidence", 1.0)
-        if tag:
-            add_inference_tag(inference_id, tag, confidence)
+        if not tag:
+            return jsonify({"ok": False, "error": "tag is required"}), 400
+
+        # Validate against controlled vocabulary when engine is available.
+        from mlss_monitor import state as _state  # pylint: disable=import-outside-toplevel
+        _engine = _state.detection_engine
+        allowed = (
+            _engine._attribution_engine.valid_tags
+            if _engine and _engine._attribution_engine
+            else None
+        )
+        if allowed is not None and tag not in allowed:
+            return jsonify({
+                "error": "invalid_tag",
+                "valid_tags": sorted(allowed),
+            }), 400
+
+        add_inference_tag(inference_id, tag, confidence, allowed_tags=allowed)
         return jsonify({"ok": True})
 
 

@@ -533,8 +533,18 @@ def get_inference_tags(inference_id):
     return [{"tag": r["tag"], "confidence": r["confidence"], "created_at": _normalise_ts(r["created_at"])} for r in rows]
 
 
-def add_inference_tag(inference_id, tag, confidence=1.0):
-    """Add a tag to an inference."""
+def add_inference_tag(inference_id, tag, confidence=1.0, *, allowed_tags=None):
+    """Add a tag to an inference.
+
+    Args:
+        inference_id: The inference row id.
+        tag: Tag string — must be a fingerprint ID (underscore form).
+        confidence: User confidence 0–1.
+        allowed_tags: Optional frozenset of valid tag IDs. If provided, raises
+                      ValueError when tag is not in the set.
+    """
+    if allowed_tags is not None and tag not in allowed_tags:
+        raise ValueError(f"Unknown tag: {tag!r}. Allowed: {sorted(allowed_tags)}")
     conn = _connect()
     cur = conn.cursor()
     cur.execute(
