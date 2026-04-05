@@ -54,6 +54,11 @@ function trendSlope(values) {
 
 let _fullData = [];
 let _isSubset = false;
+let _corrSelectedRange = { start: null, end: null };
+
+export function getSelectedAnalysisRange() {
+  return _corrSelectedRange;
+}
 
 // ── Public entry point ───────────────────────────────────────────────────────
 
@@ -91,19 +96,29 @@ export async function renderCorrelationCharts(data) {
       resetBtn.disabled = true;
       resetBtn.textContent = "Resetting…";
       document.getElementById("corrRangeLabel").textContent = "Resetting to full range…";
-
-      // Double-rAF: first frame applies disabled styles, browser paints them,
-      // then the heavy Plotly work starts so the visual feedback is immediate.
-      requestAnimationFrame(() => requestAnimationFrame(() => {
-        _isSubset = false;
-        _renderBrushChart(_fullData, _corrOverlayShapes.length ? _corrOverlayShapes : undefined);
-        _renderScatterCharts(_fullData);
+      _corrSelectedRange = { start: null, end: null };
+      _renderBrushChart(_fullData, _corrOverlayShapes.length ? _corrOverlayShapes : undefined);
+      _renderScatterCharts(_fullData);
+      _renderInferencePanel(_fullData, _fullData);
+        
+        // Hide analysis panel and range tagging when resetting to full range
+        const analysisPanel = document.getElementById('corrAnalysisPanel');
+        if (analysisPanel) {
+          analysisPanel.style.display = 'none';
+        }
+        const tagSection = document.getElementById('corrRangeTagSection');
+        if (tagSection) {
+          tagSectionharts(_fullData);
         _renderInferencePanel(_fullData, _fullData);
         
         // Hide analysis panel and range tagging when resetting to full range
         const analysisPanel = document.getElementById('corrAnalysisPanel');
         if (analysisPanel) {
           analysisPanel.style.display = 'none';
+        }
+        const tagSection = document.getElementById('corrRangeTagSection');
+        if (tagSection) {
+          tagSection.style.display = 'none';
         }
         
         document.getElementById("corrRangeLabel").textContent = "Showing: full range";
@@ -244,6 +259,7 @@ function _renderBrushChart(data, overlayShapes, hoverTrace) {
     // Load ML-aware analysis panel
     const zStart = new Date(x0).toISOString();
     const zEnd   = new Date(x1).toISOString();
+    _corrSelectedRange = { start: zStart, end: zEnd };
     _loadAnalysisPanel(zStart, zEnd);
   });
 }

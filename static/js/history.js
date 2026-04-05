@@ -1,7 +1,7 @@
 import { toggleTheme, isLight, themeLayout } from './theme.js';
 import { renderClimateCharts, renderGasCharts } from './charts.js';
 import { renderEnvCharts } from './charts_env.js';
-import { renderCorrelationCharts, updateCorrelationData } from './charts_correlation.js';
+import { renderCorrelationCharts, updateCorrelationData, getSelectedAnalysisRange, getSelectedAnalysisRange } from './charts_correlation.js';
 
 
 window.toggleTheme = () => toggleTheme(() => { _rendered = {}; renderActiveTab(); });
@@ -42,7 +42,61 @@ function renderActiveTab() {
 }
 
 document.getElementById("range").addEventListener("change", fetchData);
+document.addEventListener("DOMContentLoaded", () => {
+  const tagSelect = document.getElementById('corrRangeTagSelect');
+  const saveBtn = document.getElementById('corrCreateRangeInferenceBtn');
+  const status = document.getElementById('corrRangeInferenceStatus');
 
+  if (tagSelect && saveBtn) {
+    tagSelect.addEventListener('change', () => {
+      saveBtn.disabled = !tagSelect.value;
+      status.textContent = '';
+      status.className = 'corr-range-status';
+    });
+
+    saveBtn.addEventListener('click', async () => {
+      const selected = getSelectedAnalysisRange();
+      const tag = tagSelect.value;
+      if (!selected?.start || !selected?.end || !tag) {
+        status.textContent = 'Select a range and tag before saving.';
+        status.className = 'corr-range-status error';
+        return;
+      }
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving…';
+      status.textContent = 'Saving tagged event…';
+      status.className = 'corr-range-status';
+
+      try {
+        const resp = await fetch('/api/history/range-tag', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ start: selected.start, end: selected.end, tag }),
+        });
+        const result = await resp.json();
+        if (!resp.ok) {
+          throw new Error(result.error || 'Failed to save tagged event');
+        }
+        status.textContent = 'Tagged range saved successfully.';
+        status.className = 'corr-range-status success';
+        tagSelect.value = '';
+        saveBtn.textContent = 'Saved';
+        setTimeout(() => {
+          saveBtn.textContent = 'Save tagged event';
+          saveBtn.disabled = true;
+        }, 1800);
+      } catch (err) {
+        status.textContent = err.message || 'Save failed.';
+        status.className = 'corr-range-status error';
+        saveBtn.textContent = 'Save tagged event';
+      } finally {
+        if (tagSelect.value) {
+          saveBtn.disabled = false;
+        }
+      }
+    });
+  }
+});
 async function fetchData() {
   const range = document.getElementById("range").value;
   try {
