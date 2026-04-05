@@ -113,10 +113,10 @@ const DI = (function () {
     const donutDiv = document.getElementById('diDonutChart');
     if (!donutDiv) return;
     if (!sources.length) {
-      Plotly.newPlot(donutDiv, [{ values:[1], labels:['No events'], type:'pie', hole:0.5, marker:{colors:['#d1d5db']}, hoverinfo:'none', textinfo:'label' }], { showlegend:false, margin:{t:0,b:0,l:0,r:0} }, { displayModeBar:false });
+      Plotly.newPlot(donutDiv, [{ values:[1], labels:['No events'], type:'pie', hole:0.5, marker:{colors:['#d1d5db']}, hoverinfo:'none', textinfo:'label' }], { showlegend:false, margin:{t:0,b:0,l:0,r:0}, paper_bgcolor:'transparent', plot_bgcolor:'transparent' }, { displayModeBar:false });
       return;
     }
-    Plotly.newPlot(donutDiv, [{ values:sources.map(s=>breakdown[s]), labels:sources, type:'pie', hole:0.5, marker:{colors:sources.map(s=>_SOURCE_COLOURS[s]||'#6b7280')}, hovertemplate:'%{label}: %{value} events<extra></extra>', textinfo:'label' }], { showlegend:false, margin:{t:0,b:0,l:0,r:0} }, { displayModeBar:false, responsive:true });
+    Plotly.newPlot(donutDiv, [{ values:sources.map(s=>breakdown[s]), labels:sources, type:'pie', hole:0.5, marker:{colors:sources.map(s=>_SOURCE_COLOURS[s]||'#6b7280')}, hovertemplate:'%{label}: %{value} events<extra></extra>', textinfo:'label' }], { showlegend:false, margin:{t:0,b:0,l:0,r:0}, paper_bgcolor:'transparent', plot_bgcolor:'transparent' }, { displayModeBar:false, responsive:true });
   }
 
   function _renderFingerprintNarratives() {
@@ -157,7 +157,9 @@ const DI = (function () {
     const hm = _narratives.pattern_heatmap || {};
     const maxVal = Math.max(1, ...Object.values(hm));
     const z = _DAY_NAMES.map((_, d) => _HOURS.map(h => hm[`${d}_${h}`] || 0));
-    Plotly.newPlot(heatDiv, [{ z, x:_HOURS, y:_DAY_NAMES, type:'heatmap', colorscale:[[0,'#f0f9ff'],[1,'#1e40af']], zmin:0, zmax:maxVal, showscale:false, hovertemplate:'%{y} %{x}:00 — %{z} event(s)<extra></extra>' }], { margin:{l:40,r:10,t:5,b:30}, xaxis:{tickvals:[0,3,6,9,12,15,18,21],ticktext:['0h','3h','6h','9h','12h','15h','18h','21h'],tickfont:{size:10}}, yaxis:{tickfont:{size:10}}, paper_bgcolor:'transparent', plot_bgcolor:'transparent' }, { displayModeBar:false, responsive:true });
+    const isLight = document.body.classList.contains('light');
+    const heatLow = isLight ? '#f0f9ff' : '#1e293b';
+    Plotly.newPlot(heatDiv, [{ z, x:_HOURS, y:_DAY_NAMES, type:'heatmap', colorscale:[[0,heatLow],[1,'#1e40af']], zmin:0, zmax:maxVal, showscale:false, hovertemplate:'%{y} %{x}:00 — %{z} event(s)<extra></extra>' }], { margin:{l:40,r:10,t:5,b:30}, xaxis:{tickvals:[0,3,6,9,12,15,18,21],ticktext:['0h','3h','6h','9h','12h','15h','18h','21h'],tickfont:{size:10},color:'var(--text-muted,#9ca3af)'}, yaxis:{tickfont:{size:10},color:'var(--text-muted,#9ca3af)'}, paper_bgcolor:'transparent', plot_bgcolor:'transparent' }, { displayModeBar:false, responsive:true });
   }
 
   async function _renderNormalBandsChart() {
