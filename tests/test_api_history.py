@@ -1,5 +1,4 @@
 """Tests for /api/history/* endpoints."""
-import json
 import pytest
 
 
@@ -169,7 +168,9 @@ def test_sparkline_returns_window_around_inference(app_client, db):
     from database.db_logger import save_inference
     from datetime import datetime, timedelta, timezone
     _now = datetime.now(timezone.utc)
-    _fmt = lambda dt: dt.strftime("%Y-%m-%d %H:%M:%S")
+
+    def _fmt(dt):
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
     _insert_sensor_row(db, _fmt(_now - timedelta(minutes=10)), tvoc=100)
     _insert_sensor_row(db, _fmt(_now), tvoc=350)
     _insert_sensor_row(db, _fmt(_now + timedelta(minutes=5)), tvoc=200)
@@ -192,7 +193,6 @@ def test_sparkline_returns_window_around_inference(app_client, db):
     assert data["inference_at"].endswith("Z")
     assert len(data["timestamps"]) >= 1
     # All returned timestamps must be within ±15 minutes of inference_at
-    from datetime import datetime, timedelta, timezone
     inf_dt = datetime.fromisoformat(data["inference_at"].rstrip("Z")).replace(tzinfo=timezone.utc)
     for ts in data["timestamps"]:
         ts_dt = datetime.fromisoformat(ts.rstrip("Z")).replace(tzinfo=timezone.utc)

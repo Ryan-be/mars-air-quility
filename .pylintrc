@@ -1,6 +1,6 @@
 [MASTER]
 # Hardware libs that only exist on the Pi — skip import resolution for them
-ignored-modules=board,busio,adafruit_ahtx0,adafruit_sgp30,mics6814,kasa,authlib,authlib.integrations,authlib.integrations.flask_client,digitalio,adafruit_rgb_display,adafruit_rgb_display.st7735
+ignored-modules=board,busio,adafruit_ahtx0,adafruit_sgp30,mics6814,kasa,authlib,authlib.integrations,authlib.integrations.flask_client,digitalio,adafruit_rgb_display,adafruit_rgb_display.st7735,scripts
 
 [MESSAGES CONTROL]
 disable=
@@ -30,6 +30,10 @@ disable=
     too-many-nested-blocks,
     protected-access,
     too-many-return-statements,
+    redefined-outer-name,
+    contextmanager-generator-missing-cleanup,
+    use-implicit-booleaness-not-comparison,
+    abstract-class-instantiated,
 
 [FORMAT]
 max-line-length=120

@@ -115,8 +115,11 @@ class AirMonitoringHAT_PM:
             pm10  = (frame[14] << 8) | frame[15]
 
             # PM1.0 <= PM2.5 <= PM10 is a physical requirement
-            if not (pm1_0 <= pm2_5 <= pm10):
-                log.debug("PM sensor: rejected frame — PM values out of order (pm1=%s pm2.5=%s pm10=%s)", pm1_0, pm2_5, pm10)
+            if not pm1_0 <= pm2_5 <= pm10:
+                log.debug(
+                    "PM sensor: rejected frame — PM values out of order (pm1=%s pm2.5=%s pm10=%s)",
+                    pm1_0, pm2_5, pm10,
+                )
                 return None
 
             return {"pm1_0": pm1_0, "pm2_5": pm2_5, "pm10": pm10}
