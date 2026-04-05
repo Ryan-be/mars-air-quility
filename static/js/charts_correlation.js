@@ -50,6 +50,32 @@ function trendSlope(values) {
   return den > 0 ? num / den : 0;
 }
 
+const CORR_CHANNEL_META = {
+  tvoc_ppb:    { field: 'tvoc',      label: 'TVOC',             unit: 'ppb',  color: '#8b5cf6' },
+  eco2_ppm:    { field: 'eco2',      label: 'eCO₂',             unit: 'ppm',  color: '#06b6d4' },
+  temperature_c: { field: 'temperature', label: 'Temperature',      unit: '°C',   color: '#f97316' },
+  humidity_pct:  { field: 'humidity',    label: 'Humidity',         unit: '%',    color: '#3b82f6' },
+  pm1_ug_m3:   { field: 'pm1_0',     label: 'PM1',              unit: 'µg/m³', color: '#84cc16' },
+  pm25_ug_m3:  { field: 'pm2_5',     label: 'PM2.5',            unit: 'µg/m³', color: '#22c55e' },
+  pm10_ug_m3:  { field: 'pm10',      label: 'PM10',             unit: 'µg/m³', color: '#a3e635' },
+  co_ppb:      { field: 'gas_co',    label: 'CO (resistance)',   unit: 'Ω',    color: '#ef4444' },
+  no2_ppb:     { field: 'gas_no2',   label: 'NO₂ (resistance)',  unit: 'Ω',    color: '#f59e0b' },
+  nh3_ppb:     { field: 'gas_nh3',   label: 'NH₃ (resistance)',  unit: 'Ω',    color: '#ec4899' },
+};
+
+function _getActiveCorrChannels() {
+  return new Set(Array.from(document.querySelectorAll('.channel-chip[data-group].active')).map(c => c.dataset.channel));
+}
+
+function _normalizeChannel(values) {
+  const numeric = values.filter(v => v != null);
+  if (!numeric.length) return values.map(() => null);
+  const min = Math.min(...numeric);
+  const max = Math.max(...numeric);
+  if (min === max) return values.map(v => v != null ? 0.5 : null);
+  return values.map(v => v != null ? (v - min) / (max - min) : null);
+}
+
 // ── State ────────────────────────────────────────────────────────────────────
 
 let _fullData = [];
@@ -134,20 +160,26 @@ export function updateCorrelationData(data) {
 
   const brushEl = document.getElementById("corrBrushPlot");
   if (brushEl && brushEl.data && brushEl.data.length > 0) {
-    const ts   = data.map(d => new Date(d.timestamp));
-    const tvoc = data.map(d => d.tvoc);
-    const eco2 = data.map(d => d.eco2);
-    const pm25 = data.map(d => d.pm2_5);
+    const ts = data.map(d => new Date(d.timestamp));
+    const update = { x: [], y: [], customdata: [] };
+    const traceIndices = [];
 
-    // Build index / value arrays matching the trace order from _renderBrushChart
-    const traceIndices = [0, 1];
-    const update = { x: [ts, ts], y: [tvoc, eco2] };
-    if (brushEl.data.length > 2) {
-      traceIndices.push(2);
+    brushEl.data.forEach(function (trace, idx) {
+      if (!trace.meta || trace.name === 'detections') return;
+      const channel = trace.meta;
+      const meta = CORR_CHANNEL_META[channel];
+      if (!meta) return;
+      const values = data.map(d => d[meta.field]);
+      const normalized = _normalizeChannel(values);
       update.x.push(ts);
-      update.y.push(pm25);
+      update.y.push(normalized);
+      update.customdata.push(values);
+      traceIndices.push(idx);
+    });
+
+    if (traceIndices.length) {
+      Plotly.restyle(brushEl, update, traceIndices);
     }
-    Plotly.restyle(brushEl, update, traceIndices);
   }
 
   // When the user hasn't zoomed in, keep the scatter plots and inference panel
@@ -159,59 +191,40 @@ export function updateCorrelationData(data) {
   }
 }
 
-// ── Brush chart (compact TVOC + eCO₂ over time) ─────────────────────────────
+// ── Brush chart (compact selected channels over time) ───────────────────────
 
 function _renderBrushChart(data, overlayShapes, hoverTrace) {
-  const ts   = data.map(d => new Date(d.timestamp));
-  const tvoc = data.map(d => d.tvoc);
-  const eco2 = data.map(d => d.eco2);
-  const pm25 = data.map(d => d.pm2_5);
-  const hasPm = pm25.some(v => v != null);
+  const ts = data.map(d => new Date(d.timestamp));
+  const activeChannels = _getActiveCorrChannels();
   const titleFont = { color: isLight ? "#111" : "#ccc" };
 
-  const traces = [
-    {
-      x: ts, y: tvoc, mode: "lines", name: "TVOC (ppb)",
-      line: { color: "#22c55e", width: 1.5 },
-      yaxis: "y",
-    },
-    {
-      x: ts, y: eco2, mode: "lines", name: "eCO₂ (ppm)",
-      line: { color: "#818cf8", width: 1.5 },
-      yaxis: "y2",
-    },
-  ];
-  if (hasPm) {
-    traces.push({
-      x: ts, y: pm25, mode: "lines", name: "PM2.5 (µg/m³)",
-      line: { color: "#a78bfa", width: 1.5, dash: "dot" },
-      yaxis: "y3",
-    });
-  }
+  const traces = Object.entries(CORR_CHANNEL_META).map(([channel, meta]) => {
+    const values = data.map(d => d[meta.field]);
+    if (!values.some(v => v != null)) return null;
+    const normalized = _normalizeChannel(values);
+    return {
+      x: ts,
+      y: normalized,
+      mode: "lines",
+      name: `${meta.label} (${meta.unit})`,
+      line: { color: meta.color, width: 1.5 },
+      hovertemplate: `${meta.label}: %{customdata} ${meta.unit}<br>%{x|%Y-%m-%d %H:%M}<extra></extra>`,
+      customdata: values,
+      visible: activeChannels.has(channel) ? true : 'legendonly',
+      meta: channel,
+    };
+  }).filter(Boolean);
 
-  // When PM2.5 is present we need two right-hand axes.  Give each its own
-  // position so their tick labels don't collide, and shrink the xaxis domain
-  // to leave room on the right edge.
-  // With PM data we need two right-hand axes.  Rather than free-positioning
-  // a third axis (which eats plot width), stack eCO₂ and PM2.5 into a single
-  // right axis label area using Plotly annotations for the second label.
   const layout = themeLayout({
-    height: 230,
-    margin: { t: 58, b: 55, l: 55, r: hasPm ? 70 : 55 },
-    title: { text: "TVOC · eCO₂ · PM2.5 over time — drag to select a window", font: { ...titleFont, size: 12 }, x: 0.5, xanchor: "center" },
-    legend: { orientation: "h", x: 0.5, xanchor: "center", y: 1.22, font: { size: 10 }, bgcolor: "rgba(0,0,0,0)" },
-    xaxis:  { type: "date" },
-    yaxis:  { title: "TVOC (ppb)",   side: "left",  showgrid: false, titlefont: { size: 10 }, tickfont: { size: 9 } },
-    yaxis2: { title: "eCO₂ (ppm)",   side: "right", overlaying: "y", showgrid: false, titlefont: { size: 10 }, tickfont: { size: 9 } },
-    yaxis3: hasPm ? {
-      title: "PM2.5 (µg/m³)", side: "right", overlaying: "y",
-      showgrid: false, titlefont: { size: 10 }, tickfont: { size: 9 },
-      anchor: "free", autoshift: true, shift: 1,
-    } : undefined,
+    height: 240,
+    margin: { t: 64, b: 55, l: 55, r: 55 },
+    title: { text: "Selected channels over time — drag to select a window", font: { ...titleFont, size: 12 }, x: 0.5, xanchor: "center" },
+    legend: { orientation: "h", x: 0.5, xanchor: "center", y: 1.18, font: { size: 10 }, bgcolor: "rgba(0,0,0,0)" },
+    xaxis: { type: "date" },
+    yaxis: { title: "Relative movement (scaled 0–1)", side: "left", showgrid: false, titlefont: { size: 10 }, tickfont: { size: 9 } },
     dragmode: "zoom",
   });
 
-  // Add overlay shapes and hover trace
   if (overlayShapes && overlayShapes.length) {
     layout.shapes = overlayShapes;
   }
@@ -222,7 +235,6 @@ function _renderBrushChart(data, overlayShapes, hoverTrace) {
 
   Plotly.newPlot("corrBrushPlot", allTraces, layout, { responsive: true, displayModeBar: false });
 
-  // Listen for zoom (relayout) events
   const brushEl = document.getElementById("corrBrushPlot");
   brushEl.on("plotly_relayout", (evt) => {
     const x0 = evt["xaxis.range[0]"];
@@ -242,13 +254,11 @@ function _renderBrushChart(data, overlayShapes, hoverTrace) {
     _renderScatterCharts(subset);
     _renderInferencePanel(subset, _fullData);
 
-    // Update range label
     const fmt = (d) => new Date(d).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     const dateStr = new Date(x0).toLocaleDateString([], { day: "numeric", month: "short" });
     document.getElementById("corrRangeLabel").textContent =
       `Showing: ${dateStr} ${fmt(x0)} – ${fmt(x1)} (${subset.length} readings)`;
 
-    // Load ML-aware analysis panel
     const zStart = new Date(x0).toISOString();
     const zEnd   = new Date(x1).toISOString();
     _corrSelectedRange = { start: zStart, end: zEnd };
@@ -828,15 +838,8 @@ function corrToggleOverlay(visible) {
 // ── Channel toggle chips for Correlations tab ────────────────────────────────
 
 const CORR_CHANNELS = ['tvoc_ppb','eco2_ppm','temperature_c','humidity_pct','pm1_ug_m3','pm25_ug_m3','pm10_ug_m3','co_ppb','no2_ppb','nh3_ppb'];
-const CORR_COLOURS  = { tvoc_ppb:'#8b5cf6', eco2_ppm:'#06b6d4', temperature_c:'#f97316', humidity_pct:'#3b82f6', pm1_ug_m3:'#84cc16', pm25_ug_m3:'#22c55e', pm10_ug_m3:'#a3e635', co_ppb:'#ef4444', no2_ppb:'#f59e0b', nh3_ppb:'#ec4899' };
-const CORR_LABELS   = { tvoc_ppb:'TVOC', eco2_ppm:'eCO₂', temperature_c:'Temperature', humidity_pct:'Humidity', pm1_ug_m3:'PM1', pm25_ug_m3:'PM2.5', pm10_ug_m3:'PM10', co_ppb:'CO (resistance)', no2_ppb:'NO2 (resistance)', nh3_ppb:'NH3 (resistance)' };
-
-// Mapping from chip data-channel to brush chart trace name (as set in _renderBrushChart)
-const CORR_BRUSH_TRACE_NAMES = {
-  tvoc_ppb:    'TVOC (ppb)',
-  eco2_ppm:    'eCO₂ (ppm)',
-  pm25_ug_m3:  'PM2.5 (µg/m³)',
-};
+const CORR_COLOURS  = Object.fromEntries(Object.entries(CORR_CHANNEL_META).map(([k, v]) => [k, v.color]));
+const CORR_LABELS   = Object.fromEntries(Object.entries(CORR_CHANNEL_META).map(([k, v]) => [k, v.label]));
 
 function corrToggleChip(btn) {
   btn.classList.toggle('active');
@@ -853,26 +856,21 @@ function corrToggleAll(state) {
   _updateCorrVisibility();
 }
 function _updateCorrVisibility() {
-  const active = new Set(Array.from(document.querySelectorAll('.channel-chip[data-group].active')).map(c => c.dataset.channel));
+  const active = _getActiveCorrChannels();
   const emptyMsg = document.getElementById('corrEmptyMsg');
-  if (active.size === 0) { if (emptyMsg) emptyMsg.style.display = 'block'; return; }
-  if (emptyMsg) emptyMsg.style.display = 'none';
+  if (active.size === 0) {
+    if (emptyMsg) emptyMsg.style.display = 'block';
+  } else if (emptyMsg) {
+    emptyMsg.style.display = 'none';
+  }
 
-  // Toggles affect trace visibility on the overview chart only; analysis panel reflects all channels in the selected window.
-  // The brush chart only plots TVOC, eCO2, and optionally PM2.5 — match by trace name.
   const chartDiv = document.getElementById('corrBrushPlot');
   if (chartDiv && chartDiv.data && chartDiv.data.length > 0) {
     chartDiv.data.forEach(function (trace, idx) {
-      // Skip the invisible hover-detection trace
-      if (trace.name === 'detections') return;
-      // Find which chip channel this trace corresponds to
-      const matchingChannel = Object.keys(CORR_BRUSH_TRACE_NAMES).find(
-        ch => CORR_BRUSH_TRACE_NAMES[ch] === trace.name
-      );
-      if (matchingChannel !== undefined) {
-        const shouldShow = active.has(matchingChannel);
-        Plotly.restyle(chartDiv, { visible: [shouldShow ? true : 'legendonly'] }, [idx]);
-      }
+      if (!trace.meta || trace.name === 'detections') return;
+      const channel = trace.meta;
+      const shouldShow = active.has(channel);
+      Plotly.restyle(chartDiv, { visible: [shouldShow ? true : 'legendonly'] }, [idx]);
     });
   }
 }

@@ -608,6 +608,33 @@ function _openInferenceDialog(id) {
 
   document.getElementById("infAction").textContent = inf.action || "No specific action needed.";
 
+  function _renderFeatureVectorEvidence(featureVector) {
+    const mapping = [
+      ['tvoc_current', 'TVOC', 'ppb'],
+      ['eco2_current', 'eCO₂', 'ppm'],
+      ['temperature_current', 'Temperature', '°C'],
+      ['humidity_current', 'Humidity', '%'],
+      ['pm1_current', 'PM1', 'µg/m³'],
+      ['pm25_current', 'PM2.5', 'µg/m³'],
+      ['pm10_current', 'PM10', 'µg/m³'],
+      ['co_current', 'CO (resistance)', 'Ω'],
+      ['no2_current', 'NO₂ (resistance)', 'Ω'],
+      ['nh3_current', 'NH₃ (resistance)', 'Ω'],
+      ['vpd_kpa', 'VPD', 'kPa'],
+    ];
+
+    const rows = mapping.map(([key, label, unit]) => {
+      const value = featureVector[key];
+      if (value == null) return null;
+      const baselineKey = key.endsWith('_current') ? key.replace('_current', '_baseline') : null;
+      const baseline = baselineKey ? featureVector[baselineKey] : null;
+      const baselineText = baseline != null ? ` / baseline ${baseline} ${unit}` : '';
+      return `<div class="inf-ev-row"><span class="fd-label">${label}</span><span class="fd-value">${value} ${unit}${baselineText}</span></div>`;
+    }).filter(Boolean);
+
+    return rows.join('');
+  }
+
   // Evidence section
   const evEl = document.getElementById("infEvidence");
   const thSec = document.getElementById("infThresholdsSection");
@@ -634,6 +661,9 @@ function _openInferenceDialog(id) {
           ${ratio}
         </div>`;
       }).join("");
+    } else if (inf.evidence.feature_vector && typeof inf.evidence.feature_vector === 'object') {
+      const featureHtml = _renderFeatureVectorEvidence(inf.evidence.feature_vector);
+      evEl.innerHTML = featureHtml || 'No detailed evidence available.';
     } else {
       // Fallback: generic key-value pairs (existing behaviour for older inferences)
       const entries = Object.entries(inf.evidence).filter(
