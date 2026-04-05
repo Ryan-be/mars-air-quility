@@ -227,6 +227,7 @@ def test_classifier_stats_returns_all_tags(app_client, db):
         assert "label" in row
         assert "sample_count" in row
         assert "ready" in row
+        assert "avg_confidence" in row
 
 
 def test_classifier_stats_sample_counts_match_tags(app_client, db):

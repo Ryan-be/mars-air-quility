@@ -316,7 +316,7 @@ class AttributionEngine:
             avg_conf = None
             n_conf = tag_conf_counts.get(fp.id, 0)
             if ready and n_conf > 0:
-                avg_conf = round(tag_conf_sums[fp.id] / n_conf, 3)
+                avg_conf = round(tag_conf_sums.get(fp.id, 0.0) / n_conf, 3)
             tag_stats.append({
                 "tag": fp.id,
                 "label": fp.label,
