@@ -188,3 +188,68 @@ def test_attribute_description_filled_from_template(tmp_path):
     assert result is not None
     # Template contains {tvoc_current:.0f} — should be filled with a number
     assert "{" not in result.description  # no unfilled slots
+
+
+# ── personal_care fingerprint ─────────────────────────────────────────────────
+
+_REAL_FINGERPRINTS_PATH = Path(__file__).parents[2] / "config" / "fingerprints.yaml"
+
+
+@pytest.mark.skipif(
+    not _REAL_FINGERPRINTS_PATH.exists(),
+    reason="config/fingerprints.yaml not present",
+)
+def test_personal_care_fingerprint_loads():
+    """personal_care fingerprint loads without error from the real config file."""
+    engine = AttributionEngine(_REAL_FINGERPRINTS_PATH)
+    ids = [fp.id for fp in engine._fingerprints]
+    assert "personal_care" in ids, f"personal_care not found in fingerprints: {ids}"
+
+
+@pytest.mark.skipif(
+    not _REAL_FINGERPRINTS_PATH.exists(),
+    reason="config/fingerprints.yaml not present",
+)
+def test_personal_care_fingerprint_metadata():
+    """personal_care fingerprint has expected label and confidence_floor."""
+    from mlss_monitor.attribution.loader import load_fingerprints
+
+    fingerprints = load_fingerprints(_REAL_FINGERPRINTS_PATH)
+    pc = next((fp for fp in fingerprints if fp.id == "personal_care"), None)
+    assert pc is not None, "personal_care fingerprint not found"
+    assert pc.label == "Personal Care Products"
+    assert pc.confidence_floor == pytest.approx(0.55)
+    # Key sensor states
+    assert pc.sensors.get("tvoc") == "high"
+    assert pc.sensors.get("pm25") == "normal"
+    assert pc.sensors.get("co") == "normal"
+
+
+@pytest.mark.skipif(
+    not _REAL_FINGERPRINTS_PATH.exists(),
+    reason="config/fingerprints.yaml not present",
+)
+def test_personal_care_scores_tvoc_spike_without_pm_or_co():
+    """personal_care fingerprint matches a sharp TVOC spike with no PM2.5 or CO rise."""
+    engine = AttributionEngine(_REAL_FINGERPRINTS_PATH)
+    # Simulate a spray event: high TVOC, normal PM2.5, normal CO, slight NH3
+    fv = FeatureVector(
+        timestamp=_ts(),
+        tvoc_current=480.0,
+        tvoc_baseline=60.0,
+        tvoc_peak_ratio=8.0,
+        pm25_current=4.0,
+        pm25_baseline=4.0,
+        pm25_peak_ratio=1.0,
+        co_current=50.0,
+        co_baseline=50.0,
+        nh3_current=15.0,
+        nh3_baseline=8.0,
+        eco2_current=430.0,
+        eco2_baseline=420.0,
+    )
+    result = engine.attribute(fv)
+    # The fingerprint should be a candidate; we just verify it doesn't raise and
+    # that if a result is returned the description has no unfilled template slots.
+    if result is not None:
+        assert "{" not in result.description

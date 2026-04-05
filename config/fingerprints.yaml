@@ -208,3 +208,30 @@ sources:
     description_template: >
       Possible mould VOC — TVOC {tvoc_current:.0f} ppb with elevated humidity {humidity_current:.0f}%
     action_template: "Check for mould in damp areas. Improve ventilation and reduce humidity."
+
+  - id: personal_care
+    label: "Personal Care Products"
+    description: "Aerosol sprays and fragrances (deodorant, perfume, hairspray, air freshener)"
+    examples: "deodorant, perfume, hairspray, air freshener, body spray"
+    sensors:
+      tvoc:        high
+      nh3:         slight_rise
+      eco2:        normal
+      pm1:         normal
+      pm25:        normal
+      pm10:        normal
+      co:          normal
+      temperature: normal
+      humidity:    normal
+    temporal:
+      rise_rate:            fast
+      sustain_max_minutes:  15
+      decay_rate:           fast
+      nh3_follows_tvoc:     true
+      nh3_max_lag_seconds:  180
+    confidence_floor: 0.55
+    description_template: >
+      Detects aerosol sprays and fragrances (deodorant, perfume, hairspray, air freshener).
+      Characterised by a sharp TVOC spike without particulate or CO rise.
+      TVOC reached {tvoc_current:.0f} ppb with no corresponding PM2.5 or CO elevation.
+    action_template: "Ventilate briefly after use. Consider fragrance-free alternatives if events are frequent."

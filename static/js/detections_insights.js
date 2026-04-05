@@ -21,6 +21,7 @@ const DI = (function () {
   const _SOURCE_COLOURS = {
     biological_offgas:'#22c55e', chemical_offgassing:'#a855f7',
     cooking:'#f97316', combustion:'#ef4444', external_pollution:'#6b7280',
+    personal_care:'#ec4899',
   };
 
   const _METHOD_COLOURS = { rule:'#6366f1', statistical:'#f59e0b', ml:'#10b981' };

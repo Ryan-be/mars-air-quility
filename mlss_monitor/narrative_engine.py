@@ -34,6 +34,10 @@ _FINGERPRINT_ADVICE: dict[str, str] = {
         "Close windows during high external pollution periods. "
         "Check your local air quality index."
     ),
+    "personal_care": (
+        "Ventilate briefly after use. "
+        "Consider fragrance-free or low-VOC alternatives if events are frequent."
+    ),
 }
 
 _TREND_SENTENCES = {

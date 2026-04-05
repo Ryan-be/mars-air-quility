@@ -192,6 +192,7 @@ _KNOWN_SOURCES = [
     ("cooking","Cooking","🍳"),
     ("combustion","Combustion","🔥"),
     ("external_pollution","External Pollution","🌍"),
+    ("personal_care","Personal Care Products","🧴"),
 ]
 _ML_EVENT_TYPES_SET = {
     "anomaly_combustion_signature","anomaly_particle_distribution",
