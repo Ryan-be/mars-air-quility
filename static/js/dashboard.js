@@ -588,6 +588,10 @@ async function loadSparkline(inferenceId, inferenceAt) {
     if (!resp.ok) throw new Error('fetch failed');
     const data = await resp.json();
     loading.style.display = 'none';
+    if (!data.triggering_channels || data.triggering_channels.length === 0) {
+      error.style.display = 'block';
+      return;
+    }
     chartDiv.style.display = 'block';
     const inferenceTime = new Date(data.inference_at).getTime();
     const traces = data.triggering_channels.map(function (ch) {

@@ -76,6 +76,8 @@ def sparkline(inference_id):
         try: evidence = _json.loads(evidence)
         except Exception: evidence = {}
 
+    event_type = inf.get("event_type", "")
+
     _FV_TO_API = {
         "tvoc_current":"tvoc_ppb","eco2_current":"eco2_ppm","temperature_current":"temperature_c",
         "humidity_current":"humidity_pct","pm1_current":"pm1_ug_m3","pm25_current":"pm25_ug_m3",
@@ -88,7 +90,13 @@ def sparkline(inference_id):
         if api_key and api_key not in triggering:
             triggering.append(api_key)
     if not triggering:
-        triggering = list(_DB_TO_API.values())
+        # For rule-based inferences, derive relevant channels from event_type.
+        # For ML/statistical inferences with no snapshot, fall back to all channels.
+        rule_channels = _RULE_CHANNEL_MAP.get(event_type, [])
+        if rule_channels:
+            triggering = rule_channels
+        else:
+            triggering = list(_DB_TO_API.values())
 
     timestamps = [_normalise_ts(r["timestamp"]) for r in rows]
     channels = {api_key: [r.get(db_col) for r in rows] for db_col, api_key in _DB_TO_API.items() if api_key in triggering}
