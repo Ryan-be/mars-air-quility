@@ -476,6 +476,93 @@ const DI = (function () {
   return { init, setWindow, load };
 })();
 
+// ── Feature vector sensor snapshot renderer ──────────────────────────────────
+const FV_GROUPS = [
+  ['TVOC',        'tvoc_'],
+  ['eCO₂',        'eco2_'],
+  ['Temperature', 'temperature_'],
+  ['Humidity',    'humidity_'],
+  ['PM1',         'pm1_'],
+  ['PM2.5',       'pm25_'],
+  ['PM10',        'pm10_'],
+  ['CO',          'co_'],
+  ['NO₂',         'no2_'],
+  ['NH₃',         'nh3_'],
+];
+
+const FV_CROSS = ['nh3_lag_behind_tvoc_seconds', 'pm25_correlated_with_tvoc', 'co_correlated_with_tvoc', 'vpd_kpa'];
+
+function _fvLabel(key) {
+  return key
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, function (c) { return c.toUpperCase(); })
+    .replace(/Ppb/g, 'ppb')
+    .replace(/Ppm/g, 'ppm')
+    .replace(/Kpa/g, 'kPa');
+}
+
+function renderFv(fv) {
+  var body    = document.getElementById('infFvBody');
+  var section = document.getElementById('infFvSection');
+  if (!body || !section) return;
+
+  if (!fv) {
+    section.style.display = 'none';
+    return;
+  }
+
+  var rows = [];
+
+  FV_GROUPS.forEach(function (pair) {
+    var groupLabel = pair[0];
+    var prefix     = pair[1];
+    var fields = Object.entries(fv).filter(function (entry) {
+      var k = entry[0]; var v = entry[1];
+      return k.startsWith(prefix) && v !== null && v !== undefined && k !== 'timestamp';
+    });
+    if (!fields.length) return;
+
+    rows.push('<div class="inf-fv-group">' + groupLabel + '</div>');
+    fields.forEach(function (entry) {
+      var k = entry[0]; var v = entry[1];
+      var label = _fvLabel(k.slice(prefix.length));
+      var display;
+      if (typeof v === 'boolean') {
+        display = '<span class="inf-fv-flag-' + v + '">' + (v ? '✓ yes' : '✗ no') + '</span>';
+      } else if (typeof v === 'number') {
+        display = Number.isInteger(v) ? String(v) : v.toFixed(2);
+      } else {
+        display = String(v);
+      }
+      rows.push('<span class="inf-fv-key">' + label + '</span><span class="inf-fv-val">' + display + '</span>');
+    });
+  });
+
+  var crossFields = FV_CROSS.filter(function (k) { return fv[k] !== null && fv[k] !== undefined; });
+  if (crossFields.length) {
+    rows.push('<div class="inf-fv-group">Cross-sensor</div>');
+    crossFields.forEach(function (k) {
+      var v = fv[k];
+      var display;
+      if (typeof v === 'boolean') {
+        display = '<span class="inf-fv-flag-' + v + '">' + (v ? '✓ yes' : '✗ no') + '</span>';
+      } else if (typeof v === 'number') {
+        display = v.toFixed(2);
+      } else {
+        display = String(v);
+      }
+      rows.push('<span class="inf-fv-key">' + _fvLabel(k) + '</span><span class="inf-fv-val">' + display + '</span>');
+    });
+  }
+
+  if (rows.length) {
+    body.innerHTML = rows.join('');
+    section.style.display = '';
+  } else {
+    section.style.display = 'none';
+  }
+}
+
 // ── Global inference dialog opener (used by DI tab cards) ────────────────────
 // On the dashboard page dashboard.js defines its own _openInferenceDialog.
 // On the history page this function is the sole dialog opener.
@@ -748,6 +835,11 @@ function openInferenceDialog(id) {
 
   // Notes
   document.getElementById('infNotes').value = inf.user_notes || '';
+
+  // Render feature vector sensor snapshot if present in evidence
+  var evidence = inf.evidence || {};
+  var evObj = (typeof evidence === 'string') ? (function () { try { return JSON.parse(evidence); } catch(_) { return {}; } })() : evidence;
+  renderFv(evObj.feature_vector || null);
   document.getElementById('infSaveNote').onclick = async function () {
     const notes = document.getElementById('infNotes').value;
     try {
@@ -803,6 +895,11 @@ function openInferenceDialog(id) {
     if (chartDiv && window.Plotly) Plotly.Plots.resize(chartDiv);
   }, 50);
   dialog.onclick = function (e) { if (e.target === dialog) dialog.close(); };
+  dialog.addEventListener('close', function _onClose() {
+    document.getElementById('infFvBody').innerHTML = '';
+    document.getElementById('infFvSection').style.display = 'none';
+    dialog.removeEventListener('close', _onClose);
+  });
 }
 
 function diSetWindow(w) { DI.setWindow(w); }

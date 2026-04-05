@@ -812,3 +812,29 @@ body.light .inf-th-label           { color: #555; }
 body.light .inf-th-val             { color: #222; }
 body.light .inf-th-custom          { background: #fef3c7; color: #92400e; }
 body.light .inf-th-default         { background: #e0f2fe; color: #0369a1; }
+
+/* ── Inference feature vector sensor snapshot ── */
+.inf-fv-body {
+  font-size: 0.82rem;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 12px;
+}
+.inf-fv-group {
+  grid-column: 1 / -1;
+  font-weight: 600;
+  margin-top: 6px;
+  color: var(--text-secondary, #374151);
+  border-bottom: 1px solid var(--border, #e5e7eb);
+  padding-bottom: 2px;
+}
+.inf-fv-key {
+  color: var(--text-muted, #6b7280);
+  padding: 1px 0;
+}
+.inf-fv-val {
+  font-variant-numeric: tabular-nums;
+  padding: 1px 0;
+}
+.inf-fv-flag-true  { color: #22c55e; }
+.inf-fv-flag-false { color: var(--text-muted, #6b7280); }
