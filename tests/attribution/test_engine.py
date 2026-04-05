@@ -218,11 +218,13 @@ def test_personal_care_fingerprint_metadata():
     pc = next((fp for fp in fingerprints if fp.id == "personal_care"), None)
     assert pc is not None, "personal_care fingerprint not found"
     assert pc.label == "Personal Care Products"
-    assert pc.confidence_floor == pytest.approx(0.55)
-    # Key sensor states
+    # Raised from 0.55 to 0.60: more distinctive multi-sensor signature after real-world tuning
+    assert pc.confidence_floor == pytest.approx(0.60)
+    # Key sensor states (tuned from real deodorant spray event on 2026-04-05)
     assert pc.sensors.get("tvoc") == "high"
-    assert pc.sensors.get("pm25") == "normal"
-    assert pc.sensors.get("co") == "normal"
+    assert pc.sensors.get("eco2") == "high"       # SGP30 artefact: derived from TVOC
+    assert pc.sensors.get("pm25") == "slight_rise"  # aerosol particles detectable
+    assert pc.sensors.get("co") == "slight_rise"    # propellant causes small resistance drop
 
 
 @pytest.mark.skipif(

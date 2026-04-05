@@ -211,16 +211,25 @@ sources:
 
   - id: personal_care
     label: "Personal Care Products"
-    description: "Aerosol sprays and fragrances (deodorant, perfume, hairspray, air freshener)"
+    description: >
+      Aerosol sprays and fragrances (deodorant, perfume, hairspray, air freshener).
+      Characterised by a dominant TVOC spike (20-40× baseline) with a modest particle
+      signature from the aerosol propellant. The eCO2 spike is an artefact: the SGP30
+      estimates eCO2 directly from TVOC, so eCO2 and TVOC always move together on this sensor.
+      CO resistance drops slightly from the propellant gas. Key differentiator vs cooking:
+      TVOC rise is disproportionately large relative to PM (much higher TVOC/PM ratio).
+      Key differentiator vs combustion: CO is only slight_rise (not elevated), PM is only
+      slight_rise (not high), and NO2 is normal.
     examples: "deodorant, perfume, hairspray, air freshener, body spray"
     sensors:
       tvoc:        high
       nh3:         slight_rise
-      eco2:        normal
-      pm1:         normal
-      pm25:        normal
-      pm10:        normal
-      co:          normal
+      eco2:        high         # SGP30 artefact: eCO2 is derived from TVOC on this sensor
+      pm1:         slight_rise  # fine aerosol particles from spray propellant
+      pm25:        slight_rise  # aerosol particles detectable (rose to ~6 µg/m³ in test)
+      pm10:        slight_rise  # coarse aerosol particles from spray
+      co:          slight_rise  # propellant gas causes small resistance drop
+      no2:         normal
       temperature: normal
       humidity:    normal
     temporal:
@@ -229,9 +238,11 @@ sources:
       decay_rate:           fast
       nh3_follows_tvoc:     true
       nh3_max_lag_seconds:  180
-    confidence_floor: 0.55
+    confidence_floor: 0.60
     description_template: >
-      Detects aerosol sprays and fragrances (deodorant, perfume, hairspray, air freshener).
-      Characterised by a sharp TVOC spike without particulate or CO rise.
-      TVOC reached {tvoc_current:.0f} ppb with no corresponding PM2.5 or CO elevation.
+      Aerosol spray detected — TVOC spiked to {tvoc_current:.0f} ppb (dominant signal).
+      PM2.5 rose to {pm25_current:.1f} µg/m³ from aerosol particles; CO slightly elevated
+      from propellant. eCO2 reading ({eco2_current:.0f} ppm) reflects the TVOC spike via
+      SGP30 on-chip estimation, not actual CO2 combustion.
+      Pattern matches personal care aerosol (deodorant, perfume, hairspray).
     action_template: "Ventilate briefly after use. Consider fragrance-free alternatives if events are frequent."
