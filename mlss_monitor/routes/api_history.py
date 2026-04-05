@@ -1,6 +1,7 @@
 """History API routes — sensor data, baselines, ML context, narratives."""
 from __future__ import annotations
 
+import dataclasses
 import json
 import math
 import sqlite3
@@ -9,8 +10,13 @@ from datetime import datetime, timedelta, timezone
 from flask import Blueprint, jsonify, request
 
 import database.db_logger as _dbl
-from database.db_logger import _normalise_ts, get_inferences
+from mlss_monitor.rbac import require_role
+from database.db_logger import _normalise_ts, get_inferences, save_inference, add_inference_tag
 from mlss_monitor import narrative_engine, state
+from mlss_monitor.data_sources.base import NormalisedReading
+from mlss_monitor.detection_engine import DetectionEngine
+from mlss_monitor.feature_extractor import FeatureExtractor
+from mlss_monitor.feature_vector import FeatureVector
 from mlss_monitor.narrative_engine import _DAY_NAMES
 
 api_history_bp = Blueprint("api_history", __name__)
@@ -59,6 +65,305 @@ def _query_sensor_data(db_file: str, start: str, end: str) -> list[dict]:
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def _query_hot_tier(db_file: str, start: str, end: str) -> list[dict]:
+    start_db = start.rstrip("Z")
+    end_db = end.rstrip("Z")
+    conn = sqlite3.connect(db_file)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        """SELECT timestamp, tvoc_ppb, eco2_ppm, temperature_c, humidity_pct,
+                  pm25_ug_m3, co_ppb, no2_ppb, nh3_ppb
+           FROM hot_tier WHERE timestamp >= ? AND timestamp <= ?
+           ORDER BY timestamp ASC""",
+        (start_db, end_db),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def _normalise_iso_ts(ts: str) -> str:
+    if not ts:
+        return ts
+    ts = ts.strip().replace(" ", "T")
+    if ts.endswith("Z"):
+        ts = ts[:-1] + "+00:00"
+    try:
+        return datetime.fromisoformat(ts).astimezone(timezone.utc).isoformat()
+    except ValueError:
+        return ts
+
+
+def _rows_to_readings(rows: list[dict], source: str) -> list[NormalisedReading]:
+    readings: list[NormalisedReading] = []
+    for row in rows:
+        ts = row.get("timestamp")
+        try:
+            ts = ts.strip().replace(" ", "T")
+            if ts.endswith("Z"):
+                ts = ts[:-1] + "+00:00"
+            timestamp = datetime.fromisoformat(ts).astimezone(timezone.utc)
+        except Exception:
+            continue
+        readings.append(NormalisedReading(
+            timestamp=timestamp,
+            source=source,
+            tvoc_ppb=row.get("tvoc"),
+            eco2_ppm=row.get("eco2"),
+            temperature_c=row.get("temperature"),
+            humidity_pct=row.get("humidity"),
+            pm1_ug_m3=row.get("pm1_0"),
+            pm25_ug_m3=row.get("pm2_5"),
+            pm10_ug_m3=row.get("pm10"),
+            co_ppb=row.get("gas_co"),
+            no2_ppb=row.get("gas_no2"),
+            nh3_ppb=row.get("gas_nh3"),
+        ))
+    return readings
+
+
+def _build_range_readings(start: str, end: str) -> list[NormalisedReading]:
+    sensor_rows = _query_sensor_data(start, end)
+    hot_rows = _query_hot_tier(_dbl.DB_FILE, start, end)
+    merged: dict[str, dict] = {}
+    for row in sensor_rows:
+        key = row.get("timestamp", "").strip().replace(" ", "T")
+        merged[key] = row
+    for row in hot_rows:
+        key = row.get("timestamp", "").strip()
+        if key not in merged:
+            merged[key] = row
+    sorted_rows = sorted(merged.values(), key=lambda r: r.get("timestamp", ""))
+    readings = _rows_to_readings(sorted_rows, source="history")
+    return readings
+
+
+def _build_feature_vector(start: str, end: str) -> dict[str, object]:
+    readings = _build_range_readings(start, end)
+    baselines: dict[str, float | None] = {}
+    engine = state.detection_engine
+    if engine and getattr(engine, '_anomaly_detector', None) is not None:
+        for field in [
+            "tvoc_ppb", "eco2_ppm", "temperature_c", "humidity_pct",
+            "pm1_ug_m3", "pm25_ug_m3", "pm10_ug_m3", "co_ppb",
+            "no2_ppb", "nh3_ppb",
+        ]:
+            try:
+                baselines[field] = engine._anomaly_detector.baseline(field)
+            except Exception:
+                baselines[field] = None
+    else:
+        for field in [
+            "tvoc_ppb", "eco2_ppm", "temperature_c", "humidity_pct",
+            "pm1_ug_m3", "pm25_ug_m3", "pm10_ug_m3", "co_ppb",
+            "no2_ppb", "nh3_ppb",
+        ]:
+            baselines[field] = None
+    fv = FeatureExtractor().extract(readings, baselines)
+    return {
+        "feature_vector": dataclasses.asdict(fv),
+        "readings": [
+            {
+                "timestamp": r.timestamp.isoformat(),
+                "tvoc_ppb": r.tvoc_ppb,
+                "eco2_ppm": r.eco2_ppm,
+                "temperature_c": r.temperature_c,
+                "humidity_pct": r.humidity_pct,
+                "pm1_ug_m3": r.pm1_ug_m3,
+                "pm25_ug_m3": r.pm25_ug_m3,
+                "pm10_ug_m3": r.pm10_ug_m3,
+                "co_ppb": r.co_ppb,
+                "no2_ppb": r.no2_ppb,
+                "nh3_ppb": r.nh3_ppb,
+            }
+            for r in readings
+        ],
+    }
+
+
+def _make_range_evaluator() -> DetectionEngine | None:
+    engine = state.detection_engine
+    if engine is None:
+        return None
+    try:
+        return DetectionEngine(
+            rules_path=engine._rules_path,
+            anomaly_config_path=engine._anomaly_detector._config_path,
+            model_dir=engine._anomaly_detector._model_dir,
+            fingerprints_path=getattr(engine, '_fingerprints_path', None),
+            dry_run=True,
+        )
+    except Exception:
+        return None
+
+
+def _choose_best_candidate(candidates: list[dict]) -> dict | None:
+    if not candidates:
+        return None
+    return max(candidates, key=lambda item: float(item.get('confidence', 0.0)))
+
+
+@api_history_bp.route("/api/history/range-analysis")
+def range_analysis():
+    start = request.args.get("start", "")
+    end = request.args.get("end", "")
+    if not start or not end:
+        return jsonify({"error": "start and end are required"}), 400
+    evaluator = _make_range_evaluator()
+    if evaluator is None:
+        return jsonify({"error": "No detection engine available"}), 500
+    try:
+        fv_result = _build_feature_vector(start, end)
+        candidates = evaluator.evaluate(FeatureVector(**fv_result["feature_vector"])) if fv_result["feature_vector"] else []
+        return jsonify({
+            "start": start,
+            "end": end,
+            "feature_vector": fv_result["feature_vector"],
+            "readings": fv_result["readings"],
+            "candidates": candidates,
+            "best_candidate": _choose_best_candidate(candidates),
+        })
+    except Exception as exc:
+        return jsonify({"error": f"Error analysing range: {str(exc)}"}), 500
+
+
+@api_history_bp.route("/api/history/range-tag", methods=["POST"])
+@require_role("controller", "admin")
+def tag_range():
+    data = request.get_json(force=True)
+    start = data.get("start", "")
+    end = data.get("end", "")
+    tag = (data.get("tag") or "").strip()
+    if not start or not end:
+        return jsonify({"error": "start and end are required"}), 400
+
+    fv_result = _build_feature_vector(start, end)
+    evaluator = _make_range_evaluator()
+    candidates = []
+    best_candidate = None
+    if evaluator is not None:
+        try:
+            candidates = evaluator.evaluate(FeatureVector(**fv_result["feature_vector"]))
+            best_candidate = _choose_best_candidate(candidates)
+        except Exception:
+            candidates = []
+
+    if best_candidate is not None:
+        event_type = best_candidate["event_type"]
+        severity = best_candidate["severity"]
+        title = best_candidate["title"]
+        description = best_candidate["description"]
+        action = best_candidate["action"]
+        confidence = float(best_candidate.get("confidence", 0.5) or 0.5)
+        evidence = best_candidate.get("evidence", {})
+    else:
+        event_type = "annotation_context_user_range"
+        severity = "warning"
+        title = "User-tagged event"
+        description = (
+            "A custom event was tagged from the selected history range. "
+            "This inference was generated from the selected readings."
+        )
+        action = "Review the selected range and add a tag to help the model learn."
+        confidence = 0.5
+        evidence = {
+            "fv_timestamp": _normalise_iso_ts(start),
+            "feature_vector": fv_result["feature_vector"],
+            "range_start": start,
+            "range_end": end,
+        }
+
+    evidence.setdefault("range_start", start)
+    evidence.setdefault("range_end", end)
+    evidence.setdefault("feature_vector", fv_result["feature_vector"])
+
+    inference_id = save_inference(
+        event_type=event_type,
+        severity=severity,
+        title=title,
+        description=description,
+        action=action,
+        evidence=evidence,
+        confidence=confidence,
+    )
+    if tag:
+        add_inference_tag(inference_id, tag, 1.0)
+
+    return jsonify({
+        "id": inference_id,
+        "tag": tag,
+        "candidate": best_candidate,
+    })
+
+
+@api_history_bp.route("/api/history/range-tag", methods=["POST"])
+@require_role("controller", "admin")
+def tag_range():
+    data = request.get_json(force=True)
+    start = data.get("start", "")
+    end = data.get("end", "")
+    tag = (data.get("tag") or "").strip()
+    if not start or not end:
+        return jsonify({"error": "start and end are required"}), 400
+
+    fv_result = _build_feature_vector(start, end)
+    evaluator = _make_range_evaluator()
+    candidates = []
+    best_candidate = None
+    if evaluator is not None:
+        try:
+            candidates = evaluator.evaluate(FeatureVector(**fv_result["feature_vector"]))
+            best_candidate = _choose_best_candidate(candidates)
+        except Exception:
+            candidates = []
+
+    if best_candidate is not None:
+        event_type = best_candidate["event_type"]
+        severity = best_candidate["severity"]
+        title = best_candidate["title"]
+        description = best_candidate["description"]
+        action = best_candidate["action"]
+        confidence = float(best_candidate.get("confidence", 0.5) or 0.5)
+        evidence = best_candidate.get("evidence", {})
+    else:
+        event_type = "annotation_context_user_range"
+        severity = "warning"
+        title = "User-tagged event"
+        description = (
+            "A custom event was tagged from the selected history range. "
+            "This inference was generated from the selected readings."
+        )
+        action = "Review the selected range and add a tag to help the model learn."
+        confidence = 0.5
+        evidence = {
+            "fv_timestamp": _normalise_iso_ts(start),
+            "feature_vector": fv_result["feature_vector"],
+            "range_start": start,
+            "range_end": end,
+        }
+
+    evidence.setdefault("range_start", start)
+    evidence.setdefault("range_end", end)
+    evidence.setdefault("feature_vector", fv_result["feature_vector"])
+
+    inference_id = save_inference(
+        event_type=event_type,
+        severity=severity,
+        title=title,
+        description=description,
+        action=action,
+        evidence=evidence,
+        confidence=confidence,
+    )
+    if tag:
+        add_inference_tag(inference_id, tag, 1.0)
+
+    return jsonify({
+        "id": inference_id,
+        "tag": tag,
+        "candidate": best_candidate,
+    })
 
 
 @api_history_bp.route("/api/history/sensor")

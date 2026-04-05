@@ -285,6 +285,28 @@
           <h4>Peak vs baseline <span class="info-icon" title="Highest reading vs learned normal value.">ⓘ</span></h4>
           <div id="corrPeakBaseline"></div>
         </div>
+        <div class="analysis-section" id="corrRangeInferenceSuggestionSection" style="display:none;">
+          <h4>Suggested detection</h4>
+          <div id="corrRangeInferenceSuggestion"></div>
+        </div>
+        <div class="analysis-section corr-range-actions" id="corrRangeTagSection" style="display:none;">
+          <label for="corrRangeTagSelect">Tag this range</label>
+          <select id="corrRangeTagSelect">
+            <option value="">Select a tag...</option>
+            <option value="cooking">🍳 Cooking</option>
+            <option value="external-pollution">🌫️ External Pollution</option>
+            <option value="vehicle-exhaust">🚗 Vehicle Exhaust</option>
+            <option value="biological-offgassing">🧬 Biological Off-gassing</option>
+            <option value="chemical-offgassing">🧪 Chemical Off-gassing</option>
+            <option value="combustion">🔥 Combustion</option>
+            <option value="cleaning-products">🧹 Cleaning Products</option>
+            <option value="human-activity">👤 Human Activity</option>
+            <option value="mould-voc">🍄 Mould / Fungal VOC</option>
+            <option value="personal-care-products">🧴 Personal Care Products</option>
+          </select>
+          <button class="btn btn-sm" id="corrCreateRangeInferenceBtn" disabled>Save tagged event</button>
+          <span id="corrRangeInferenceStatus" class="corr-range-status"></span>
+        </div>
         <div class="analysis-section" id="corrAttributionSummarySection" style="display:none;">
           <h4>Attribution summary</h4>
           <div id="corrAttributionSummary"></div>

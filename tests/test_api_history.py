@@ -199,3 +199,40 @@ def test_sparkline_returns_window_around_inference(app_client, db):
         assert abs((ts_dt - inf_dt).total_seconds()) <= 900, f"Timestamp {ts} outside ±15 min window"
     # triggering_channels must include tvoc_ppb (from sensor_snapshot)
     assert "tvoc_ppb" in data["triggering_channels"]
+
+
+def test_range_tag_endpoint(app_client, db):
+    """Test the range-tag endpoint creates an inference with a tag."""
+    client, _ = app_client
+    # Insert some test sensor data
+    _insert_sensor_row(db, "2023-01-01 10:00:00", tvoc=100, eco2=400)
+    _insert_sensor_row(db, "2023-01-01 10:01:00", tvoc=150, eco2=450)
+    _insert_sensor_row(db, "2023-01-01 10:02:00", tvoc=200, eco2=500)
+
+    # Test the range-tag endpoint
+    start = "2023-01-01T10:00:00Z"
+    end = "2023-01-01T10:02:00Z"
+    tag = "cooking"
+
+    response = client.post("/api/history/range-tag", json={
+        "start": start,
+        "end": end,
+        "tag": tag
+    })
+    assert response.status_code == 200
+    data = response.get_json()
+    assert "id" in data
+    assert data["tag"] == tag
+
+    # Verify the inference was created
+    from database.db_logger import get_inferences, get_inference_tags
+    inferences = get_inferences()
+    inference = next((i for i in inferences if i["id"] == data["id"]), None)
+    assert inference is not None
+    assert inference["event_type"] == "annotation_context_user_range"
+    assert inference["title"] == "User-tagged event"
+
+    # Verify the tag was added
+    tags = get_inference_tags(data["id"])
+    assert len(tags) == 1
+    assert tags[0]["tag"] == tag

@@ -388,6 +388,103 @@ class DetectionEngine:
 
         return fired
 
+    def evaluate(self, fv: FeatureVector) -> list[dict[str, object]]:
+        """Evaluate a feature vector without saving any inferences.
+
+        This is used for range-based user inspection and tagging, where the
+        backend should produce a candidate detection card without persisting a
+        live inference.
+        """
+        results: list[dict[str, object]] = []
+
+        matches = self._rule_engine.evaluate(fv)
+        for match in matches:
+            attribution = self._attribute(fv)
+            evidence: dict[str, object] = {
+                "fv_timestamp": fv.timestamp.isoformat(),
+                "feature_vector": dataclasses.asdict(fv),
+            }
+            if attribution is not None:
+                evidence["attribution"] = attribution.source_id
+                evidence["attribution_confidence"] = round(attribution.confidence, 3)
+                if attribution.runner_up_id is not None:
+                    evidence["runner_up"] = attribution.runner_up_id
+                    evidence["runner_up_confidence"] = round(attribution.runner_up_confidence, 3)
+
+            title = match.title
+            description = match.description
+            if attribution is not None:
+                title = f"{match.title} — {attribution.label} ({attribution.confidence:.0%})"
+                description = f"{match.description}\n\n{attribution.description}"
+
+            results.append({
+                "event_type": match.event_type,
+                "severity": match.severity,
+                "title": title,
+                "description": description,
+                "action": attribution.action if attribution is not None else match.action,
+                "evidence": evidence,
+                "confidence": match.confidence,
+                "detection_method": "rule",
+            })
+
+        scores = self._anomaly_detector.learn_and_score(fv)
+        anomalous = self._anomaly_detector.anomalous_channels(scores)
+        for ch in anomalous:
+            score = scores[ch]
+            if score is None:
+                continue
+            fv_field = _DB_CH_TO_FV_FIELD.get(ch, ch)
+            baselines = {fv_field: self._anomaly_detector.baseline(ch)}
+            snapshot = build_sensor_snapshot(fv, [fv_field], baselines)
+            description = anomaly_description(snapshot)
+            action = anomaly_action(channel=ch)
+            results.append({
+                "event_type": f"anomaly_{ch}",
+                "severity": "warning",
+                "title": (
+                    f"Anomaly: {snapshot[0]['label'] if snapshot else ch.replace('_', ' ')}"
+                    f" — {score:.2f} score"
+                ),
+                "description": description,
+                "action": action,
+                "evidence": {
+                    "sensor_snapshot": snapshot,
+                    "anomaly_score": round(score, 4),
+                },
+                "confidence": round(score, 2),
+                "detection_method": "ml",
+            })
+
+        if self._multivar_detector is not None:
+            mv_scores = self._multivar_detector.learn_and_score(fv)
+            for mid in self._multivar_detector.anomalous_models(mv_scores):
+                score = mv_scores[mid]
+                if score is None:
+                    continue
+                channels = self._multivar_detector.model_channels(mid)
+                label = self._multivar_detector.model_label(mid)
+                baselines = self._multivar_detector.baselines(mid)
+                snapshot = build_sensor_snapshot(fv, channels, baselines)
+                description = anomaly_description(snapshot, model_label=label)
+                action = anomaly_action(model_id=mid)
+                results.append({
+                    "event_type": f"anomaly_{mid}",
+                    "severity": "warning",
+                    "title": f"Composite anomaly: {label} — {score:.2f} score",
+                    "description": description,
+                    "action": action,
+                    "evidence": {
+                        "sensor_snapshot": snapshot,
+                        "anomaly_score": round(score, 4),
+                        "model_id": mid,
+                    },
+                    "confidence": round(score, 2),
+                    "detection_method": "ml",
+                })
+
+        return results
+
     # ── Long-term summaries (call at _CYCLE_1H / _CYCLE_24H) ─────────────────
 
     def run_hourly(self, fv: FeatureVector) -> None:

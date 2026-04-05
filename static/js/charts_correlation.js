@@ -699,14 +699,16 @@ async function _loadAnalysisPanel(start, end) {
   loading.style.display = 'block';
   content.style.display = 'none';
   try {
-    const [ctxResp, blResp, sensorResp] = await Promise.all([
+    const [ctxResp, blResp, sensorResp, rangeResp] = await Promise.all([
       fetch(`/api/history/ml-context?start=${start}&end=${end}`),
       fetch('/api/history/baselines'),
       fetch(`/api/history/sensor?start=${start}&end=${end}`),
+      fetch(`/api/history/range-analysis?start=${start}&end=${end}`),
     ]);
     const ctx = await ctxResp.json();
     _corrBaselines = await blResp.json();
     const sensorData = await sensorResp.json();
+    const rangeAnalysis = await rangeResp.json();
     loading.style.display = 'none';
     content.style.display = 'block';
 
@@ -743,6 +745,26 @@ async function _loadAnalysisPanel(start, end) {
       attrEl.textContent = `${dominated} of ${ctx.inferences.length} events attributed to ${ctx.dominant_source}.`;
     } else {
       attrSection.style.display = 'none';
+    }
+
+    // Show range inference suggestion
+    const suggestionSection = document.getElementById('corrRangeInferenceSuggestionSection');
+    const suggestionEl = document.getElementById('corrRangeInferenceSuggestion');
+    if (rangeAnalysis.best_candidate) {
+      const bc = rangeAnalysis.best_candidate;
+      suggestionEl.innerHTML = `
+        <div class="inference-card ${bc.severity === 'critical' ? 'critical' : bc.severity === 'warning' ? 'warning' : 'info'}">
+          <div class="inference-icon">${bc.severity === 'critical' ? '🚨' : bc.severity === 'warning' ? '⚠️' : 'ℹ️'}</div>
+          <div class="inference-body">
+            <strong>${bc.title}</strong><br>
+            ${bc.description}<br>
+            <em>Confidence: ${(bc.confidence * 100).toFixed(0)}%</em>
+          </div>
+        </div>
+      `;
+      suggestionSection.style.display = 'block';
+    } else {
+      suggestionSection.style.display = 'none';
     }
   } catch (e) {
     loading.textContent = 'Could not load analysis.';
