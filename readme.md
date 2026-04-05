@@ -577,6 +577,16 @@ After a detection fires, the attribution engine (`attribution_engine.py`) scores
 
 The top-scoring source and a runner-up (if confidence is within 15%) are stored on the inference and shown in the dialog as a coloured attribution badge.
 
+### User tagging and incremental attribution training
+
+User-applied tags are stored in the `event_tags` table and linked to the originating inference. When a new tag is added, the attribution engine retrains its River `LogisticRegression` classifier from existing tagged feature vectors so the model can learn from user feedback. See `docs/tagging_design.md` for a simple flow description.
+
+This means:
+
+- A tagged event must include a `feature_vector` in its evidence to be used as training data.
+- Tagging a historical range creates a `User-tagged event` inference with both raw readings and a derived feature vector.
+- The classifier is hybrid: fingerprint heuristics remain the primary signal, while River-based learning refines confidence for future attributions.
+
 ### Configurable thresholds
 
 All inference thresholds are stored in the `inference_thresholds` table and can be customised via the admin settings page or `POST /api/settings/thresholds`. See the [Configuration reference](docs/CONFIGURATION.md#inference-thresholds) for the full list of threshold keys and defaults.

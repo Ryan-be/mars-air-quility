@@ -533,25 +533,117 @@ function openInferenceDialog(id) {
   function _renderFeatureVectorEvidence(featureVector) {
     const mapping = [
       ['tvoc_current', 'TVOC', 'ppb'],
+      ['tvoc_baseline', 'TVOC baseline', 'ppb'],
+      ['tvoc_slope_1m', 'TVOC slope 1m', 'ppb/min'],
+      ['tvoc_slope_5m', 'TVOC slope 5m', 'ppb/min'],
+      ['tvoc_slope_30m', 'TVOC slope 30m', 'ppb/min'],
+      ['tvoc_elevated_minutes', 'TVOC elevated minutes', 'min'],
+      ['tvoc_peak_ratio', 'TVOC peak ratio', '×'],
+      ['tvoc_is_declining', 'TVOC declining', ''],
+      ['tvoc_decay_rate', 'TVOC decay rate', 'ppb/min'],
+      ['tvoc_pulse_detected', 'TVOC pulse detected', ''],
       ['eco2_current', 'eCO₂', 'ppm'],
+      ['eco2_baseline', 'eCO₂ baseline', 'ppm'],
+      ['eco2_slope_1m', 'eCO₂ slope 1m', 'ppm/min'],
+      ['eco2_slope_5m', 'eCO₂ slope 5m', 'ppm/min'],
+      ['eco2_slope_30m', 'eCO₂ slope 30m', 'ppm/min'],
+      ['eco2_elevated_minutes', 'eCO₂ elevated minutes', 'min'],
+      ['eco2_peak_ratio', 'eCO₂ peak ratio', '×'],
+      ['eco2_is_declining', 'eCO₂ declining', ''],
+      ['eco2_decay_rate', 'eCO₂ decay rate', 'ppm/min'],
+      ['eco2_pulse_detected', 'eCO₂ pulse detected', ''],
       ['temperature_current', 'Temperature', '°C'],
+      ['temperature_baseline', 'Temperature baseline', '°C'],
+      ['temperature_slope_1m', 'Temperature slope 1m', '°C/min'],
+      ['temperature_slope_5m', 'Temperature slope 5m', '°C/min'],
+      ['temperature_slope_30m', 'Temperature slope 30m', '°C/min'],
+      ['temperature_elevated_minutes', 'Temperature elevated minutes', 'min'],
+      ['temperature_peak_ratio', 'Temperature peak ratio', '×'],
+      ['temperature_is_declining', 'Temperature declining', ''],
+      ['temperature_decay_rate', 'Temperature decay rate', '°C/min'],
+      ['temperature_pulse_detected', 'Temperature pulse detected', ''],
       ['humidity_current', 'Humidity', '%'],
+      ['humidity_baseline', 'Humidity baseline', '%'],
+      ['humidity_slope_1m', 'Humidity slope 1m', '%/min'],
+      ['humidity_slope_5m', 'Humidity slope 5m', '%/min'],
+      ['humidity_slope_30m', 'Humidity slope 30m', '%/min'],
+      ['humidity_elevated_minutes', 'Humidity elevated minutes', 'min'],
+      ['humidity_peak_ratio', 'Humidity peak ratio', '×'],
+      ['humidity_is_declining', 'Humidity declining', ''],
+      ['humidity_decay_rate', 'Humidity decay rate', '%/min'],
+      ['humidity_pulse_detected', 'Humidity pulse detected', ''],
       ['pm1_current', 'PM1', 'µg/m³'],
+      ['pm1_baseline', 'PM1 baseline', 'µg/m³'],
+      ['pm1_slope_1m', 'PM1 slope 1m', 'µg/m³/min'],
+      ['pm1_slope_5m', 'PM1 slope 5m', 'µg/m³/min'],
+      ['pm1_slope_30m', 'PM1 slope 30m', 'µg/m³/min'],
+      ['pm1_elevated_minutes', 'PM1 elevated minutes', 'min'],
+      ['pm1_peak_ratio', 'PM1 peak ratio', '×'],
+      ['pm1_is_declining', 'PM1 declining', ''],
+      ['pm1_decay_rate', 'PM1 decay rate', 'µg/m³/min'],
+      ['pm1_pulse_detected', 'PM1 pulse detected', ''],
       ['pm25_current', 'PM2.5', 'µg/m³'],
+      ['pm25_baseline', 'PM2.5 baseline', 'µg/m³'],
+      ['pm25_slope_1m', 'PM2.5 slope 1m', 'µg/m³/min'],
+      ['pm25_slope_5m', 'PM2.5 slope 5m', 'µg/m³/min'],
+      ['pm25_slope_30m', 'PM2.5 slope 30m', 'µg/m³/min'],
+      ['pm25_elevated_minutes', 'PM2.5 elevated minutes', 'min'],
+      ['pm25_peak_ratio', 'PM2.5 peak ratio', '×'],
+      ['pm25_is_declining', 'PM2.5 declining', ''],
+      ['pm25_decay_rate', 'PM2.5 decay rate', 'µg/m³/min'],
+      ['pm25_pulse_detected', 'PM2.5 pulse detected', ''],
       ['pm10_current', 'PM10', 'µg/m³'],
+      ['pm10_baseline', 'PM10 baseline', 'µg/m³'],
+      ['pm10_slope_1m', 'PM10 slope 1m', 'µg/m³/min'],
+      ['pm10_slope_5m', 'PM10 slope 5m', 'µg/m³/min'],
+      ['pm10_slope_30m', 'PM10 slope 30m', 'µg/m³/min'],
+      ['pm10_elevated_minutes', 'PM10 elevated minutes', 'min'],
+      ['pm10_peak_ratio', 'PM10 peak ratio', '×'],
+      ['pm10_is_declining', 'PM10 declining', ''],
+      ['pm10_decay_rate', 'PM10 decay rate', 'µg/m³/min'],
+      ['pm10_pulse_detected', 'PM10 pulse detected', ''],
       ['co_current', 'CO (resistance)', 'Ω'],
+      ['co_baseline', 'CO baseline', 'Ω'],
+      ['co_slope_1m', 'CO slope 1m', 'Ω/min'],
+      ['co_slope_5m', 'CO slope 5m', 'Ω/min'],
+      ['co_slope_30m', 'CO slope 30m', 'Ω/min'],
+      ['co_elevated_minutes', 'CO elevated minutes', 'min'],
+      ['co_peak_ratio', 'CO peak ratio', '×'],
+      ['co_is_declining', 'CO declining', ''],
+      ['co_decay_rate', 'CO decay rate', 'Ω/min'],
+      ['co_pulse_detected', 'CO pulse detected', ''],
       ['no2_current', 'NO₂ (resistance)', 'Ω'],
+      ['no2_baseline', 'NO₂ baseline', 'Ω'],
+      ['no2_slope_1m', 'NO₂ slope 1m', 'Ω/min'],
+      ['no2_slope_5m', 'NO₂ slope 5m', 'Ω/min'],
+      ['no2_slope_30m', 'NO₂ slope 30m', 'Ω/min'],
+      ['no2_elevated_minutes', 'NO₂ elevated minutes', 'min'],
+      ['no2_peak_ratio', 'NO₂ peak ratio', '×'],
+      ['no2_is_declining', 'NO₂ declining', ''],
+      ['no2_decay_rate', 'NO₂ decay rate', 'Ω/min'],
+      ['no2_pulse_detected', 'NO₂ pulse detected', ''],
       ['nh3_current', 'NH₃ (resistance)', 'Ω'],
+      ['nh3_baseline', 'NH₃ baseline', 'Ω'],
+      ['nh3_slope_1m', 'NH₃ slope 1m', 'Ω/min'],
+      ['nh3_slope_5m', 'NH₃ slope 5m', 'Ω/min'],
+      ['nh3_slope_30m', 'NH₃ slope 30m', 'Ω/min'],
+      ['nh3_elevated_minutes', 'NH₃ elevated minutes', 'min'],
+      ['nh3_peak_ratio', 'NH₃ peak ratio', '×'],
+      ['nh3_is_declining', 'NH₃ declining', ''],
+      ['nh3_decay_rate', 'NH₃ decay rate', 'Ω/min'],
+      ['nh3_pulse_detected', 'NH₃ pulse detected', ''],
+      ['nh3_lag_behind_tvoc_seconds', 'NH₃ lag behind TVOC', 's'],
+      ['pm25_correlated_with_tvoc', 'PM2.5 correlated with TVOC', ''],
+      ['co_correlated_with_tvoc', 'CO correlated with TVOC', ''],
       ['vpd_kpa', 'VPD', 'kPa'],
     ];
 
     const rows = mapping.map(([key, label, unit]) => {
       const value = featureVector[key];
       if (value == null) return null;
-      const baselineKey = key.endsWith('_current') ? key.replace('_current', '_baseline') : null;
-      const baseline = baselineKey ? featureVector[baselineKey] : null;
-      const baselineText = baseline != null ? ` / baseline ${baseline} ${unit}` : '';
-      return `<div class="inf-ev-row"><span class="fd-label">${label}</span><span class="fd-value">${value} ${unit}${baselineText}</span></div>`;
+      const formatted = typeof value === 'boolean' ? (value ? 'yes' : 'no') : value;
+      const suffix = unit ? ` ${unit}` : '';
+      return `<div class="inf-ev-row"><span class="fd-label">${label}</span><span class="fd-value">${formatted}${suffix}</span></div>`;
     }).filter(Boolean);
 
     return rows.join('');
@@ -610,6 +702,10 @@ function openInferenceDialog(id) {
       }).join('');
     } else if (inf.evidence.readings && Array.isArray(inf.evidence.readings) && inf.evidence.readings.length > 0) {
       evEl.innerHTML = _renderRangeReadingsEvidence(inf.evidence);
+      if (inf.evidence.feature_vector && typeof inf.evidence.feature_vector === 'object') {
+        evEl.innerHTML += '<div class="inf-ev-subtitle">Feature vector</div>' +
+          _renderFeatureVectorEvidence(inf.evidence.feature_vector);
+      }
     } else if (inf.evidence.feature_vector && typeof inf.evidence.feature_vector === 'object') {
       const featureHtml = _renderFeatureVectorEvidence(inf.evidence.feature_vector);
       evEl.innerHTML = featureHtml || 'No detailed evidence available.';

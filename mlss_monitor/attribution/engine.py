@@ -45,6 +45,9 @@ class AttributionEngine:
             len(self._fingerprints),
             self._config_path.name,
         )
+        # Train the River classifier from existing tagged events at startup,
+        # so the model is not empty after a restart.
+        self.train_on_tags()
 
     def reload(self) -> None:
         """Thread-safe hot-reload: re-read fingerprints.yaml.
