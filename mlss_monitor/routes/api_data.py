@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from flask import Blueprint, jsonify, request, send_file
 
 from database.db_logger import (
-    add_annotation, get_sensor_data_by_date, remove_annotation,
+    add_annotation, get_sensor_data_by_date, remove_annotation, _normalise_ts,
 )
 from mlss_monitor.rbac import require_role
 
@@ -34,11 +34,11 @@ def get_data():
     range_param = request.args.get("range", "24h")
     since, now = _parse_range(range_param)
     try:
-        rows = get_sensor_data_by_date(since.isoformat(), now.isoformat())
+        rows = get_sensor_data_by_date(_normalise_ts(since.isoformat()), _normalise_ts(now.isoformat()))
         data = [
             {
                 "id": row[0],
-                "timestamp": row[1],
+                "timestamp": _normalise_ts(row[1]),
                 "temperature": row[2],
                 "humidity": row[3],
                 "eco2": row[4],
@@ -65,11 +65,22 @@ def download_data():
     range_param = request.args.get("range", "24h")
     since, now = _parse_range(range_param)
     try:
-        rows = get_sensor_data_by_date(since.isoformat(), now.isoformat())
+        rows = get_sensor_data_by_date(_normalise_ts(since.isoformat()), _normalise_ts(now.isoformat()))
         output = io.StringIO()
         writer = csv.writer(output)
         writer.writerow(["id", "timestamp", "temperature", "humidity", "eco2", "tvoc", "annotation"])
-        writer.writerows(rows)
+        writer.writerows([
+            (
+                r[0],
+                _normalise_ts(r[1]),
+                r[2],
+                r[3],
+                r[4],
+                r[5],
+                r[6],
+            )
+            for r in rows
+        ])
         output.seek(0)
         return send_file(
             io.BytesIO(output.getvalue().encode("utf-8")),
