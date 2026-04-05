@@ -9,7 +9,7 @@
   <style>
     /* ── CSS custom properties — dark mode defaults ── */
     :root {
-      --card-bg: #1f2937;
+      --card-bg: #1e1e1e;
       --bg: #111827;
       --text: #f9fafb;
       --text-secondary: #d1d5db;
@@ -93,6 +93,15 @@
     .sparkline-container { margin:12px 0; padding:10px; background:var(--card-bg); border-radius:8px; border:1px solid var(--border); }
     .sparkline-header { font-size:0.82rem; color:var(--text-muted); margin-bottom:6px; }
     .source-pill-sm { display:inline-flex; align-items:center; gap:3px; padding:1px 6px; border-radius:999px; font-size:0.72rem; background:var(--source-pill-sm-bg); color:var(--text-secondary); }
+    .di-subtitle  { font-size:0.78rem; color:var(--text-muted); margin-bottom:6px; font-style:italic; }
+    .di-events-link { color:var(--accent); text-decoration:underline; cursor:pointer; }
+    .ev-card      { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:8px 10px; margin-bottom:6px; border:1px solid var(--border); border-radius:6px; background:var(--card-bg); font-size:0.83rem; color:var(--text); }
+    .ev-card:hover { background:var(--hover-bg,rgba(255,255,255,0.04)); }
+    .ev-sev-badge { padding:1px 7px; border-radius:999px; font-size:0.72rem; font-weight:600; text-transform:uppercase; white-space:nowrap; }
+    .ev-method-chip { padding:1px 7px; border-radius:4px; font-size:0.72rem; white-space:nowrap; }
+    .ev-title     { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:500; }
+    .ev-ts        { font-size:0.75rem; color:var(--text-muted); white-space:nowrap; }
+    .ev-conf      { font-size:0.75rem; color:var(--text-muted); white-space:nowrap; }
   </style>
   <!-- Apply persisted theme before first paint to avoid flash -->
   <script>
