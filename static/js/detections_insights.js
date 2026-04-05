@@ -99,7 +99,7 @@ const DI = (function () {
     let summary = _narratives.period_summary || '';
     if (total > 0) {
       summary = summary.replace(/(\d+)\s*(detection\s+)?event(s?)/gi, function(match) {
-        return '<a href="#diEventsList" class="di-events-link" onclick="document.getElementById('diEventsList').scrollIntoView({behavior:'smooth'});return false;">' + match + '</a>';
+        return '<a href="#diEventsList" class="di-events-link" onclick="document.getElementById(\'diEventsList\').scrollIntoView({behavior:\'smooth\'});return false;">' + match + '</a>';
       });
     }
     el.innerHTML = '<p>' + summary + '</p>';
