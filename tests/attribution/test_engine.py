@@ -218,13 +218,15 @@ def test_personal_care_fingerprint_metadata():
     pc = next((fp for fp in fingerprints if fp.id == "personal_care"), None)
     assert pc is not None, "personal_care fingerprint not found"
     assert pc.label == "Personal Care Products"
-    # Raised from 0.55 to 0.60: more distinctive multi-sensor signature after real-world tuning
-    assert pc.confidence_floor == pytest.approx(0.60)
+    # Lowered from 0.60 to 0.50: 4-channel VOC signature (TVOC/eCO2/CO/NH3) is
+    # distinctive enough without PM, which is unreliable under elevated background PM.
+    assert pc.confidence_floor == pytest.approx(0.50)
     # Key sensor states (tuned from real deodorant spray event on 2026-04-05;
-    # updated 2026-04-05: CO and NH3 both show ~3× MICS6814 resistance drop → elevated)
+    # PM sensors removed: background PM can be pre-elevated (e.g. 40+ µg/m³) making
+    # slight_rise undetectable — the 4-channel VOC signature is sufficient discriminator)
     assert pc.sensors.get("tvoc") == "high"
-    assert pc.sensors.get("eco2") == "high"         # SGP30 artefact: derived from TVOC
-    assert pc.sensors.get("pm25") == "slight_rise"  # aerosol particles detectable
+    assert pc.sensors.get("eco2") == "high"          # SGP30 artefact: derived from TVOC
+    assert pc.sensors.get("pm25") is None            # PM removed: unreliable in high-PM backgrounds
     assert pc.sensors.get("co") == "elevated"        # MICS6814 CO channel: ~3× resistance drop
     assert pc.sensors.get("nh3") == "elevated"       # MICS6814 NH3 channel: ~3× resistance drop
     assert pc.sensors.get("no2") == "normal"         # NO2 stays normal — differentiator vs combustion

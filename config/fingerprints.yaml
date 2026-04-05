@@ -212,23 +212,21 @@ sources:
     label: "Personal Care Products"
     description: >
       Aerosol sprays and fragrances (deodorant, perfume, hairspray, air freshener).
-      Characterised by a dominant TVOC spike (20-40× baseline) with a modest particle
-      signature from the aerosol propellant. The eCO2 spike is an artefact: the SGP30
-      estimates eCO2 directly from TVOC, so eCO2 and TVOC always move together on this sensor.
-      Both CO and NH3 MICS6814 channels show elevated resistance drops (~3× from baseline)
-      driven by the alcohol and VOC content of the propellant — this generalises across
-      deodorant brands (all use alcohol/propellant). Key differentiator vs cooking:
-      cooking has no NH3 signal and no CO signal. Key differentiator vs combustion:
-      combustion has NO2 elevated — deodorant NO2 stays normal. PM is only slight_rise
-      here (not high as in combustion).
+      Characterised by a dominant TVOC spike (20-40× baseline). The eCO2 spike is an
+      artefact: the SGP30 estimates eCO2 directly from TVOC, so eCO2 and TVOC always
+      move together on this sensor. Both CO and NH3 MICS6814 channels show elevated
+      resistance drops (~3× from baseline) driven by the alcohol and VOC content of the
+      propellant — this generalises across deodorant brands (all use alcohol/propellant).
+      Key differentiator vs cooking: cooking has no NH3 signal and no CO signal.
+      Key differentiator vs combustion: combustion has NO2 elevated — deodorant NO2
+      stays normal. PM criteria are intentionally omitted: background PM levels vary
+      widely (e.g. external pollution can pre-elevate PM to 40+ µg/m³), making PM
+      an unreliable discriminator for this source.
     examples: "deodorant, perfume, hairspray, air freshener, body spray"
     sensors:
       tvoc:        high
       nh3:         elevated     # MICS6814 NH3 channel: ~3× resistance drop from alcohol/VOC content
       eco2:        high         # SGP30 artefact: eCO2 is derived from TVOC on this sensor
-      pm1:         slight_rise  # fine aerosol particles from spray propellant
-      pm25:        slight_rise  # aerosol particles detectable (rose to ~6 µg/m³ in test)
-      pm10:        slight_rise  # coarse aerosol particles from spray
       co:          elevated     # MICS6814 CO channel: ~3× resistance drop from alcohol/VOC content
       no2:         normal       # NO2 stays normal — key differentiator vs combustion
       temperature: normal
@@ -239,12 +237,12 @@ sources:
       decay_rate:           fast
       nh3_follows_tvoc:     true
       nh3_max_lag_seconds:  180
-    confidence_floor: 0.60
+    confidence_floor: 0.50
     description_template: >
       Aerosol spray detected — TVOC spiked to {tvoc_current:.0f} ppb (dominant signal).
-      PM2.5 rose to {pm25_current:.1f} µg/m³ from aerosol particles; CO and NH3 elevated
-      from alcohol/VOC content in propellant (~3× resistance drop on MICS6814 reducing-gas
-      channels). NO2 normal, ruling out combustion. eCO2 reading ({eco2_current:.0f} ppm)
-      reflects the TVOC spike via SGP30 on-chip estimation, not actual CO2 combustion.
-      Pattern matches personal care aerosol (deodorant, perfume, hairspray).
+      CO and NH3 elevated from alcohol/VOC content in propellant (~3× resistance drop on
+      MICS6814 reducing-gas channels). NO2 normal, ruling out combustion. eCO2 reading
+      ({eco2_current:.0f} ppm) reflects the TVOC spike via SGP30 on-chip estimation,
+      not actual CO2 combustion. Pattern matches personal care aerosol (deodorant,
+      perfume, hairspray).
     action_template: "Ventilate briefly after use. Consider fragrance-free alternatives if events are frequent."
