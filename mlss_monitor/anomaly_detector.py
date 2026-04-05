@@ -49,6 +49,7 @@ class AnomalyDetector:
         self._n_seen: dict[str, int] = {}
         self._calls_since_save: int = 0
         self._ema: dict[str, float] = {}
+        self._last_scores: dict[str, float | None] = {}
         self._load_config()
         self._load_models()
 
@@ -75,7 +76,7 @@ class AnomalyDetector:
                         self._n_seen[ch] = 0
                         continue
                     self._models[ch] = model
-                    self._n_seen[ch] = saved["n_seen"]
+                    self._n_seen[ch] = saved.get("n_seen", 0)
                     continue
                 except Exception as exc:
                     log.warning("AnomalyDetector: could not load model %r: %s", ch, exc)
@@ -126,6 +127,7 @@ class AnomalyDetector:
             # Suppress during cold start
             scores[ch] = None if self._n_seen[ch] < cold_start else raw_score
 
+        self._last_scores = scores
         self._calls_since_save += 1
         if self._calls_since_save >= self._SAVE_EVERY_N:
             self._save_models()

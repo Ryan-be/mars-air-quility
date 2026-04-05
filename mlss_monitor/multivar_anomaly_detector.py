@@ -37,6 +37,7 @@ class MultivarAnomalyDetector:
         self._n_seen: dict[str, int] = {}
         self._ema: dict[str, dict[str, float]] = {}   # model_id → {channel → ema}
         self._calls_since_save: int = 0
+        self._last_scores: dict[str, float | None] = {}
         self._load_config()
         self._load_models()
 
@@ -160,6 +161,7 @@ class MultivarAnomalyDetector:
 
             scores[mid] = None if self._n_seen[mid] < cold_start else raw_score
 
+        self._last_scores = scores
         self._calls_since_save += 1
         if self._calls_since_save >= self._SAVE_EVERY_N:
             self._save_models()
