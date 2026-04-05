@@ -26,6 +26,10 @@ disable=
     too-many-statements,
     too-many-arguments,
     duplicate-code,
+    too-many-instance-attributes,
+    too-many-nested-blocks,
+    protected-access,
+    too-many-return-statements,
 
 [FORMAT]
 max-line-length=120

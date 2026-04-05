@@ -14,7 +14,7 @@ from mlss_monitor.feature_vector import FeatureVector
 
 log = logging.getLogger(__name__)
 
-_HST_PARAMS = dict(n_trees=10, height=8, window_size=150, seed=42)
+_HST_PARAMS = {"n_trees": 10, "height": 8, "window_size": 150, "seed": 42}
 _EMA_ALPHA = 0.05   # ~20-reading half-life
 
 

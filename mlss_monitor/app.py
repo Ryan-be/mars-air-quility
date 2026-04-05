@@ -4,7 +4,6 @@ import math
 import mimetypes
 import os
 import ssl
-import time as _time
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -29,16 +28,6 @@ from database.init_db import create_db
 from external_api_interfaces.kasa_smart_plug import KasaSmartPlug
 from external_api_interfaces.open_meteo import OpenMeteoClient
 from mlss_monitor import state
-from mlss_monitor.event_bus import EventBus
-from mlss_monitor.fan_controller import SensorReading, build_default_controller
-from mlss_monitor.routes import register_routes
-from sensor_interfaces.aht20 import read_aht20
-from sensor_interfaces.mics6814 import init_mics6814, read_mics6814
-from sensor_interfaces.sb_components_pm_sensor import init_pm_sensor, read_pm
-from sensor_interfaces.sgp30 import read_sgp30
-from mlss_monitor.hot_tier import HotTier
-from mlss_monitor.feature_extractor import FeatureExtractor
-from mlss_monitor.detection_engine import DetectionEngine
 from mlss_monitor.data_sources import (
     SGP30Source,
     AHT20Source,
@@ -46,6 +35,16 @@ from mlss_monitor.data_sources import (
     MICS6814Source,
     merge_readings,
 )
+from mlss_monitor.detection_engine import DetectionEngine
+from mlss_monitor.event_bus import EventBus
+from mlss_monitor.fan_controller import SensorReading, build_default_controller
+from mlss_monitor.feature_extractor import FeatureExtractor
+from mlss_monitor.hot_tier import HotTier
+from mlss_monitor.routes import register_routes
+from sensor_interfaces.aht20 import read_aht20
+from sensor_interfaces.mics6814 import init_mics6814, read_mics6814
+from sensor_interfaces.sb_components_pm_sensor import init_pm_sensor, read_pm
+from sensor_interfaces.sgp30 import read_sgp30
 
 log = logging.getLogger(__name__)
 
@@ -67,7 +66,7 @@ _PER_CHANNEL_IDS = [
 def _push_anomaly_scores():
     """Push current River anomaly scores to SSE clients. Called from sensor loop."""
     global _last_scores_push
-    now = _time.time()
+    now = time.time()
     if now - _last_scores_push < _SCORES_PUSH_INTERVAL:
         return
     _last_scores_push = now

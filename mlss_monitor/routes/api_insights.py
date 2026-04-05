@@ -256,7 +256,7 @@ def save_anomaly():
     if "score_threshold" in data:
         try:
             val = float(data["score_threshold"])
-            if not (0.0 <= val <= 1.0):
+            if not 0.0 <= val <= 1.0:
                 raise ValueError("out of range")
             anomaly_cfg["score_threshold"] = val
         except (TypeError, ValueError) as exc:

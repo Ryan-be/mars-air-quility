@@ -49,23 +49,23 @@ def _state_matches(state: str, fv: FeatureVector, prefix: str):
             return None
         return ratio >= 2.0
 
-    elif state == "elevated":
+    if state == "elevated":
         if ratio is None:
             return None
         return ratio >= 1.4
 
-    elif state == "slight_rise":
+    if state == "slight_rise":
         slope = _slope_5m(fv, prefix)
         if ratio is None or slope is None:
             return None
         return slope > 0 and ratio >= 1.1
 
-    elif state == "normal":
+    if state == "normal":
         if ratio is None:
             return None
         return ratio < 1.4
 
-    elif state == "absent":
+    if state == "absent":
         # None current counts as absent
         if current is None:
             return True
@@ -79,7 +79,7 @@ def _state_matches(state: str, fv: FeatureVector, prefix: str):
             return current < 5  # absolute low threshold when baseline is zero
         return current < baseline * 0.9
 
-    elif state == "rising":
+    if state == "rising":
         slope = _slope_5m(fv, prefix)
         if slope is None:
             return None

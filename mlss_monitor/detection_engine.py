@@ -565,7 +565,8 @@ class DetectionEngine:
         if not all([temps, hums, tvocs, eco2s]):
             return
 
-        def _mean(vals): return sum(vals) / len(vals) if vals else 0
+        def _mean(vals):
+            return sum(vals) / len(vals) if vals else 0
 
         # Basic stats
         temp_mean, temp_min, temp_max = _mean(temps), min(temps), max(temps)
@@ -713,7 +714,8 @@ class DetectionEngine:
         if get_recent_inference_by_type("daily_pattern", hours=23):
             return
 
-        def _mean(vals): return sum(vals) / len(vals) if vals else 0
+        def _mean(vals):
+            return sum(vals) / len(vals) if vals else 0
 
         # Hardcoded thresholds
         tvoc_moderate = 250
@@ -796,7 +798,8 @@ class DetectionEngine:
         if get_recent_inference_by_type("overnight_buildup", hours=23):
             return
 
-        def _mean(vals): return sum(vals) / len(vals) if vals else 0
+        def _mean(vals):
+            return sum(vals) / len(vals) if vals else 0
 
         # Hardcoded thresholds
         eco2_cognitive = 1000
