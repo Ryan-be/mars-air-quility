@@ -15,6 +15,26 @@ from mlss_monitor.narrative_engine import _DAY_NAMES
 
 api_history_bp = Blueprint("api_history", __name__)
 
+
+def _parse_utc_flexible(ts: str) -> datetime:
+    """Parse a UTC timestamp in any common format to a timezone-aware datetime."""
+    if not ts:
+        raise ValueError("Empty timestamp")
+    # Normalise: replace space with T, handle Z and +00:00
+    ts = ts.strip().replace(" ", "T")
+    if ts.endswith("Z"):
+        ts = ts[:-1] + "+00:00"
+    # fromisoformat handles +00:00 in Python 3.11+
+    try:
+        return datetime.fromisoformat(ts)
+    except ValueError:
+        # Strip subseconds if needed
+        ts = ts[:19] + ts[19:].lstrip("0123456789.")
+        if not ts.endswith("+00:00"):
+            ts += "+00:00"
+        return datetime.fromisoformat(ts)
+
+
 _DB_TO_API = {
     "tvoc": "tvoc_ppb", "eco2": "eco2_ppm", "temperature": "temperature_c",
     "humidity": "humidity_pct", "pm1_0": "pm1_ug_m3", "pm2_5": "pm25_ug_m3",
@@ -136,8 +156,12 @@ def ml_context():
     if not start or not end:
         return jsonify({"error": "start and end are required"}), 400
     all_infs = get_inferences(limit=1000, include_dismissed=False)
-    s_db = start.rstrip("Z").replace("T"," "); e_db = end.rstrip("Z").replace("T"," ")
-    window = [i for i in all_infs if s_db <= i["created_at"].rstrip("Z").replace("T"," ") <= e_db]
+    try:
+        s_dt = _parse_utc_flexible(start); e_dt = _parse_utc_flexible(end)
+        window = [i for i in all_infs if s_dt <= _parse_utc_flexible(i["created_at"]) <= e_dt]
+    except Exception:
+        s_db = start.rstrip("Z").replace("T"," "); e_db = end.rstrip("Z").replace("T"," ")
+        window = [i for i in all_infs if s_db <= i["created_at"].rstrip("Z").replace("T"," ") <= e_db]
     summary: dict = {}
     for inf in window:
         src = _extract_attribution_source(inf)
@@ -225,8 +249,12 @@ def narratives():
     from mlss_monitor.narrative_engine import _parse_utc
 
     all_infs = get_inferences(limit=2000, include_dismissed=False)
-    s_db = start.rstrip("Z").replace("T"," "); e_db = end.rstrip("Z").replace("T"," ")
-    window = [i for i in all_infs if s_db <= i["created_at"].rstrip("Z").replace("T"," ") <= e_db]
+    try:
+        s_dt = _parse_utc_flexible(start); e_dt = _parse_utc_flexible(end)
+        window = [i for i in all_infs if s_dt <= _parse_utc_flexible(i["created_at"]) <= e_dt]
+    except Exception:
+        s_db = start.rstrip("Z").replace("T"," "); e_db = end.rstrip("Z").replace("T"," ")
+        window = [i for i in all_infs if s_db <= i["created_at"].rstrip("Z").replace("T"," ") <= e_db]
 
     engine = state.detection_engine
     baselines_now = {}
