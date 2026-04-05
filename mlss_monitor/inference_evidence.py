@@ -17,30 +17,44 @@ from mlss_monitor.feature_vector import FeatureVector
 _INVERTED_CHANNELS = {"co_current", "no2_current", "nh3_current", "co_ppb", "no2_ppb", "nh3_ppb"}
 
 _CHANNEL_META: dict[str, dict] = {
-    "tvoc_current":        {"label": "TVOC",        "unit": "ppb",    "slope_field": "tvoc_slope_1m",        "slope_thresh": 5.0},
-    "eco2_current":        {"label": "CO₂ (estimated)", "unit": "ppm", "slope_field": "eco2_slope_1m",        "slope_thresh": 10.0},
-    "temperature_current": {"label": "Temperature", "unit": "°C",     "slope_field": "temperature_slope_1m", "slope_thresh": 0.1},
-    "humidity_current":    {"label": "Humidity",    "unit": "%",      "slope_field": "humidity_slope_1m",    "slope_thresh": 0.5},
-    "pm1_current":         {"label": "PM1",         "unit": "µg/m³", "slope_field": "pm1_slope_1m",         "slope_thresh": 1.0},
-    "pm25_current":        {"label": "PM2.5",       "unit": "µg/m³", "slope_field": "pm25_slope_1m",        "slope_thresh": 1.0},
-    "pm10_current":        {"label": "PM10",        "unit": "µg/m³", "slope_field": "pm10_slope_1m",        "slope_thresh": 1.0},
-    "co_current":          {"label": "CO (resistance)",          "unit": "kΩ",    "slope_field": "co_slope_1m",          "slope_thresh": 2.0},
-    "no2_current":         {"label": "NO2 (resistance)",         "unit": "kΩ",    "slope_field": "no2_slope_1m",         "slope_thresh": 2.0},
-    "nh3_current":         {"label": "NH3 (resistance)",         "unit": "kΩ",    "slope_field": "nh3_slope_1m",         "slope_thresh": 2.0},
-    "vpd_kpa":             {"label": "VPD",         "unit": "kPa",    "slope_field": None,                   "slope_thresh": None},
+    "tvoc_current":        {"label": "TVOC",             "unit": "ppb",
+                            "slope_field": "tvoc_slope_1m",        "slope_thresh": 5.0},
+    "eco2_current":        {"label": "CO₂ (estimated)",  "unit": "ppm",
+                            "slope_field": "eco2_slope_1m",        "slope_thresh": 10.0},
+    "temperature_current": {"label": "Temperature",      "unit": "°C",
+                            "slope_field": "temperature_slope_1m", "slope_thresh": 0.1},
+    "humidity_current":    {"label": "Humidity",         "unit": "%",
+                            "slope_field": "humidity_slope_1m",    "slope_thresh": 0.5},
+    "pm1_current":         {"label": "PM1",              "unit": "µg/m³",
+                            "slope_field": "pm1_slope_1m",         "slope_thresh": 1.0},
+    "pm25_current":        {"label": "PM2.5",            "unit": "µg/m³",
+                            "slope_field": "pm25_slope_1m",        "slope_thresh": 1.0},
+    "pm10_current":        {"label": "PM10",             "unit": "µg/m³",
+                            "slope_field": "pm10_slope_1m",        "slope_thresh": 1.0},
+    "co_current":          {"label": "CO (resistance)",  "unit": "kΩ",
+                            "slope_field": "co_slope_1m",          "slope_thresh": 2.0},
+    "no2_current":         {"label": "NO2 (resistance)", "unit": "kΩ",
+                            "slope_field": "no2_slope_1m",         "slope_thresh": 2.0},
+    "nh3_current":         {"label": "NH3 (resistance)", "unit": "kΩ",
+                            "slope_field": "nh3_slope_1m",         "slope_thresh": 2.0},
+    "vpd_kpa":             {"label": "VPD",              "unit": "kPa",
+                            "slope_field": None,                   "slope_thresh": None},
 }
 
 # ── Per-channel anomaly action text ──────────────────────────────────────────
 
 _CHANNEL_ACTIONS: dict[str, str] = {
-    "tvoc_ppb":      "Identify chemical sources (cleaning products, paints, adhesives). Ventilate if TVOC stays elevated.",
+    "tvoc_ppb":      ("Identify chemical sources (cleaning products, paints, adhesives)."
+                      " Ventilate if TVOC stays elevated."),
     "eco2_ppm":      "Open windows or improve ventilation. High CO2 reduces cognitive performance and causes fatigue.",
     "temperature_c": "Adjust heating or cooling to return to the comfort zone (18–25°C).",
     "humidity_pct":  "Use a dehumidifier or humidifier to reach the target range (40–60%).",
-    "pm1_ug_m3":     "Identify fine particle sources (candles, incense, cooking smoke). Consider an air purifier with HEPA filter.",
+    "pm1_ug_m3":     ("Identify fine particle sources (candles, incense, cooking smoke)."
+                      " Consider an air purifier with HEPA filter."),
     "pm25_ug_m3":    "Identify fine particle sources and ventilate. Consider running an air purifier.",
     "pm10_ug_m3":    "Check for coarse dust or pollen sources. A HEPA air purifier can help.",
-    "co_ppb":        "Identify CO sources (gas appliances, combustion). Ventilate immediately. At high levels, evacuate and call emergency services.",
+    "co_ppb":        ("Identify CO sources (gas appliances, combustion). Ventilate immediately."
+                      " At high levels, evacuate and call emergency services."),
     "no2_ppb":       "Check gas appliances and ventilation. Prolonged elevated NO2 can irritate the airways.",
     "nh3_ppb":       "Check for ammonia sources (cleaning products, fertilisers, animal waste). Ventilate promptly.",
 }
@@ -143,9 +157,14 @@ def build_sensor_snapshot(
             if ratio_direction == "low" and ratio < 1:
                 ratio_description = f"{ratio:.1f}× typical — lower resistance indicates elevated gas concentration."
             elif ratio > 1:
-                ratio_description = f"{ratio:.1f}× normal — this channel was {ratio:.1f} times higher than its recent typical value when this event was detected."
+                ratio_description = (
+                    f"{ratio:.1f}× normal — this channel was {ratio:.1f} times higher"
+                    " than its recent typical value when this event was detected."
+                )
             elif ratio < 0.5:
-                ratio_description = f"{ratio:.1f}× normal — this channel was unusually low when this event was detected."
+                ratio_description = (
+                    f"{ratio:.1f}× normal — this channel was unusually low when this event was detected."
+                )
             else:
                 ratio_description = f"{ratio:.1f}× normal — within typical range."
         else:

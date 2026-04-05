@@ -332,7 +332,10 @@ class DetectionEngine:
                     save_inference(
                         event_type=event_type,
                         severity="warning",
-                        title=f"Anomaly: {snapshot[0]['label'] if snapshot else ch.replace('_', ' ')} — {score:.2f} score",
+                        title=(
+                            f"Anomaly: {snapshot[0]['label'] if snapshot else ch.replace('_', ' ')}"
+                            f" — {score:.2f} score"
+                        ),
                         description=description,
                         action=action,
                         evidence={
@@ -445,7 +448,9 @@ class DetectionEngine:
         if not temps or not hums or not tvocs or not eco2s:
             return
 
-        def _mean(vals): return sum(vals) / len(vals) if vals else 0
+        def _mean(vals):
+            return sum(vals) / len(vals) if vals else 0
+
         def _std(vals):
             if len(vals) < 2:
                 return 0
@@ -640,7 +645,9 @@ class DetectionEngine:
         if eco2_high_pct > 20:
             actions.append(f"eCO₂ was high {eco2_high_pct:.0f}% of the day — improve base ventilation rate")
         if temp_out_pct > 30:
-            actions.append(f"Temperature was outside comfort zone {temp_out_pct:.0f}% of the day — check heating/cooling")
+            actions.append(
+                f"Temperature was outside comfort zone {temp_out_pct:.0f}% of the day — check heating/cooling"
+            )
         if hum_out_pct > 30:
             actions.append(
                 f"Humidity was outside ideal range {hum_out_pct:.0f}% of the day"

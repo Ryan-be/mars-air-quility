@@ -68,6 +68,7 @@ CATEGORIES = {
     "other":   "Other",
 }
 
+
 def event_category(event_type):
     """Return the category for an event type."""
     if event_type.startswith(_ANNOTATION_PREFIX):

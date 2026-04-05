@@ -157,20 +157,22 @@ def sparkline(inference_id):
 
     evidence = inf.get("evidence") or {}
     if isinstance(evidence, str):
-        try: evidence = _json.loads(evidence)
-        except Exception: evidence = {}
+        try:
+            evidence = _json.loads(evidence)
+        except Exception:
+            evidence = {}
 
     event_type = inf.get("event_type", "")
 
     _FV_TO_API = {
-        "tvoc_current":"tvoc_ppb","eco2_current":"eco2_ppm","temperature_current":"temperature_c",
-        "humidity_current":"humidity_pct","pm1_current":"pm1_ug_m3","pm25_current":"pm25_ug_m3",
-        "pm10_current":"pm10_ug_m3","co_current":"co_ppb","no2_current":"no2_ppb","nh3_current":"nh3_ppb",
+        "tvoc_current": "tvoc_ppb", "eco2_current": "eco2_ppm", "temperature_current": "temperature_c",
+        "humidity_current": "humidity_pct", "pm1_current": "pm1_ug_m3", "pm25_current": "pm25_ug_m3",
+        "pm10_current": "pm10_ug_m3", "co_current": "co_ppb", "no2_current": "no2_ppb", "nh3_current": "nh3_ppb",
     }
     snapshot = evidence.get("sensor_snapshot", [])
     triggering = []
     for entry in snapshot:
-        api_key = _FV_TO_API.get(entry.get("channel",""), entry.get("channel",""))
+        api_key = _FV_TO_API.get(entry.get("channel", ""), entry.get("channel", ""))
         if api_key and api_key not in triggering:
             triggering.append(api_key)
     if not triggering:
@@ -183,6 +185,12 @@ def sparkline(inference_id):
             triggering = list(_DB_TO_API.values())
 
     timestamps = [_normalise_ts(r["timestamp"]) for r in rows]
-    channels = {api_key: [r.get(db_col) for r in rows] for db_col, api_key in _DB_TO_API.items() if api_key in triggering}
+    channels = {
+        api_key: [r.get(db_col) for r in rows]
+        for db_col, api_key in _DB_TO_API.items() if api_key in triggering
+    }
 
-    return jsonify({"timestamps": timestamps, "channels": channels, "inference_at": created_at, "triggering_channels": triggering})
+    return jsonify({
+        "timestamps": timestamps, "channels": channels,
+        "inference_at": created_at, "triggering_channels": triggering,
+    })

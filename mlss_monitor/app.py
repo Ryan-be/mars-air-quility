@@ -6,7 +6,7 @@ import os
 import ssl
 import time as _time
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import Thread
 
@@ -528,7 +528,6 @@ def _background_log():
                 if state.feature_vector is not None:
                     fired = _detection_engine.run(state.feature_vector)
                     for event_type in fired:
-                        from datetime import datetime, timezone
                         state.shadow_log.appendleft({
                             "ts": datetime.now(timezone.utc).strftime("%H:%M:%S"),
                             "event_type": event_type,
