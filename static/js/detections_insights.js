@@ -769,8 +769,7 @@ function openInferenceDialog(id) {
   }
   document.getElementById('infAddTag').onclick = async function () {
     const select = document.getElementById('infTagSelect');
-    const custom = document.getElementById('infTagCustom');
-    let tag = select.value || custom.value.trim();
+    const tag = select.value;
     if (!tag) return;
     try {
       await fetch('/api/inferences/' + id + '/tags', {
@@ -786,7 +785,6 @@ function openInferenceDialog(id) {
       }
       inf.tags = newTags;
       select.value = '';
-      custom.value = '';
     } catch (e) { /* ignore */ }
   };
 

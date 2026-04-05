@@ -293,16 +293,6 @@
           <label for="corrRangeTagSelect">Tag this range</label>
           <select id="corrRangeTagSelect">
             <option value="">Select a tag...</option>
-            <option value="cooking">🍳 Cooking</option>
-            <option value="external-pollution">🌫️ External Pollution</option>
-            <option value="vehicle-exhaust">🚗 Vehicle Exhaust</option>
-            <option value="biological-offgassing">🧬 Biological Off-gassing</option>
-            <option value="chemical-offgassing">🧪 Chemical Off-gassing</option>
-            <option value="combustion">🔥 Combustion</option>
-            <option value="cleaning-products">🧹 Cleaning Products</option>
-            <option value="human-activity">👤 Human Activity</option>
-            <option value="mould-voc">🍄 Mould / Fungal VOC</option>
-            <option value="personal-care-products">🧴 Personal Care Products</option>
           </select>
           <button class="btn btn-sm" id="corrCreateRangeInferenceBtn" disabled>Save tagged event</button>
           <span id="corrRangeInferenceStatus" class="corr-range-status"></span>
@@ -449,18 +439,7 @@
         <div class="inf-tag-controls">
           <select id="infTagSelect" class="inf-tag-select">
             <option value="">Select a tag...</option>
-            <option value="cooking">🍳 Cooking</option>
-            <option value="external-pollution">🌫️ External Pollution</option>
-            <option value="vehicle-exhaust">🚗 Vehicle Exhaust</option>
-            <option value="biological-offgassing">🧬 Biological Off-gassing</option>
-            <option value="chemical-offgassing">🧪 Chemical Off-gassing</option>
-            <option value="combustion">🔥 Combustion</option>
-            <option value="cleaning-products">🧹 Cleaning Products</option>
-            <option value="human-activity">👤 Human Activity</option>
-            <option value="mould-voc">🍄 Mould / Fungal VOC</option>
-            <option value="personal-care-products">🧴 Personal Care Products</option>
           </select>
-          <input type="text" id="infTagCustom" class="inf-tag-custom" placeholder="Or enter custom tag...">
           <button class="btn inf-add-tag" id="infAddTag">Add Tag</button>
         </div>
       </div>
@@ -472,5 +451,45 @@
 {% block scripts %}
   <script src="https://cdn.plot.ly/plotly-2.24.2.min.js"></script>
   <script src="{{ url_for('static', filename='js/sparkline.js') }}"></script>
+  <script type="module">
+    // Populate both tag dropdowns from /api/tags on load.
+    async function populateTagDropdowns() {
+      let tags = [];
+      try {
+        const resp = await fetch('/api/tags');
+        if (resp.ok) {
+          const data = await resp.json();
+          tags = data.tags || [];
+        }
+      } catch (_) { /* silently ignore — dropdowns remain empty */ }
+
+      const EMOJI = {
+        cooking: '🍳',
+        external_pollution: '🌫️',
+        vehicle_exhaust: '🚗',
+        biological_offgas: '🧬',
+        chemical_offgassing: '🧪',
+        combustion: '🔥',
+        cleaning_products: '🧹',
+        human_activity: '👤',
+        mould_voc: '🍄',
+        personal_care: '🧴',
+      };
+
+      const selectors = ['#corrRangeTagSelect', '#infTagSelect'];
+      selectors.forEach(sel => {
+        const el = document.querySelector(sel);
+        if (!el) return;
+        tags.forEach(({ id, label }) => {
+          const opt = document.createElement('option');
+          opt.value = id;
+          opt.textContent = `${EMOJI[id] || ''} ${label}`.trim();
+          el.appendChild(opt);
+        });
+      });
+    }
+
+    document.addEventListener('DOMContentLoaded', populateTagDropdowns);
+  </script>
   <script type="module" src="{{ url_for('static', filename='js/history.js') }}"></script>
 {% endblock %}
