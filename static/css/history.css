@@ -415,6 +415,18 @@ body.light .pm-summary-card .value.pm-good      { color: #16a34a; }
 body.light .pm-summary-card .value.pm-moderate  { color: #d97706; }
 body.light .pm-summary-card .value.pm-unhealthy { color: #dc2626; }
 
+/* ── Range tagging status ── */
+.corr-range-status {
+  font-size: 0.85em;
+  margin-left: 0.5em;
+}
+.corr-range-status.success {
+  color: #16a34a;
+}
+.corr-range-status.error {
+  color: #dc2626;
+}
+
 @media (max-width: 600px) {
   .corr-brush-section { padding: 0.7em 0.7em 0.3em; }
   .corr-inference-panel { padding: 0.7em; }
