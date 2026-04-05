@@ -8,7 +8,7 @@ from pathlib import Path
 
 from river import linear_model, preprocessing  # pylint: disable=import-error
 
-from database.db_logger import get_inferences  # pylint: disable=import-outside-toplevel
+from database.db_logger import get_inference_tags, get_inferences  # pylint: disable=import-outside-toplevel
 from mlss_monitor.attribution.loader import Fingerprint, load_fingerprints
 from mlss_monitor.attribution.scorer import combine, sensor_score, temporal_score
 from mlss_monitor.feature_vector import FeatureVector
@@ -253,6 +253,82 @@ class AttributionEngine:
                 log.warning("AttributionEngine: could not save classifier: %s", exc)
         except Exception as exc:
             log.warning("AttributionEngine: training error: %s", exc)
+
+    def classifier_stats(self) -> dict:
+        """Return per-tag training statistics for the admin classifier panel.
+
+        Returns:
+            {
+                "total_samples": int,
+                "tag_stats": [
+                    {"tag": str, "label": str, "sample_count": int,
+                     "avg_confidence": float | None, "ready": bool},
+                    ...
+                ]
+            }
+        """
+        # Count tagged samples per tag from the DB.
+        tag_counts: dict[str, int] = {}
+        try:
+            rows = get_inferences(limit=5000, include_dismissed=False)
+            for inf in rows:
+                tags = get_inference_tags(inf["id"])
+                for t in tags:
+                    tag_counts[t["tag"]] = tag_counts.get(t["tag"], 0) + 1
+        except Exception as exc:
+            log.warning("AttributionEngine.classifier_stats: DB error: %s", exc)
+
+        # Compute avg predicted confidence per tag using stored feature vectors.
+        tag_conf_sums: dict[str, float] = {}
+        tag_conf_counts: dict[str, int] = {}
+        try:
+            rows_fv = get_inferences(limit=5000, include_dismissed=False)
+            for inf in rows_fv:
+                evidence = inf.get("evidence") or {}
+                if isinstance(evidence, str):
+                    import json as _json  # pylint: disable=import-outside-toplevel
+                    try:
+                        evidence = _json.loads(evidence)
+                    except Exception:
+                        continue
+                fv_dict = evidence.get("feature_vector")
+                if not fv_dict:
+                    continue
+                features = {k: v for k, v in fv_dict.items()
+                            if k != "timestamp" and v is not None}
+                if not features:
+                    continue
+                try:
+                    proba = self._ml_model.predict_proba_one(features)
+                    if proba:
+                        for label, conf in proba.items():
+                            tag_conf_sums[label] = tag_conf_sums.get(label, 0.0) + conf
+                            tag_conf_counts[label] = tag_conf_counts.get(label, 0) + 1
+                except Exception:
+                    pass
+        except Exception as exc:
+            log.warning("AttributionEngine.classifier_stats: confidence calc error: %s", exc)
+
+        tag_stats = []
+        for fp in self._fingerprints:
+            count = tag_counts.get(fp.id, 0)
+            ready = count >= _READY_THRESHOLD
+            avg_conf = None
+            n_conf = tag_conf_counts.get(fp.id, 0)
+            if ready and n_conf > 0:
+                avg_conf = round(tag_conf_sums[fp.id] / n_conf, 3)
+            tag_stats.append({
+                "tag": fp.id,
+                "label": fp.label,
+                "sample_count": count,
+                "avg_confidence": avg_conf,
+                "ready": ready,
+            })
+
+        return {
+            "total_samples": sum(tag_counts.values()),
+            "tag_stats": tag_stats,
+        }
 
     def _ml_predict(self, fv: FeatureVector):
         """Get ML prediction for FV."""
