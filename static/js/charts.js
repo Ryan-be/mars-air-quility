@@ -35,7 +35,7 @@ export function renderGasCharts(data) {
 
   Plotly.newPlot("eco2Plot", [{
     x: timestamps, y: eco2,
-    mode: "lines+markers", name: "eCO₂",
+    mode: "lines+markers", name: "eCO₂ (ppm)",
     line: { color: "yellowgreen" }, customdata: ids
   }], themeLayout({
     title: { text: "🫁 eCO₂ (ppm)", font: { color: isLight ? "#111" : "#ccc" } },

@@ -492,9 +492,9 @@ function _renderInferencePanel(subset, fullData) {
     if (selTvoc.length)  levels.push(`TVOC: <strong>${avgTvocSel != null ? Math.round(avgTvocSel) : "–"} ppb</strong> ${tvocHigh ? "⚠️" : "✅"}`);
     if (selEco2.length)  levels.push(`eCO₂: <strong>${avgEco2Sel != null ? Math.round(avgEco2Sel) : "–"} ppm</strong> ${eco2High ? "⚠️" : "✅"}`);
     const corrParts = [];
-    if (reg)        corrParts.push(`TVOC↔eCO₂ R² = ${reg.r2.toFixed(2)}`);
+    if (reg)        corrParts.push(`TVOC↔CO₂ R² = ${reg.r2.toFixed(2)}`);
     if (regPmTvoc)  corrParts.push(`PM2.5↔TVOC R² = ${regPmTvoc.r2.toFixed(2)}`);
-    if (regPmEco2)  corrParts.push(`PM2.5↔eCO₂ R² = ${regPmEco2.r2.toFixed(2)}`);
+    if (regPmEco2)  corrParts.push(`PM2.5↔CO₂ R² = ${regPmEco2.r2.toFixed(2)}`);
     const anyHigh = pmHigh || tvocHigh || eco2High;
     cards.push({
       icon: anyHigh ? "📊" : "📊",
@@ -541,17 +541,17 @@ function _renderInferencePanel(subset, fullData) {
       if (tvocHigh && !eco2High) {
         srcIcon = "🧴"; srcCls = "insight-warn";
         srcTitle = "Chemical off-gassing (no combustion)";
-        srcDesc = `TVOC is elevated (${avgTvocSel != null ? Math.round(avgTvocSel) : "–"} ppb) but PM2.5 and eCO₂ are normal. This is typical of volatile organic sources that don't produce particles or CO₂: cleaning products, air fresheners, paint, adhesives, new furniture, or cosmetics.`;
+        srcDesc = `TVOC is elevated (${avgTvocSel != null ? Math.round(avgTvocSel) : "–"} ppb) but PM2.5 and eCO₂ are normal. This is typical of volatile organic sources that don't produce particles or eCO₂: cleaning products, air fresheners, paint, adhesives, new furniture, or cosmetics.`;
         srcTip = "These sources can persist for hours or days. TVOC off-gassing from new furniture peaks in the first few weeks. Ventilation helps but the source needs to be removed or contained.";
       } else if (tvocHigh && eco2High && tvocEco2R2 > 0.4) {
         srcIcon = "👥"; srcCls = "insight-neutral";
         srcTitle = "Occupancy / breathing";
-        srcDesc = `eCO₂ and TVOC are both elevated and correlated (R² = ${tvocEco2R2.toFixed(2)}), but PM2.5 is normal. This is the signature of human presence without combustion — CO₂ and body VOCs from breathing, metabolism, and skin.`;
-        srcTip = "Open a window or increase the ventilation rate. CO₂ and TVOC from occupancy drop quickly with fresh air flow.";
+        srcDesc = `eCO₂ and TVOC are both elevated and correlated (R² = ${tvocEco2R2.toFixed(2)}), but PM2.5 is normal. This is the signature of human presence without combustion — eCO₂ and body VOCs from breathing, metabolism, and skin.`;
+        srcTip = "Open a window or increase the ventilation rate. eCO₂ and TVOC from occupancy drop quickly with fresh air flow.";
       } else if (eco2High && !tvocHigh) {
         srcIcon = "🫁"; srcCls = "insight-neutral";
-        srcTitle = "CO₂ build-up (minimal VOCs)";
-        srcDesc = `eCO₂ is elevated (${avgEco2Sel != null ? Math.round(avgEco2Sel) : "–"} ppm) but TVOC and PM2.5 are normal. Pure CO₂ build-up with no matching VOCs or particles typically means occupants in a sealed room with minimal activity.`;
+        srcTitle = "eCO₂ build-up (minimal VOCs)";
+        srcDesc = `eCO₂ is elevated (${avgEco2Sel != null ? Math.round(avgEco2Sel) : "–"} ppm) but TVOC and PM2.5 are normal. Pure eCO₂ build-up with no matching VOCs or particles typically means occupants in a sealed room with minimal activity.`;
         srcTip = "Ventilate the room. If this repeats at the same time daily, the room needs a higher base ventilation rate.";
       } else {
         srcIcon = "✅"; srcCls = "insight-good";
@@ -597,10 +597,10 @@ function _renderInferencePanel(subset, fullData) {
       trendText = `<strong>TVOC and eCO₂ rising</strong><br>Air quality is getting worse. ${hasPm && pm25Dir === "rising" ? "PM2.5 is also rising. " : ""}Common during cooking, gatherings, or when windows are closed.`;
     } else if (tvocDir === "rising" && eco2Dir !== "rising") {
       trendIcon = "🧪"; trendClass = "insight-warn";
-      trendText = `<strong>TVOC rising, eCO₂ ${eco2Dir}</strong><br>A VOC source is active without extra CO₂. Likely: cleaning products, paint, adhesives, cosmetics, or new materials.${hasPm && pm25Dir === "rising" ? " PM2.5 also rising — possibly a combustion source." : ""}`;
+      trendText = `<strong>TVOC rising, eCO₂ ${eco2Dir}</strong><br>A VOC source is active without extra eCO₂. Likely: cleaning products, paint, adhesives, cosmetics, or new materials.${hasPm && pm25Dir === "rising" ? " PM2.5 also rising — possibly a combustion source." : ""}`;
     } else if (eco2Dir === "rising" && tvocDir !== "rising") {
       trendIcon = "🫁"; trendClass = "insight-warn";
-      trendText = `<strong>eCO₂ rising, TVOC ${tvocDir}</strong><br>CO₂ building up from occupants. The air feels stuffy before TVOC catches up. ${hasPm && pm25Dir === "rising" ? "PM2.5 also rising — check for a concurrent particle source." : ""}`;
+      trendText = `<strong>eCO₂ rising, TVOC ${tvocDir}</strong><br>eCO₂ building up from occupants. The air feels stuffy before TVOC catches up. ${hasPm && pm25Dir === "rising" ? "PM2.5 also rising — check for a concurrent particle source." : ""}`;
     } else {
       trendIcon = "➡️"; trendClass = "insight-neutral";
       trendText = `<strong>Pollutant levels are stable</strong><br>No significant change in this window. The environment is in a steady state.`;
@@ -786,7 +786,7 @@ function corrToggleOverlay(visible) {
 
 const CORR_CHANNELS = ['tvoc_ppb','eco2_ppm','temperature_c','humidity_pct','pm1_ug_m3','pm25_ug_m3','pm10_ug_m3','co_ppb','no2_ppb','nh3_ppb'];
 const CORR_COLOURS  = { tvoc_ppb:'#8b5cf6', eco2_ppm:'#06b6d4', temperature_c:'#f97316', humidity_pct:'#3b82f6', pm1_ug_m3:'#84cc16', pm25_ug_m3:'#22c55e', pm10_ug_m3:'#a3e635', co_ppb:'#ef4444', no2_ppb:'#f59e0b', nh3_ppb:'#ec4899' };
-const CORR_LABELS   = { tvoc_ppb:'TVOC', eco2_ppm:'eCO2', temperature_c:'Temperature', humidity_pct:'Humidity', pm1_ug_m3:'PM1', pm25_ug_m3:'PM2.5', pm10_ug_m3:'PM10', co_ppb:'CO (resistance)', no2_ppb:'NO2 (resistance)', nh3_ppb:'NH3 (resistance)' };
+const CORR_LABELS   = { tvoc_ppb:'TVOC', eco2_ppm:'eCO₂', temperature_c:'Temperature', humidity_pct:'Humidity', pm1_ug_m3:'PM1', pm25_ug_m3:'PM2.5', pm10_ug_m3:'PM10', co_ppb:'CO (resistance)', no2_ppb:'NO2 (resistance)', nh3_ppb:'NH3 (resistance)' };
 
 // Mapping from chip data-channel to brush chart trace name (as set in _renderBrushChart)
 const CORR_BRUSH_TRACE_NAMES = {

@@ -213,7 +213,7 @@ const SENSOR_INFO = {
     sensor: "SGP30 (I²C)",
     unit: "ppm",
     range: "400 – 800 ppm (normal indoor)",
-    desc: "Equivalent CO₂ estimated by the SGP30 metal-oxide sensor. Above 1000 ppm cognitive function declines. Above 2000 ppm consider immediate ventilation. The sensor needs ~15s warm-up after power-on; first readings may be inaccurate.",
+    desc: "Estimated CO₂ from the SGP30 metal-oxide sensor. Estimated from TVOC via SGP30 algorithm — not a direct CO₂ measurement. Above 1000 ppm cognitive function declines. Above 2000 ppm consider immediate ventilation. The sensor needs ~15s warm-up after power-on; first readings may be inaccurate.",
   },
   tvoc: {
     title: "🧪 TVOC",
@@ -273,7 +273,7 @@ const INSIGHT_INFO = {
     desc: "How the temperature actually feels to a person, accounting for humidity. High humidity makes warm air feel hotter because sweat evaporates more slowly. Calculated using the Australian Bureau of Meteorology apparent temperature formula (indoor version, no wind component). Useful for assessing comfort even when the thermometer looks fine.",
   },
   co2: {
-    title: "🧠 CO₂ Cognitive Alert",
+    title: "🧠 eCO₂ Cognitive Alert",
     range: "Normal ≤ 800 / Elevated ≤ 1000 / Impaired ≤ 2000",
     desc: "Research shows CO₂ above 1000 ppm reduces decision-making performance by up to 15%. Above 2000 ppm causes headaches, drowsiness, and difficulty concentrating. This alert monitors your eCO₂ levels against these cognitive impact thresholds. In a sealed room with one person, CO₂ can rise from 400 to 1000 ppm in under 2 hours.",
   },
@@ -283,7 +283,7 @@ const INSIGHT_INFO = {
     desc: "VPD measures the 'drying power' of the air — how strongly the atmosphere pulls moisture from leaf surfaces. Low VPD (< 0.4 kPa) means the air is nearly saturated, slowing transpiration and promoting mould. High VPD (> 1.6 kPa) means the air is very dry, causing stomata to close and stressing the plant. It combines temperature and humidity into the single most useful metric for plant health.",
   },
   ttt: {
-    title: "⏱️ Time to CO₂ Threshold",
+    title: "⏱️ Time to eCO₂ Threshold",
     range: "Stable = not rising",
     desc: "A linear extrapolation from the last 6 readings predicting when eCO₂ will reach 1000 ppm (the cognitive impairment threshold). If CO₂ is falling or steady, it shows 'Stable'. Under 10 minutes means you should ventilate soon. This is an estimate — opening a window or door will reset the trend immediately.",
   },
@@ -546,7 +546,7 @@ function _evidenceColor(key, val) {
     if (n <= 500) return "ev-warn";
     return "ev-bad";
   }
-  // eCO2
+  // CO2 (estimated)
   if (/eco2|co2/.test(key) && /ppm/.test(val)) {
     if (n <= 800) return "ev-good";
     if (n <= 1500) return "ev-warn";

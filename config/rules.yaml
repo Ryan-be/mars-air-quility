@@ -27,10 +27,10 @@ rules:
       (e.g. cleaning spray, cooking), remove or contain it. Levels should
       return to baseline within 15–60 minutes with adequate airflow.
 
-  # ── eCO2 ──────────────────────────────────────────────────────────────────────
+  # ── CO₂ (estimated) ───────────────────────────────────────────────────────────
 
   - id: eco2_danger
-    expression: "eco2_current >= 2000"
+    expression: "eco2_current >= 2000 and tvoc_ratio >= 2.0"
     event_type: eco2_danger
     severity: critical
     dedupe_hours: 1
@@ -43,7 +43,7 @@ rules:
     action: "Ventilate immediately — open windows and doors. Leave the room if symptoms appear."
 
   - id: eco2_elevated
-    expression: "eco2_current >= 1000 and eco2_current < 2000"
+    expression: "eco2_current >= 1000 and eco2_current < 2000 and tvoc_ratio >= 1.5"
     event_type: eco2_elevated
     severity: warning
     dedupe_hours: 1
