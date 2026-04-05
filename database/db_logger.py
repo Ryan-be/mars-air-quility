@@ -420,11 +420,38 @@ def save_inference(event_type, severity, title, description, action,
     return inf_id
 
 
-def get_inferences(limit=50, include_dismissed=False):
+def get_inferences(limit=50, include_dismissed=False,
+                   start: "str | None" = None, end: "str | None" = None):
+    """Return inferences ordered by created_at DESC.
+
+    Optional ``start``/``end`` (ISO-8601 strings, space or T separator) constrain
+    the query to rows within that window at the database level, avoiding the
+    need to fetch-then-filter in Python.
+    """
     conn = _connect()
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
-    if include_dismissed:
+
+    def _to_db(ts: str) -> str:
+        return ts.rstrip("Z").replace("T", " ")
+
+    if start and end:
+        s_db = _to_db(start)
+        e_db = _to_db(end)
+        if include_dismissed:
+            cur.execute(
+                "SELECT * FROM inferences WHERE created_at >= ? AND created_at <= ? "
+                "ORDER BY created_at DESC LIMIT ?",
+                (s_db, e_db, limit),
+            )
+        else:
+            cur.execute(
+                "SELECT * FROM inferences WHERE dismissed = 0 "
+                "AND created_at >= ? AND created_at <= ? "
+                "ORDER BY created_at DESC LIMIT ?",
+                (s_db, e_db, limit),
+            )
+    elif include_dismissed:
         cur.execute(
             "SELECT * FROM inferences ORDER BY created_at DESC LIMIT ?",
             (limit,),

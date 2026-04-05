@@ -46,21 +46,35 @@ const DI = (function () {
     load();
   }
 
+  function _showLoadingSkeletons() {
+    const _skel = (id) => {
+      const el = document.getElementById(id);
+      if (el) el.innerHTML = '<p class="di-loading">Loading\u2026</p>';
+    };
+    _skel('diPeriodSummary');
+    _skel('diTrendIndicators');
+    _skel('diLongestClean');
+    _skel('diFingerprintCards');
+    _skel('diModelCards');
+    _skel('diDriftFlags');
+  }
+
   async function load() {
     const { start, end } = _range();
+    _showLoadingSkeletons();
     try {
       const [nResp, bResp] = await Promise.all([
         fetch(`/api/history/narratives?start=${start}&end=${end}`),
         fetch('/api/history/baselines'),
       ]);
-      _narratives = await nResp.json();
-      _baselines  = await bResp.json();
+      [_narratives, _baselines] = await Promise.all([nResp.json(), bResp.json()]);
       _render();
     } catch (e) { console.error('DI load error', e); }
   }
 
   function _render() {
     if (!_narratives) return;
+    // Render priority sections first (fast, synchronous DOM writes)
     _renderPeriodSummary();
     _renderTrendIndicators();
     _renderLongestClean();
@@ -68,8 +82,10 @@ const DI = (function () {
     _renderFingerprintNarratives();
     _renderAnomalyModelNarratives();
     _renderPatternHeatmap();
-    _renderNormalBandsChart();
     _renderDriftFlags();
+    // Defer the normal bands chart — it makes its own fetch() for sensor history,
+    // so schedule it after the main sections have painted.
+    requestAnimationFrame(function () { _renderNormalBandsChart(); });
   }
 
   function _renderPeriodSummary() {

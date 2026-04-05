@@ -155,13 +155,7 @@ def ml_context():
     start = request.args.get("start",""); end = request.args.get("end","")
     if not start or not end:
         return jsonify({"error": "start and end are required"}), 400
-    all_infs = get_inferences(limit=1000, include_dismissed=False)
-    try:
-        s_dt = _parse_utc_flexible(start); e_dt = _parse_utc_flexible(end)
-        window = [i for i in all_infs if s_dt <= _parse_utc_flexible(i["created_at"]) <= e_dt]
-    except Exception:
-        s_db = start.rstrip("Z").replace("T"," "); e_db = end.rstrip("Z").replace("T"," ")
-        window = [i for i in all_infs if s_db <= i["created_at"].rstrip("Z").replace("T"," ") <= e_db]
+    window = get_inferences(limit=1000, include_dismissed=False, start=start, end=end)
     summary: dict = {}
     for inf in window:
         src = _extract_attribution_source(inf)
@@ -248,13 +242,7 @@ def narratives():
     from mlss_monitor.inference_evidence import _CHANNEL_META
     from mlss_monitor.narrative_engine import _parse_utc
 
-    all_infs = get_inferences(limit=2000, include_dismissed=False)
-    try:
-        s_dt = _parse_utc_flexible(start); e_dt = _parse_utc_flexible(end)
-        window = [i for i in all_infs if s_dt <= _parse_utc_flexible(i["created_at"]) <= e_dt]
-    except Exception:
-        s_db = start.rstrip("Z").replace("T"," "); e_db = end.rstrip("Z").replace("T"," ")
-        window = [i for i in all_infs if s_db <= i["created_at"].rstrip("Z").replace("T"," ") <= e_db]
+    window = get_inferences(limit=2000, include_dismissed=False, start=start, end=end)
 
     engine = state.detection_engine
     baselines_now = {}
