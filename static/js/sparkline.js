@@ -25,6 +25,7 @@ async function loadSparkline(inferenceId, inferenceAt) {
     var resp = await fetch('/api/inferences/' + inferenceId + '/sparkline');
     if (!resp.ok) throw new Error('fetch failed');
     var data = await resp.json();
+    console.log('sparkline data:', data);
     loading.style.display = 'none';
     if (!data.triggering_channels || data.triggering_channels.length === 0) {
       error.style.display = 'block';

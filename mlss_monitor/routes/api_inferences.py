@@ -113,8 +113,13 @@ def sparkline(inference_id):
     # _DB_TO_API maps sensor_data col names → api names; build reverse to get db col from api name
     _api_to_db = {v: k for k, v in _DB_TO_API.items()}
     try:
-        start_db = window_start.rstrip("Z").replace("T", " ")
-        end_db = window_end.rstrip("Z").replace("T", " ")
+        # hot_tier stores timestamps as datetime.isoformat() — "YYYY-MM-DDTHH:MM:SS"
+        # (T separator, no Z).  Do NOT replace "T" with " " here; sensor_data uses
+        # space-formatted strings but hot_tier uses the ISO T format.  Using space-
+        # formatted bounds against T-formatted values fails because 'T' > ' ' in
+        # SQLite string ordering, making every hot_tier row appear past the end bound.
+        start_db = window_start.rstrip("Z")  # keeps T: "YYYY-MM-DDTHH:MM:SS"
+        end_db = window_end.rstrip("Z")
         _conn = _sqlite3.connect(_dbl_mod.DB_FILE)
         _conn.row_factory = _sqlite3.Row
         hot_raw = _conn.execute(

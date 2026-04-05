@@ -190,6 +190,15 @@ def check_auth():
     return None
 
 
+@app.after_request
+def add_security_headers(response):
+    # Allow same-origin iframes (e.g. Insights Engine tab embedded in admin.html).
+    # SAMEORIGIN permits framing by pages on the same host; DENY would break the
+    # Settings → Insights Engine iframe.
+    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    return response
+
+
 @app.context_processor
 def inject_auth_state():
     return {
