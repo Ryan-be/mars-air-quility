@@ -220,34 +220,44 @@ def test_personal_care_fingerprint_metadata():
     assert pc.label == "Personal Care Products"
     # Raised from 0.55 to 0.60: more distinctive multi-sensor signature after real-world tuning
     assert pc.confidence_floor == pytest.approx(0.60)
-    # Key sensor states (tuned from real deodorant spray event on 2026-04-05)
+    # Key sensor states (tuned from real deodorant spray event on 2026-04-05;
+    # updated 2026-04-05: CO and NH3 both show ~3× MICS6814 resistance drop → elevated)
     assert pc.sensors.get("tvoc") == "high"
-    assert pc.sensors.get("eco2") == "high"       # SGP30 artefact: derived from TVOC
+    assert pc.sensors.get("eco2") == "high"         # SGP30 artefact: derived from TVOC
     assert pc.sensors.get("pm25") == "slight_rise"  # aerosol particles detectable
-    assert pc.sensors.get("co") == "slight_rise"    # propellant causes small resistance drop
+    assert pc.sensors.get("co") == "elevated"        # MICS6814 CO channel: ~3× resistance drop
+    assert pc.sensors.get("nh3") == "elevated"       # MICS6814 NH3 channel: ~3× resistance drop
+    assert pc.sensors.get("no2") == "normal"         # NO2 stays normal — differentiator vs combustion
 
 
 @pytest.mark.skipif(
     not _REAL_FINGERPRINTS_PATH.exists(),
     reason="config/fingerprints.yaml not present",
 )
-def test_personal_care_scores_tvoc_spike_without_pm_or_co():
-    """personal_care fingerprint matches a sharp TVOC spike with no PM2.5 or CO rise."""
+def test_personal_care_scores_tvoc_spike_with_elevated_co_nh3():
+    """personal_care fingerprint matches a spray event with elevated CO and NH3.
+
+    Based on real MICS6814 data from deodorant spray at ~10:09 Apr 5 2026:
+      CO resistance: ~300 kΩ → ~100 kΩ  (3× drop → elevated)
+      NH3 resistance: ~90 kΩ → ~30 kΩ   (3× drop → elevated)
+      NO2 resistance: ~25 kΩ → ~25 kΩ   (unchanged → normal)
+    Both reducing-gas channels respond to the alcohol/VOC propellant content.
+    """
     engine = AttributionEngine(_REAL_FINGERPRINTS_PATH)
-    # Simulate a spray event: high TVOC, normal PM2.5, normal CO, slight NH3
+    # Simulate the real spray event: high TVOC, slight PM2.5, elevated CO and NH3, normal NO2
     fv = FeatureVector(
         timestamp=_ts(),
         tvoc_current=480.0,
         tvoc_baseline=60.0,
         tvoc_peak_ratio=8.0,
-        pm25_current=4.0,
+        pm25_current=6.0,
         pm25_baseline=4.0,
-        pm25_peak_ratio=1.0,
-        co_current=50.0,
+        pm25_peak_ratio=1.5,
+        co_current=150.0,   # ~3× baseline → elevated
         co_baseline=50.0,
-        nh3_current=15.0,
-        nh3_baseline=8.0,
-        eco2_current=430.0,
+        nh3_current=45.0,   # ~3× baseline → elevated
+        nh3_baseline=15.0,
+        eco2_current=800.0,
         eco2_baseline=420.0,
     )
     result = engine.attribute(fv)

@@ -18,7 +18,7 @@ _INVERTED_CHANNELS = {"co_current", "no2_current", "nh3_current", "co_ppb", "no2
 
 _CHANNEL_META: dict[str, dict] = {
     "tvoc_current":        {"label": "TVOC",        "unit": "ppb",    "slope_field": "tvoc_slope_1m",        "slope_thresh": 5.0},
-    "eco2_current":        {"label": "eCO2",        "unit": "ppm",    "slope_field": "eco2_slope_1m",        "slope_thresh": 10.0},
+    "eco2_current":        {"label": "CO₂ (estimated)", "unit": "ppm", "slope_field": "eco2_slope_1m",        "slope_thresh": 10.0},
     "temperature_current": {"label": "Temperature", "unit": "°C",     "slope_field": "temperature_slope_1m", "slope_thresh": 0.1},
     "humidity_current":    {"label": "Humidity",    "unit": "%",      "slope_field": "humidity_slope_1m",    "slope_thresh": 0.5},
     "pm1_current":         {"label": "PM1",         "unit": "µg/m³", "slope_field": "pm1_slope_1m",         "slope_thresh": 1.0},
@@ -58,7 +58,7 @@ _MODEL_ACTIONS: dict[str, str] = {
         "coarse dust (PM10>>PM2.5). Open windows if outdoor air quality allows."
     ),
     "ventilation_quality": (
-        "Open a window or run a fan. eCO2, TVOC and NH3 are building up together — "
+        "Open a window or run a fan. CO₂ (estimated), TVOC and NH3 are building up together — "
         "the space needs fresh air. All three rising jointly is a strong ventilation signal."
     ),
     "gas_relationship": (

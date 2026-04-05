@@ -119,14 +119,14 @@ def _pearson_r(xs: list, ys: list) -> float | None:
 
 
 _COMOVEMENT_PHRASES = {
-    ("tvoc_ppb","eco2_ppm"): "TVOC and eCO2 rose together — consistent with indoor air pollutant build-up.",
+    ("tvoc_ppb","eco2_ppm"): "TVOC and CO₂ (estimated) rose together — consistent with indoor air pollutant build-up.",
     ("tvoc_ppb","pm25_ug_m3"): "TVOC and PM2.5 moved together — may indicate combustion or cooking.",
     ("co_ppb","no2_ppb"): "CO and NO2 resistance moved together — typical of a combustion event.",
     ("humidity_pct","temperature_c"): "Temperature and humidity changed together — check ventilation or HVAC.",
     ("pm1_ug_m3","pm25_ug_m3"): "PM1 and PM2.5 tracked closely — consistent with fine particle sources.",
 }
 _CHANNEL_LABELS = {
-    "tvoc_ppb":"TVOC","eco2_ppm":"eCO2","temperature_c":"Temperature","humidity_pct":"Humidity",
+    "tvoc_ppb":"TVOC","eco2_ppm":"CO₂ (estimated)","temperature_c":"Temperature","humidity_pct":"Humidity",
     "pm1_ug_m3":"PM1","pm25_ug_m3":"PM2.5","pm10_ug_m3":"PM10",
     "co_ppb":"CO (resistance)","no2_ppb":"NO2 (resistance)","nh3_ppb":"NH3 (resistance)",
 }
@@ -208,7 +208,7 @@ _MODEL_LABELS = {
 _MODEL_DESCRIPTIONS = {
     "anomaly_combustion_signature":"Watches for co-rises in CO resistance, TVOC, and particles — a pattern typical of nearby combustion.",
     "anomaly_particle_distribution":"Monitors the ratio relationship between PM1, PM2.5 and PM10 for unusual size distributions.",
-    "anomaly_ventilation_quality":"Tracks eCO2, TVOC and NH3 building up together — a sign of poor ventilation.",
+    "anomaly_ventilation_quality":"Tracks CO₂ (estimated), TVOC and NH3 building up together — a sign of poor ventilation.",
     "anomaly_gas_relationship":"Monitors the correlation structure of CO, NO2 and NH3 from the MICS6814 sensor.",
     "anomaly_thermal_moisture":"Scores temperature, humidity and VPD together to detect comfort-zone stress events.",
 }
