@@ -66,13 +66,12 @@ sources:
       tvoc:        elevated
       pm1:         elevated
       pm25:        elevated
-      pm10:        normal
       temperature: rising
       co:          absent
     temporal:
       rise_rate:               moderate
       sustain_min_minutes:     15
-      pm25_correlated_with_tvoc: true
+      co_correlated_with_tvoc: false  # cooking raises TVOC/PM but NOT CO; deodorant raises CO too
     confidence_floor: 0.55
     description_template: >
       TVOC at {tvoc_current:.0f} ppb and PM2.5 at {pm25_current:.1f} µg/m³ rising together

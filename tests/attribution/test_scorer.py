@@ -62,6 +62,33 @@ def test_sensor_score_absent_matches_none_current():
     assert sensor_score(fp, fv) == pytest.approx(1.0)
 
 
+def test_sensor_score_absent_skipped_when_baseline_is_none_but_current_is_not():
+    """'absent' returns None (skip) when baseline is unknown but sensor is active.
+
+    Regression: previously the engine fell through to `current < 5` when
+    co_baseline was None, causing a deodorant spray (co_current=3 ppb from an
+    uncalibrated sensor) to be treated as 'absent' and wrongly boost the
+    cooking fingerprint's sensor score.
+    """
+    fp = _fp(sensors={"co": "absent"})
+    # co_current is a real non-zero reading; baseline not yet established
+    fv = _fv(co_current=3.5, co_baseline=None, co_peak_ratio=None)
+    # sensor_score should SKIP this criterion (denominator = 0) → return 0.0
+    # rather than counting it as a match and returning 1.0
+    assert sensor_score(fp, fv) == pytest.approx(0.0)
+
+
+def test_sensor_score_absent_uses_baseline_when_available():
+    """'absent' correctly uses baseline ratio when baseline is known."""
+    fp = _fp(sensors={"co": "absent"})
+    # co_current clearly below baseline → absent
+    fv = _fv(co_current=25.0, co_baseline=30.0, co_peak_ratio=0.833)
+    assert sensor_score(fp, fv) == pytest.approx(1.0)
+    # co_current above baseline → not absent
+    fv2 = _fv(co_current=35.0, co_baseline=30.0, co_peak_ratio=1.167)
+    assert sensor_score(fp, fv2) == pytest.approx(0.0)
+
+
 def test_sensor_score_partial_match():
     """Score is fraction of matched fields over evaluated fields."""
     fp = _fp(sensors={"tvoc": "high", "pm25": "high"})

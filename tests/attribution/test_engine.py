@@ -265,3 +265,83 @@ def test_personal_care_scores_tvoc_spike_with_elevated_co_nh3():
     # that if a result is returned the description has no unfilled template slots.
     if result is not None:
         assert "{" not in result.description
+
+
+@pytest.mark.skipif(
+    not _REAL_FINGERPRINTS_PATH.exists(),
+    reason="config/fingerprints.yaml not present",
+)
+def test_personal_care_beats_cooking_when_co_baseline_missing():
+    """personal_care wins over cooking even when co_baseline is None (uncalibrated sensor).
+
+    Regression test for: deodorant spray attributed as 'Cooking activity (100%)'.
+
+    Root causes that were fixed:
+    1. scorer.py: absent() returned current < 5 when baseline=None — a low raw co_ppb
+       (3-4 ppb from an uncalibrated MICS6814) was treated as 'absent', boosting cooking.
+    2. fingerprints.yaml cooking: pm25_correlated_with_tvoc:true temporal criterion fired
+       for aerosol events too (both TVOC and PM2.5 rise during a deodorant spray).
+
+    After fix: absent() returns None (skip) when baseline=None, and cooking's temporal
+    uses co_correlated_with_tvoc:false (CO does NOT rise with TVOC during cooking).
+    personal_care must score higher than cooking in this scenario.
+    """
+    engine = AttributionEngine(_REAL_FINGERPRINTS_PATH)
+    # Worst-case deodorant scenario: TVOC 30× spike, PM slightly elevated, CO has no baseline.
+    # Temperature shows a tiny positive slope (noise), which makes cooking's temperature:rising pass.
+    fv = FeatureVector(
+        timestamp=_ts(),
+        tvoc_current=1800.0,
+        tvoc_baseline=60.0,
+        tvoc_peak_ratio=30.0,
+        tvoc_slope_5m=50.0,
+        eco2_current=2000.0,
+        eco2_baseline=420.0,
+        eco2_peak_ratio=4.76,
+        eco2_slope_5m=40.0,
+        pm1_current=4.0,
+        pm1_baseline=2.5,
+        pm1_peak_ratio=1.6,
+        pm1_slope_5m=0.2,
+        pm25_current=6.0,
+        pm25_baseline=3.5,
+        pm25_peak_ratio=1.71,
+        pm25_slope_5m=0.2,
+        pm10_current=12.0,
+        pm10_baseline=10.5,
+        pm10_peak_ratio=1.14,   # < 1.4 → 'normal' passes for old cooking
+        pm10_slope_5m=0.2,
+        # CO: uncalibrated sensor, no baseline yet, raw ppb < 5
+        co_current=3.5,
+        co_baseline=None,       # no baseline → absent() must return None, not True
+        co_peak_ratio=None,
+        co_slope_5m=None,
+        # Temperature: tiny positive slope (noise) — could falsely trigger rising
+        temperature_current=20.7,
+        temperature_baseline=20.0,
+        temperature_peak_ratio=1.035,
+        temperature_slope_5m=0.1,
+        humidity_current=52.0,
+        humidity_baseline=50.0,
+        humidity_peak_ratio=1.04,
+        humidity_slope_5m=0.1,
+        nh3_current=11.0,
+        nh3_baseline=8.0,
+        nh3_peak_ratio=1.375,
+        nh3_slope_5m=0.3,
+        no2_current=15.0,
+        no2_baseline=15.0,
+        no2_peak_ratio=1.0,
+        no2_slope_5m=0.0,
+        nh3_lag_behind_tvoc_seconds=45.0,
+        pm25_correlated_with_tvoc=True,
+        co_correlated_with_tvoc=None,   # can't compute without CO baseline
+    )
+    result = engine.attribute(fv)
+    assert result is not None, "Expected a match above confidence floor"
+    assert result.source_id == "personal_care", (
+        f"Expected personal_care but got {result.source_id} @ {result.confidence:.3f}. "
+        "Deodorant spray should not be attributed to cooking."
+    )
+    if result.description:
+        assert "{" not in result.description

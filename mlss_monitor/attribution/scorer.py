@@ -70,8 +70,13 @@ def _state_matches(state: str, fv: FeatureVector, prefix: str):
         if current is None:
             return True
         baseline = getattr(fv, f"{prefix}_baseline", None)
-        if baseline is None or baseline == 0:
-            return current < 5  # absolute low threshold
+        if baseline is None:
+            # No baseline available — cannot determine whether sensor is absent.
+            # Return None so the caller skips this criterion rather than
+            # incorrectly treating an uncharacterised reading as "absent".
+            return None
+        if baseline == 0:
+            return current < 5  # absolute low threshold when baseline is zero
         return current < baseline * 0.9
 
     elif state == "rising":
