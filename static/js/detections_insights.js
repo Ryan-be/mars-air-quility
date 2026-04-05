@@ -238,7 +238,7 @@ const DI = (function () {
          insidetextorientation: 'horizontal',
          domain: { x: [0, 1], y: [0, 1] } }],
       { showlegend: false,
-        height: 260,
+        height: 390,
         margin: {t:4, b:4, l:4, r:4},
         paper_bgcolor: 'transparent',
         plot_bgcolor:  'transparent' },
