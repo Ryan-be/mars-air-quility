@@ -491,3 +491,8 @@ select.role-select:focus,
   transition: background 0.15s;
 }
 .btn-modal-confirm:hover { background: #a02020; }
+
+.classifier-table col.col-tag       { width: 28%; }
+.classifier-table col.col-samples   { width: 12%; }
+.classifier-table col.col-conf      { width: 30%; }
+.classifier-table col.col-clstatus  { width: 30%; }
