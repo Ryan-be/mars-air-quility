@@ -433,7 +433,10 @@ def get_inferences(limit=50, include_dismissed=False,
     cur = conn.cursor()
 
     def _to_db(ts: str) -> str:
-        return ts.rstrip("Z").replace("T", " ")
+        # The inferences table stores created_at as ISO 8601 with a T separator
+        # (e.g. "2024-01-15T10:30:45.123456"), so we must keep the T here.
+        # Only strip the trailing Z suffix so the string comparison works correctly.
+        return ts.rstrip("Z")
 
     if start and end:
         s_db = _to_db(start)

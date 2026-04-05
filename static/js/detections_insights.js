@@ -529,6 +529,12 @@ function openInferenceDialog(id) {
   }
 
   dialog.showModal();
+  // Resize the sparkline chart after the dialog is visible so Plotly measures
+  // the correct dimensions (it renders before the dialog is fully painted).
+  setTimeout(function () {
+    var chartDiv = document.getElementById('infSparklineChart');
+    if (chartDiv && window.Plotly) Plotly.Plots.resize(chartDiv);
+  }, 50);
   dialog.onclick = function (e) { if (e.target === dialog) dialog.close(); };
 }
 
