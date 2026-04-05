@@ -293,7 +293,7 @@ def tag_range():
         confidence=confidence,
     )
     if tag:
-        from mlss_monitor import state as _state  # pylint: disable=import-outside-toplevel
+        from mlss_monitor import state as _state  # pylint: disable=import-outside-toplevel,reimported
         _engine = _state.detection_engine
         _allowed = (
             _engine._attribution_engine.valid_tags

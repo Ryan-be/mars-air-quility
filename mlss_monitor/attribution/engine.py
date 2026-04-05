@@ -206,7 +206,7 @@ class AttributionEngine:
                 if not fv_dict:
                     continue
                 # Reconstruct FV (simplified, assuming all fields present)
-                from mlss_monitor.feature_vector import FeatureVector  # pylint: disable=import-outside-toplevel
+                from mlss_monitor.feature_vector import FeatureVector  # pylint: disable=import-outside-toplevel,reimported
                 from datetime import datetime  # pylint: disable=import-outside-toplevel
                 fv = FeatureVector(
                     timestamp=datetime.fromisoformat(fv_dict["timestamp"]),
@@ -220,7 +220,7 @@ class AttributionEngine:
 
             if confusion:
                 log.info("AttributionEngine: confusion matrix: %s", confusion)
-                # TODO: adjust weights based on confusion
+                # TODO: adjust weights based on confusion  # pylint: disable=fixme
         except Exception as exc:
             log.warning("AttributionEngine: evaluation error: %s", exc)
 

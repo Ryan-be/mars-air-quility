@@ -22,9 +22,6 @@ def test_add_and_get_tags(db):
 
 def test_add_inference_tag_rejects_unknown_tag(db):
     """add_inference_tag raises ValueError for a tag not in allowed_tags."""
-    import pytest
-    from database.db_logger import add_inference_tag, save_inference
-
     inf_id = save_inference(
         event_type="tvoc_spike", severity="warning",
         title="T", description="D", action="A", evidence={}, confidence=0.5,
@@ -35,8 +32,6 @@ def test_add_inference_tag_rejects_unknown_tag(db):
 
 def test_add_inference_tag_accepts_valid_tag(db):
     """add_inference_tag succeeds when tag is in allowed_tags."""
-    from database.db_logger import add_inference_tag, get_inference_tags, save_inference
-
     inf_id = save_inference(
         event_type="tvoc_spike", severity="warning",
         title="T", description="D", action="A", evidence={}, confidence=0.5,
@@ -48,8 +43,6 @@ def test_add_inference_tag_accepts_valid_tag(db):
 
 def test_add_inference_tag_no_allowed_tags_passes_through(db):
     """add_inference_tag with no allowed_tags skips validation (backwards compat)."""
-    from database.db_logger import add_inference_tag, get_inference_tags, save_inference
-
     inf_id = save_inference(
         event_type="tvoc_spike", severity="warning",
         title="T", description="D", action="A", evidence={}, confidence=0.5,
@@ -62,7 +55,6 @@ def test_add_inference_tag_no_allowed_tags_passes_through(db):
 
 def test_api_post_tag_rejects_invalid(app_client, db):
     """POST /api/inferences/<id>/tags with unknown tag returns 400."""
-    from database.db_logger import save_inference
     client, _ = app_client
     inf_id = save_inference(
         event_type="tvoc_spike", severity="warning",
@@ -80,7 +72,6 @@ def test_api_post_tag_rejects_invalid(app_client, db):
 
 def test_api_post_tag_accepts_valid(app_client, db):
     """POST /api/inferences/<id>/tags with a known fingerprint ID returns 200."""
-    from database.db_logger import save_inference
     client, _ = app_client
     inf_id = save_inference(
         event_type="tvoc_spike", severity="warning",
