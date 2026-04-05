@@ -18,8 +18,10 @@ def list_inferences():
     limit = request.args.get("limit", 50, type=int)
     include_dismissed = request.args.get("dismissed", "0") == "1"
     category = request.args.get("category", "").strip()
+    start = request.args.get("start", "").strip() or None
+    end = request.args.get("end", "").strip() or None
 
-    rows = get_inferences(limit=limit, include_dismissed=include_dismissed)
+    rows = get_inferences(limit=limit, include_dismissed=include_dismissed, start=start, end=end)
 
     for row in rows:
         row["category"] = event_category(row.get("event_type", ""))
@@ -85,6 +87,56 @@ def sparkline(inference_id):
     window_start = (dt - timedelta(minutes=15)).strftime("%Y-%m-%dT%H:%M:%SZ")
     window_end = (dt + timedelta(minutes=15)).strftime("%Y-%m-%dT%H:%M:%SZ")
     rows = _query_sensor_data(_dbl_mod.DB_FILE, window_start, window_end)
+
+    # Also query hot_tier (1-second resolution, ~60 min retention) so that
+    # recent inferences that haven't been downsampled to sensor_data yet still
+    # have chart data.  hot_tier lacks pm1/pm10, so those are left as None.
+    import sqlite3 as _sqlite3
+    _hot_to_api = {
+        "tvoc_ppb": "tvoc_ppb", "eco2_ppm": "eco2_ppm",
+        "temperature_c": "temperature_c", "humidity_pct": "humidity_pct",
+        "pm25_ug_m3": "pm25_ug_m3", "co_ppb": "co_ppb",
+        "no2_ppb": "no2_ppb", "nh3_ppb": "nh3_ppb",
+    }
+    # _DB_TO_API maps sensor_data col names → api names; build reverse to get db col from api name
+    _api_to_db = {v: k for k, v in _DB_TO_API.items()}
+    try:
+        start_db = window_start.rstrip("Z").replace("T", " ")
+        end_db = window_end.rstrip("Z").replace("T", " ")
+        _conn = _sqlite3.connect(_dbl_mod.DB_FILE)
+        _conn.row_factory = _sqlite3.Row
+        hot_raw = _conn.execute(
+            """SELECT timestamp, tvoc_ppb, eco2_ppm, temperature_c, humidity_pct,
+                      pm25_ug_m3, co_ppb, no2_ppb, nh3_ppb
+               FROM hot_tier
+               WHERE timestamp >= ? AND timestamp <= ?
+               ORDER BY timestamp ASC""",
+            (start_db, end_db),
+        ).fetchall()
+        _conn.close()
+        # Convert hot_tier rows to the same dict shape as sensor_data rows
+        # (keyed by sensor_data column names so _DB_TO_API still works).
+        hot_rows = []
+        for hr in hot_raw:
+            d = {}
+            for hot_col, api_name in _hot_to_api.items():
+                db_col = _api_to_db.get(api_name)
+                if db_col:
+                    d[db_col] = hr[hot_col]
+            d["timestamp"] = hr["timestamp"]
+            # pm1_0 and pm10 not in hot_tier
+            d.setdefault("pm1_0", None)
+            d.setdefault("pm10", None)
+            hot_rows.append(d)
+    except Exception:
+        hot_rows = []
+
+    # Merge: prefer sensor_data rows when both share the same timestamp.
+    if hot_rows:
+        cold_ts = {r["timestamp"] for r in rows}
+        extra = [r for r in hot_rows if r["timestamp"] not in cold_ts]
+        if extra:
+            rows = sorted(rows + extra, key=lambda r: r["timestamp"])
 
     evidence = inf.get("evidence") or {}
     if isinstance(evidence, str):

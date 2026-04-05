@@ -3,6 +3,11 @@
  */
 'use strict';
 
+// ── DI inference table state ─────────────────────────────────────────────────
+let _diInferences    = [];
+let _diActiveCategory = 'all';
+let _diCatsLoaded    = false;
+
 const DI = (function () {
   let _window = '24h';
   let _narratives = null;
@@ -86,7 +91,7 @@ const DI = (function () {
     _renderAnomalyModelNarratives();
     _renderPatternHeatmap();
     _renderDriftFlags();
-    _renderEventsList();
+    _renderInferenceTable();
     // Defer the normal bands chart — it makes its own fetch() for sensor history,
     // so schedule it after the main sections have painted.
     requestAnimationFrame(function () { _renderNormalBandsChart(); });
@@ -155,20 +160,22 @@ const DI = (function () {
              type: 'pie', hole: 0.5,
              marker: { colors: methods.map(m => _METHOD_COLOURS[m] || '#6b7280') },
              hovertemplate: '%{label}: %{value} events<extra></extra>',
-             textinfo: 'label' }],
+             textinfo: 'label+percent',
+             textposition: 'inside',
+             insidetextorientation: 'horizontal' }],
           { showlegend: false, margin: {t:0,b:0,l:0,r:0}, paper_bgcolor: 'transparent', plot_bgcolor: 'transparent' },
           { displayModeBar: false, responsive: true }
         );
       } else {
         const subtitleEl = document.getElementById('diAttributionSubtitle');
         if (subtitleEl) subtitleEl.textContent = '';
-        Plotly.newPlot(donutDiv, [{ values:[1], labels:["No events"], type:"pie", hole:0.5, marker:{colors:["#d1d5db"]}, hoverinfo:"none", textinfo:"label" }], { showlegend:false, margin:{t:0,b:0,l:0,r:0}, paper_bgcolor:"transparent", plot_bgcolor:"transparent" }, { displayModeBar:false });
+        Plotly.newPlot(donutDiv, [{ values:[1], labels:["No events"], type:"pie", hole:0.5, marker:{colors:["#d1d5db"]}, hoverinfo:"none", textinfo:"label", textposition:"inside", insidetextorientation:"horizontal" }], { showlegend:false, margin:{t:0,b:0,l:0,r:0}, paper_bgcolor:"transparent", plot_bgcolor:"transparent" }, { displayModeBar:false });
       }
       return;
     }
     const subtitleEl = document.getElementById('diAttributionSubtitle');
     if (subtitleEl) subtitleEl.textContent = '';
-    Plotly.newPlot(donutDiv, [{ values:sources.map(s=>breakdown[s]), labels:sources, type:"pie", hole:0.5, marker:{colors:sources.map(s=>_SOURCE_COLOURS[s]||"#6b7280")}, hovertemplate:"%{label}: %{value} events<extra></extra>", textinfo:"label" }], { showlegend:false, margin:{t:0,b:0,l:0,r:0}, paper_bgcolor:"transparent", plot_bgcolor:"transparent" }, { displayModeBar:false, responsive:true });
+    Plotly.newPlot(donutDiv, [{ values:sources.map(s=>breakdown[s]), labels:sources, type:"pie", hole:0.5, marker:{colors:sources.map(s=>_SOURCE_COLOURS[s]||"#6b7280")}, hovertemplate:"%{label}: %{value} events<extra></extra>", textinfo:"label+percent", textposition:"inside", insidetextorientation:"horizontal" }], { showlegend:false, margin:{t:0,b:0,l:0,r:0}, paper_bgcolor:"transparent", plot_bgcolor:"transparent" }, { displayModeBar:false, responsive:true });
   }
     function _renderFingerprintNarratives() {
     const el = document.getElementById('diFingerprintCards');
@@ -257,37 +264,116 @@ const DI = (function () {
     ).join('');
   }
 
-  function _renderEventsList() {
+  async function _renderInferenceTable() {
     const section = document.getElementById('diEventsList');
+    const feed    = document.getElementById('diInferenceFeed');
     const countEl = document.getElementById('diEventsCount');
-    const scrollEl = document.getElementById('diEventsScroll');
-    if (!section || !scrollEl) return;
-    const inferences = _narratives.inferences || [];
-    if (!inferences.length) { section.style.display = 'none'; return; }
+    if (!section || !feed) return;
+
     section.style.display = 'block';
-    if (countEl) countEl.textContent = inferences.length;
+    feed.innerHTML = '<div class="inference-empty">Loading…</div>';
 
-    const SEV_COLOUR = { critical:'#ef4444', high:'#f97316', medium:'#f59e0b', low:'#22c55e', info:'#6b7280' };
-    const SEV_BG     = { critical:'#fef2f2', high:'#fff7ed', medium:'#fffbeb', low:'#f0fdf4', info:'#f9fafb' };
+    const { start, end } = _range();
+    try {
+      await _diLoadCategories();
+      const res = await fetch(`/api/inferences?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&limit=200`);
+      if (!res.ok) throw new Error('fetch failed');
+      const rows = await res.json();
+      _diInferences = rows;
+      _diRenderFeed(countEl, feed);
+    } catch (e) {
+      feed.innerHTML = '<div class="inference-empty">Could not load inferences.</div>';
+    }
+  }
 
-    scrollEl.innerHTML = inferences.map(function (inf) {
-      const sev = (inf.severity || 'info').toLowerCase();
-      const method = inf.detection_method || 'rule';
-      const methodLabel = _METHOD_LABELS[method] || method;
-      const methodColour = _METHOD_COLOURS[method] || '#6b7280';
-      const sevColour = SEV_COLOUR[sev] || '#6b7280';
-      const sevBg = SEV_BG[sev] || '#f9fafb';
-      const ts = inf.created_at ? new Date(inf.created_at).toLocaleString(undefined, {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '';
-      const conf = inf.confidence != null ? '<span class="ev-conf">' + Math.round(inf.confidence * 100) + '%</span>' : '';
-      const canOpen = typeof openInferenceDialog === 'function' && inf.id;
-      const clickAttr = canOpen ? 'onclick="openInferenceDialog(' + inf.id + ')" style="cursor:pointer;"' : '';
-      return '<div class="ev-card" ' + clickAttr + '>' +
-        '<span class="ev-sev-badge" style="background:' + sevBg + ';color:' + sevColour + ';border:1px solid ' + sevColour + ';">' + sev + '</span>' +
-        '<span class="ev-method-chip" style="background:' + methodColour + '20;color:' + methodColour + ';border:1px solid ' + methodColour + '40;">' + methodLabel + '</span>' +
-        '<span class="ev-title">' + (inf.title || inf.event_type || 'Event') + '</span>' +
-        '<span class="ev-ts">' + ts + '</span>' +
-        conf + '</div>';
+  function _diRenderFeed(countEl, feed) {
+    const SEV_CLS   = { info:'inf-info', warning:'inf-warning', critical:'inf-critical' };
+    const SEV_LABEL = { info:'Info', warning:'Warning', critical:'Critical' };
+
+    let filtered = _diInferences;
+    if (_diActiveCategory && _diActiveCategory !== 'all') {
+      filtered = _diInferences.filter(function (i) { return i.category === _diActiveCategory; });
+    }
+
+    if (!filtered.length) {
+      const msg = _diInferences.length
+        ? 'No inferences in this category.'
+        : 'No inferences detected in this time window.';
+      feed.innerHTML = '<div class="inference-empty">' + msg + '</div>';
+      if (countEl) countEl.textContent = '';
+      return;
+    }
+
+    const active = filtered.filter(function (i) { return !i.dismissed; });
+    if (countEl) countEl.textContent = active.length ? '(' + active.length + ')' : '';
+
+    const _chipTooltip =
+      'Rule = a fixed threshold was crossed. ' +
+      'Statistical = an unusual reading compared to this sensor\u2019s learned normal. ' +
+      'ML = an unusual pattern across multiple sensors simultaneously.';
+
+    feed.innerHTML = filtered.slice(0, 30).map(function (inf) {
+      const sevCls = SEV_CLS[inf.severity] || 'inf-info';
+      const sevLbl = SEV_LABEL[inf.severity] || inf.severity;
+      const time = new Date(inf.created_at).toLocaleString(undefined, {
+        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+      });
+      const dm = inf.detection_method || 'rule';
+      const chipCls = { rule: 'chip--rule', statistical: 'chip--statistical', ml: 'chip--ml' }[dm] || 'chip--rule';
+      const chipLbl = { rule: 'Rule', statistical: 'Statistical', ml: 'ML' }[dm] || 'Rule';
+      const chip = '<span class="chip ' + chipCls + '" title="' + _chipTooltip + '">' + chipLbl + ' <span class="chip-info">\u24d8</span></span>';
+      const catCls = 'inf-cat-' + (inf.category || 'other');
+      const dismissed = inf.dismissed ? ' dismissed' : '';
+      return '<button class="inference-card ' + sevCls + ' ' + catCls + dismissed + '" data-di-inf-id="' + inf.id + '" title="Tap for details">' +
+        '<div class="inf-card-left">' +
+          '<div class="inf-card-badges">' + chip + ' <span class="inf-badge ' + sevCls + ' inf-badge-sm">' + sevLbl + '</span></div>' +
+          '<span class="inf-card-type">' + inf.event_type.replace(/_/g, ' ') + '</span>' +
+          '<span class="inf-card-summary">' + inf.title + '</span>' +
+        '</div>' +
+        '<div class="inf-card-right">' +
+          '<span class="inf-card-time">' + time + '</span>' +
+          '<span class="inf-card-conf">' + Math.round(inf.confidence * 100) + '%</span>' +
+        '</div>' +
+      '</button>';
     }).join('');
+
+    feed.onclick = function (e) {
+      const card = e.target.closest('.inference-card');
+      if (!card) return;
+      const id = parseInt(card.dataset.diInfId, 10);
+      openInferenceDialog(id);
+    };
+  }
+
+  async function _diLoadCategories() {
+    if (_diCatsLoaded) return;
+    try {
+      const res = await fetch('/api/inferences/categories');
+      if (!res.ok) return;
+      const cats = await res.json();
+      const bar = document.getElementById('diInferenceFilters');
+      if (!bar) return;
+      // Remove any previously added category buttons (keep "All")
+      bar.querySelectorAll('.inf-filter:not([data-category="all"])').forEach(function (b) { b.remove(); });
+      for (const [key, label] of Object.entries(cats)) {
+        const btn = document.createElement('button');
+        btn.className = 'inf-filter';
+        btn.dataset.category = key;
+        btn.textContent = label;
+        bar.appendChild(btn);
+      }
+      bar.addEventListener('click', function (e) {
+        const btn = e.target.closest('.inf-filter');
+        if (!btn) return;
+        bar.querySelectorAll('.inf-filter').forEach(function (b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        _diActiveCategory = btn.dataset.category;
+        const feed    = document.getElementById('diInferenceFeed');
+        const countEl = document.getElementById('diEventsCount');
+        if (feed && countEl !== undefined) _diRenderFeed(countEl, feed);
+      });
+      _diCatsLoaded = true;
+    } catch (e) { /* categories not available */ }
   }
 
     function _renderDriftFlags() {
@@ -310,6 +396,141 @@ const DI = (function () {
 
   return { init, setWindow, load };
 })();
+
+// ── Global inference dialog opener (used by DI tab cards) ────────────────────
+// On the dashboard page dashboard.js defines its own _openInferenceDialog.
+// On the history page this function is the sole dialog opener.
+function openInferenceDialog(id) {
+  const inf = _diInferences.find(function (i) { return i.id === id; });
+  if (!inf) return;
+  const dialog = document.getElementById('inferenceDialog');
+  if (!dialog) return;
+
+  const SEV_CLS   = { info:'inf-info', warning:'inf-warning', critical:'inf-critical' };
+  const SEV_LABEL = { info:'Info', warning:'Warning', critical:'Critical' };
+  const _chipTooltip =
+    'Rule = a fixed threshold was crossed. ' +
+    'Statistical = an unusual reading compared to this sensor\u2019s learned normal. ' +
+    'ML = an unusual pattern across multiple sensors simultaneously.';
+
+  document.getElementById('infTitle').textContent = inf.title;
+
+  const badge = document.getElementById('infSeverity');
+  badge.textContent = SEV_LABEL[inf.severity] || inf.severity;
+  badge.className = 'inf-badge ' + (SEV_CLS[inf.severity] || '');
+
+  const metaEl = document.getElementById('infMeta');
+  if (metaEl) {
+    const chipEl = metaEl.querySelector('.inf-detection-chip');
+    if (chipEl) {
+      const dm = inf.detection_method || 'rule';
+      const chipCls = { rule:'chip--rule', statistical:'chip--statistical', ml:'chip--ml' }[dm] || 'chip--rule';
+      const chipLbl = { rule:'Rule', statistical:'Statistical', ml:'ML' }[dm] || 'Rule';
+      chipEl.innerHTML = '<span class="chip ' + chipCls + '" title="' + _chipTooltip + '">' + chipLbl + ' <span class="chip-info">\u24d8</span></span>';
+    }
+  }
+
+  document.getElementById('infTime').textContent = new Date(inf.created_at).toLocaleString();
+  document.getElementById('infConfidence').textContent = Math.round(inf.confidence * 100) + '% confidence';
+  document.getElementById('infDescription').textContent = inf.description;
+
+  // Attribution badge
+  const attrEl = document.getElementById('infAttribution');
+  if (attrEl) {
+    const src  = (inf.evidence && inf.evidence.attribution_source)     || inf.attribution_source;
+    const conf = (inf.evidence && inf.evidence.attribution_confidence) || inf.attribution_confidence;
+    if (src && conf != null) {
+      attrEl.innerHTML = '<span class="attr-badge" title="Attribution engine matched this event to a known source fingerprint.">' +
+        src.replace(/_/g, ' ') + ' &mdash; ' + Math.round(conf * 100) + '% match</span>';
+      attrEl.style.display = '';
+    } else {
+      attrEl.innerHTML = '';
+      attrEl.style.display = 'none';
+    }
+  }
+
+  document.getElementById('infAction').textContent = inf.action || 'No specific action needed.';
+
+  // Evidence section
+  const evEl  = document.getElementById('infEvidence');
+  const thSec = document.getElementById('infThresholdsSection');
+  const thGrid = document.getElementById('infThresholds');
+  if (inf.evidence && typeof inf.evidence === 'object') {
+    const snapshot   = inf.evidence.sensor_snapshot;
+    const thresholds = inf.evidence._thresholds;
+    if (Array.isArray(snapshot) && snapshot.length > 0) {
+      const TREND_ARROW = { rising:'↑', falling:'↓', stable:'→' };
+      const BAND_CLS    = { high:'ev-bad', elevated:'ev-warn', normal:'ev-good', unknown:'' };
+      evEl.innerHTML = snapshot.map(function (s) {
+        const arrow = TREND_ARROW[s.trend] || '→';
+        const cls   = BAND_CLS[s.ratio_band] || '';
+        const ratio = s.ratio != null ? '<span class="ev-ratio">' + s.ratio + '\u00d7 normal</span>' : '';
+        return '<div class="inf-ev-row ' + cls + '">' +
+          '<span class="fd-label">' + s.label + '</span>' +
+          '<span class="fd-value">' + s.value + ' ' + s.unit + ' <span class="ev-trend">' + arrow + '</span></span>' +
+          ratio + '</div>';
+      }).join('');
+    } else {
+      const entries = Object.entries(inf.evidence).filter(function ([k]) {
+        return k !== '_thresholds' && k !== 'sensor_snapshot' && k !== 'model_id';
+      });
+      evEl.innerHTML = entries.map(function ([k, v]) {
+        return '<div class="inf-ev-row"><span class="fd-label">' + k.replace(/_/g, ' ') + '</span><span class="fd-value">' + v + '</span></div>';
+      }).join('') || 'No detailed evidence available.';
+    }
+    if (thresholds && typeof thresholds === 'object' && Object.keys(thresholds).length) {
+      thSec.style.display = '';
+      thSec.removeAttribute('open');
+      thGrid.innerHTML = Object.entries(thresholds).map(function ([k, th]) {
+        const tag = th.is_custom
+          ? '<span class="inf-th-custom">custom</span>'
+          : '<span class="inf-th-default">default</span>';
+        return '<div class="inf-th-row"><span class="inf-th-label">' + (th.label || k.replace(/_/g, ' ')) + '</span>' +
+          '<span class="inf-th-val">' + th.value + ' ' + (th.unit || '') + ' ' + tag + '</span></div>';
+      }).join('');
+    } else {
+      thSec.style.display = 'none';
+    }
+  } else {
+    evEl.textContent = 'No detailed evidence available.';
+    if (thSec) thSec.style.display = 'none';
+  }
+
+  // Annotation
+  const annoSec = document.getElementById('infAnnotationSection');
+  if (annoSec) {
+    if (inf.annotation) {
+      annoSec.style.display = '';
+      document.getElementById('infAnnotationText').textContent = inf.annotation;
+    } else {
+      annoSec.style.display = 'none';
+    }
+  }
+
+  // Notes
+  document.getElementById('infNotes').value = inf.user_notes || '';
+  document.getElementById('infSaveNote').onclick = async function () {
+    const notes = document.getElementById('infNotes').value;
+    try {
+      await fetch('/api/inferences/' + id + '/notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes }),
+      });
+      inf.user_notes = notes;
+    } catch (e) { /* ignore */ }
+  };
+
+  // Sparkline (suppress if loadSparkline not available on this page)
+  const sparkline = document.getElementById('infSparkline');
+  if (sparkline) sparkline.style.display = 'none';
+  if (typeof loadSparkline === 'function') {
+    loadSparkline(inf.id, inf.created_at);
+  }
+
+  dialog.showModal();
+  dialog.onclick = function (e) { if (e.target === dialog) dialog.close(); };
+}
 
 function diSetWindow(w) { DI.setWindow(w); }
 function diToggleChip(btn) {

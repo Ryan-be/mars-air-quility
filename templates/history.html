@@ -358,11 +358,68 @@
       <div id="diBandsChart" style="height:300px;"></div>
     </div>
     <div id="diEventsList" class="di-card" style="display:none;">
-      <h3>Detection Events <span id="diEventsCount" class="badge-count"></span></h3>
-      <div id="diEventsScroll" style="max-height:400px;overflow-y:auto;"></div>
+      <h3>Detection Events <span id="diEventsCount" class="badge-count inference-count"></span></h3>
+      <div class="inference-filters" id="diInferenceFilters">
+        <button class="inf-filter active" data-category="all">All</button>
+      </div>
+      <div class="inference-feed" id="diInferenceFeed">
+        <div class="inference-empty">Loading…</div>
+      </div>
     </div>
     <div id="diDriftFlags"></div>
   </div>
+
+  <!-- Inference detail dialog (shared with DI tab) -->
+  <dialog id="inferenceDialog" aria-modal="true" aria-labelledby="infTitle">
+    <div class="fd-header">
+      <div><h3 id="infTitle"></h3></div>
+      <button class="fd-close btn" aria-label="Close"
+              onclick="document.getElementById('inferenceDialog').close()">✕</button>
+    </div>
+    <div class="inf-body">
+      <div class="inf-meta" id="infMeta">
+        <span class="inf-badge" id="infSeverity"></span>
+        <span class="inf-detection-chip"></span>
+        <span class="inf-time" id="infTime"></span>
+        <span class="inf-confidence" id="infConfidence"></span>
+      </div>
+      <div class="inf-section">
+        <div class="inf-section-title">What was detected</div>
+        <div id="infDescription"></div>
+        <div id="infAttribution" style="display:none;"></div>
+      </div>
+      <div id="infSparkline" class="sparkline-container" style="display:none;">
+        <div class="sparkline-header">
+          Sensor activity around this event
+          <span class="info-icon" title="Shows how sensor values moved in the 30 minutes around this event.">ⓘ</span>
+        </div>
+        <div id="infSparklineChart" style="height:110px;"></div>
+        <div id="infSparklineLoading" style="display:none; text-align:center; padding:20px;">Loading…</div>
+        <div id="infSparklineError" style="display:none; color:var(--text-muted,#6b7280); font-size:0.8rem; padding:8px 0;">Sparkline unavailable.</div>
+      </div>
+      <div class="inf-section">
+        <div class="inf-section-title">Evidence</div>
+        <div class="inf-evidence" id="infEvidence"></div>
+      </div>
+      <div class="inf-section">
+        <div class="inf-section-title">Recommended action</div>
+        <div id="infAction"></div>
+      </div>
+      <details class="inf-thresholds-section" id="infThresholdsSection" style="display:none">
+        <summary class="inf-section-title">Thresholds used</summary>
+        <div class="inf-thresholds-grid" id="infThresholds"></div>
+      </details>
+      <div class="inf-section" id="infAnnotationSection" style="display:none">
+        <div class="inf-section-title">Your annotation</div>
+        <div id="infAnnotationText"></div>
+      </div>
+      <div class="inf-section">
+        <div class="inf-section-title">Notes</div>
+        <textarea id="infNotes" rows="2" placeholder="Add your own notes to this inference…"></textarea>
+        <button class="btn inf-save-note" id="infSaveNote">Save note</button>
+      </div>
+    </div>
+  </dialog>
 
 {% endblock %}
 
