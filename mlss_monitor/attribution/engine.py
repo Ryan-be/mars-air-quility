@@ -5,6 +5,8 @@ import dataclasses
 import logging
 from pathlib import Path
 
+from river import linear_model, preprocessing  # pylint: disable=import-error
+
 from mlss_monitor.attribution.loader import Fingerprint, load_fingerprints
 from mlss_monitor.attribution.scorer import combine, sensor_score, temporal_score
 from mlss_monitor.feature_vector import FeatureVector
@@ -37,6 +39,7 @@ class AttributionEngine:
     def __init__(self, config_path) -> None:
         self._config_path = Path(config_path)
         self._fingerprints: list[Fingerprint] = load_fingerprints(self._config_path)
+        self._ml_model = preprocessing.StandardScaler() | linear_model.LogisticRegression()
         log.info(
             "AttributionEngine: loaded %d fingerprints from %s",
             len(self._fingerprints),
@@ -88,6 +91,16 @@ class AttributionEngine:
         scored.sort(key=lambda x: x[0], reverse=True)
         best_conf, best_fp = scored[0]
 
+        # Get ML prediction
+        ml_label, ml_conf = self._ml_predict(fv)
+        if ml_label and ml_conf > 0.5:  # Some threshold
+            # Hybrid: 0.6 fingerprint + 0.4 ML
+            if best_fp.label == ml_label:
+                best_conf = 0.6 * best_conf + 0.4 * ml_conf
+            else:
+                # If disagree, lower confidence
+                best_conf = 0.6 * best_conf
+
         if best_conf < best_fp.confidence_floor:
             return None
 
@@ -131,3 +144,84 @@ class AttributionEngine:
             description=desc,
             action=action,
         )
+
+    def evaluate_accuracy(self):
+        """Evaluate fingerprint accuracy against tagged events.
+
+        Queries recent tagged inferences, re-runs attribution on their FeatureVectors,
+        and logs confusion matrix.
+        """
+        try:
+            from database.db_logger import get_inferences  # pylint: disable=import-outside-toplevel
+            # Get recent inferences with tags
+            rows = get_inferences(limit=100, include_dismissed=False)
+            tagged = [r for r in rows if r.get("tags")]
+            if not tagged:
+                log.info("AttributionEngine: no tagged events to evaluate")
+                return
+
+            confusion = {}
+            for inf in tagged:
+                user_tags = [t["tag"] for t in inf["tags"]]
+                evidence = inf.get("evidence", {})
+                if not isinstance(evidence, dict):
+                    continue
+                fv_dict = evidence.get("feature_vector")
+                if not fv_dict:
+                    continue
+                # Reconstruct FV (simplified, assuming all fields present)
+                from mlss_monitor.feature_vector import FeatureVector  # pylint: disable=import-outside-toplevel
+                from datetime import datetime  # pylint: disable=import-outside-toplevel
+                fv = FeatureVector(
+                    timestamp=datetime.fromisoformat(fv_dict["timestamp"]),
+                    **{k: v for k, v in fv_dict.items() if k != "timestamp"}
+                )
+                result = self.attribute(fv)
+                predicted = result.label if result else "unknown"
+                for user_tag in user_tags:
+                    key = (predicted, user_tag)
+                    confusion[key] = confusion.get(key, 0) + 1
+
+            if confusion:
+                log.info("AttributionEngine: confusion matrix: %s", confusion)
+                # TODO: adjust weights based on confusion
+        except Exception as exc:
+            log.warning("AttributionEngine: evaluation error: %s", exc)
+
+    def train_on_tags(self):
+        """Train ML model on tagged events."""
+        try:
+            from database.db_logger import get_inferences  # pylint: disable=import-outside-toplevel
+            rows = get_inferences(limit=1000, include_dismissed=False)
+            tagged = [r for r in rows if r.get("tags")]
+            trained = 0
+            for inf in tagged:
+                evidence = inf.get("evidence", {})
+                if not isinstance(evidence, dict):
+                    continue
+                fv_dict = evidence.get("feature_vector")
+                if not fv_dict:
+                    continue
+                # Use FV fields as features, tag as target
+                features = {k: v for k, v in fv_dict.items() if k != "timestamp" and v is not None}
+                for tag in inf["tags"]:
+                    self._ml_model.learn_one(features, tag["tag"])
+                    trained += 1
+            if trained:
+                log.info("AttributionEngine: trained on %d tagged samples", trained)
+        except Exception as exc:
+            log.warning("AttributionEngine: training error: %s", exc)
+
+    def _ml_predict(self, fv: FeatureVector):
+        """Get ML prediction for FV."""
+        features = dataclasses.asdict(fv)
+        features.pop("timestamp", None)
+        features = {k: v for k, v in features.items() if v is not None}
+        try:
+            pred = self._ml_model.predict_proba_one(features)
+            if pred:
+                best_label = max(pred, key=pred.get)
+                return best_label, pred[best_label]
+        except Exception:
+            pass
+        return None, 0.0

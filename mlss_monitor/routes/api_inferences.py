@@ -6,6 +6,8 @@ from database.db_logger import (
     dismiss_inference,
     get_inferences,
     update_inference_notes,
+    get_inference_tags,
+    add_inference_tag,
 )
 from mlss_monitor.inference_engine import CATEGORIES, event_category
 from mlss_monitor.rbac import require_role
@@ -25,6 +27,7 @@ def list_inferences():
 
     for row in rows:
         row["category"] = event_category(row.get("event_type", ""))
+        row["tags"] = get_inference_tags(row["id"])
 
     if category and category != "all":
         rows = [r for r in rows if r["category"] == category]
@@ -51,6 +54,21 @@ def save_notes(inference_id):
 def dismiss(inference_id):
     dismiss_inference(inference_id)
     return jsonify({"ok": True})
+
+
+@api_inferences_bp.route("/api/inferences/<int:inference_id>/tags", methods=["GET", "POST"])
+@require_role("controller", "admin")
+def tags(inference_id):
+    if request.method == "GET":
+        tags_list = get_inference_tags(inference_id)
+        return jsonify(tags_list)
+    elif request.method == "POST":
+        data = request.get_json(force=True)
+        tag = data.get("tag", "").strip()
+        confidence = data.get("confidence", 1.0)
+        if tag:
+            add_inference_tag(inference_id, tag, confidence)
+        return jsonify({"ok": True})
 
 
 @api_inferences_bp.route("/api/inferences/<int:inference_id>/sparkline")

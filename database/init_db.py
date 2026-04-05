@@ -95,6 +95,17 @@ def create_db():
     """)
 
     cur.execute("""
+    CREATE TABLE IF NOT EXISTS event_tags (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        inference_id INTEGER NOT NULL,
+        tag TEXT NOT NULL,
+        confidence REAL DEFAULT 1.0,
+        created_at DATETIME NOT NULL,
+        FOREIGN KEY (inference_id) REFERENCES inferences(id)
+    );
+    """)
+
+    cur.execute("""
     CREATE TABLE IF NOT EXISTS inference_thresholds (
         key TEXT PRIMARY KEY,
         default_value REAL NOT NULL,

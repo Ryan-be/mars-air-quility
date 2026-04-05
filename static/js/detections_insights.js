@@ -600,6 +600,36 @@ function openInferenceDialog(id) {
     } catch (e) { /* ignore */ }
   };
 
+  // Tags
+  const tagsList = document.getElementById('infTagsList');
+  if (tagsList && inf.tags) {
+    tagsList.innerHTML = inf.tags.map(t => `<span class="tag-chip">${t.tag}</span>`).join(' ');
+  } else if (tagsList) {
+    tagsList.innerHTML = '';
+  }
+  document.getElementById('infAddTag').onclick = async function () {
+    const select = document.getElementById('infTagSelect');
+    const custom = document.getElementById('infTagCustom');
+    let tag = select.value || custom.value.trim();
+    if (!tag) return;
+    try {
+      await fetch('/api/inferences/' + id + '/tags', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tag }),
+      });
+      // Refresh tags
+      const res = await fetch('/api/inferences/' + id + '/tags');
+      const newTags = await res.json();
+      if (tagsList) {
+        tagsList.innerHTML = newTags.map(t => `<span class="tag-chip">${t.tag}</span>`).join(' ');
+      }
+      inf.tags = newTags;
+      select.value = '';
+      custom.value = '';
+    } catch (e) { /* ignore */ }
+  };
+
   // Sparkline (suppress if loadSparkline not available on this page)
   const sparkline = document.getElementById('infSparkline');
   if (sparkline) sparkline.style.display = 'none';

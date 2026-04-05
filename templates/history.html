@@ -418,6 +418,23 @@
         <textarea id="infNotes" rows="2" placeholder="Add your own notes to this inference…"></textarea>
         <button class="btn inf-save-note" id="infSaveNote">Save note</button>
       </div>
+      <div class="inf-section">
+        <div class="inf-section-title">Tags</div>
+        <div id="infTagsList"></div>
+        <select id="infTagSelect">
+          <option value="">Select a tag...</option>
+          <option value="cooking">🍳 Cooking</option>
+          <option value="cleaning">🧹 Cleaning Products</option>
+          <option value="equipment">⚙️ Equipment</option>
+          <option value="human-activity">🛏️ Human Activity</option>
+          <option value="ventilation">🪟 Ventilation</option>
+          <option value="external-pollution">🌫️ External Pollution</option>
+          <option value="combustion">🔥 Combustion</option>
+          <option value="biological">🧬 Biological Off-gassing</option>
+        </select>
+        <input type="text" id="infTagCustom" placeholder="Or enter custom tag..." style="margin-left: 10px; width: 200px;">
+        <button class="btn" id="infAddTag">Add Tag</button>
+      </div>
     </div>
   </dialog>
 

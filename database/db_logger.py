@@ -519,6 +519,39 @@ def dismiss_inference(inference_id):
     conn.close()
 
 
+def get_inference_tags(inference_id):
+    """Return list of tags for an inference."""
+    conn = _connect()
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT tag, confidence, created_at FROM event_tags WHERE inference_id = ? ORDER BY created_at DESC",
+        (inference_id,),
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return [{"tag": r["tag"], "confidence": r["confidence"], "created_at": _normalise_ts(r["created_at"])} for r in rows]
+
+
+def add_inference_tag(inference_id, tag, confidence=1.0):
+    """Add a tag to an inference."""
+    conn = _connect()
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO event_tags (inference_id, tag, confidence, created_at) VALUES (?, ?, ?, ?)",
+        (inference_id, tag, confidence, datetime.now().isoformat()),
+    )
+    conn.commit()
+    conn.close()
+    # Trigger ML training
+    try:
+        from mlss_monitor import state  # pylint: disable=import-outside-toplevel
+        if state.detection_engine and state.detection_engine._attribution_engine:
+            state.detection_engine._attribution_engine.train_on_tags()
+    except Exception:
+        pass
+
+
 # ── Inference thresholds ──────────────────────────────────────────────────────
 
 def get_thresholds():

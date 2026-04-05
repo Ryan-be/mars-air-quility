@@ -9,6 +9,7 @@ Switch mode by changing the dry_run flag in app.py once parity is confirmed.
 """
 from __future__ import annotations
 
+import dataclasses
 import logging
 import math
 import sqlite3
@@ -283,6 +284,7 @@ class DetectionEngine:
                 try:
                     attribution = self._attribute(fv)
                     evidence: dict = {"fv_timestamp": fv.timestamp.isoformat()}
+                    evidence["feature_vector"] = dataclasses.asdict(fv)
                     if attribution is not None:
                         evidence["attribution"] = attribution.source_id
                         evidence["attribution_confidence"] = round(attribution.confidence, 3)
