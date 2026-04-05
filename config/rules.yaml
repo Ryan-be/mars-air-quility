@@ -48,7 +48,7 @@ rules:
     severity: warning
     dedupe_hours: 1
     confidence: 0.8
-    title_template: "CO₂ elevated ({eco2_current:.0f} ppm)"
+    title_template: "eCO₂ elevated ({eco2_current:.0f} ppm)"
     description_template: >
       eCO₂ has reached {eco2_current:.0f} ppm. Above 1000 ppm, studies show
       measurable decline in decision-making and concentration. The room
