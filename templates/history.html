@@ -393,7 +393,7 @@
           Sensor activity around this event
           <span class="info-icon" title="Shows how sensor values moved in the 30 minutes around this event.">ⓘ</span>
         </div>
-        <div id="infSparklineChart" style="height:160px;"></div>
+        <div id="infSparklineChart" style="height:180px;"></div>
         <div id="infSparklineLoading" style="display:none; text-align:center; padding:20px;">Loading…</div>
         <div id="infSparklineError" style="display:none; color:var(--text-muted,#6b7280); font-size:0.8rem; padding:8px 0;">Sparkline unavailable.</div>
       </div>
@@ -425,5 +425,6 @@
 
 {% block scripts %}
   <script src="https://cdn.plot.ly/plotly-2.24.2.min.js"></script>
+  <script src="{{ url_for('static', filename='js/sparkline.js') }}"></script>
   <script type="module" src="{{ url_for('static', filename='js/history.js') }}"></script>
 {% endblock %}
