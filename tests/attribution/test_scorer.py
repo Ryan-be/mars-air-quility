@@ -148,6 +148,27 @@ def test_temporal_score_skips_none_fv_fields():
     assert temporal_score(fp, fv) == pytest.approx(0.0)
 
 
+def test_temporal_score_rise_rate_matches_when_tvoc_is_rising():
+    """rise_rate criteria evaluate TVOC slope correctly."""
+    fp = _fp(temporal={"rise_rate": "fast"})
+    fv = _fv(tvoc_slope_5m=10.0)
+    assert temporal_score(fp, fv) == pytest.approx(1.0)
+
+
+def test_temporal_score_sustain_max_minutes_matches_short_lived_event():
+    """sustain_max_minutes criteria evaluate TVOC elevated duration."""
+    fp = _fp(temporal={"sustain_max_minutes": 15})
+    fv = _fv(tvoc_elevated_minutes=10.0)
+    assert temporal_score(fp, fv) == pytest.approx(1.0)
+
+
+def test_temporal_score_decay_rate_matches_when_tvoc_falling():
+    """decay_rate criteria evaluate TVOC decay correctly."""
+    fp = _fp(temporal={"decay_rate": "fast"})
+    fv = _fv(tvoc_decay_rate=-5.0)
+    assert temporal_score(fp, fv) == pytest.approx(1.0)
+
+
 def test_temporal_score_empty_temporal_returns_zero():
     """No temporal criteria → 0.0."""
     fp = _fp(temporal={})
