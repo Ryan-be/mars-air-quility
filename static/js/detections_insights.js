@@ -18,11 +18,22 @@ const DI = (function () {
   const _DAY_NAMES = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
   const _HOURS     = Array.from({length:24}, (_,i) => i);
 
-  const _SOURCE_COLOURS = {
-    biological_offgas:'#22c55e', chemical_offgassing:'#a855f7',
-    cooking:'#f97316', combustion:'#ef4444', external_pollution:'#6b7280',
-    personal_care:'#ec4899',
+  const _SOURCE_META = {
+    biological_offgas:   { emoji: '🧬', label: 'Biological Off-gassing',  colour: '#10b981' },
+    chemical_offgassing: { emoji: '🧪', label: 'Chemical Off-gassing',    colour: '#8b5cf6' },
+    cooking:             { emoji: '🍳', label: 'Cooking',                  colour: '#f97316' },
+    combustion:          { emoji: '🔥', label: 'Combustion',               colour: '#ef4444' },
+    external_pollution:  { emoji: '🌫️', label: 'External Pollution',       colour: '#6b7280' },
+    cleaning_products:   { emoji: '🧹', label: 'Cleaning Products',        colour: '#06b6d4' },
+    human_activity:      { emoji: '👤', label: 'Human Activity',           colour: '#a78bfa' },
+    vehicle_exhaust:     { emoji: '🚗', label: 'Vehicle Exhaust',          colour: '#78716c' },
+    mould_voc:           { emoji: '🍄', label: 'Mould / Fungal VOC',       colour: '#84cc16' },
+    personal_care:       { emoji: '🧴', label: 'Personal Care Products',   colour: '#ec4899' },
   };
+  // Backwards-compat alias used by fingerprint cards which reference _SOURCE_COLOURS
+  const _SOURCE_COLOURS = Object.fromEntries(
+    Object.entries(_SOURCE_META).map(([k, v]) => [k, v.colour])
+  );
 
   const _METHOD_COLOURS = { rule:'#6366f1', statistical:'#f59e0b', ml:'#10b981' };
   const _METHOD_LABELS  = { rule:'Rule-based', statistical:'Statistical', ml:'ML Model' };
@@ -138,6 +149,11 @@ const DI = (function () {
     }
   }
 
+  function _sourceFriendlyLabel(id) {
+    const m = _SOURCE_META[id];
+    return m ? `${m.emoji} ${m.label}` : id;
+  }
+
   function _renderAttributionBreakdown() {
     const breakdown = _narratives.attribution_breakdown || {};
     const sources = Object.keys(breakdown);
@@ -146,9 +162,26 @@ const DI = (function () {
     const donutDiv = document.getElementById('diDonutChart');
     if (!donutDiv) return;
 
+    // Ensure the wrapper has the flex layout; inject legend container once
+    let wrapper = document.getElementById('diDonutWrapper');
+    if (!wrapper) {
+      // Wrap donutDiv in a flex row
+      wrapper = document.createElement('div');
+      wrapper.id = 'diDonutWrapper';
+      wrapper.className = 'donut-wrapper';
+      donutDiv.parentNode.insertBefore(wrapper, donutDiv);
+      wrapper.appendChild(donutDiv);
+      const legendDiv = document.createElement('div');
+      legendDiv.id = 'diDonutLegend';
+      legendDiv.className = 'donut-legend';
+      wrapper.appendChild(legendDiv);
+    }
+    const legendDiv = document.getElementById('diDonutLegend');
+
     const totalEvents = _narratives.total_events || 0;
 
     if (!sources.length) {
+      if (legendDiv) legendDiv.innerHTML = '';
       const methodBreakdown = _narratives.detection_method_breakdown || {};
       const methods = Object.keys(methodBreakdown);
       if (totalEvents > 0 && methods.length) {
@@ -161,22 +194,66 @@ const DI = (function () {
              type: 'pie', hole: 0.5,
              marker: { colors: methods.map(m => _METHOD_COLOURS[m] || '#6b7280') },
              hovertemplate: '%{label}: %{value} events<extra></extra>',
-             textinfo: 'label+percent',
+             textinfo: 'percent',
              textposition: 'inside',
              insidetextorientation: 'horizontal' }],
           { showlegend: false, margin: {t:0,b:0,l:0,r:0}, paper_bgcolor: 'transparent', plot_bgcolor: 'transparent' },
           { displayModeBar: false, responsive: true }
         );
+        if (legendDiv) {
+          const total = methods.reduce((s, m) => s + methodBreakdown[m], 0) || 1;
+          legendDiv.innerHTML = methods.map(m => {
+            const col = _METHOD_COLOURS[m] || '#6b7280';
+            const pct = Math.round(methodBreakdown[m] / total * 100);
+            return `<div class="donut-legend-item">
+              <span class="donut-legend-dot" style="background:${col}"></span>
+              <span class="donut-legend-name">${_METHOD_LABELS[m] || m}</span>
+              <span class="donut-legend-pct">${pct}%</span>
+            </div>`;
+          }).join('');
+        }
       } else {
         const subtitleEl = document.getElementById('diAttributionSubtitle');
         if (subtitleEl) subtitleEl.textContent = '';
-        Plotly.newPlot(donutDiv, [{ values:[1], labels:["No events"], type:"pie", hole:0.5, marker:{colors:["#d1d5db"]}, hoverinfo:"none", textinfo:"label", textposition:"inside", insidetextorientation:"horizontal" }], { showlegend:false, margin:{t:0,b:0,l:0,r:0}, paper_bgcolor:"transparent", plot_bgcolor:"transparent" }, { displayModeBar:false });
+        Plotly.newPlot(donutDiv, [{ values:[1], labels:['No events'], type:'pie', hole:0.5, marker:{colors:['#d1d5db']}, hoverinfo:'none', textinfo:'label', textposition:'inside', insidetextorientation:'horizontal' }], { showlegend:false, margin:{t:0,b:0,l:0,r:0}, paper_bgcolor:'transparent', plot_bgcolor:'transparent' }, { displayModeBar:false });
       }
       return;
     }
+
     const subtitleEl = document.getElementById('diAttributionSubtitle');
     if (subtitleEl) subtitleEl.textContent = '';
-    Plotly.newPlot(donutDiv, [{ values:sources.map(s=>breakdown[s]), labels:sources, type:"pie", hole:0.5, marker:{colors:sources.map(s=>_SOURCE_COLOURS[s]||"#6b7280")}, hovertemplate:"%{label}: %{value} events<extra></extra>", textinfo:"label+percent", textposition:"inside", insidetextorientation:"horizontal" }], { showlegend:false, margin:{t:0,b:0,l:0,r:0}, paper_bgcolor:"transparent", plot_bgcolor:"transparent" }, { displayModeBar:false, responsive:true });
+
+    const colours  = sources.map(s => (_SOURCE_META[s] || {}).colour || '#6b7280');
+    const labels   = sources.map(s => _sourceFriendlyLabel(s));
+    const values   = sources.map(s => breakdown[s]);
+    const total    = values.reduce((a, b) => a + b, 0) || 1;
+
+    Plotly.newPlot(
+      donutDiv,
+      [{ values, labels, type: 'pie', hole: 0.5,
+         marker: { colors: colours },
+         hovertemplate: '%{label}: %{value} events (%{percent})<extra></extra>',
+         textinfo: 'percent',
+         textposition: 'inside',
+         insidetextorientation: 'horizontal',
+         domain: { x: [0, 1], y: [0, 1] } }],
+      { showlegend: false,
+        margin: {t:4, b:4, l:4, r:4},
+        paper_bgcolor: 'transparent',
+        plot_bgcolor:  'transparent' },
+      { displayModeBar: false, responsive: true }
+    );
+
+    if (legendDiv) {
+      legendDiv.innerHTML = sources.map((s, i) => {
+        const pct = Math.round(values[i] / total * 100);
+        return `<div class="donut-legend-item">
+          <span class="donut-legend-dot" style="background:${colours[i]}"></span>
+          <span class="donut-legend-name">${labels[i]}</span>
+          <span class="donut-legend-pct">${pct}%</span>
+        </div>`;
+      }).join('');
+    }
   }
     function _renderFingerprintNarratives() {
     const el = document.getElementById('diFingerprintCards');

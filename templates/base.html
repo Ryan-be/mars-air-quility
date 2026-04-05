@@ -94,6 +94,14 @@
     .sparkline-header { font-size:0.82rem; color:var(--text-muted); margin-bottom:6px; }
     .source-pill-sm { display:inline-flex; align-items:center; gap:3px; padding:1px 6px; border-radius:999px; font-size:0.72rem; background:var(--source-pill-sm-bg); color:var(--text-secondary); }
     .di-subtitle  { font-size:0.78rem; color:var(--text-muted); margin-bottom:6px; font-style:italic; }
+    /* ── Donut chart + side legend ── */
+    .donut-wrapper { display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+    .donut-wrapper > #diDonutChart { flex:0 0 180px; height:180px; min-width:0; }
+    .donut-legend { flex:1; min-width:140px; display:flex; flex-direction:column; gap:6px; }
+    .donut-legend-item { display:flex; align-items:center; gap:7px; font-size:0.82rem; color:var(--text); }
+    .donut-legend-dot { width:11px; height:11px; border-radius:50%; flex-shrink:0; }
+    .donut-legend-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .donut-legend-pct { font-weight:600; color:var(--text-secondary); white-space:nowrap; }
     .di-events-link { color:var(--accent); text-decoration:underline; cursor:pointer; }
     .ev-card      { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:8px 10px; margin-bottom:6px; border:1px solid var(--border); border-radius:6px; background:var(--card-bg); font-size:0.83rem; color:var(--text); }
     .ev-card:hover { background:var(--hover-bg,rgba(255,255,255,0.04)); }
