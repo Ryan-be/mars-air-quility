@@ -41,6 +41,8 @@ class AttributionEngine:
 
     def __init__(self, config_path) -> None:
         self._config_path = Path(config_path)
+        # Ensure data directory exists for classifier persistence.
+        (self._config_path.parent.parent / "data").mkdir(exist_ok=True)
         self._fingerprints: list[Fingerprint] = load_fingerprints(self._config_path)
         self._ml_model = preprocessing.StandardScaler() | linear_model.LogisticRegression()
         log.info(
@@ -70,9 +72,7 @@ class AttributionEngine:
     @property
     def _pkl_path(self) -> Path:
         """Path to the persisted classifier: <project_root>/data/classifier.pkl."""
-        data_dir = self._config_path.parent.parent / "data"
-        data_dir.mkdir(exist_ok=True)
-        return data_dir / "classifier.pkl"
+        return self._config_path.parent.parent / "data" / "classifier.pkl"
 
     def reload(self) -> None:
         """Thread-safe hot-reload: re-read fingerprints.yaml.

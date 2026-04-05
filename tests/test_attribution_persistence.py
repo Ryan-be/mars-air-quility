@@ -30,7 +30,8 @@ def test_train_on_tags_saves_pickle(tmp_path, monkeypatch):
 
     engine = _make_engine(str(config_path), monkeypatch)
 
-    # Patch _pkl_path property to point at our tmp location
+    # _pkl_path is a @property descriptor — direct instance assignment (engine._pkl_path = x)
+    # is silently ignored. We must patch at the class level to override it in tests.
     monkeypatch.setattr(
         AttributionEngine,
         "_pkl_path",
