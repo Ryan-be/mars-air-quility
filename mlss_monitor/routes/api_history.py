@@ -193,11 +193,15 @@ def ml_context():
 
 
 _KNOWN_SOURCES = [
-    ("biological_offgas","Biological Off-gassing","🌿"),
+    ("biological_offgas","Biological Off-gassing","🧬"),
     ("chemical_offgassing","Chemical Off-gassing","🧪"),
     ("cooking","Cooking","🍳"),
     ("combustion","Combustion","🔥"),
-    ("external_pollution","External Pollution","🌍"),
+    ("external_pollution","External Pollution","🌫️"),
+    ("cleaning_products","Cleaning Products","🧹"),
+    ("human_activity","Human Activity","👤"),
+    ("vehicle_exhaust","Vehicle Exhaust","🚗"),
+    ("mould_voc","Mould / Fungal VOC","🍄"),
     ("personal_care","Personal Care Products","🧴"),
 ]
 _ML_EVENT_TYPES_SET = {
@@ -300,7 +304,9 @@ def narratives():
                 "narrative":narrative_engine.generate_anomaly_model_narrative(mid,lbl,len(evts),desc),
             })
 
-    dom_sentence = (f"{dominant.capitalize()} accounts for {summary[dominant]} of {len(window)} events." if dominant and window else "No events were attributed to a source in this period.")
+    _SOURCE_FRIENDLY = {src_id: f"{emoji} {label}" for src_id, label, emoji in _KNOWN_SOURCES}
+    dom_label = _SOURCE_FRIENDLY.get(dominant, dominant.replace("_", " ").capitalize()) if dominant else None
+    dom_sentence = (f"{dom_label} accounts for {summary[dominant]} of {len(window)} events." if dominant and window else "No events were attributed to a source in this period.")
 
     method_breakdown: dict = {}
     for inf in window:
