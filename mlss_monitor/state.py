@@ -20,6 +20,7 @@ aht20 = None
 sgp30 = None
 pm_sensor = None
 mics6814 = None
+bmp280 = None
 hot_tier = None
 feature_vector = None
 

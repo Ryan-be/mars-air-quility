@@ -69,7 +69,7 @@ const WMO = {
   95:"Thunderstorm", 96:"Thunderstorm + hail", 99:"Thunderstorm + heavy hail",
 };
 
-export function updateWeather(w, indoorTemp, indoorHum) {
+export function updateWeather(w, indoorTemp, indoorHum, indoorPressure) {
   const sec = document.getElementById("weatherSection");
   if (!w || w.error) { if (sec) sec.style.display = "none"; return; }
   sec.style.display = "";
@@ -114,10 +114,11 @@ export function updateWeather(w, indoorTemp, indoorHum) {
   if (indoorTemp != null && indoorHum != null && w.temp != null && w.humidity != null) {
     const cooler = w.temp < indoorTemp - 1;
     const drier  = w.humidity < indoorHum - 5;
-    if (cooler && drier)  { ventEl.textContent = "Good"; ventEl.className = "value good";     ventSub.textContent = "Cooler & drier outside — ventilate"; ventCard.style.borderTopColor = "#2d8a2d"; }
-    else if (cooler)      { ventEl.textContent = "Partial"; ventEl.className = "value moderate"; ventSub.textContent = "Cooler outside but similar humidity"; ventCard.style.borderTopColor = "#c87800"; }
-    else if (drier)       { ventEl.textContent = "Partial"; ventEl.className = "value moderate"; ventSub.textContent = "Drier outside but similar temperature"; ventCard.style.borderTopColor = "#c87800"; }
-    else                  { ventEl.textContent = "Poor"; ventEl.className = "value neutral";   ventSub.textContent = "Outside conditions not favourable"; ventCard.style.borderTopColor = "#555"; }
+    const pressureInfo = indoorPressure != null ? ` (Pressure: ${indoorPressure.toFixed(1)} hPa)` : "";
+    if (cooler && drier)  { ventEl.textContent = "Good"; ventEl.className = "value good";     ventSub.textContent = "Cooler & drier outside — ventilate" + pressureInfo; ventCard.style.borderTopColor = "#2d8a2d"; }
+    else if (cooler)      { ventEl.textContent = "Partial"; ventEl.className = "value moderate"; ventSub.textContent = "Cooler outside but similar humidity" + pressureInfo; ventCard.style.borderTopColor = "#c87800"; }
+    else if (drier)       { ventEl.textContent = "Partial"; ventEl.className = "value moderate"; ventSub.textContent = "Drier outside but similar temperature" + pressureInfo; ventCard.style.borderTopColor = "#c87800"; }
+    else                  { ventEl.textContent = "Poor"; ventEl.className = "value neutral";   ventSub.textContent = "Outside conditions not favourable" + pressureInfo; ventCard.style.borderTopColor = "#555"; }
   } else {
     ventEl.textContent = "--"; ventEl.className = "value neutral"; ventSub.textContent = "Awaiting data";
   }

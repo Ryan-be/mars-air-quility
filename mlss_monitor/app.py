@@ -33,6 +33,7 @@ from mlss_monitor.data_sources import (
     AHT20Source,
     ParticulateSource,
     MICS6814Source,
+    BMP280Source,
     merge_readings,
 )
 from mlss_monitor.detection_engine import DetectionEngine
@@ -246,6 +247,9 @@ mics6814_sensor = init_mics6814()
 if mics6814_sensor:
     state.mics6814 = mics6814_sensor
 
+# BMP280 pressure sensor (I2C)
+state.bmp280 = True
+
 # --- Hot tier and data source abstraction (parallel addition) ---
 # Initialised without DB here so importing app.py never touches the database.
 # main() reinitialises with db_file=DB_FILE after create_db() so that the
@@ -258,6 +262,7 @@ _data_sources = [
     AHT20Source(),
     ParticulateSource(),    # uses module-level read_pm() — no arg needed
     MICS6814Source(),
+    BMP280Source(),
 ]
 
 # Initialise enabled flags for all registered data sources
@@ -346,6 +351,14 @@ def read_sensors():
         except Exception as e:
             log.error("Error reading MICS6814 sensor: %s", e)
 
+    pressure = None
+    if state.bmp280:
+        try:
+            from sensor_interfaces.bmp280 import read_bmp280
+            pressure = read_bmp280()
+        except Exception as e:
+            log.error("Error reading BMP280 sensor: %s", e)
+
     # Fall back to the cached reading when the sensor didn't return data,
     # provided it is within the configurable staleness window.
     pm_stale = False
@@ -364,7 +377,7 @@ def read_sensors():
                       age, stale_minutes * 60)
 
     return (temperature, humidity, eco2, tvoc, pm1_0, pm2_5, pm10, pm_fresh, pm_stale, pm_timestamp,
-            gas_co, gas_no2, gas_nh3)
+            gas_co, gas_no2, gas_nh3, pressure)
 
 
 # ── Background logging ────────────────────────────────────────────────────────
@@ -376,6 +389,7 @@ def _collect_health() -> dict:
         "SGP30": "OK" if state.sgp30 else "UNAVAILABLE",
         "PM_sensor": "OK" if state.pm_sensor else "UNAVAILABLE",
         "MICS6814": "OK" if state.mics6814 else "UNAVAILABLE",
+        "BMP280": "OK" if state.bmp280 else "UNAVAILABLE",
     }
     cpu_percent = psutil.cpu_percent(interval=0)
     memory = psutil.virtual_memory()
@@ -421,7 +435,7 @@ def _collect_health() -> dict:
 
 def log_data():
     (temp, hum, eco2, tvoc, pm1_0, pm2_5, pm10, pm_fresh, pm_stale, pm_ts,
-     gas_co, gas_no2, gas_nh3) = read_sensors()
+     gas_co, gas_no2, gas_nh3, pressure) = read_sensors()
 
     fan_power_w = None
     try:
@@ -441,7 +455,7 @@ def log_data():
     db_pm10 = pm10  if pm_fresh else None
     log_sensor_data(temp, hum, eco2, tvoc, fan_power_w=fan_power_w, vpd_kpa=vpd,
                     pm1_0=db_pm1, pm2_5=db_pm25, pm10=db_pm10,
-                    gas_co=gas_co, gas_no2=gas_no2, gas_nh3=gas_nh3)
+                    gas_co=gas_co, gas_no2=gas_no2, gas_nh3=gas_nh3, pressure_hpa=pressure)
 
     # Broadcast sensor reading to SSE subscribers — include staleness
     # metadata so the dashboard can show when PM data is cached.
@@ -454,6 +468,7 @@ def log_data():
             "pm_stale": pm_stale,
             "pm_timestamp": pm_ts.isoformat() + "Z" if pm_ts else None,
             "gas_co": gas_co, "gas_no2": gas_no2, "gas_nh3": gas_nh3,
+            "pressure": pressure,
         })
         state.event_bus.publish("health_update", _collect_health())
 

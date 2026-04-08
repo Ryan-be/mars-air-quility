@@ -36,6 +36,7 @@ A list of know issues and feature improvements including recomended fixes can be
 | Adafruit SGP30 | eCO2 & TVOC air quality (I2C, 0x58) |
 | SB Components Air Monitoring HAT (PMSA003) | Particulate matter PM1.0/PM2.5/PM10 (UART) |
 | Pimoroni MICS6814 Gas Sensor Breakout | CO, NO2 & NH3 gas detection (I2C, 0x04) |
+| Adafruit BMP280 | Barometric pressure & altitude (I2C, 0x77) |
 | 1.8" ST7735 TFT LCD | Local readout (SPI, 128x160) |
 | TP-Link Kasa smart plug | Fan control (effector) |
 
@@ -43,10 +44,10 @@ A list of know issues and feature improvements including recomended fixes can be
 
 | Signal | Pi GPIO | Wire colour | Connected to |
 |---|---|---|---|
-| 3.3V | Pin 1 | Red | AHT20 -> SGP30 |
-| GND | Pin 6 | Black | AHT20 -> SGP30 |
-| SDA | Pin 3 (GPIO2) | Blue | AHT20 -> SGP30 |
-| SCL | Pin 5 (GPIO3) | Yellow | AHT20 -> SGP30 |
+| 3.3V | Pin 1 | Red | AHT20 -> SGP30 -> BMP280 |
+| GND | Pin 6 | Black | AHT20 -> SGP30 -> BMP280 |
+| SDA | Pin 3 (GPIO2) | Blue | AHT20 -> SGP30 -> BMP280 |
+| SCL | Pin 5 (GPIO3) | Yellow | AHT20 -> SGP30 -> BMP280 |
 
 ### Wiring -- ST7735 LCD (SPI)
 
@@ -75,7 +76,7 @@ The SB Components Air Monitoring HAT sits directly on the Pi GPIO header. It use
 
 ### Wiring -- MICS6814 Gas Sensor (I2C)
 
-The Pimoroni MICS6814 breakout uses I2C and can be daisy-chained with the AHT20 and SGP30.
+The Pimoroni MICS6814 breakout uses I2C and can be daisy-chained with the AHT20, SGP30, and BMP280.
 
 | Signal | Pi GPIO | Wire colour | Connected to |
 |---|---|---|---|
@@ -86,12 +87,26 @@ The Pimoroni MICS6814 breakout uses I2C and can be daisy-chained with the AHT20 
 
 > **Note:** The sensor uses I2C address `0x04`. It measures three gas channels: **reducing** (CO), **oxidising** (NO2), and **NH3**. Readings are analogue resistance values -- compare trends rather than absolute numbers. The sensor benefits from a warm-up period of several minutes for stable readings.
 
+### Wiring -- BMP280 Pressure Sensor (I2C)
+
+The Adafruit BMP280 breakout uses I2C address `0x77` and is daisy-chained with other I2C sensors.
+
+| Signal | Pi GPIO | Wire colour | Connected to |
+|---|---|---|---|
+| 3.3V | Pin 1 | Red | BMP280 3V3 |
+| GND | Pin 6 | Black | BMP280 GND |
+| SDA | Pin 3 (GPIO2) | Blue | BMP280 SDA |
+| SCL | Pin 5 (GPIO3) | Yellow | BMP280 SCL |
+
+> **Note:** The BMP280 measures atmospheric pressure in hPa. Useful for detecting external weather changes and optimising ventilation strategies. Pressure data is logged alongside climate data for correlation analysis.
+
 ---
 
 ## Features
 
 - Gas detection (CO, NO2, NH3) via Pimoroni MICS6814 I2C sensor with historical trend plots
 - Particulate matter monitoring (PM1.0, PM2.5, PM10) via PMSA003 UART sensor with WHO guideline colour coding
+- Barometric pressure monitoring (hPa) via Adafruit BMP280 with ventilation quality assessment
 - Live sensor dashboard with configurable time range (15 min to all time)
 - Auto fan control -- turns on when temperature or TVOC exceeds configurable thresholds
 - Admin/settings page -- fan thresholds, auto mode toggle, location configuration

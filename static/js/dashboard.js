@@ -14,6 +14,7 @@ function trend(current, previous) {
 
 let _lastIndoorTemp = null;
 let _lastIndoorHum  = null;
+let _lastIndoorPressure = null;
 
 // ── Gas sensor trend history (resistance in Ω; lower = higher concentration) ──
 let _gasCoHistory  = [];
@@ -892,8 +893,11 @@ function connectSSE() {
     if (d.gas_no2 != null) { _gasNo2History.push(d.gas_no2); if (_gasNo2History.length > 30) _gasNo2History.shift(); }
     if (d.gas_nh3 != null) { _gasNh3History.push(d.gas_nh3); if (_gasNh3History.length > 30) _gasNh3History.shift(); }
     _updateGasCard();
+    document.getElementById("pressureValue").textContent =
+      `${d.pressure?.toFixed(1) ?? "--"} hPa`;
     _lastIndoorTemp = t;
     _lastIndoorHum  = h;
+    _lastIndoorPressure = d.pressure;
     updateInsights(t, h, d.tvoc, d.eco2, [d.eco2]);
     document.getElementById("last-updated").textContent =
       "Last updated: " + new Date().toLocaleString();
@@ -905,7 +909,7 @@ function connectSSE() {
 
   _evtSource.addEventListener("weather_update", (e) => {
     const w = JSON.parse(e.data);
-    updateWeather(w, _lastIndoorTemp, _lastIndoorHum);
+    updateWeather(w, _lastIndoorTemp, _lastIndoorHum, _lastIndoorPressure);
   });
 
   _evtSource.addEventListener("forecast_update", (e) => {

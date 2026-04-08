@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 SENSOR_FIELDS: tuple[str, ...] = (
     "tvoc_ppb", "eco2_ppm", "temperature_c", "humidity_pct",
     "pm1_ug_m3", "pm25_ug_m3", "pm10_ug_m3", "co_ppb", "no2_ppb", "nh3_ppb",
+    "pressure_hpa",
 )
 
 
@@ -24,6 +25,7 @@ class NormalisedReading:
     co_ppb:        float | None = None
     no2_ppb:       float | None = None
     nh3_ppb:       float | None = None
+    pressure_hpa:  float | None = None
 
 
 class DataSource(ABC):

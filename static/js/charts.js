@@ -6,6 +6,7 @@ export function renderClimateCharts(data) {
   const timestamps   = data.map(d => new Date(d.timestamp));
   const temperatures = data.map(d => d.temperature);
   const humidities   = data.map(d => d.humidity);
+  const pressures    = data.map(d => d.pressure_hpa);
   const ids          = data.map(d => d.id);
 
   Plotly.newPlot("tempPlot", [{
@@ -23,6 +24,14 @@ export function renderClimateCharts(data) {
   }], themeLayout({
     title: { text: "💧 Humidity (%)", font: { color: isLight ? "#111" : "#ccc" } },
   }), { responsive: true }).then(() => attachAnnotationHandler("humPlot"));
+
+  Plotly.newPlot("pressurePlot", [{
+    x: timestamps, y: pressures,
+    mode: "lines+markers", name: "Pressure",
+    line: { color: "orange" }, customdata: ids
+  }], themeLayout({
+    title: { text: "🌪️ Pressure (hPa)", font: { color: isLight ? "#111" : "#ccc" } },
+  }), { responsive: true }).then(() => attachAnnotationHandler("pressurePlot"));
 }
 
 export function renderGasCharts(data) {

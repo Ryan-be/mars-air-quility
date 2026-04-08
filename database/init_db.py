@@ -18,7 +18,16 @@ def create_db():
         humidity REAL,
         eco2 INTEGER,
         tvoc INTEGER,
-        annotation TEXT
+        annotation TEXT,
+        fan_power_w REAL,
+        vpd_kpa REAL,
+        pm1_0 REAL,
+        pm2_5 REAL,
+        pm10 REAL,
+        gas_co REAL,
+        gas_no2 REAL,
+        gas_nh3 REAL,
+        pressure_hpa REAL
     );
     """)
 
