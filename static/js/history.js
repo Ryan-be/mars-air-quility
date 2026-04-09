@@ -13,6 +13,7 @@ const TABS = ["climate", "air-quality", "particulate", "environment", "correlati
 let _rendered    = {};
 let _sensorData  = [];
 let _weatherData = [];
+let _lastFetchRange = null;  // Track range to detect changes, forcing full corr re-render
 
 function _initHistoryTabs() {
   const buttons = document.querySelectorAll(".tab-btn");
@@ -126,13 +127,17 @@ async function fetchData() {
       return;
     }
     const corrWasRendered = !!_rendered["correlation"];
+    const rangeChanged = _lastFetchRange !== null && _lastFetchRange !== range;
+    _lastFetchRange = range;
     _sensorData  = rawSensor.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
     _weatherData = Array.isArray(rawWeather) ? rawWeather : [];
     _rendered    = {};
 
-    // If the correlation tab was already rendered, update its data without
-    // destroying the user's zoom — mark it rendered so renderActiveTab skips it.
-    if (corrWasRendered) {
+    // If the correlation tab was already rendered AND the range hasn't changed,
+    // update data without destroying the user's zoom selection.
+    // When the range changes, fall through to a full re-render so the x-axis
+    // resets to the new time window rather than showing new data in the old window.
+    if (corrWasRendered && !rangeChanged) {
       updateCorrelationData(_sensorData);
       _rendered["correlation"] = true;
     }

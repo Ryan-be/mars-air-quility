@@ -10,8 +10,8 @@ from datetime import datetime, timedelta, timezone
 from flask import Blueprint, jsonify, request
 
 import database.db_logger as _dbl
-from mlss_monitor.rbac import require_role
 from database.db_logger import _normalise_ts, get_inferences, save_inference, add_inference_tag
+from mlss_monitor.rbac import require_role
 from mlss_monitor import narrative_engine, state
 from mlss_monitor.data_sources.base import NormalisedReading
 from mlss_monitor.detection_engine import DetectionEngine

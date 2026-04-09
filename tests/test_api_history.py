@@ -6,7 +6,6 @@ import pytest
 
 def _insert_sensor_row(db_path, timestamp, tvoc=100, eco2=500, temp=21.0, hum=50.0,
                         pm1=2.0, pm25=3.0, pm10=5.0, co=12000, no2=8000, nh3=15000):
-    import sqlite3
     conn = sqlite3.connect(db_path)
     conn.execute(
         """INSERT INTO sensor_data
@@ -266,9 +265,9 @@ def _create_sensor_db(db_path: str) -> None:
 
 
 def _insert_baseline_row(db_path: str, timestamp: str, **kwargs) -> None:
-    defaults = dict(tvoc=100.0, eco2=500.0, temperature=21.0, humidity=50.0,
-                    pm1_0=2.0, pm2_5=3.0, pm10=5.0, gas_co=12000.0,
-                    gas_no2=8000.0, gas_nh3=15000.0)
+    defaults = {"tvoc": 100.0, "eco2": 500.0, "temperature": 21.0, "humidity": 50.0,
+                "pm1_0": 2.0, "pm2_5": 3.0, "pm10": 5.0, "gas_co": 12000.0,
+                "gas_no2": 8000.0, "gas_nh3": 15000.0}
     defaults.update(kwargs)
     conn = sqlite3.connect(db_path)
     conn.execute(

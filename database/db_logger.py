@@ -530,7 +530,10 @@ def get_inference_tags(inference_id):
     )
     rows = cur.fetchall()
     conn.close()
-    return [{"tag": r["tag"], "confidence": r["confidence"], "created_at": _normalise_ts(r["created_at"])} for r in rows]
+    return [
+        {"tag": r["tag"], "confidence": r["confidence"], "created_at": _normalise_ts(r["created_at"])}
+        for r in rows
+    ]
 
 
 def add_inference_tag(inference_id, tag, confidence=1.0, *, allowed_tags=None):

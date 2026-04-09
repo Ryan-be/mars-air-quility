@@ -62,7 +62,7 @@ def tags(inference_id):
     if request.method == "GET":
         tags_list = get_inference_tags(inference_id)
         return jsonify(tags_list)
-    elif request.method == "POST":
+    if request.method == "POST":
         data = request.get_json(force=True)
         tag = data.get("tag", "").strip()
         confidence = data.get("confidence", 1.0)
@@ -85,6 +85,7 @@ def tags(inference_id):
 
         add_inference_tag(inference_id, tag, confidence, allowed_tags=allowed)
         return jsonify({"ok": True})
+    return jsonify({"error": "method not allowed"}), 405
 
 
 @api_inferences_bp.route("/api/inferences/<int:inference_id>/sparkline")

@@ -472,7 +472,7 @@ const DI = (function () {
     _sseSource.addEventListener('inference_fired', function () { load(); });
   }
 
-  return { init, setWindow, load };
+  return { init, load };
 })();
 
 // ── Feature vector sensor snapshot renderer ──────────────────────────────────

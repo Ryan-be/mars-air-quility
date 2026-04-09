@@ -1,7 +1,6 @@
 """Tests for AttributionEngine classifier persistence."""
 import pickle
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 
 def _make_engine(config_path, monkeypatch):
@@ -75,7 +74,7 @@ def test_init_loads_existing_pickle(tmp_path, monkeypatch):
     with patch("mlss_monitor.attribution.engine.AttributionEngine._pkl_path",
                new_callable=lambda: property(lambda self: pkl_path)):
         from mlss_monitor.attribution.engine import AttributionEngine
-        engine = AttributionEngine(str(config_path))
+        AttributionEngine(str(config_path))
 
     assert not train_called, "train_on_tags should NOT be called when pickle exists"
 
@@ -104,7 +103,7 @@ def test_corrupt_pickle_falls_back_to_training(tmp_path, monkeypatch):
     with patch("mlss_monitor.attribution.engine.AttributionEngine._pkl_path",
                new_callable=lambda: property(lambda self: pkl_path)):
         from mlss_monitor.attribution.engine import AttributionEngine
-        engine = AttributionEngine(str(config_path))
+        AttributionEngine(str(config_path))
 
     assert train_called, "train_on_tags should be called as fallback after corrupt pickle"
     assert not pkl_path.exists(), "corrupt pickle should be deleted"
