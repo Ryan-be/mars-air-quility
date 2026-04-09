@@ -71,10 +71,11 @@ def _state_matches(state: str, fv: FeatureVector, prefix: str):
             return True
         baseline = getattr(fv, f"{prefix}_baseline", None)
         if baseline is None:
-            # No baseline available — cannot determine whether sensor is absent.
-            # Return None so the caller skips this criterion rather than
-            # incorrectly treating an uncharacterised reading as "absent".
-            return None
+            # No baseline available — cannot confirm the sensor is absent.
+            # Return False so the criterion counts as evaluated-but-unmet: a
+            # fingerprint that requires "absent" should not score a match when
+            # the sensor is simply uncalibrated.
+            return False
         if baseline == 0:
             return current < 5  # absolute low threshold when baseline is zero
         return current < baseline * 0.9
@@ -164,33 +165,33 @@ def temporal_score(fp: Fingerprint, fv: FeatureVector) -> float:
 
     if "rise_rate" in t:
         result = _rise_rate_matches(t["rise_rate"], fv)
+        evaluated += 1
         if result is not None:
-            evaluated += 1
             matched += 1 if result else 0
 
     if "decay_rate" in t:
         result = _decay_rate_matches(t["decay_rate"], fv)
+        evaluated += 1
         if result is not None:
-            evaluated += 1
             matched += 1 if result else 0
 
     if "sustain_min_minutes" in t:
         result = _sustain_minutes_matches("sustain_min_minutes", t["sustain_min_minutes"], fv)
+        evaluated += 1
         if result is not None:
-            evaluated += 1
             matched += 1 if result else 0
 
     if "sustain_max_minutes" in t:
         result = _sustain_minutes_matches("sustain_max_minutes", t["sustain_max_minutes"], fv)
+        evaluated += 1
         if result is not None:
-            evaluated += 1
             matched += 1 if result else 0
 
     # nh3_follows_tvoc
     if "nh3_follows_tvoc" in t:
         lag = fv.nh3_lag_behind_tvoc_seconds
+        evaluated += 1
         if lag is not None:
-            evaluated += 1
             max_lag = t.get("nh3_max_lag_seconds", 120)
             if t["nh3_follows_tvoc"] is True:
                 matched += 1 if lag <= max_lag else 0
@@ -200,15 +201,15 @@ def temporal_score(fp: Fingerprint, fv: FeatureVector) -> float:
     # pm25_correlated_with_tvoc
     if "pm25_correlated_with_tvoc" in t:
         corr = fv.pm25_correlated_with_tvoc
+        evaluated += 1
         if corr is not None:
-            evaluated += 1
             matched += 1 if (corr == t["pm25_correlated_with_tvoc"]) else 0
 
     # co_correlated_with_tvoc
     if "co_correlated_with_tvoc" in t:
         corr = fv.co_correlated_with_tvoc
+        evaluated += 1
         if corr is not None:
-            evaluated += 1
             matched += 1 if (corr == t["co_correlated_with_tvoc"]) else 0
 
     if evaluated == 0:

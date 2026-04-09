@@ -4,6 +4,7 @@ from mlss_monitor.feature_vector import FeatureVector
 from mlss_monitor.data_sources.base import NormalisedReading
 from mlss_monitor.feature_extractor import (
     _slope, _elevated_minutes, _pulse_detected, _current, _peak_ratio,
+    _acceleration, _peak_time_offset_s, _rise_time_s, _slope_variance,
 )
 
 
@@ -383,3 +384,86 @@ def test_personal_care_deodorant_nh3_lag_detected():
         "searching for a NH3 *maximum* instead of minimum."
     )
     assert 55.0 <= fv.nh3_lag_behind_tvoc_seconds <= 65.0
+
+
+# ── New temporal feature helpers ─────────────────────────────────────────────
+
+def test_acceleration_returns_none_when_slopes_none():
+    assert _acceleration(None, 5.0) is None
+    assert _acceleration(5.0, None) is None
+    assert _acceleration(None, None) is None
+
+
+def test_acceleration_positive_for_rising():
+    # slope_1m > slope_5m → acceleration is positive (rate is speeding up)
+    result = _acceleration(10.0, 4.0)
+    assert result == pytest.approx(6.0)
+    # slope_1m < slope_5m → negative acceleration
+    assert _acceleration(2.0, 8.0) == pytest.approx(-6.0)
+
+
+def test_peak_time_offset_s():
+    now = datetime.now(timezone.utc)
+    # Peak at index 2 (2 seconds after first reading)
+    readings = [
+        NormalisedReading(timestamp=now - timedelta(seconds=4), source="t", tvoc_ppb=100.0),
+        NormalisedReading(timestamp=now - timedelta(seconds=3), source="t", tvoc_ppb=150.0),
+        NormalisedReading(timestamp=now - timedelta(seconds=2), source="t", tvoc_ppb=300.0),
+        NormalisedReading(timestamp=now - timedelta(seconds=1), source="t", tvoc_ppb=200.0),
+        NormalisedReading(timestamp=now,                        source="t", tvoc_ppb=120.0),
+    ]
+    result = _peak_time_offset_s(readings, "tvoc_ppb")
+    # Peak is 2 seconds after the first reading (first at now-4s, peak at now-2s)
+    assert result == pytest.approx(2.0)
+
+
+def test_peak_time_offset_s_none_when_single_reading():
+    now = datetime.now(timezone.utc)
+    readings = [NormalisedReading(timestamp=now, source="t", tvoc_ppb=100.0)]
+    assert _peak_time_offset_s(readings, "tvoc_ppb") is None
+
+
+def test_rise_time_s():
+    now = datetime.now(timezone.utc)
+    baseline = 100.0
+    # First above baseline at now-4s (value 110), peak at now-2s (value 300)
+    readings = [
+        NormalisedReading(timestamp=now - timedelta(seconds=5), source="t", tvoc_ppb=90.0),   # below
+        NormalisedReading(timestamp=now - timedelta(seconds=4), source="t", tvoc_ppb=110.0),  # first above
+        NormalisedReading(timestamp=now - timedelta(seconds=3), source="t", tvoc_ppb=200.0),
+        NormalisedReading(timestamp=now - timedelta(seconds=2), source="t", tvoc_ppb=300.0),  # peak
+        NormalisedReading(timestamp=now - timedelta(seconds=1), source="t", tvoc_ppb=250.0),
+    ]
+    result = _rise_time_s(readings, "tvoc_ppb", baseline)
+    # From now-4s to now-2s = 2 seconds
+    assert result == pytest.approx(2.0)
+
+
+def test_rise_time_s_none_when_no_baseline():
+    readings = _make_tvoc_readings([100.0, 200.0, 300.0])
+    assert _rise_time_s(readings, "tvoc_ppb", None) is None
+
+
+def test_rise_time_s_none_when_never_above_baseline():
+    readings = _make_tvoc_readings([50.0, 60.0, 70.0])
+    assert _rise_time_s(readings, "tvoc_ppb", baseline=200.0) is None
+
+
+def test_slope_variance_needs_three_windows():
+    # Only 2 complete 60s windows → should return None
+    readings = _make_tvoc_readings([float(i) for i in range(120)], seconds_between=1)
+    # 120 readings at 1s each = 119s total → only 1 complete 60s window → None
+    assert _slope_variance(readings, "tvoc_ppb", window_seconds=60) is None
+
+
+def test_slope_variance_returns_value_with_enough_windows():
+    # 4 complete 60s windows = 240 readings at 1s intervals (239s total)
+    readings = _make_tvoc_readings([float(i) for i in range(241)], seconds_between=1)
+    result = _slope_variance(readings, "tvoc_ppb", window_seconds=60)
+    # All windows have the same slope → variance should be 0 (or very close)
+    assert result is not None
+    assert result >= 0.0
+
+
+def test_slope_variance_none_when_empty():
+    assert _slope_variance([], "tvoc_ppb") is None

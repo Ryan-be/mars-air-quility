@@ -9,7 +9,6 @@ let _diActiveCategory = 'all';
 let _diCatsLoaded    = false;
 
 const DI = (function () {
-  let _window = '24h';
   let _narratives = null;
   let _baselines  = null;
   let _sseSource  = null;
@@ -47,9 +46,11 @@ const DI = (function () {
   function _corrColours() { return (typeof CORR_COLOURS !== 'undefined') ? CORR_COLOURS : {}; }
   function _corrLabels()  { return (typeof CORR_LABELS  !== 'undefined') ? CORR_LABELS  : {}; }
 
-  function _windowMs() { return {  '6h':6, '24h':24, '7d':168 }[_window] * 3600000; }
   function _range() {
-    const end = new Date(); const start = new Date(end.getTime() - _windowMs());
+    const sel = document.getElementById('range');
+    const hours = sel ? parseInt(sel.value, 10) : 24;
+    const end = new Date();
+    const start = new Date(end.getTime() - hours * 3600000);
     return { start: start.toISOString(), end: end.toISOString() };
   }
 
@@ -58,12 +59,10 @@ const DI = (function () {
     _initialised = true;
     load();
     _subscribeSSE();
-  }
-
-  function setWindow(w) {
-    _window = w;
-    document.querySelectorAll('.window-btn').forEach(b => b.classList.toggle('active', b.dataset.window === w));
-    load();
+    const rangeEl = document.getElementById('range');
+    if (rangeEl) {
+      rangeEl.addEventListener('change', load);
+    }
   }
 
   function _showLoadingSkeletons() {
@@ -902,7 +901,6 @@ function openInferenceDialog(id) {
   });
 }
 
-function diSetWindow(w) { DI.setWindow(w); }
 function diToggleChip(btn) {
   btn.classList.toggle('active');
   const chartDiv = document.getElementById('diBandsChart');

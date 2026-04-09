@@ -139,27 +139,74 @@ def _build_range_readings(start: str, end: str) -> list[NormalisedReading]:
     return readings
 
 
+_SENSOR_FIELDS = [
+    "tvoc_ppb", "eco2_ppm", "temperature_c", "humidity_pct",
+    "pm1_ug_m3", "pm25_ug_m3", "pm10_ug_m3", "co_ppb",
+    "no2_ppb", "nh3_ppb",
+]
+
+# DB column name → NormalisedReading / _ALL_CHANNELS field name
+_DB_COL_TO_FIELD = {
+    "tvoc": "tvoc_ppb", "eco2": "eco2_ppm", "temperature": "temperature_c",
+    "humidity": "humidity_pct", "pm1_0": "pm1_ug_m3", "pm2_5": "pm25_ug_m3",
+    "pm10": "pm10_ug_m3", "gas_co": "co_ppb", "gas_no2": "no2_ppb", "gas_nh3": "nh3_ppb",
+}
+
+
+def _compute_historical_baselines(start: str) -> dict[str, float | None]:
+    """Compute pre-event baseline for each sensor channel.
+
+    Queries the 60-minute window ending at `start` from `sensor_data`,
+    returns the median value per channel. Returns None for channels with
+    no data in that window.
+    """
+    try:
+        start_dt = _parse_utc_flexible(start)
+        window_end = start_dt
+        window_start = start_dt - timedelta(hours=1)
+    except (ValueError, TypeError):
+        return {f: None for f in _SENSOR_FIELDS}
+
+    baselines: dict[str, float | None] = {}
+    try:
+        db_path = _dbl.DB_FILE
+        con = sqlite3.connect(db_path)
+        con.row_factory = sqlite3.Row
+        cur = con.cursor()
+        cur.execute(
+            """
+            SELECT tvoc, eco2, temperature, humidity,
+                   pm1_0, pm2_5, pm10, gas_co, gas_no2, gas_nh3
+            FROM sensor_data
+            WHERE timestamp >= ? AND timestamp < ?
+            ORDER BY timestamp
+            """,
+            (window_start.strftime("%Y-%m-%d %H:%M:%S"),
+             window_end.strftime("%Y-%m-%d %H:%M:%S")),
+        )
+        rows = cur.fetchall()
+        con.close()
+    except Exception:
+        return {f: None for f in _SENSOR_FIELDS}
+
+    if not rows:
+        return {f: None for f in _SENSOR_FIELDS}
+
+    for db_col, field in _DB_COL_TO_FIELD.items():
+        vals = [r[db_col] for r in rows if r[db_col] is not None]
+        if vals:
+            vals.sort()
+            mid = len(vals) // 2
+            baselines[field] = (vals[mid] if len(vals) % 2 else (vals[mid - 1] + vals[mid]) / 2)
+        else:
+            baselines[field] = None
+
+    return baselines
+
+
 def _build_feature_vector(start: str, end: str) -> dict[str, object]:
     readings = _build_range_readings(start, end)
-    baselines: dict[str, float | None] = {}
-    engine = state.detection_engine
-    if engine and getattr(engine, '_anomaly_detector', None) is not None:
-        for field in [
-            "tvoc_ppb", "eco2_ppm", "temperature_c", "humidity_pct",
-            "pm1_ug_m3", "pm25_ug_m3", "pm10_ug_m3", "co_ppb",
-            "no2_ppb", "nh3_ppb",
-        ]:
-            try:
-                baselines[field] = engine._anomaly_detector.baseline(field)
-            except Exception:
-                baselines[field] = None
-    else:
-        for field in [
-            "tvoc_ppb", "eco2_ppm", "temperature_c", "humidity_pct",
-            "pm1_ug_m3", "pm25_ug_m3", "pm10_ug_m3", "co_ppb",
-            "no2_ppb", "nh3_ppb",
-        ]:
-            baselines[field] = None
+    baselines = _compute_historical_baselines(start)
     fv = FeatureExtractor().extract(readings, baselines)
     fv_dict = dataclasses.asdict(fv)
     # Convert datetime to ISO string for JSON serialization
@@ -219,7 +266,8 @@ def range_analysis():
         return jsonify({"error": "No detection engine available"}), 500
     try:
         fv_result = _build_feature_vector(start, end)
-        candidates = evaluator.evaluate(FeatureVector(**fv_result["feature_vector"])) if fv_result["feature_vector"] else []
+        fv_data = fv_result["feature_vector"]
+        candidates = evaluator.evaluate(FeatureVector(**fv_data)) if fv_data else []
         return jsonify({
             "start": start,
             "end": end,
@@ -375,12 +423,12 @@ def _pearson_r(xs: list, ys: list) -> float | None:
         return None
     sx = sum(p[0] for p in pairs)
     sy = sum(p[1] for p in pairs)
-    sxy = sum(p[0]*p[1] for p in pairs)
-    sx2 = sum(p[0]**2 for p in pairs)
-    sy2 = sum(p[1]**2 for p in pairs)
-    num = n*sxy - sx*sy
-    den = math.sqrt((n*sx2 - sx**2) * (n*sy2 - sy**2))
-    return num/den if den != 0 else None
+    sxy = sum(p[0] * p[1] for p in pairs)
+    sx2 = sum(p[0] ** 2 for p in pairs)
+    sy2 = sum(p[1] ** 2 for p in pairs)
+    num = n * sxy - sx * sy
+    den = math.sqrt((n * sx2 - sx ** 2) * (n * sy2 - sy ** 2))
+    return num / den if den != 0 else None
 
 
 _COMOVEMENT_PHRASES = {
