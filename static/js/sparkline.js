@@ -44,9 +44,21 @@ async function loadSparkline(inferenceId, inferenceAt) {
     chartDiv.style.display = 'block';
     var inferenceTime = new Date(data.inference_at).getTime();
     var traces = data.triggering_channels.map(function (ch) {
+      var raw = data.channels[ch] || [];
+      // Per-channel normalization to [0, 1] so that high-resistance channels
+      // (co_ppb, no2_ppb, nh3_ppb stored as ~350 kΩ) don't dwarf small-scale
+      // channels like tvoc_ppb (~12 k ppb) on the shared Y axis.
+      var nonNull = raw.filter(function (v) { return v !== null && v !== undefined; });
+      var yMin = nonNull.length ? Math.min.apply(null, nonNull) : 0;
+      var yMax = nonNull.length ? Math.max.apply(null, nonNull) : 1;
+      var range = yMax - yMin;
+      var yNorm = raw.map(function (v) {
+        if (v === null || v === undefined) return null;
+        return range === 0 ? 0.5 : (v - yMin) / range;
+      });
       return {
         x: data.timestamps.map(function (ts) { return (new Date(ts).getTime() - inferenceTime) / 60000; }),
-        y: data.channels[ch] || [],
+        y: yNorm,
         mode: 'lines', name: ch,
         line: { color: _CHANNEL_COLOURS[ch] || '#6b7280', width: 1.5 },
         hoverinfo: 'none',
@@ -56,7 +68,7 @@ async function loadSparkline(inferenceId, inferenceAt) {
       height: 180,
       margin: { l:10, r:10, t:5, b:30 },
       xaxis: { title: { text:'minutes', font:{size:10} }, tickfont:{size:9}, zeroline:false },
-      yaxis: { showticklabels:false, zeroline:false, autorange:true },
+      yaxis: { title: { text:'normalised', font:{size:10} }, showticklabels:false, zeroline:false, autorange:true },
       showlegend: true,
       legend: { font: { size: 8 }, x: 0, y: 1, bgcolor: 'rgba(0,0,0,0)' },
       shapes: [{

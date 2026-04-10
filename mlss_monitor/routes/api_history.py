@@ -95,6 +95,20 @@ def _normalise_iso_ts(ts: str) -> str:
         return ts
 
 
+def _get_field(row: dict, *keys) -> float | None:
+    """Return the first non-None value from row for any of the given keys.
+
+    Handles both sensor_data column names (e.g. 'tvoc') and hot_tier / API
+    column names (e.g. 'tvoc_ppb') so that _build_range_readings correctly
+    populates values from merged rows regardless of their origin.
+    """
+    for k in keys:
+        v = row.get(k)
+        if v is not None:
+            return v
+    return None
+
+
 def _rows_to_readings(rows: list[dict], source: str) -> list[NormalisedReading]:
     readings: list[NormalisedReading] = []
     for row in rows:
@@ -109,16 +123,17 @@ def _rows_to_readings(rows: list[dict], source: str) -> list[NormalisedReading]:
         readings.append(NormalisedReading(
             timestamp=timestamp,
             source=source,
-            tvoc_ppb=row.get("tvoc"),
-            eco2_ppm=row.get("eco2"),
-            temperature_c=row.get("temperature"),
-            humidity_pct=row.get("humidity"),
-            pm1_ug_m3=row.get("pm1_0"),
-            pm25_ug_m3=row.get("pm2_5"),
-            pm10_ug_m3=row.get("pm10"),
-            co_ppb=row.get("gas_co"),
-            no2_ppb=row.get("gas_no2"),
-            nh3_ppb=row.get("gas_nh3"),
+            # Accept both sensor_data col names and hot_tier / API col names.
+            tvoc_ppb=_get_field(row, "tvoc", "tvoc_ppb"),
+            eco2_ppm=_get_field(row, "eco2", "eco2_ppm"),
+            temperature_c=_get_field(row, "temperature", "temperature_c"),
+            humidity_pct=_get_field(row, "humidity", "humidity_pct"),
+            pm1_ug_m3=_get_field(row, "pm1_0", "pm1_ug_m3"),
+            pm25_ug_m3=_get_field(row, "pm2_5", "pm25_ug_m3"),
+            pm10_ug_m3=_get_field(row, "pm10", "pm10_ug_m3"),
+            co_ppb=_get_field(row, "gas_co", "co_ppb"),
+            no2_ppb=_get_field(row, "gas_no2", "no2_ppb"),
+            nh3_ppb=_get_field(row, "gas_nh3", "nh3_ppb"),
         ))
     return readings
 
@@ -468,20 +483,23 @@ def _invert_if_needed(values: list, channel: str) -> list:
     return [-v if v is not None else None for v in values]
 
 
-def _comovement_summary(sensor_rows: list[dict]) -> str:
+def _comovement_summary(readings: list[NormalisedReading]) -> str:
     """Return a plain-English description of which channel pairs moved together.
+
+    Accepts a list of NormalisedReading objects (from _build_range_readings so
+    that both sensor_data and hot_tier rows are included).
 
     Uses Pearson R on concentration-normalised values (resistance channels are
     inverted so a simultaneous spike reads as positive correlation).
     Threshold 0.65 — lower than the old 0.7 to catch short rapid spikes where
     a few noisy points at the tail can reduce R slightly below 0.7.
     """
-    if len(sensor_rows) < 3:
+    if len(readings) < 3:
         return ""
     ch_data: dict = {ch: [] for ch in _ALL_CHANNELS}
-    for row in sensor_rows:
-        for db_col, api_key in _DB_TO_API.items():
-            ch_data[api_key].append(row.get(db_col))
+    for r in readings:
+        for ch in _ALL_CHANNELS:
+            ch_data[ch].append(getattr(r, ch, None))
     sentences = []
     for a, b, phrase in _COMOVEMENT_PAIRS:
         va = _invert_if_needed(ch_data.get(a, []), a)
@@ -507,7 +525,10 @@ def ml_context():
         if src:
             summary[src] = summary.get(src, 0) + 1
     dominant = max(summary, key=summary.get) if summary else None
-    sensor_rows = _query_sensor_data(_dbl.DB_FILE, start, end)
+    # Use _build_range_readings so that hot_tier (1-second resolution) rows are
+    # included — short selections (< 3 min) would otherwise return too few rows
+    # from sensor_data (1-min averages) to compute meaningful co-movement stats.
+    readings = _build_range_readings(start, end)
     enriched = []
     for inf in window:
         ev = inf.get("evidence") or {}
@@ -532,7 +553,7 @@ def ml_context():
         "dominant_source_sentence": (
             narrative_engine.generate_period_summary(window, [], dominant) if window else "No events detected."
         ),
-        "comovement_summary": _comovement_summary(sensor_rows),
+        "comovement_summary": _comovement_summary(readings),
     })
 
 
