@@ -5,10 +5,25 @@ from datetime import datetime, timedelta
 
 from config import config
 
+
+class _SafeJSONEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        return super().default(obj)
+
 DB_FILE = config.get("DB_FILE", "data/sensor_data.db")
 
 
-def _normalise_ts(ts: str | None) -> str | None:
+def _deep_to_str(obj):
+    """Recursively convert datetime objects in a nested structure to ISO strings."""
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    if isinstance(obj, dict):
+        return {k: _deep_to_str(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_deep_to_str(item) for item in obj]
+    return obj
     """Convert 'YYYY-MM-DD HH:MM:SS' or 'YYYY-MM-DDTHH:MM:SS.ffffff'
     → 'YYYY-MM-DDTHH:MM:SS[.ffffff]Z' (UTC ISO 8601 with Z suffix).
     No-ops if ts is already normalised or is None.
@@ -391,7 +406,7 @@ def save_inference(event_type, severity, title, description, action,
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         datetime.utcnow().isoformat(), event_type, severity, title,
-        description, action, json.dumps(evidence) if evidence else None,
+        description, action, json.dumps(_deep_to_str(evidence), cls=_SafeJSONEncoder) if evidence else None,
         confidence, start_id, end_id, annotation,
     ))
     inf_id = cur.lastrowid
