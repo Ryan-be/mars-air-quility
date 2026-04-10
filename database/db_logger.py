@@ -36,16 +36,6 @@ def _deep_to_str(obj):
     if isinstance(obj, (list, tuple)):
         return [_deep_to_str(item) for item in obj]
     return obj
-    """Convert 'YYYY-MM-DD HH:MM:SS' or 'YYYY-MM-DDTHH:MM:SS.ffffff'
-    → 'YYYY-MM-DDTHH:MM:SS[.ffffff]Z' (UTC ISO 8601 with Z suffix).
-    No-ops if ts is already normalised or is None.
-    """
-    if ts is None:
-        return None
-    if ts.endswith("Z"):
-        return ts
-    # Handle both "YYYY-MM-DD HH:MM:SS" and "YYYY-MM-DDTHH:MM:SS.ffffff"
-    return ts.replace(" ", "T") + "Z"
 
 
 # ---------------------------------------------------------------------------
