@@ -240,7 +240,7 @@ def sparkline(inference_id):
     # 3. Rule-based or ML anomaly events → _RULE_CHANNEL_MAP.
     # 4. Snapshot fallback → channels listed in evidence.sensor_snapshot.
     # 5. Last resort → all channels.
-    _ATTRIBUTION_TYPES = {"attribution", "fingerprint_match"}
+    _ATTRIBUTION_TYPES = {"attribution", "fingerprint_match", "ml_learned"}
 
     is_ml_anomaly = event_type.startswith("anomaly_")
 
