@@ -278,9 +278,9 @@ class AttributionEngine:
             log.warning("AttributionEngine: evaluation error: %s", exc)
 
     def _fp_by_label(self, label: str):
-        """Return the Fingerprint whose label matches `label`, or None."""
+        """Return the Fingerprint whose id (fingerprint label) matches `label`, or None."""
         for fp in self._fingerprints:
-            if fp.label == label:
+            if fp.id == label:
                 return fp
         return None
 

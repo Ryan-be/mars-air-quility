@@ -126,7 +126,10 @@ class DetectionEngine:
             return
         if not ml_lbl or ml_cnf < self._ML_STANDALONE_THRESHOLD:
             return
-        event_type = f"ml_learned_{ml_lbl.replace(' ', '_').lower()}"
+        fp = self._attribution_engine._fp_by_label(ml_lbl)
+        if fp is None:
+            return
+        event_type = f"ml_learned_{fp.id}"
         if event_type in fired:
             return
         if get_recent_inference_by_type(event_type, hours=self._ML_STANDALONE_DEDUPE_HOURS):
@@ -142,7 +145,7 @@ class DetectionEngine:
                 save_inference(
                     event_type=event_type,
                     severity="warning",
-                    title=f"Learned pattern detected: {ml_lbl} ({ml_cnf:.0%} confidence)",
+                    title=f"Learned pattern detected: {fp.label} ({ml_cnf:.0%} confidence)",
                     description=(
                         f"This event was detected by the ML model trained on your "
                         f"user-applied tags. The classifier is {ml_cnf:.0%} confident "
@@ -545,25 +548,27 @@ class DetectionEngine:
             try:
                 ml_lbl, ml_cnf = self._attribution_engine.ml_score(fv)
                 if ml_lbl and ml_cnf >= self._ML_STANDALONE_THRESHOLD:
-                    event_type = f"ml_learned_{ml_lbl.replace(' ', '_').lower()}"
-                    results.append({
-                        "event_type": event_type,
-                        "severity": "warning",
-                        "title": f"Learned pattern: {ml_lbl} ({ml_cnf:.0%} confidence)",
-                        "description": (
-                            f"Detected by the ML model trained on your user-applied tags. "
-                            f"The classifier is {ml_cnf:.0%} confident this matches {ml_lbl}."
-                        ),
-                        "action": "Tag this event to confirm or correct the prediction.",
-                        "evidence": {
-                            "feature_vector": dataclasses.asdict(fv),
-                            "attribution_source": ml_lbl,
-                            "attribution_confidence": round(ml_cnf, 3),
+                    fp = self._attribution_engine._fp_by_label(ml_lbl)
+                    if fp is not None:
+                        event_type = f"ml_learned_{fp.id}"
+                        results.append({
+                            "event_type": event_type,
+                            "severity": "warning",
+                            "title": f"Learned pattern: {fp.label} ({ml_cnf:.0%} confidence)",
+                            "description": (
+                                f"Detected by the ML model trained on your user-applied tags. "
+                                f"The classifier is {ml_cnf:.0%} confident this matches {fp.label}."
+                            ),
+                            "action": "Tag this event to confirm or correct the prediction.",
+                            "evidence": {
+                                "feature_vector": dataclasses.asdict(fv),
+                                "attribution_source": fp.id,
+                                "attribution_confidence": round(ml_cnf, 3),
+                                "detection_method": "ml_learned",
+                            },
+                            "confidence": round(ml_cnf, 2),
                             "detection_method": "ml_learned",
-                        },
-                        "confidence": round(ml_cnf, 2),
-                        "detection_method": "ml_learned",
-                    })
+                        })
             except Exception:
                 pass
 
