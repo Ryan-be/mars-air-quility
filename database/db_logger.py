@@ -7,10 +7,10 @@ from config import config
 
 
 class _SafeJSONEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, datetime):
-            return obj.isoformat()
-        return super().default(obj)
+    def default(self, o):  # pylint: disable=arguments-renamed
+        if isinstance(o, datetime):
+            return o.isoformat()
+        return super().default(o)
 
 DB_FILE = config.get("DB_FILE", "data/sensor_data.db")
 
@@ -63,7 +63,7 @@ def compute_detection_method(event_type: str) -> str:
     'statistical' — per-channel River anomaly detector
     'rule'        — deterministic YAML threshold rule (default)
     """
-    if event_type in _ML_EVENT_TYPES:
+    if event_type in _ML_EVENT_TYPES or event_type.startswith("ml_learned_"):
         return "ml"
     if event_type.startswith("anomaly_"):
         suffix = event_type[len("anomaly_"):]
