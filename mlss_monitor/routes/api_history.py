@@ -431,21 +431,51 @@ def _pearson_r(xs: list, ys: list) -> float | None:
     return num / den if den != 0 else None
 
 
-_COMOVEMENT_PHRASES = {
-    ("tvoc_ppb", "eco2_ppm"): "TVOC and CO₂ (estimated) rose together — consistent with indoor air pollutant build-up.",
-    ("tvoc_ppb", "pm25_ug_m3"): "TVOC and PM2.5 moved together — may indicate combustion or cooking.",
-    ("co_ppb", "no2_ppb"): "CO and NO2 resistance moved together — typical of a combustion event.",
-    ("humidity_pct", "temperature_c"): "Temperature and humidity changed together — check ventilation or HVAC.",
-    ("pm1_ug_m3", "pm25_ug_m3"): "PM1 and PM2.5 tracked closely — consistent with fine particle sources.",
-}
 _CHANNEL_LABELS = {
     "tvoc_ppb": "TVOC", "eco2_ppm": "CO₂ (estimated)", "temperature_c": "Temperature", "humidity_pct": "Humidity",
     "pm1_ug_m3": "PM1", "pm25_ug_m3": "PM2.5", "pm10_ug_m3": "PM10",
     "co_ppb": "CO (resistance)", "no2_ppb": "NO2 (resistance)", "nh3_ppb": "NH3 (resistance)",
 }
 
+# Channels whose raw DB values are resistance (kΩ) — higher resistance = lower concentration.
+# We invert these before computing Pearson so that a simultaneous concentration spike
+# (resistance drops together) produces a positive correlation with other rising channels.
+_INVERTED_CHANNELS = {"co_ppb", "no2_ppb", "nh3_ppb"}
+
+# All meaningful pairs to check for co-movement.
+# Tuple: (channel_a, channel_b, description)
+_COMOVEMENT_PAIRS: list[tuple[str, str, str]] = [
+    ("tvoc_ppb",   "eco2_ppm",    "TVOC and eCO₂ rose together — shared indoor source (occupancy or VOC emission)."),
+    ("tvoc_ppb",   "pm25_ug_m3",  "TVOC and PM2.5 moved together — may indicate combustion or cooking."),
+    ("tvoc_ppb",   "co_ppb",      "TVOC and CO concentration rose together — aerosol, combustion or solvent."),
+    ("tvoc_ppb",   "nh3_ppb",     "TVOC and NH3 concentration rose together — consistent with aerosol spray or cleaning products."),
+    ("tvoc_ppb",   "no2_ppb",     "TVOC and NO2 concentration rose together — possible combustion signature."),
+    ("eco2_ppm",   "co_ppb",      "eCO₂ and CO concentration rose together — possible combustion or occupancy build-up."),
+    ("eco2_ppm",   "nh3_ppb",     "eCO₂ and NH3 concentration rose together — occupancy or biological off-gassing."),
+    ("co_ppb",     "no2_ppb",     "CO and NO2 concentration rose together — typical combustion event."),
+    ("co_ppb",     "nh3_ppb",     "CO and NH3 concentration rose together — aerosol spray or cleaning products."),
+    ("no2_ppb",    "nh3_ppb",     "NO2 and NH3 concentration rose together — mixed gas source detected."),
+    ("pm1_ug_m3",  "pm25_ug_m3",  "PM1 and PM2.5 tracked closely — fine particle source active."),
+    ("pm25_ug_m3", "pm10_ug_m3",  "PM2.5 and PM10 moved together — particle event spanning multiple size fractions."),
+    ("humidity_pct", "temperature_c", "Temperature and humidity changed together — ventilation or HVAC effect."),
+]
+
+
+def _invert_if_needed(values: list, channel: str) -> list:
+    """Invert resistance channels so concentration and other channels correlate positively."""
+    if channel not in _INVERTED_CHANNELS:
+        return values
+    return [-v if v is not None else None for v in values]
+
 
 def _comovement_summary(sensor_rows: list[dict]) -> str:
+    """Return a plain-English description of which channel pairs moved together.
+
+    Uses Pearson R on concentration-normalised values (resistance channels are
+    inverted so a simultaneous spike reads as positive correlation).
+    Threshold 0.65 — lower than the old 0.7 to catch short rapid spikes where
+    a few noisy points at the tail can reduce R slightly below 0.7.
+    """
     if len(sensor_rows) < 3:
         return ""
     ch_data: dict = {ch: [] for ch in _ALL_CHANNELS}
@@ -453,12 +483,13 @@ def _comovement_summary(sensor_rows: list[dict]) -> str:
         for db_col, api_key in _DB_TO_API.items():
             ch_data[api_key].append(row.get(db_col))
     sentences = []
-    for pair, phrase in _COMOVEMENT_PHRASES.items():
-        a, b = pair
-        r = _pearson_r(ch_data.get(a, []), ch_data.get(b, []))
-        if r is not None and abs(r) > 0.7:
+    for a, b, phrase in _COMOVEMENT_PAIRS:
+        va = _invert_if_needed(ch_data.get(a, []), a)
+        vb = _invert_if_needed(ch_data.get(b, []), b)
+        r = _pearson_r(va, vb)
+        if r is not None and r > 0.65:
             sentences.append(phrase)
-        if len(sentences) >= 3:
+        if len(sentences) >= 4:
             break
     return " ".join(sentences)
 
