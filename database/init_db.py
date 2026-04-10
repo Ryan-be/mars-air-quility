@@ -78,6 +78,7 @@ def create_db():
                 'anomaly_thermal_moisture'
             ) OR event_type LIKE 'annotation_context_%'
               OR event_type LIKE 'anomaly_%'
+              OR event_type LIKE 'ml_learned_%'
         ),
         severity TEXT NOT NULL DEFAULT 'info'
             CHECK(severity IN ('info', 'warning', 'critical')),

@@ -18,6 +18,10 @@ log = logging.getLogger(__name__)
 # If the runner-up confidence is within this delta of the primary, it is surfaced.
 _RUNNER_UP_DELTA = 0.15
 _READY_THRESHOLD = 5  # minimum tagged samples for a label to be "ready"
+# Minimum ML confidence to trust the classifier over fingerprint alone.
+_ML_CONFIDENCE_MIN = 0.5
+# Strong ML confidence — overrides fingerprint disagreement when classifier is very sure.
+_ML_OVERRIDE_CONFIDENCE = 0.7
 
 
 @dataclasses.dataclass
@@ -130,16 +134,26 @@ class AttributionEngine:
 
         # Get ML prediction
         ml_label, ml_conf = self._ml_predict(fv)
-        if ml_label and ml_conf > 0.5:  # Some threshold
-            # Hybrid: 0.6 fingerprint + 0.4 ML
+        if ml_label and ml_conf > _ML_CONFIDENCE_MIN:
             if best_fp.label == ml_label:
                 best_conf = 0.6 * best_conf + 0.4 * ml_conf
-            else:
-                # If disagree, lower confidence
-                best_conf = 0.6 * best_conf
+            elif ml_conf >= _ML_OVERRIDE_CONFIDENCE:
+                best_conf = ml_conf
+                best_fp = self._fp_by_label(ml_label)
+                if best_fp is None:
+                    best_conf = 0.0
 
         if best_conf < best_fp.confidence_floor:
-            return None
+            ml_lbl, ml_cnf = self.ml_score(fv)
+            if ml_lbl and ml_cnf > _ML_CONFIDENCE_MIN:
+                ml_fp = self._fp_by_label(ml_lbl)
+                if ml_fp is not None:
+                    best_conf = ml_cnf
+                    best_fp = ml_fp
+                else:
+                    return None
+            else:
+                return None
 
         # Runner-up
         runner_up_id = None
@@ -226,6 +240,32 @@ class AttributionEngine:
         except Exception as exc:
             log.warning("AttributionEngine: evaluation error: %s", exc)
 
+    def _fp_by_label(self, label: str):
+        """Return the Fingerprint whose label matches `label`, or None."""
+        for fp in self._fingerprints:
+            if fp.label == label:
+                return fp
+        return None
+
+    def ml_score(self, fv: FeatureVector):
+        """Return (label, confidence) from the classifier, or (None, 0.0) if not ready.
+
+        Returns None when the classifier has been trained on fewer than _READY_THRESHOLD
+        samples total, so callers can distinguish "no signal yet" from "model produced
+        a confident prediction".
+        """
+        total_samples = sum(
+            1 for fp in self._fingerprints
+            if self._tag_count_for_label(fp.id) >= _READY_THRESHOLD
+        )
+        if total_samples == 0:
+            return None, 0.0
+        return self._ml_predict(fv)
+
+    def _tag_count_for_label(self, tag: str) -> int:
+        """Count how many times `tag` appears in event_tags (from last train run cache)."""
+        return getattr(self, "_tag_count_cache", {}).get(tag, 0)
+
     def train_on_tags(self):
         """Train ML model on user-tagged events.
 
@@ -255,8 +295,14 @@ class AttributionEngine:
                 "AttributionEngine: found %d tagged inferences out of %d total",
                 len(tagged), len(rows),
             )
-            trained = 0
 
+            self._tag_count_cache: dict[str, int] = {}
+            for inf in tagged:
+                for t in inf.get("tags", []):
+                    tag = t["tag"]
+                    self._tag_count_cache[tag] = self._tag_count_cache.get(tag, 0) + 1
+
+            trained = 0
             for inf in tagged:
                 fv_features: dict | None = None
 

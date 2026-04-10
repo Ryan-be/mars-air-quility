@@ -71,13 +71,9 @@ def _state_matches(state: str, fv: FeatureVector, prefix: str):
             return True
         baseline = getattr(fv, f"{prefix}_baseline", None)
         if baseline is None:
-            # No baseline available — cannot confirm the sensor is absent.
-            # Return False so the criterion counts as evaluated-but-unmet: a
-            # fingerprint that requires "absent" should not score a match when
-            # the sensor is simply uncalibrated.
-            return False
+            return None
         if baseline == 0:
-            return current < 5  # absolute low threshold when baseline is zero
+            return current < 5
         return current < baseline * 0.9
 
     if state == "rising":

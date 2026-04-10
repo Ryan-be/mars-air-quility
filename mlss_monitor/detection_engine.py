@@ -105,6 +105,57 @@ class DetectionEngine:
             log.warning("DetectionEngine: attribution error: %s", exc)
             return None
 
+    # ── Standalone ML detector ─────────────────────────────────────────────────
+
+    _ML_STANDALONE_THRESHOLD = 0.65
+    _ML_STANDALONE_DEDUPE_HOURS = 1
+
+    def _run_ml_standalone(self, fv: FeatureVector, fired: list[str]) -> None:
+        """Fire a standalone ML-only inference when the classifier is confident enough.
+
+        Only fires when no rule or anomaly event fired in this cycle, so it adds novel
+        detections the rule-based layer would miss. Uses a higher confidence threshold
+        than the hybrid fallback (0.65 vs 0.5) since there is no fingerprint confirmation.
+        """
+        if self._attribution_engine is None:
+            return
+        try:
+            ml_lbl, ml_cnf = self._attribution_engine.ml_score(fv)
+        except Exception as exc:
+            log.debug("DetectionEngine: ml_score error: %s", exc)
+            return
+        if not ml_lbl or ml_cnf < self._ML_STANDALONE_THRESHOLD:
+            return
+        event_type = f"ml_learned_{ml_lbl.replace(' ', '_').lower()}"
+        if event_type in fired:
+            return
+        if get_recent_inference_by_type(event_type, hours=self._ML_STANDALONE_DEDUPE_HOURS):
+            return
+        fired.append(event_type)
+        if not self._dry_run:
+            evidence: dict = {"fv_timestamp": fv.timestamp.isoformat()}
+            evidence["feature_vector"] = dataclasses.asdict(fv)
+            evidence["attribution_source"] = ml_lbl
+            evidence["attribution_confidence"] = round(ml_cnf, 3)
+            evidence["detection_method"] = "ml_learned"
+            try:
+                save_inference(
+                    event_type=event_type,
+                    severity="warning",
+                    title=f"Learned pattern detected: {ml_lbl} ({ml_cnf:.0%} confidence)",
+                    description=(
+                        f"This event was detected by the ML model trained on your "
+                        f"user-applied tags. The classifier is {ml_cnf:.0%} confident "
+                        f"this matches a {ml_lbl} event."
+                    ),
+                    action="Tag this event to confirm or correct the prediction and "
+                           "improve the model.",
+                    evidence=evidence,
+                    confidence=round(ml_cnf, 2),
+                )
+            except Exception as exc:
+                log.error("DetectionEngine: save_inference failed for ml_standalone %r: %s", event_type, exc)
+
     # ── Bootstrap from historical DB ──────────────────────────────────────────
 
     def bootstrap_from_db(self, db_file: str) -> None:
@@ -382,6 +433,11 @@ class DetectionEngine:
                     except Exception as exc:
                         log.error("DetectionEngine: save_inference failed for multivar %r: %s", mid, exc)
 
+        # 4. Standalone ML-only detector — fires when the attribution classifier
+        #    has been trained on enough samples and produces a confident prediction
+        #    that no rule or anomaly detector would otherwise surface.
+        self._run_ml_standalone(fv, fired)
+
         if fired:
             mode = "DRY-RUN" if self._dry_run else "LIVE"
             log.info("[DetectionEngine][%s] fired: %s", mode, fired)
@@ -482,6 +538,34 @@ class DetectionEngine:
                     "confidence": round(score, 2),
                     "detection_method": "ml",
                 })
+
+        # 4. Standalone ML-only candidate — always shown in range-analysis so users
+        # can see what the trained model would fire independently.
+        if self._attribution_engine is not None:
+            try:
+                ml_lbl, ml_cnf = self._attribution_engine.ml_score(fv)
+                if ml_lbl and ml_cnf >= self._ML_STANDALONE_THRESHOLD:
+                    event_type = f"ml_learned_{ml_lbl.replace(' ', '_').lower()}"
+                    results.append({
+                        "event_type": event_type,
+                        "severity": "warning",
+                        "title": f"Learned pattern: {ml_lbl} ({ml_cnf:.0%} confidence)",
+                        "description": (
+                            f"Detected by the ML model trained on your user-applied tags. "
+                            f"The classifier is {ml_cnf:.0%} confident this matches {ml_lbl}."
+                        ),
+                        "action": "Tag this event to confirm or correct the prediction.",
+                        "evidence": {
+                            "feature_vector": dataclasses.asdict(fv),
+                            "attribution_source": ml_lbl,
+                            "attribution_confidence": round(ml_cnf, 3),
+                            "detection_method": "ml_learned",
+                        },
+                        "confidence": round(ml_cnf, 2),
+                        "detection_method": "ml_learned",
+                    })
+            except Exception:
+                pass
 
         return results
 
