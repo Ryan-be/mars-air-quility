@@ -15,6 +15,7 @@ class FeatureVector:
 
     # ── TVOC (ppb) ────────────────────────────────────────────────────────────
     tvoc_current:           float | None = None
+    tvoc_peak_value:        float | None = None
     tvoc_baseline:          float | None = None
     tvoc_slope_1m:          float | None = None  # ppb/min
     tvoc_slope_5m:          float | None = None
@@ -31,6 +32,7 @@ class FeatureVector:
 
     # ── eCO2 (ppm) ───────────────────────────────────────────────────────────
     eco2_current:           float | None = None
+    eco2_peak_value:        float | None = None
     eco2_baseline:          float | None = None
     eco2_slope_1m:          float | None = None
     eco2_slope_5m:          float | None = None
@@ -47,6 +49,7 @@ class FeatureVector:
 
     # ── Temperature (°C) ─────────────────────────────────────────────────────
     temperature_current:          float | None = None
+    temperature_peak_value:       float | None = None
     temperature_baseline:         float | None = None
     temperature_slope_1m:         float | None = None
     temperature_slope_5m:         float | None = None
@@ -63,6 +66,7 @@ class FeatureVector:
 
     # ── Humidity (%) ─────────────────────────────────────────────────────────
     humidity_current:           float | None = None
+    humidity_peak_value:        float | None = None
     humidity_baseline:          float | None = None
     humidity_slope_1m:          float | None = None
     humidity_slope_5m:          float | None = None
@@ -79,6 +83,7 @@ class FeatureVector:
 
     # ── PM1 (µg/m³) ──────────────────────────────────────────────────────────
     pm1_current:            float | None = None
+    pm1_peak_value:         float | None = None
     pm1_baseline:           float | None = None
     pm1_slope_1m:           float | None = None
     pm1_slope_5m:           float | None = None
@@ -95,6 +100,7 @@ class FeatureVector:
 
     # ── PM2.5 (µg/m³) ────────────────────────────────────────────────────────
     pm25_current:           float | None = None
+    pm25_peak_value:        float | None = None
     pm25_baseline:          float | None = None
     pm25_slope_1m:          float | None = None
     pm25_slope_5m:          float | None = None
@@ -111,6 +117,7 @@ class FeatureVector:
 
     # ── PM10 (µg/m³) ─────────────────────────────────────────────────────────
     pm10_current:           float | None = None
+    pm10_peak_value:        float | None = None
     pm10_baseline:          float | None = None
     pm10_slope_1m:          float | None = None
     pm10_slope_5m:          float | None = None
@@ -127,6 +134,7 @@ class FeatureVector:
 
     # ── CO (ppb) ─────────────────────────────────────────────────────────────
     co_current:           float | None = None
+    co_peak_value:        float | None = None
     co_baseline:          float | None = None
     co_slope_1m:          float | None = None
     co_slope_5m:          float | None = None
@@ -143,6 +151,7 @@ class FeatureVector:
 
     # ── NO2 (ppb) ────────────────────────────────────────────────────────────
     no2_current:           float | None = None
+    no2_peak_value:        float | None = None
     no2_baseline:          float | None = None
     no2_slope_1m:          float | None = None
     no2_slope_5m:          float | None = None
@@ -159,6 +168,7 @@ class FeatureVector:
 
     # ── NH3 (ppb) ────────────────────────────────────────────────────────────
     nh3_current:           float | None = None
+    nh3_peak_value:        float | None = None
     nh3_baseline:          float | None = None
     nh3_slope_1m:          float | None = None
     nh3_slope_5m:          float | None = None

@@ -123,6 +123,14 @@ def sparkline(inference_id):
         "anomaly_co":          ["co_ppb"],
         "anomaly_no2":         ["no2_ppb"],
         "anomaly_nh3":         ["nh3_ppb"],
+        # Composite multivariate anomaly events
+        "anomaly_combustion_signature":   ["tvoc_ppb", "co_ppb", "no2_ppb", "pm25_ug_m3"],
+        "anomaly_particle_distribution":  ["pm1_ug_m3", "pm25_ug_m3", "pm10_ug_m3"],
+        "anomaly_ventilation_quality":    ["eco2_ppm", "tvoc_ppb", "nh3_ppb"],
+        "anomaly_gas_relationship":       ["co_ppb", "no2_ppb", "nh3_ppb"],
+        "anomaly_thermal_moisture":       ["temperature_c", "humidity_pct"],
+        # User-tagged range events – show full gas profile
+        "annotation_context_user_range":  ["tvoc_ppb", "eco2_ppm", "pm25_ug_m3", "nh3_ppb", "co_ppb", "no2_ppb"],
     }
 
     inf = get_inference_by_id(inference_id)
@@ -196,6 +204,21 @@ def sparkline(inference_id):
             evidence = _json.loads(evidence)
         except Exception:
             evidence = {}
+
+    # For user-tagged range events, center on the actual event window
+    # instead of created_at (which is when the user clicked "tag").
+    range_start = evidence.get("range_start")
+    range_end = evidence.get("range_end")
+    if range_start and range_end:
+        try:
+            dt_start = datetime.fromisoformat(range_start.rstrip("Z")).replace(tzinfo=timezone.utc)
+            dt_end = datetime.fromisoformat(range_end.rstrip("Z")).replace(tzinfo=timezone.utc)
+            dt = dt_start + (dt_end - dt_start) / 2  # center of the tagged range
+            window_start = (dt - timedelta(minutes=20)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            window_end = (dt + timedelta(minutes=25)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            rows = _query_sensor_data(_dbl_mod.DB_FILE, window_start, window_end)
+        except Exception:
+            pass  # fall back to created_at-based window
 
     event_type = inf.get("event_type", "")
 

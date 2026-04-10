@@ -191,6 +191,8 @@ class AttributionEngine:
         try:
             # Get recent inferences with tags
             rows = get_inferences(limit=100, include_dismissed=False)
+            for row in rows:
+                row["tags"] = get_inference_tags(row["id"])
             tagged = [r for r in rows if r.get("tags")]
             if not tagged:
                 log.info("AttributionEngine: no tagged events to evaluate")
@@ -246,7 +248,13 @@ class AttributionEngine:
                 _bfv = None
 
             rows = get_inferences(limit=1000, include_dismissed=False)
+            for row in rows:
+                row["tags"] = get_inference_tags(row["id"])
             tagged = [r for r in rows if r.get("tags")]
+            log.info(
+                "AttributionEngine: found %d tagged inferences out of %d total",
+                len(tagged), len(rows),
+            )
             trained = 0
 
             for inf in tagged:
@@ -296,8 +304,13 @@ class AttributionEngine:
 
             if trained:
                 log.info(
-                    "AttributionEngine: trained on %d tagged samples (re-extracted from raw data)",
-                    trained,
+                    "AttributionEngine: trained on %d samples from %d tagged inferences",
+                    trained, len(tagged),
+                )
+            else:
+                log.warning(
+                    "AttributionEngine: 0 usable training samples from %d tagged inferences",
+                    len(tagged),
                 )
             # Persist model to disk.
             try:

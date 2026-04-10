@@ -24,6 +24,12 @@ _SENSOR_MAP: tuple[tuple[str, str], ...] = (
 
 # ── Private helpers (pure functions) ─────────────────────────────────────────
 
+def _peak_value(readings: list[NormalisedReading], field: str) -> float | None:
+    """Return the maximum non-None value for *field* across all readings."""
+    values = [getattr(r, field) for r in readings if getattr(r, field) is not None]
+    return max(values) if values else None
+
+
 def _current(readings: list[NormalisedReading], field: str) -> float | None:
     """Return the most recent non-None value for field."""
     for r in reversed(readings):
@@ -181,10 +187,11 @@ def _sensor_features(
     prefix: str,
     baseline: float | None,
 ) -> dict:
-    """Compute all 14 per-sensor features for one sensor channel.
+    """Compute all 15 per-sensor features for one sensor channel.
 
     Returns a dict keyed by FeatureVector field names.
     """
+    peak_val = _peak_value(readings, field)
     current = _current(readings, field)
     slope_1m = _slope(readings, field, window_seconds=60)
     slope_5m = _slope(readings, field, window_seconds=300)
@@ -201,6 +208,7 @@ def _sensor_features(
 
     return {
         f"{prefix}_current":           current,
+        f"{prefix}_peak_value":        peak_val,
         f"{prefix}_baseline":          baseline,
         f"{prefix}_slope_1m":          slope_1m,
         f"{prefix}_slope_5m":          slope_5m,
