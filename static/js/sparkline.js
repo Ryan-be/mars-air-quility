@@ -31,6 +31,16 @@ async function loadSparkline(inferenceId, inferenceAt) {
       error.style.display = 'block';
       return;
     }
+    // Guard: if every value across all channels is null, the sensor was offline —
+    // show the error panel rather than an empty plot.
+    var allNull = data.triggering_channels.every(function (ch) {
+      var vals = data.channels[ch] || [];
+      return vals.every(function (v) { return v === null || v === undefined; });
+    });
+    if (allNull) {
+      error.style.display = 'block';
+      return;
+    }
     chartDiv.style.display = 'block';
     var inferenceTime = new Date(data.inference_at).getTime();
     var traces = data.triggering_channels.map(function (ch) {
@@ -47,7 +57,8 @@ async function loadSparkline(inferenceId, inferenceAt) {
       margin: { l:10, r:10, t:5, b:30 },
       xaxis: { title: { text:'minutes', font:{size:10} }, tickfont:{size:9}, zeroline:false },
       yaxis: { showticklabels:false, zeroline:false, autorange:true },
-      showlegend: false,
+      showlegend: true,
+      legend: { font: { size: 8 }, x: 0, y: 1, bgcolor: 'rgba(0,0,0,0)' },
       shapes: [{
         type:'line', x0:0, x1:0, y0:0, y1:1,
         xref:'x', yref:'paper',
@@ -61,6 +72,15 @@ async function loadSparkline(inferenceId, inferenceAt) {
       }],
       paper_bgcolor:'transparent', plot_bgcolor:'transparent',
     };
+    // For ML anomaly events draw a semi-transparent detection window around t=0.
+    if (data.is_ml_anomaly) {
+      layout.shapes.push({
+        type: 'rect', x0: -2, x1: 2, y0: 0, y1: 1,
+        xref: 'x', yref: 'paper',
+        fillcolor: 'rgba(239,68,68,0.10)', line: { width: 0 },
+        layer: 'below',
+      });
+    }
     Plotly.newPlot(chartDiv, traces, layout, { displayModeBar:false, responsive:true });
   } catch (e) {
     loading.style.display = 'none';

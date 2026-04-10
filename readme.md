@@ -553,19 +553,23 @@ The inference engine (`mlss_monitor/inference_engine.py`) continuously analyses 
 
 ### Detection methods
 
-Every inference carries a `detection_method` field that describes how it was generated:
+The system uses a 4-layer detection architecture. Every inference carries a `detection_method` field indicating which layer fired it:
 
-| Method | Description | When it fires |
-|---|---|---|
-| **Rule** | A fixed threshold was crossed | TVOC > 500 ppb, eCO2 > 1000 ppm, temperature outside 15-28 C, etc. Rules are declared in `config/rules.yaml` and evaluated with the `rule-engine` library. Instantaneous and deterministic. |
-| **Statistical** | A single sensor reading is unusually high for that specific sensor | The `AnomalyDetector` runs a per-channel [River `HalfSpaceTrees`](https://riverml.xyz/latest/api/anomaly/HalfSpaceTrees/) model. Each model learns continuously from the live stream and scores each new reading. Scores above the configured threshold (default 0.75) trigger an inference. Requires a cold-start window of ~1,440 readings per channel before it fires. |
-| **ML** | An unusual pattern across multiple sensors simultaneously | Five composite [River `HalfSpaceTrees`](https://riverml.xyz/latest/api/anomaly/HalfSpaceTrees/) models, each watching a different group of channels (combustion signature, particle distribution, ventilation quality, gas relationship, thermal-moisture). Catches correlated anomalies that no single threshold would catch. Requires ~500 readings per model for cold-start. |
+1. **Rule-based detection** — threshold rules declared in `config/rules.yaml` and evaluated by the `rule-engine` library. Fires immediately when a sensor crosses a threshold (e.g. TVOC > 500 ppb, eCO2 > 1000 ppm, temperature outside 15–28 °C). Low latency, high precision for known patterns.
 
-The dashboard displays a coloured chip (grey = Rule, blue = Statistical, purple = ML) on each inference card and in the detail dialog.
+2. **Deterministic fingerprint matching** — programmatic scoring against hand-crafted profiles in `config/fingerprints.yaml`. Each fingerprint defines expected sensor states (`elevated`/`high`/`absent`/`normal`) and temporal criteria (rise rate, decay rate, cross-sensor correlation). Attribution score = `sensor_score × 0.6 + temporal_score × 0.4`. Instantaneous and fully interpretable.
+
+3. **Statistical ML anomaly detection** — per-sensor [River `HalfSpaceTrees`](https://riverml.xyz/latest/api/anomaly/HalfSpaceTrees/) models (`AnomalyDetector`). Each model learns an individual channel's baseline via EMA and scores each new reading; scores above 0.75 trigger an inference. Requires ~1,440 readings per channel for cold-start. Detects unusual patterns in individual channels without labels.
+
+4. **Trained ML fingerprint classifier** — a River `LogisticRegression` pipeline trained on user-tagged events. Users tag inference events with fingerprint labels (e.g. `personal_care`, `cooking`) constrained to the vocabulary in `config/fingerprints.yaml`. The classifier trains on the full 143-field `FeatureVector` (see [FeatureVector](#featurevector)) and learns temporal features such as slopes, acceleration, peak timing, rise time and slope variance. The model is persisted to `data/classifier.pkl` after each training run and auto-loaded on startup.
+
+The dashboard displays a coloured chip (grey = Rule, teal = Fingerprint, blue = Statistical, purple = ML Classifier) on each inference card and in the detail dialog.
 
 ### Attribution engine
 
-After a detection fires, the attribution engine (`attribution_engine.py`) scores the event against known source fingerprints -- combinations of sensor patterns linked to real-world causes:
+After a detection fires, the attribution engine (`attribution_engine.py`) identifies the most likely real-world source using two complementary methods:
+
+**Deterministic fingerprint scoring** — each event is scored against profiles in `config/fingerprints.yaml`. Profiles define sensor states (`elevated`/`high`/`absent`/`normal`) and temporal criteria. Score = `sensor_score × 0.6 + temporal_score × 0.4`. Example sources:
 
 | Source | Key sensor signals |
 |---|---|
@@ -575,17 +579,19 @@ After a detection fires, the attribution engine (`attribution_engine.py`) scores
 | Biological off-gassing | Gradual TVOC rise, often overnight |
 | External pollution | PM2.5 elevated without indoor VOC or CO2 rise |
 
-The top-scoring source and a runner-up (if confidence is within 15%) are stored on the inference and shown in the dialog as a coloured attribution badge.
+**Trained ML classifier** — if a trained model exists (`data/classifier.pkl`), its confidence scores are blended with the fingerprint scores. The classifier is trained on user-tagged events and uses the full 143-field `FeatureVector`.
+
+The top-scoring source and a runner-up (if confidence is within 15%) are stored on the inference and shown in the dialog as a coloured attribution badge. Baselines for historical events are computed from the 60-minute pre-event median in the `sensor_data` table (not the live EMA).
 
 ### User tagging and incremental attribution training
 
-User-applied tags are stored in the `event_tags` table and linked to the originating inference. When a new tag is added, the attribution engine retrains its River `LogisticRegression` classifier from existing tagged feature vectors so the model can learn from user feedback. See `docs/tagging_design.md` for a simple flow description.
-
-This means:
+User-applied tags are stored in the `event_tags` table and linked to the originating inference. Tag names are constrained to the controlled vocabulary of fingerprint IDs defined in `config/fingerprints.yaml`. When a new tag is added, the attribution engine retrains its River `LogisticRegression` classifier from all existing tagged feature vectors. See `docs/tagging_design.md` for a flow description.
 
 - A tagged event must include a `feature_vector` in its evidence to be used as training data.
-- Tagging a historical range creates a `User-tagged event` inference with both raw readings and a derived feature vector.
-- The classifier is hybrid: fingerprint heuristics remain the primary signal, while River-based learning refines confidence for future attributions.
+- Tagging a historical range creates a `User-tagged event` inference with both raw readings and a derived feature vector. The feature vector baseline is computed from the 60-minute pre-event median from the `sensor_data` table (not the live EMA).
+- The classifier trains on all 143 fields of the `FeatureVector`, including temporal features (slopes, acceleration, peak timing, rise time, slope variance).
+- The trained model is saved to `data/classifier.pkl` after each training run and auto-loaded on startup.
+- Fingerprint heuristics remain the primary signal; the trained classifier refines confidence for future attributions.
 
 ### Configurable thresholds
 
@@ -595,33 +601,45 @@ All inference thresholds are stored in the `inference_thresholds` table and can 
 
 ## FeatureVector
 
-A `FeatureVector` is a structured snapshot of derived sensor metrics computed from a window of raw readings, used as input to all statistical and ML detectors.
+A `FeatureVector` is a structured snapshot of 143 derived sensor metrics computed from a window of raw readings, used as input to all statistical and ML detectors.
 
-### Key fields
+### Fields
+
+**Per-sensor fields (10 sensors × 14 fields = 140)**
+
+Each of the 10 sensor channels (`tvoc`, `eco2`, `temperature`, `humidity`, `pm1`, `pm25`, `pm10`, `co`, `no2`, `nh3`) has the following derived fields:
+
+| Suffix | Description |
+|---|---|
+| `_current` | Latest raw reading |
+| `_baseline` | EMA baseline updated continuously by the `AnomalyDetector` |
+| `_slope_1m` | Rate of change over the last 1 minute |
+| `_slope_5m` | Rate of change over the last 5 minutes |
+| `_slope_30m` | Rate of change over the last 30 minutes |
+| `_elevated_minutes` | Minutes the sensor has been above its elevated threshold |
+| `_peak_ratio` | Peak value in the window divided by baseline |
+| `_is_declining` | Boolean — reading is trending downward |
+| `_decay_rate` | Rate at which the reading is falling from peak |
+| `_pulse_detected` | Boolean — a short sharp spike was detected |
+| `_acceleration` | Second derivative of the reading (change in slope) |
+| `_peak_time_offset_s` | Seconds since the channel's peak within the analysis window |
+| `_rise_time_s` | Seconds from start of rise to peak |
+| `_slope_variance` | Variance of the 1-minute slopes within the window |
+
+**Cross-sensor and derived fields (3)**
 
 | Field | Description |
 |---|---|
-| `timestamp` | Centre of the analysis window |
-| `tvoc_ppb` | Current TVOC reading in parts per billion |
-| `eco2_ppm` | Current eCO2 in parts per million |
-| `temperature_c` | Current temperature in Celsius |
-| `humidity_pct` | Relative humidity percentage |
-| `pm1_ug_m3` / `pm25_ug_m3` / `pm10_ug_m3` | Particulate fractions in µg/m³ |
-| `co_ppb` / `no2_ppb` / `nh3_ppb` | MICS6814 gas sensor resistance values in kΩ (lower resistance = higher gas concentration) |
-| `tvoc_current` / `eco2_current` / … | Aliased names used inside the detection rules (same values, different names) |
-| `tvoc_baseline` / `eco2_baseline` | EMA baseline — exponentially weighted average over recent history, updated continuously by the `AnomalyDetector` |
-| `tvoc_ratio` / `eco2_ratio` | Current value divided by baseline (1.0 = at normal; 2.0 = twice normal) |
-| `tvoc_slope_1m` / `eco2_slope_1m` | Rate of change over the last 1 minute; used for trend arrows in inference cards |
-| `tvoc_slope_5m` / `eco2_slope_5m` | Rate of change over the last 5 minutes; used by attribution engine |
 | `pearson_tvoc_eco2` | Pearson r between TVOC and eCO2 over the analysis window |
+| `pm_ratio_25_10` | PM2.5 / PM10 ratio (combustion signature indicator) |
 | `vpd_kpa` | Vapour pressure deficit derived from temperature and humidity |
 
 ### How it is computed
 
 1. The `FeatureExtractor` fetches the last N readings (configurable; default 30 minutes).
-2. It computes rolling baselines from the last 24 hours of data.
-3. Ratios and trends are derived in-process -- no external calls.
-4. The resulting `FeatureVector` is passed to each registered detector in turn.
+2. Rolling baselines use the live EMA maintained by the `AnomalyDetector`. For historical event tagging, baselines are computed from the 60-minute pre-event median in the `sensor_data` table.
+3. Temporal features (slopes, acceleration, rise time, peak timing, slope variance) are derived in-process — no external calls.
+4. The resulting `FeatureVector` is passed to each registered detector and to the attribution engine.
 
 See `mlss_monitor/feature_vector.py` and the spec at `docs/superpowers/specs/2026-03-31-smart-inference-engine-design.md`.
 
@@ -645,19 +663,21 @@ HotTier (in-memory deque, 60 min, persisted to SQLite for restarts)
 FeatureExtractor
   │  computes baselines, ratios, slopes, Pearson correlations
   ▼
-FeatureVector
+FeatureVector (143 fields)
   │
-  ├──► Rule engine (rule-engine + config/rules.yaml) ──┐
-  ├──► AnomalyDetector (River HalfSpaceTrees,        ──┤──► DetectionEngine
-  │      one model per channel)                        │
-  └──► MultivarAnomalyDetector (River HalfSpaceTrees,──┘       │
-         5 composite models)                                     │
-                                                     ▼                          │
-                                               AttributionEngine                │
-                                                     │  fingerprint scoring     │
-                                                     ▼                          │
-                                               Inference record                 │
-                                                 (saved to inferences table) ───┘
+  ├──► [Layer 1] Rule engine (rule-engine + config/rules.yaml)    ──┐
+  ├──► [Layer 2] FingerprintMatcher (config/fingerprints.yaml,    ──┤──► DetectionEngine
+  │               sensor_score×0.6 + temporal_score×0.4)           │
+  ├──► [Layer 3] AnomalyDetector (River HalfSpaceTrees,          ──┤
+  │               one model per channel, EMA baseline)             │
+  └──► [Layer 4] FingerprintClassifier (River LogisticRegression, ──┘       │
+                  trained on user-tagged events, data/classifier.pkl)         │
+                                                                   ▼          │
+                                               AttributionEngine              │
+                                                 │  fingerprint + classifier  │
+                                                 ▼                            │
+                                               Inference record               │
+                                                 (saved to inferences table) ─┘
                                                      │
                                                      ▼
                                                EventBus.publish('inference_fired')

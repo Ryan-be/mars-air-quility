@@ -46,9 +46,20 @@ const DI = (function () {
   function _corrColours() { return (typeof CORR_COLOURS !== 'undefined') ? CORR_COLOURS : {}; }
   function _corrLabels()  { return (typeof CORR_LABELS  !== 'undefined') ? CORR_LABELS  : {}; }
 
-  function _range() {
+  /** Parse the global #range selector value into fractional hours. */
+  function _rangeHours() {
     const sel = document.getElementById('range');
-    const hours = sel ? parseInt(sel.value, 10) : 24;
+    if (!sel) return 24;
+    const v = sel.value;
+    if (v === 'all') return 365 * 24;
+    if (v.endsWith('m')) return parseInt(v, 10) / 60;
+    if (v.endsWith('h')) return parseInt(v, 10);
+    if (v.endsWith('d')) return parseInt(v, 10) * 24;
+    return parseFloat(v) || 24;
+  }
+
+  function _range() {
+    const hours = _rangeHours();
     const end = new Date();
     const start = new Date(end.getTime() - hours * 3600000);
     return { start: start.toISOString(), end: end.toISOString() };
@@ -139,7 +150,7 @@ const DI = (function () {
     const el = document.getElementById('diLongestClean');
     if (!el || _narratives.longest_clean_hours == null) return;
     const h = _narratives.longest_clean_hours;
-    const full = h >= (_windowMs() / 3600000 - 0.1);
+    const full = h >= (_rangeHours() - 0.1);
     if (full) {
       el.textContent = 'No events detected — the entire period was clean.';
     } else {

@@ -22,10 +22,11 @@ def _parse_range(range_param):
         "6h":  timedelta(hours=6),
         "12h": timedelta(hours=12),
         "24h": timedelta(hours=24),
+        "14d": timedelta(days=14),
     }
-    since = now - range_map.get(range_param, timedelta.max)
+    since = now - range_map.get(range_param, timedelta(days=14))
     if range_param not in range_map:
-        since = datetime.min
+        since = now - timedelta(days=14)
     return since, now
 
 

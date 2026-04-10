@@ -409,3 +409,16 @@ def classifier_stats():
     if not engine or not engine._attribution_engine:
         return jsonify({"total_samples": 0, "tag_stats": []})
     return jsonify(engine._attribution_engine.classifier_stats())
+
+
+@api_insights_bp.route("/api/classifier/retrain", methods=["POST"])
+@require_role("admin")
+def retrain_classifier():
+    engine = state.detection_engine
+    if not engine or not engine._attribution_engine:
+        return jsonify({"error": "attribution engine not available"}), 503
+    try:
+        engine._attribution_engine.train_on_tags()
+        return jsonify({"ok": True, "message": "Classifier retrained successfully."})
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        return jsonify({"error": str(exc)}), 500

@@ -837,6 +837,10 @@
               <tr><td colspan="4" style="color:var(--text-muted,#6b7280)">Loading…</td></tr>
             </tbody>
           </table>
+          <div style="margin-top:10px; display:flex; align-items:center; gap:10px;">
+            <button class="btn btn-sm" id="classifierRetrainBtn" onclick="retrainClassifier()">🔄 Retrain Classifier</button>
+            <span id="classifierRetrainStatus" style="font-size:0.8rem; color:var(--text-muted,#6b7280);"></span>
+          </div>
         </div>`;
 
       // Wire up dry-run toggle
@@ -909,6 +913,33 @@
         const data = await res.json();
         renderClassifierTable(data);
       } catch (_) {}
+    }
+
+    async function retrainClassifier() {
+      const btn = document.getElementById('classifierRetrainBtn');
+      const status = document.getElementById('classifierRetrainStatus');
+      if (!btn) return;
+      btn.disabled = true;
+      btn.textContent = '⏳ Retraining…';
+      status.textContent = '';
+      try {
+        const res = await fetch('/api/classifier/retrain', { method: 'POST' });
+        const d = await res.json();
+        if (res.ok) {
+          status.textContent = d.message || 'Done.';
+          status.style.color = '#22c55e';
+          loadClassifierStats(); // refresh table
+        } else {
+          status.textContent = d.error || 'Failed.';
+          status.style.color = '#ef4444';
+        }
+      } catch (e) {
+        status.textContent = 'Network error.';
+        status.style.color = '#ef4444';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '🔄 Retrain Classifier';
+      }
     }
 
     function renderClassifierTable(data) {
