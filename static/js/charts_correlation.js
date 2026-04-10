@@ -220,7 +220,14 @@ function _renderBrushChart(data, overlayShapes, hoverTrace) {
     margin: { t: 64, b: 55, l: 55, r: 55 },
     title: { text: "Selected channels over time — drag to select a window", font: { ...titleFont, size: 12 }, x: 0.5, xanchor: "center" },
     legend: { orientation: "h", x: 0.5, xanchor: "center", y: 1.18, font: { size: 10 }, bgcolor: "rgba(0,0,0,0)" },
-    xaxis: { type: "date", domain: [0, 0.94] },
+    xaxis: {
+      type: "date",
+      domain: [0, 0.94],
+      // Pin to the actual data range so overlay shapes at other timestamps
+      // cannot cause Plotly's autorange to expand the axis beyond the data.
+      range: ts.length >= 2 ? [ts[0], ts[ts.length - 1]] : undefined,
+      autorange: ts.length < 2,
+    },
     yaxis: { title: "Relative movement (scaled 0–1)", side: "left", showgrid: false, titlefont: { size: 10 }, tickfont: { size: 9 } },
     dragmode: "zoom",
   });

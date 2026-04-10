@@ -225,33 +225,88 @@ class AttributionEngine:
             log.warning("AttributionEngine: evaluation error: %s", exc)
 
     def train_on_tags(self):
-        """Train ML model on tagged events."""
+        """Train ML model on user-tagged events.
+
+        Feature vectors are always re-extracted from raw sensor data so that
+        improvements to FeatureExtractor (new fields, changed algorithms) are
+        automatically incorporated on every retrain. Falls back to the stored
+        feature_vector when raw data is unavailable (e.g. older than retention).
+        """
         try:
+            # pylint: disable=import-outside-toplevel
+            from datetime import datetime, timedelta, timezone
+
+            # Reset model so repeated retrains don't accumulate duplicate samples.
+            self._ml_model = preprocessing.StandardScaler() | linear_model.LogisticRegression()
+
+            # Lazy import to avoid circular dependency; fails gracefully.
+            try:
+                from mlss_monitor.routes.api_history import _build_feature_vector as _bfv
+            except Exception:  # pylint: disable=broad-exception-caught
+                _bfv = None
+
             rows = get_inferences(limit=1000, include_dismissed=False)
             tagged = [r for r in rows if r.get("tags")]
             trained = 0
+
             for inf in tagged:
-                evidence = inf.get("evidence", {})
-                if not isinstance(evidence, dict):
+                fv_features: dict | None = None
+
+                # ── Try live re-extraction from raw sensor data ───────────────────
+                created_at = inf.get("created_at", "")
+                if _bfv and created_at:
+                    try:
+                        dt = datetime.fromisoformat(
+                            created_at.rstrip("Z")
+                        ).replace(tzinfo=timezone.utc)
+                        win_start = (dt - timedelta(minutes=30)).isoformat()
+                        win_end   = (dt + timedelta(minutes=15)).isoformat()
+                        result    = _bfv(win_start, win_end)
+                        fv_dict   = result.get("feature_vector") or {}
+                        if fv_dict:
+                            fv_features = {
+                                k: v for k, v in fv_dict.items()
+                                if k != "timestamp" and v is not None
+                            }
+                    except Exception as exc:  # pylint: disable=broad-exception-caught
+                        log.debug(
+                            "AttributionEngine: backfill extraction failed for %s: %s",
+                            created_at, exc,
+                        )
+
+                # ── Fall back to stored evidence blob ────────────────────────────
+                if not fv_features:
+                    evidence = inf.get("evidence", {})
+                    if not isinstance(evidence, dict):
+                        continue
+                    fv_dict = evidence.get("feature_vector") or {}
+                    if not fv_dict:
+                        continue
+                    fv_features = {
+                        k: v for k, v in fv_dict.items()
+                        if k != "timestamp" and v is not None
+                    }
+
+                if not fv_features:
                     continue
-                fv_dict = evidence.get("feature_vector")
-                if not fv_dict:
-                    continue
-                # Use FV fields as features, tag as target
-                features = {k: v for k, v in fv_dict.items() if k != "timestamp" and v is not None}
+
                 for tag in inf["tags"]:
-                    self._ml_model.learn_one(features, tag["tag"])
+                    self._ml_model.learn_one(fv_features, tag["tag"])
                     trained += 1
+
             if trained:
-                log.info("AttributionEngine: trained on %d tagged samples", trained)
-            # Persist model to disk so restarts don't lose learned state.
+                log.info(
+                    "AttributionEngine: trained on %d tagged samples (re-extracted from raw data)",
+                    trained,
+                )
+            # Persist model to disk.
             try:
                 with open(self._pkl_path, "wb") as fh:
                     pickle.dump(self._ml_model, fh)
                 log.info("AttributionEngine: classifier saved to disk")
-            except Exception as exc:
+            except Exception as exc:  # pylint: disable=broad-exception-caught
                 log.warning("AttributionEngine: could not save classifier: %s", exc)
-        except Exception as exc:
+        except Exception as exc:  # pylint: disable=broad-exception-caught
             log.warning("AttributionEngine: training error: %s", exc)
 
     def classifier_stats(self) -> dict:
