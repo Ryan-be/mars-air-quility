@@ -18,6 +18,43 @@ log = logging.getLogger(__name__)
 # If the runner-up confidence is within this delta of the primary, it is surfaced.
 _RUNNER_UP_DELTA = 0.15
 _READY_THRESHOLD = 5  # minimum tagged samples for a label to be "ready"
+
+
+class _StringLabelClassifier:
+    """Wraps a River classifier to accept string labels for training and prediction.
+
+    River's LogisticRegression calls int(y_true) in gradient computation, so
+    string labels must be encoded as integers. This wrapper handles encoding on
+    learn_one and decoding on predict/predict_proba_one.
+    """
+
+    def __init__(self):
+        self._label_to_idx: dict[str, int] = {}
+        self._idx_to_label: dict[int, str] = {}
+        self._model = preprocessing.StandardScaler() | linear_model.LogisticRegression()
+
+    def _encode(self, label: str) -> int:
+        if label not in self._label_to_idx:
+            idx = len(self._label_to_idx)
+            self._label_to_idx[label] = idx
+            self._idx_to_label[idx] = label
+        return self._label_to_idx[label]
+
+    def _decode(self, idx: int) -> str:
+        return self._idx_to_label.get(idx, "")
+
+    def learn_one(self, features: dict, label: str) -> None:
+        self._model.learn_one(features, self._encode(label))
+
+    def predict_proba_one(self, features: dict) -> dict[str, float]:
+        raw = self._model.predict_proba_one(features)
+        if not raw:
+            return {}
+        return {self._decode(idx): prob for idx, prob in raw.items()}
+
+    def predict_one(self, features: dict) -> str:
+        idx = self._model.predict_one(features)
+        return self._decode(idx)
 # Minimum ML confidence to trust the classifier over fingerprint alone.
 _ML_CONFIDENCE_MIN = 0.5
 # Strong ML confidence — overrides fingerprint disagreement when classifier is very sure.
@@ -48,7 +85,7 @@ class AttributionEngine:
         # Ensure data directory exists for classifier persistence.
         (self._config_path.parent.parent / "data").mkdir(exist_ok=True)
         self._fingerprints: list[Fingerprint] = load_fingerprints(self._config_path)
-        self._ml_model = preprocessing.StandardScaler() | linear_model.LogisticRegression()
+        self._ml_model = _StringLabelClassifier()
         log.info(
             "AttributionEngine: loaded %d fingerprints from %s",
             len(self._fingerprints),
@@ -279,7 +316,7 @@ class AttributionEngine:
             from datetime import datetime, timedelta, timezone
 
             # Reset model so repeated retrains don't accumulate duplicate samples.
-            self._ml_model = preprocessing.StandardScaler() | linear_model.LogisticRegression()
+            self._ml_model = _StringLabelClassifier()
 
             # Lazy import to avoid circular dependency; fails gracefully.
             try:
