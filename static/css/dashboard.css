@@ -906,3 +906,14 @@ body.light .inf-fv-summary { color: #374151; }
 body.light .inf-fv-group-label { color: #374151; border-bottom-color: rgba(0, 0, 0, 0.1); }
 body.light .inf-fv-grid .inf-fv-key { color: #6b7280; }
 body.light .inf-fv-mono { color: #1e293b; }
+
+/* ── Sparkline container (must have explicit width for Plotly) ── */
+.sparkline-container {
+  width: 100%;
+  margin: 12px 0;
+  padding: 8px 0;
+}
+#infSparklineChart {
+  width: 100% !important;
+  height: 180px !important;
+}
