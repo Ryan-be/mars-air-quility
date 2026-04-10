@@ -15,6 +15,18 @@ class _SafeJSONEncoder(json.JSONEncoder):
 DB_FILE = config.get("DB_FILE", "data/sensor_data.db")
 
 
+def _normalise_ts(ts: str | None) -> str | None:
+    """Convert 'YYYY-MM-DD HH:MM:SS' or 'YYYY-MM-DDTHH:MM:SS.ffffff'
+    → 'YYYY-MM-DDTHH:MM:SS[.ffffff]Z' (UTC ISO 8601 with Z suffix).
+    No-ops if ts is already normalised or is None.
+    """
+    if ts is None:
+        return None
+    if ts.endswith("Z"):
+        return ts
+    return ts.replace(" ", "T") + "Z"
+
+
 def _deep_to_str(obj):
     """Recursively convert datetime objects in a nested structure to ISO strings."""
     if isinstance(obj, datetime):
