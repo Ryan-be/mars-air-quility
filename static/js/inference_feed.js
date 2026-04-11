@@ -75,7 +75,11 @@ export function createInferenceFeed({
   function _renderFeed() {
     const feed    = document.getElementById(feedId);
     const countEl = document.getElementById(countId);
-    if (!feed) return;
+    if (!feed) {
+      console.warn('[inference_feed] feed container not found:', feedId);
+      return;
+    }
+    console.log('[inference_feed] _renderFeed, _inferences=', _inferences.length, 'activeCategory=', _activeCategory);
     if (!_catsLoaded) _loadCategories();
 
     let filtered = _inferences;
@@ -114,11 +118,19 @@ export function createInferenceFeed({
   async function _loadCategories() {
     if (_catsLoaded) return;
     const bar = document.getElementById(filtersId);
-    if (!bar) return;
+    if (!bar) {
+      console.warn('[inference_feed] filter bar not found:', filtersId);
+      return;
+    }
     try {
       const res = await fetch('/api/inferences/categories');
-      if (!res.ok) return;
+      console.log('[inference_feed] categories status:', res.status);
+      if (!res.ok) {
+        console.error('[inference_feed] categories fetch failed with status', res.status);
+        return;
+      }
       const cats = await res.json();
+      console.log('[inference_feed] categories loaded:', Object.keys(cats));
       for (const [key, label] of Object.entries(cats)) {
         const btn = document.createElement('button');
         btn.className = 'inf-filter';
@@ -140,7 +152,9 @@ export function createInferenceFeed({
         _renderFeed();
       });
       _catsLoaded = true;
-    } catch { /* categories not available */ }
+    } catch (err) {
+      console.error('[inference_feed] _loadCategories failed:', err);
+    }
   }
 
   async function fetch(url = '/api/inferences?limit=50') {
@@ -155,7 +169,11 @@ export function createInferenceFeed({
 
   function setInferences(rows) {
     _inferences = rows;
-    if (!_catsLoaded) _loadCategories();
+    console.log('[inference_feed] setInferences called with', rows.length, 'rows');
+    if (!_catsLoaded) {
+      console.log('[inference_feed] categories not yet loaded, triggering _loadCategories');
+      _loadCategories();
+    }
     _renderFeed();
   }
 
