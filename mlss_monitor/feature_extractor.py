@@ -24,6 +24,12 @@ _SENSOR_MAP: tuple[tuple[str, str], ...] = (
 
 # ── Private helpers (pure functions) ─────────────────────────────────────────
 
+def _peak_value(readings: list[NormalisedReading], field: str) -> float | None:
+    """Return the maximum non-None value for *field* across all readings."""
+    values = [getattr(r, field) for r in readings if getattr(r, field) is not None]
+    return max(values) if values else None
+
+
 def _current(readings: list[NormalisedReading], field: str) -> float | None:
     """Return the most recent non-None value for field."""
     for r in reversed(readings):
@@ -113,16 +119,79 @@ def _vpd_kpa(temp_c: float | None, humidity_pct: float | None) -> float | None:
     return round(svp * (1 - humidity_pct / 100), 4)
 
 
+def _acceleration(slope_1m: float | None, slope_5m: float | None) -> float | None:
+    """Rate of change of slope: slope_1m - slope_5m. None if either is None."""
+    if slope_1m is None or slope_5m is None:
+        return None
+    return round(slope_1m - slope_5m, 4)
+
+
+def _peak_time_offset_s(
+    readings: list[NormalisedReading], field: str
+) -> float | None:
+    """Seconds from first reading to the peak value reading."""
+    pairs = [(r.timestamp, getattr(r, field)) for r in readings if getattr(r, field) is not None]
+    if len(pairs) < 2:
+        return None
+    first_ts = pairs[0][0]
+    peak_ts = max(pairs, key=lambda p: p[1])[0]
+    return round((peak_ts - first_ts).total_seconds(), 1)
+
+
+def _rise_time_s(
+    readings: list[NormalisedReading], field: str, baseline: float | None
+) -> float | None:
+    """Seconds from first reading above baseline to the peak."""
+    if baseline is None:
+        return None
+    above = [(r.timestamp, getattr(r, field)) for r in readings
+             if getattr(r, field) is not None and getattr(r, field) > baseline]
+    if not above:
+        return None
+    first_above_ts = above[0][0]
+    peak_ts = max(above, key=lambda p: p[1])[0]
+    diff = (peak_ts - first_above_ts).total_seconds()
+    return round(diff, 1) if diff >= 0 else None
+
+
+def _slope_variance(
+    readings: list[NormalisedReading], field: str, window_seconds: int = 60
+) -> float | None:
+    """Variance of 1-minute slopes across non-overlapping 60s windows."""
+    if not readings:
+        return None
+    start_ts = readings[0].timestamp
+    end_ts = readings[-1].timestamp
+    total_s = (end_ts - start_ts).total_seconds()
+    n_windows = int(total_s // window_seconds)
+    if n_windows < 3:
+        return None
+    slopes = []
+    for i in range(n_windows):
+        win_start = start_ts + timedelta(seconds=i * window_seconds)
+        win_end   = start_ts + timedelta(seconds=(i + 1) * window_seconds)
+        win_readings = [r for r in readings if win_start <= r.timestamp < win_end]
+        s = _slope(win_readings, field, window_seconds)
+        if s is not None:
+            slopes.append(s)
+    if len(slopes) < 3:
+        return None
+    mean = sum(slopes) / len(slopes)
+    var = sum((s - mean) ** 2 for s in slopes) / len(slopes)
+    return round(var, 6)
+
+
 def _sensor_features(
     readings: list[NormalisedReading],
     field: str,
     prefix: str,
     baseline: float | None,
 ) -> dict:
-    """Compute all 10 per-sensor features for one sensor channel.
+    """Compute all 15 per-sensor features for one sensor channel.
 
     Returns a dict keyed by FeatureVector field names.
     """
+    peak_val = _peak_value(readings, field)
     current = _current(readings, field)
     slope_1m = _slope(readings, field, window_seconds=60)
     slope_5m = _slope(readings, field, window_seconds=300)
@@ -132,18 +201,27 @@ def _sensor_features(
     is_declining = (slope_1m < 0) if slope_1m is not None else None
     decay_rate = slope_1m if (slope_1m is not None and slope_1m < 0) else None
     pulse = _pulse_detected(readings, field, baseline)
+    acceleration = _acceleration(slope_1m, slope_5m)
+    peak_time    = _peak_time_offset_s(readings, field)
+    rise_time    = _rise_time_s(readings, field, baseline)
+    slope_var    = _slope_variance(readings, field)
 
     return {
-        f"{prefix}_current":          current,
-        f"{prefix}_baseline":         baseline,
-        f"{prefix}_slope_1m":         slope_1m,
-        f"{prefix}_slope_5m":         slope_5m,
-        f"{prefix}_slope_30m":        slope_30m,
-        f"{prefix}_elevated_minutes": elev_min,
-        f"{prefix}_peak_ratio":       peak_ratio,
-        f"{prefix}_is_declining":     is_declining,
-        f"{prefix}_decay_rate":       decay_rate,
-        f"{prefix}_pulse_detected":   pulse,
+        f"{prefix}_current":           current,
+        f"{prefix}_peak_value":        peak_val,
+        f"{prefix}_baseline":          baseline,
+        f"{prefix}_slope_1m":          slope_1m,
+        f"{prefix}_slope_5m":          slope_5m,
+        f"{prefix}_slope_30m":         slope_30m,
+        f"{prefix}_elevated_minutes":  elev_min,
+        f"{prefix}_peak_ratio":        peak_ratio,
+        f"{prefix}_is_declining":      is_declining,
+        f"{prefix}_decay_rate":        decay_rate,
+        f"{prefix}_pulse_detected":    pulse,
+        f"{prefix}_acceleration":      acceleration,
+        f"{prefix}_peak_time_offset_s": peak_time,
+        f"{prefix}_rise_time_s":       rise_time,
+        f"{prefix}_slope_variance":    slope_var,
     }
 
 

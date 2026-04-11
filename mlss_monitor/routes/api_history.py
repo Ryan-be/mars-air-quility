@@ -1,6 +1,7 @@
 """History API routes — sensor data, baselines, ML context, narratives."""
 from __future__ import annotations
 
+import dataclasses
 import json
 import math
 import sqlite3
@@ -9,8 +10,13 @@ from datetime import datetime, timedelta, timezone
 from flask import Blueprint, jsonify, request
 
 import database.db_logger as _dbl
-from database.db_logger import _normalise_ts, get_inferences
+from database.db_logger import _normalise_ts, get_inferences, save_inference, add_inference_tag
+from mlss_monitor.rbac import require_role
 from mlss_monitor import narrative_engine, state
+from mlss_monitor.data_sources.base import NormalisedReading
+from mlss_monitor.detection_engine import DetectionEngine
+from mlss_monitor.feature_extractor import FeatureExtractor
+from mlss_monitor.feature_vector import FeatureVector
 from mlss_monitor.narrative_engine import _DAY_NAMES
 
 api_history_bp = Blueprint("api_history", __name__)
@@ -59,6 +65,316 @@ def _query_sensor_data(db_file: str, start: str, end: str) -> list[dict]:
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def _query_hot_tier(db_file: str, start: str, end: str) -> list[dict]:
+    start_db = start.rstrip("Z")
+    end_db = end.rstrip("Z")
+    conn = sqlite3.connect(db_file)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        """SELECT timestamp, tvoc_ppb, eco2_ppm, temperature_c, humidity_pct,
+                  pm25_ug_m3, co_ppb, no2_ppb, nh3_ppb
+           FROM hot_tier WHERE timestamp >= ? AND timestamp <= ?
+           ORDER BY timestamp ASC""",
+        (start_db, end_db),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def _normalise_iso_ts(ts: str) -> str:
+    if not ts:
+        return ts
+    ts = ts.strip().replace(" ", "T")
+    if ts.endswith("Z"):
+        ts = ts[:-1] + "+00:00"
+    try:
+        return datetime.fromisoformat(ts).astimezone(timezone.utc).isoformat()
+    except ValueError:
+        return ts
+
+
+def _get_field(row: dict, *keys) -> float | None:
+    """Return the first non-None value from row for any of the given keys.
+
+    Handles both sensor_data column names (e.g. 'tvoc') and hot_tier / API
+    column names (e.g. 'tvoc_ppb') so that _build_range_readings correctly
+    populates values from merged rows regardless of their origin.
+    """
+    for k in keys:
+        v = row.get(k)
+        if v is not None:
+            return v
+    return None
+
+
+def _rows_to_readings(rows: list[dict], source: str) -> list[NormalisedReading]:
+    readings: list[NormalisedReading] = []
+    for row in rows:
+        ts = row.get("timestamp")
+        try:
+            ts = ts.strip().replace(" ", "T")
+            if ts.endswith("Z"):
+                ts = ts[:-1] + "+00:00"
+            timestamp = datetime.fromisoformat(ts).astimezone(timezone.utc)
+        except Exception:
+            continue
+        readings.append(NormalisedReading(
+            timestamp=timestamp,
+            source=source,
+            # Accept both sensor_data col names and hot_tier / API col names.
+            tvoc_ppb=_get_field(row, "tvoc", "tvoc_ppb"),
+            eco2_ppm=_get_field(row, "eco2", "eco2_ppm"),
+            temperature_c=_get_field(row, "temperature", "temperature_c"),
+            humidity_pct=_get_field(row, "humidity", "humidity_pct"),
+            pm1_ug_m3=_get_field(row, "pm1_0", "pm1_ug_m3"),
+            pm25_ug_m3=_get_field(row, "pm2_5", "pm25_ug_m3"),
+            pm10_ug_m3=_get_field(row, "pm10", "pm10_ug_m3"),
+            co_ppb=_get_field(row, "gas_co", "co_ppb"),
+            no2_ppb=_get_field(row, "gas_no2", "no2_ppb"),
+            nh3_ppb=_get_field(row, "gas_nh3", "nh3_ppb"),
+        ))
+    return readings
+
+
+def _build_range_readings(start: str, end: str) -> list[NormalisedReading]:
+    sensor_rows = _query_sensor_data(_dbl.DB_FILE, start, end)
+    hot_rows = _query_hot_tier(_dbl.DB_FILE, start, end)
+    merged: dict[str, dict] = {}
+    for row in sensor_rows:
+        key = row.get("timestamp", "").strip().replace(" ", "T")
+        merged[key] = row
+    for row in hot_rows:
+        key = row.get("timestamp", "").strip()
+        if key not in merged:
+            merged[key] = row
+    sorted_rows = sorted(merged.values(), key=lambda r: r.get("timestamp", ""))
+    readings = _rows_to_readings(sorted_rows, source="history")
+    return readings
+
+
+_SENSOR_FIELDS = [
+    "tvoc_ppb", "eco2_ppm", "temperature_c", "humidity_pct",
+    "pm1_ug_m3", "pm25_ug_m3", "pm10_ug_m3", "co_ppb",
+    "no2_ppb", "nh3_ppb",
+]
+
+# DB column name → NormalisedReading / _ALL_CHANNELS field name
+_DB_COL_TO_FIELD = {
+    "tvoc": "tvoc_ppb", "eco2": "eco2_ppm", "temperature": "temperature_c",
+    "humidity": "humidity_pct", "pm1_0": "pm1_ug_m3", "pm2_5": "pm25_ug_m3",
+    "pm10": "pm10_ug_m3", "gas_co": "co_ppb", "gas_no2": "no2_ppb", "gas_nh3": "nh3_ppb",
+}
+
+
+def _compute_historical_baselines(start: str) -> dict[str, float | None]:
+    """Compute pre-event baseline for each sensor channel.
+
+    Queries the 60-minute window ending at `start` from `sensor_data`,
+    returns the median value per channel. Returns None for channels with
+    no data in that window.
+    """
+    try:
+        start_dt = _parse_utc_flexible(start)
+        window_end = start_dt
+        window_start = start_dt - timedelta(hours=1)
+    except (ValueError, TypeError):
+        return {f: None for f in _SENSOR_FIELDS}
+
+    baselines: dict[str, float | None] = {}
+    try:
+        db_path = _dbl.DB_FILE
+        con = sqlite3.connect(db_path)
+        con.row_factory = sqlite3.Row
+        cur = con.cursor()
+        cur.execute(
+            """
+            SELECT tvoc, eco2, temperature, humidity,
+                   pm1_0, pm2_5, pm10, gas_co, gas_no2, gas_nh3
+            FROM sensor_data
+            WHERE timestamp >= ? AND timestamp < ?
+            ORDER BY timestamp
+            """,
+            (window_start.strftime("%Y-%m-%d %H:%M:%S"),
+             window_end.strftime("%Y-%m-%d %H:%M:%S")),
+        )
+        rows = cur.fetchall()
+        con.close()
+    except Exception:
+        return {f: None for f in _SENSOR_FIELDS}
+
+    if not rows:
+        return {f: None for f in _SENSOR_FIELDS}
+
+    for db_col, field in _DB_COL_TO_FIELD.items():
+        vals = [r[db_col] for r in rows if r[db_col] is not None]
+        if vals:
+            vals.sort()
+            mid = len(vals) // 2
+            baselines[field] = (vals[mid] if len(vals) % 2 else (vals[mid - 1] + vals[mid]) / 2)
+        else:
+            baselines[field] = None
+
+    return baselines
+
+
+def _build_feature_vector(start: str, end: str) -> dict[str, object]:
+    readings = _build_range_readings(start, end)
+    baselines = _compute_historical_baselines(start)
+    fv = FeatureExtractor().extract(readings, baselines)
+    fv_dict = dataclasses.asdict(fv)
+    # Convert datetime to ISO string for JSON serialization
+    if fv_dict.get("timestamp"):
+        fv_dict["timestamp"] = fv_dict["timestamp"].isoformat()
+    return {
+        "feature_vector": fv_dict,
+        "readings": [
+            {
+                "timestamp": r.timestamp.isoformat(),
+                "tvoc_ppb": r.tvoc_ppb,
+                "eco2_ppm": r.eco2_ppm,
+                "temperature_c": r.temperature_c,
+                "humidity_pct": r.humidity_pct,
+                "pm1_ug_m3": r.pm1_ug_m3,
+                "pm25_ug_m3": r.pm25_ug_m3,
+                "pm10_ug_m3": r.pm10_ug_m3,
+                "co_ppb": r.co_ppb,
+                "no2_ppb": r.no2_ppb,
+                "nh3_ppb": r.nh3_ppb,
+            }
+            for r in readings
+        ],
+    }
+
+
+def _make_range_evaluator() -> DetectionEngine | None:
+    engine = state.detection_engine
+    if engine is None:
+        return None
+    try:
+        return DetectionEngine(
+            rules_path=engine._rules_path,
+            anomaly_config_path=engine._anomaly_detector._config_path,
+            model_dir=engine._anomaly_detector._model_dir,
+            fingerprints_path=getattr(engine, '_fingerprints_path', None),
+            dry_run=True,
+        )
+    except Exception:
+        return None
+
+
+def _choose_best_candidate(candidates: list[dict]) -> dict | None:
+    if not candidates:
+        return None
+    return max(candidates, key=lambda item: float(item.get('confidence', 0.0)))
+
+
+@api_history_bp.route("/api/history/range-analysis")
+def range_analysis():
+    start = request.args.get("start", "")
+    end = request.args.get("end", "")
+    if not start or not end:
+        return jsonify({"error": "start and end are required"}), 400
+    evaluator = _make_range_evaluator()
+    if evaluator is None:
+        return jsonify({"error": "No detection engine available"}), 500
+    try:
+        fv_result = _build_feature_vector(start, end)
+        fv_data = fv_result["feature_vector"]
+        candidates = evaluator.evaluate(FeatureVector(**fv_data)) if fv_data else []
+        return jsonify({
+            "start": start,
+            "end": end,
+            "feature_vector": fv_result["feature_vector"],
+            "readings": fv_result["readings"],
+            "candidates": candidates,
+            "best_candidate": _choose_best_candidate(candidates),
+        })
+    except Exception as exc:
+        return jsonify({"error": f"Error analysing range: {str(exc)}"}), 500
+
+
+@api_history_bp.route("/api/history/range-tag", methods=["POST"])
+@require_role("controller", "admin")
+def tag_range():
+    data = request.get_json(force=True)
+    start = data.get("start", "")
+    end = data.get("end", "")
+    tag = (data.get("tag") or "").strip()
+    if not start or not end:
+        return jsonify({"error": "start and end are required"}), 400
+
+    fv_result = _build_feature_vector(start, end)
+    evaluator = _make_range_evaluator()
+    candidates = []
+    best_candidate = None
+    if evaluator is not None:
+        try:
+            candidates = evaluator.evaluate(FeatureVector(**fv_result["feature_vector"]))
+            best_candidate = _choose_best_candidate(candidates)
+        except Exception:
+            candidates = []
+
+    if best_candidate is not None:
+        event_type = best_candidate["event_type"]
+        severity = best_candidate["severity"]
+        title = best_candidate["title"]
+        description = best_candidate["description"]
+        action = best_candidate["action"]
+        confidence = float(best_candidate.get("confidence", 0.5) or 0.5)
+        evidence = best_candidate.get("evidence", {})
+    else:
+        event_type = "annotation_context_user_range"
+        severity = "warning"
+        title = "User-tagged event"
+        description = (
+            "A custom event was tagged from the selected history range. "
+            "This inference was generated from the selected readings."
+        )
+        action = "Review the selected range and add a tag to help the model learn."
+        confidence = 0.5
+        evidence = {
+            "fv_timestamp": _normalise_iso_ts(start),
+            "feature_vector": fv_result["feature_vector"],
+            "range_start": start,
+            "range_end": end,
+        }
+
+    evidence.setdefault("range_start", start)
+    evidence.setdefault("range_end", end)
+    evidence.setdefault("feature_vector", fv_result["feature_vector"])
+    evidence.setdefault("readings", fv_result["readings"])
+
+    inference_id = save_inference(
+        event_type=event_type,
+        severity=severity,
+        title=title,
+        description=description,
+        action=action,
+        evidence=evidence,
+        confidence=confidence,
+    )
+    if tag:
+        from mlss_monitor import state as _state  # pylint: disable=import-outside-toplevel,reimported
+        _engine = _state.detection_engine
+        _allowed = (
+            _engine._attribution_engine.valid_tags
+            if _engine and _engine._attribution_engine
+            else None
+        )
+        if _allowed is not None and tag not in _allowed:
+            return jsonify({
+                "error": "invalid_tag",
+                "valid_tags": sorted(_allowed),
+            }), 400
+        add_inference_tag(inference_id, tag, 1.0, allowed_tags=_allowed)
+
+    return jsonify({
+        "id": inference_id,
+        "tag": tag,
+        "candidate": best_candidate,
+    })
 
 
 @api_history_bp.route("/api/history/sensor")
@@ -122,42 +438,76 @@ def _pearson_r(xs: list, ys: list) -> float | None:
         return None
     sx = sum(p[0] for p in pairs)
     sy = sum(p[1] for p in pairs)
-    sxy = sum(p[0]*p[1] for p in pairs)
-    sx2 = sum(p[0]**2 for p in pairs)
-    sy2 = sum(p[1]**2 for p in pairs)
-    num = n*sxy - sx*sy
-    den = math.sqrt((n*sx2 - sx**2) * (n*sy2 - sy**2))
-    return num/den if den != 0 else None
+    sxy = sum(p[0] * p[1] for p in pairs)
+    sx2 = sum(p[0] ** 2 for p in pairs)
+    sy2 = sum(p[1] ** 2 for p in pairs)
+    num = n * sxy - sx * sy
+    den = math.sqrt((n * sx2 - sx ** 2) * (n * sy2 - sy ** 2))
+    return num / den if den != 0 else None
 
 
-_COMOVEMENT_PHRASES = {
-    ("tvoc_ppb", "eco2_ppm"): "TVOC and CO₂ (estimated) rose together — consistent with indoor air pollutant build-up.",
-    ("tvoc_ppb", "pm25_ug_m3"): "TVOC and PM2.5 moved together — may indicate combustion or cooking.",
-    ("co_ppb", "no2_ppb"): "CO and NO2 resistance moved together — typical of a combustion event.",
-    ("humidity_pct", "temperature_c"): "Temperature and humidity changed together — check ventilation or HVAC.",
-    ("pm1_ug_m3", "pm25_ug_m3"): "PM1 and PM2.5 tracked closely — consistent with fine particle sources.",
-}
 _CHANNEL_LABELS = {
     "tvoc_ppb": "TVOC", "eco2_ppm": "CO₂ (estimated)", "temperature_c": "Temperature", "humidity_pct": "Humidity",
     "pm1_ug_m3": "PM1", "pm25_ug_m3": "PM2.5", "pm10_ug_m3": "PM10",
     "co_ppb": "CO (resistance)", "no2_ppb": "NO2 (resistance)", "nh3_ppb": "NH3 (resistance)",
 }
 
+# Channels whose raw DB values are resistance (kΩ) — higher resistance = lower concentration.
+# We invert these before computing Pearson so that a simultaneous concentration spike
+# (resistance drops together) produces a positive correlation with other rising channels.
+_INVERTED_CHANNELS = {"co_ppb", "no2_ppb", "nh3_ppb"}
 
-def _comovement_summary(sensor_rows: list[dict]) -> str:
-    if len(sensor_rows) < 3:
+# All meaningful pairs to check for co-movement.
+# Tuple: (channel_a, channel_b, description)
+_COMOVEMENT_PAIRS: list[tuple[str, str, str]] = [
+    ("tvoc_ppb",   "eco2_ppm",    "TVOC and eCO₂ rose together — shared indoor source (occupancy or VOC emission)."),
+    ("tvoc_ppb",   "pm25_ug_m3",  "TVOC and PM2.5 moved together — may indicate combustion or cooking."),
+    ("tvoc_ppb",   "co_ppb",      "TVOC and CO concentration rose together — aerosol, combustion or solvent."),
+    ("tvoc_ppb",   "nh3_ppb",     "TVOC and NH3 rose together — aerosol spray or cleaning products."),
+    ("tvoc_ppb",   "no2_ppb",     "TVOC and NO2 concentration rose together — possible combustion signature."),
+    ("eco2_ppm",   "co_ppb",      "eCO₂ and CO rose together — possible combustion or occupancy build-up."),
+    ("eco2_ppm",   "nh3_ppb",     "eCO₂ and NH3 concentration rose together — occupancy or biological off-gassing."),
+    ("co_ppb",     "no2_ppb",     "CO and NO2 concentration rose together — typical combustion event."),
+    ("co_ppb",     "nh3_ppb",     "CO and NH3 concentration rose together — aerosol spray or cleaning products."),
+    ("no2_ppb",    "nh3_ppb",     "NO2 and NH3 concentration rose together — mixed gas source detected."),
+    ("pm1_ug_m3",  "pm25_ug_m3",  "PM1 and PM2.5 tracked closely — fine particle source active."),
+    ("pm25_ug_m3", "pm10_ug_m3",  "PM2.5 and PM10 moved together — particle event spanning multiple size fractions."),
+    ("humidity_pct", "temperature_c", "Temperature and humidity changed together — ventilation or HVAC effect."),
+]
+
+
+def _invert_if_needed(values: list, channel: str) -> list:
+    """Invert resistance channels so concentration and other channels correlate positively."""
+    if channel not in _INVERTED_CHANNELS:
+        return values
+    return [-v if v is not None else None for v in values]
+
+
+def _comovement_summary(readings: list[NormalisedReading]) -> str:
+    """Return a plain-English description of which channel pairs moved together.
+
+    Accepts a list of NormalisedReading objects (from _build_range_readings so
+    that both sensor_data and hot_tier rows are included).
+
+    Uses Pearson R on concentration-normalised values (resistance channels are
+    inverted so a simultaneous spike reads as positive correlation).
+    Threshold 0.65 — lower than the old 0.7 to catch short rapid spikes where
+    a few noisy points at the tail can reduce R slightly below 0.7.
+    """
+    if len(readings) < 3:
         return ""
     ch_data: dict = {ch: [] for ch in _ALL_CHANNELS}
-    for row in sensor_rows:
-        for db_col, api_key in _DB_TO_API.items():
-            ch_data[api_key].append(row.get(db_col))
+    for r in readings:
+        for ch in _ALL_CHANNELS:
+            ch_data[ch].append(getattr(r, ch, None))
     sentences = []
-    for pair, phrase in _COMOVEMENT_PHRASES.items():
-        a, b = pair
-        r = _pearson_r(ch_data.get(a, []), ch_data.get(b, []))
-        if r is not None and abs(r) > 0.7:
+    for a, b, phrase in _COMOVEMENT_PAIRS:
+        va = _invert_if_needed(ch_data.get(a, []), a)
+        vb = _invert_if_needed(ch_data.get(b, []), b)
+        r = _pearson_r(va, vb)
+        if r is not None and r > 0.65:
             sentences.append(phrase)
-        if len(sentences) >= 3:
+        if len(sentences) >= 4:
             break
     return " ".join(sentences)
 
@@ -175,7 +525,10 @@ def ml_context():
         if src:
             summary[src] = summary.get(src, 0) + 1
     dominant = max(summary, key=summary.get) if summary else None
-    sensor_rows = _query_sensor_data(_dbl.DB_FILE, start, end)
+    # Use _build_range_readings so that hot_tier (1-second resolution) rows are
+    # included — short selections (< 3 min) would otherwise return too few rows
+    # from sensor_data (1-min averages) to compute meaningful co-movement stats.
+    readings = _build_range_readings(start, end)
     enriched = []
     for inf in window:
         ev = inf.get("evidence") or {}
@@ -200,7 +553,7 @@ def ml_context():
         "dominant_source_sentence": (
             narrative_engine.generate_period_summary(window, [], dominant) if window else "No events detected."
         ),
-        "comovement_summary": _comovement_summary(sensor_rows),
+        "comovement_summary": _comovement_summary(readings),
     })
 
 

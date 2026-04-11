@@ -1,10 +1,11 @@
 """Tests for /api/history/* endpoints."""
+import sqlite3
+
 import pytest
 
 
 def _insert_sensor_row(db_path, timestamp, tvoc=100, eco2=500, temp=21.0, hum=50.0,
                         pm1=2.0, pm25=3.0, pm10=5.0, co=12000, no2=8000, nh3=15000):
-    import sqlite3
     conn = sqlite3.connect(db_path)
     conn.execute(
         """INSERT INTO sensor_data
@@ -199,3 +200,154 @@ def test_sparkline_returns_window_around_inference(app_client, db):
         assert abs((ts_dt - inf_dt).total_seconds()) <= 900, f"Timestamp {ts} outside ±15 min window"
     # triggering_channels must include tvoc_ppb (from sensor_snapshot)
     assert "tvoc_ppb" in data["triggering_channels"]
+
+
+def test_range_tag_endpoint(app_client, db):
+    """Test the range-tag endpoint creates an inference with a tag."""
+    client, _ = app_client
+    # Insert some test sensor data
+    _insert_sensor_row(db, "2023-01-01 10:00:00", tvoc=100, eco2=400)
+    _insert_sensor_row(db, "2023-01-01 10:01:00", tvoc=150, eco2=450)
+    _insert_sensor_row(db, "2023-01-01 10:02:00", tvoc=200, eco2=500)
+
+    # Test the range-tag endpoint
+    start = "2023-01-01T10:00:00Z"
+    end = "2023-01-01T10:02:00Z"
+    tag = "cooking"
+
+    response = client.post("/api/history/range-tag", json={
+        "start": start,
+        "end": end,
+        "tag": tag
+    })
+    assert response.status_code == 200
+    data = response.get_json()
+    assert "id" in data
+    assert data["tag"] == tag
+
+    # Verify the inference was created
+    from database.db_logger import get_inferences, get_inference_tags
+    inferences = get_inferences()
+    inference = next((i for i in inferences if i["id"] == data["id"]), None)
+    assert inference is not None
+    assert inference["event_type"] == "annotation_context_user_range"
+    assert inference["title"] == "User-tagged event"
+    assert isinstance(inference["evidence"], dict)
+    assert inference["evidence"]["feature_vector"]["tvoc_current"] == 200.0
+    assert inference["evidence"]["feature_vector"]["eco2_current"] == 500.0
+    assert isinstance(inference["evidence"]["readings"], list)
+    assert len(inference["evidence"]["readings"]) == 3
+
+    # Verify the tag was added
+    tags = get_inference_tags(data["id"])
+    assert len(tags) == 1
+    assert tags[0]["tag"] == tag
+
+
+# ---------------------------------------------------------------------------
+# _compute_historical_baselines
+# ---------------------------------------------------------------------------
+
+def _create_sensor_db(db_path: str) -> None:
+    """Create a minimal sensor_data table in a fresh SQLite file."""
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """CREATE TABLE sensor_data (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            tvoc REAL, eco2 REAL, temperature REAL, humidity REAL,
+            pm1_0 REAL, pm2_5 REAL, pm10 REAL,
+            gas_co REAL, gas_no2 REAL, gas_nh3 REAL
+        )"""
+    )
+    conn.commit()
+    conn.close()
+
+
+def _insert_baseline_row(db_path: str, timestamp: str, **kwargs) -> None:
+    defaults = {"tvoc": 100.0, "eco2": 500.0, "temperature": 21.0, "humidity": 50.0,
+                "pm1_0": 2.0, "pm2_5": 3.0, "pm10": 5.0, "gas_co": 12000.0,
+                "gas_no2": 8000.0, "gas_nh3": 15000.0}
+    defaults.update(kwargs)
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """INSERT INTO sensor_data
+           (timestamp, tvoc, eco2, temperature, humidity,
+            pm1_0, pm2_5, pm10, gas_co, gas_no2, gas_nh3)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+        (timestamp, defaults["tvoc"], defaults["eco2"], defaults["temperature"],
+         defaults["humidity"], defaults["pm1_0"], defaults["pm2_5"], defaults["pm10"],
+         defaults["gas_co"], defaults["gas_no2"], defaults["gas_nh3"]),
+    )
+    conn.commit()
+    conn.close()
+
+
+def test_compute_historical_baselines_returns_median(tmp_path, monkeypatch):
+    """_compute_historical_baselines returns the median of the 60-min pre-event window."""
+    db_file = str(tmp_path / "test_sensor.db")
+    _create_sensor_db(db_file)
+
+    # event start: 2026-01-01T12:00:00Z
+    # baseline window: 2026-01-01T11:00:00Z – 2026-01-01T12:00:00Z (exclusive)
+    _insert_baseline_row(db_file, "2026-01-01 11:00:00", tvoc=100.0)
+    _insert_baseline_row(db_file, "2026-01-01 11:30:00", tvoc=200.0)
+    _insert_baseline_row(db_file, "2026-01-01 11:59:00", tvoc=300.0)
+    # Row at exactly the event start must NOT be included (window is < start)
+    _insert_baseline_row(db_file, "2026-01-01 12:00:00", tvoc=999.0)
+    # Row outside the window must NOT be included
+    _insert_baseline_row(db_file, "2026-01-01 10:59:00", tvoc=1.0)
+
+    import database.db_logger as _dbl
+    monkeypatch.setattr(_dbl, "DB_FILE", db_file)
+
+    from mlss_monitor.routes.api_history import _compute_historical_baselines
+
+    result = _compute_historical_baselines("2026-01-01T12:00:00Z")
+
+    # Median of [100, 200, 300] = 200
+    assert result["tvoc_ppb"] == pytest.approx(200.0)
+    # All other channels have a uniform value of the default; spot-check temperature
+    assert result["temperature_c"] == pytest.approx(21.0)
+    # All expected fields must be present
+    expected_fields = [
+        "tvoc_ppb", "eco2_ppm", "temperature_c", "humidity_pct",
+        "pm1_ug_m3", "pm25_ug_m3", "pm10_ug_m3", "co_ppb", "no2_ppb", "nh3_ppb",
+    ]
+    for f in expected_fields:
+        assert f in result, f"Missing field: {f}"
+
+
+def test_compute_historical_baselines_no_data_returns_none(tmp_path, monkeypatch):
+    """_compute_historical_baselines returns None for all channels when no rows exist."""
+    db_file = str(tmp_path / "empty_sensor.db")
+    _create_sensor_db(db_file)
+
+    import database.db_logger as _dbl
+    monkeypatch.setattr(_dbl, "DB_FILE", db_file)
+
+    from mlss_monitor.routes.api_history import _compute_historical_baselines
+
+    result = _compute_historical_baselines("2026-01-01T12:00:00Z")
+
+    for field, value in result.items():
+        assert value is None, f"Expected None for {field}, got {value}"
+
+
+def test_compute_historical_baselines_even_count_uses_average(tmp_path, monkeypatch):
+    """With an even number of rows the median averages the two middle values."""
+    db_file = str(tmp_path / "even_sensor.db")
+    _create_sensor_db(db_file)
+
+    _insert_baseline_row(db_file, "2026-01-01 11:00:00", tvoc=100.0)
+    _insert_baseline_row(db_file, "2026-01-01 11:30:00", tvoc=200.0)
+
+    import database.db_logger as _dbl
+    monkeypatch.setattr(_dbl, "DB_FILE", db_file)
+
+    from mlss_monitor.routes.api_history import _compute_historical_baselines
+
+    result = _compute_historical_baselines("2026-01-01T12:00:00Z")
+
+    # Median of [100, 200] (even) = (100 + 200) / 2 = 150
+    assert result["tvoc_ppb"] == pytest.approx(150.0)

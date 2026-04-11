@@ -78,6 +78,8 @@ def create_db():
                 'anomaly_thermal_moisture'
             ) OR event_type LIKE 'annotation_context_%'
               OR event_type LIKE 'anomaly_%'
+              OR event_type LIKE 'ml_learned_%'
+              OR event_type LIKE 'fingerprint_match'
         ),
         severity TEXT NOT NULL DEFAULT 'info'
             CHECK(severity IN ('info', 'warning', 'critical')),
@@ -91,6 +93,17 @@ def create_db():
         annotation TEXT,
         user_notes TEXT,
         dismissed INTEGER DEFAULT 0
+    );
+    """)
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS event_tags (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        inference_id INTEGER NOT NULL,
+        tag TEXT NOT NULL,
+        confidence REAL DEFAULT 1.0,
+        created_at DATETIME NOT NULL,
+        FOREIGN KEY (inference_id) REFERENCES inferences(id)
     );
     """)
 

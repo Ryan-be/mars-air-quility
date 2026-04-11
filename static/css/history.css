@@ -183,6 +183,18 @@ body.light .channel-chip.active { color: #333; border-color: #999; }
 body.light .chip-info          { color: #bbb; }
 body.light .chip-info:hover    { color: #777; }
 
+/* ── Tag chips ── */
+.tag-chip {
+  display: inline-block;
+  background: #333;
+  color: #ccc;
+  padding: 0.2em 0.5em;
+  margin: 0.1em;
+  border-radius: 4px;
+  font-size: 0.8em;
+}
+body.light .tag-chip { background: #e0e0e0; color: #555; }
+
 /* ── Correlation brush & inference ── */
 .corr-brush-section {
   background: #1a1a1a;
@@ -402,6 +414,57 @@ body.light .pm-empty         { color: #aaa; }
 body.light .pm-summary-card .value.pm-good      { color: #16a34a; }
 body.light .pm-summary-card .value.pm-moderate  { color: #d97706; }
 body.light .pm-summary-card .value.pm-unhealthy { color: #dc2626; }
+
+/* ── Range tagging status ── */
+.corr-range-status {
+  font-size: 0.85em;
+  margin-left: 0.5em;
+}
+.corr-range-status.success {
+  color: #16a34a;
+}
+.corr-range-status.error {
+  color: #dc2626;
+}
+
+.corr-range-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+.corr-range-actions label {
+  margin: 0;
+  font-weight: 600;
+  color: #ddd;
+}
+.corr-range-actions select {
+  min-width: 210px;
+  padding: 0.55em 0.75em;
+  border: 1px solid #444;
+  border-radius: 0.35rem;
+  background: #111;
+  color: #f7f7f7;
+}
+body.light .corr-range-actions select {
+  background: #fff;
+  color: #111;
+  border-color: #ccc;
+}
+.corr-range-actions button {
+  min-width: 160px;
+}
+
+.corr-range-status {
+  font-size: 0.85em;
+  margin-left: 0.5em;
+}
+.corr-range-status.success {
+  color: #16a34a;
+}
+.corr-range-status.error {
+  color: #dc2626;
+}
 
 @media (max-width: 600px) {
   .corr-brush-section { padding: 0.7em 0.7em 0.3em; }

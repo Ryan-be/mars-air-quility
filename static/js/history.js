@@ -1,7 +1,7 @@
 import { toggleTheme, isLight, themeLayout } from './theme.js';
 import { renderClimateCharts, renderGasCharts } from './charts.js';
 import { renderEnvCharts } from './charts_env.js';
-import { renderCorrelationCharts, updateCorrelationData } from './charts_correlation.js';
+import { renderCorrelationCharts, updateCorrelationData, getSelectedAnalysisRange } from './charts_correlation.js';
 
 
 window.toggleTheme = () => toggleTheme(() => { _rendered = {}; renderActiveTab(); });
@@ -13,17 +13,24 @@ const TABS = ["climate", "air-quality", "particulate", "environment", "correlati
 let _rendered    = {};
 let _sensorData  = [];
 let _weatherData = [];
+let _lastFetchRange = null;  // Track range to detect changes, forcing full corr re-render
 
-document.querySelectorAll(".tab-btn").forEach(btn => {
-  btn.addEventListener("click", () => {
-    document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("tab-active"));
-    btn.classList.add("tab-active");
-    TABS.forEach(t => {
-      document.getElementById(`tab-${t}`).classList.toggle("tab-hidden", t !== btn.dataset.tab);
+function _initHistoryTabs() {
+  const buttons = document.querySelectorAll(".tab-btn");
+  if (!buttons || buttons.length === 0) return;
+
+  buttons.forEach(btn => {
+    btn.addEventListener("click", () => {
+      buttons.forEach(b => b.classList.remove("tab-active"));
+      btn.classList.add("tab-active");
+      TABS.forEach(t => {
+        const panel = document.getElementById(`tab-${t}`);
+        if (panel) panel.classList.toggle("tab-hidden", t !== btn.dataset.tab);
+      });
+      renderActiveTab();
     });
-    renderActiveTab();
   });
-});
+}
 
 function activeTab() {
   return document.querySelector(".tab-btn.tab-active")?.dataset.tab ?? "climate";
@@ -41,8 +48,70 @@ function renderActiveTab() {
   if (tab === "detections")  _initDetectionsTab();
 }
 
-document.getElementById("range").addEventListener("change", fetchData);
+document.addEventListener("DOMContentLoaded", () => {
+  _initHistoryTabs();
 
+  const rangeSelect = document.getElementById("range");
+  if (rangeSelect) {
+    rangeSelect.addEventListener("change", fetchData);
+  }
+
+  const tagSelect = document.getElementById('corrRangeTagSelect');
+  const saveBtn = document.getElementById('corrCreateRangeInferenceBtn');
+  const status = document.getElementById('corrRangeInferenceStatus');
+
+  if (tagSelect && saveBtn && status) {
+    tagSelect.addEventListener('change', () => {
+      saveBtn.disabled = !tagSelect.value;
+      status.textContent = '';
+      status.className = 'corr-range-status';
+    });
+
+    saveBtn.addEventListener('click', async () => {
+      const selected = getSelectedAnalysisRange();
+      const tag = tagSelect.value;
+      if (!selected?.start || !selected?.end || !tag) {
+        status.textContent = 'Select a range and tag before saving.';
+        status.className = 'corr-range-status error';
+        return;
+      }
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving…';
+      status.textContent = 'Saving tagged event…';
+      status.className = 'corr-range-status';
+
+      try {
+        const resp = await fetch('/api/history/range-tag', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ start: selected.start, end: selected.end, tag }),
+        });
+        const result = await resp.json();
+        if (!resp.ok) {
+          throw new Error(result.error || 'Failed to save tagged event');
+        }
+        status.textContent = 'Tagged range saved successfully.';
+        status.className = 'corr-range-status success';
+        tagSelect.value = '';
+        saveBtn.textContent = 'Saved';
+        setTimeout(() => {
+          saveBtn.textContent = 'Save tagged event';
+          saveBtn.disabled = true;
+        }, 1800);
+      } catch (err) {
+        status.textContent = err.message || 'Save failed.';
+        status.className = 'corr-range-status error';
+        saveBtn.textContent = 'Save tagged event';
+      } finally {
+        if (tagSelect.value) {
+          saveBtn.disabled = false;
+        }
+      }
+    });
+  }
+
+  fetchData();
+});
 async function fetchData() {
   const range = document.getElementById("range").value;
   try {
@@ -58,13 +127,17 @@ async function fetchData() {
       return;
     }
     const corrWasRendered = !!_rendered["correlation"];
+    const rangeChanged = _lastFetchRange !== null && _lastFetchRange !== range;
+    _lastFetchRange = range;
     _sensorData  = rawSensor.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
     _weatherData = Array.isArray(rawWeather) ? rawWeather : [];
     _rendered    = {};
 
-    // If the correlation tab was already rendered, update its data without
-    // destroying the user's zoom — mark it rendered so renderActiveTab skips it.
-    if (corrWasRendered) {
+    // If the correlation tab was already rendered AND the range hasn't changed,
+    // update data without destroying the user's zoom selection.
+    // When the range changes, fall through to a full re-render so the x-axis
+    // resets to the new time window rather than showing new data in the old window.
+    if (corrWasRendered && !rangeChanged) {
       updateCorrelationData(_sensorData);
       _rendered["correlation"] = true;
     }
@@ -303,8 +376,6 @@ document.addEventListener("click", (e) => {
   const popup = document.getElementById(`info-${btn.dataset.info}`);
   if (popup) popup.classList.toggle("visible");
 });
-
-fetchData();
 
 // ── SSE: refresh charts when new sensor data arrives (throttled to ~30s) ─────
 let _histSSE = null;

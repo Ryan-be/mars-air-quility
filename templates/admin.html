@@ -41,6 +41,10 @@
     .anomaly-table col.col-coldstart { width: 15%; }
     .anomaly-table col.col-score     { width: 25%; }
     .anomaly-table col.col-status    { width: 20%; }
+    .classifier-table col.col-tag       { width: 28%; }
+    .classifier-table col.col-samples   { width: 12%; }
+    .classifier-table col.col-conf      { width: 30%; }
+    .classifier-table col.col-clstatus  { width: 30%; }
     /* Score bar */
     .score-bar-wrap {
       display: flex;
@@ -812,6 +816,31 @@
             </thead>
             <tbody>${acRows}</tbody>
           </table>
+        </div>
+
+        <div class="card" id="classifierModelCard">
+          <h3>🧠 Classifier Model</h3>
+          <table class="insights-table classifier-table" id="classifierTable">
+            <colgroup>
+              <col class="col-tag"><col class="col-samples">
+              <col class="col-conf"><col class="col-clstatus">
+            </colgroup>
+            <thead>
+              <tr>
+                <th>Tag</th>
+                <th>Samples</th>
+                <th>Avg Confidence <span title="Mean predicted confidence across stored inferences for this label. Only shown once ≥5 samples are tagged." style="cursor:help;">ⓘ</span></th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="classifierTableBody">
+              <tr><td colspan="4" style="color:var(--text-muted,#6b7280)">Loading…</td></tr>
+            </tbody>
+          </table>
+          <div style="margin-top:10px; display:flex; align-items:center; gap:10px;">
+            <button class="btn btn-sm" id="classifierRetrainBtn" onclick="retrainClassifier()">🔄 Retrain Classifier</button>
+            <span id="classifierRetrainStatus" style="font-size:0.8rem; color:var(--text-muted,#6b7280);"></span>
+          </div>
         </div>`;
 
       // Wire up dry-run toggle
@@ -870,10 +899,88 @@
         const data = await res.json();
         _ieCached = true;
         _renderIE(data);
+        loadClassifierStats();
       } catch (err) {
         document.getElementById("ieContent").innerHTML =
           `<p style="padding:1rem;color:#e74c3c;">Failed to load Insights Engine status: ${err.message}</p>`;
       }
+    }
+
+    async function loadClassifierStats() {
+      try {
+        const res = await fetch('/api/classifier/stats');
+        if (!res.ok) return;
+        const data = await res.json();
+        renderClassifierTable(data);
+      } catch (_) {}
+    }
+
+    async function retrainClassifier() {
+      const btn = document.getElementById('classifierRetrainBtn');
+      const status = document.getElementById('classifierRetrainStatus');
+      if (!btn) return;
+      btn.disabled = true;
+      btn.textContent = '⏳ Retraining…';
+      status.textContent = '';
+      try {
+        const res = await fetch('/api/classifier/retrain', { method: 'POST' });
+        const d = await res.json();
+        if (res.ok) {
+          status.textContent = d.message || 'Done.';
+          status.style.color = '#22c55e';
+          loadClassifierStats(); // refresh table
+        } else {
+          status.textContent = d.error || 'Failed.';
+          status.style.color = '#ef4444';
+        }
+      } catch (e) {
+        status.textContent = 'Network error.';
+        status.style.color = '#ef4444';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '🔄 Retrain Classifier';
+      }
+    }
+
+    function renderClassifierTable(data) {
+      const tbody = document.getElementById('classifierTableBody');
+      if (!tbody) return;
+      const stats = data.tag_stats || [];
+      if (!stats.length) {
+        tbody.innerHTML = '<tr><td colspan="4" style="color:var(--text-muted,#6b7280)">No fingerprints loaded.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = stats.map(function(row) {
+        // Confidence bar
+        let barHtml = '<span style="color:var(--text-muted,#6b7280)">—</span>';
+        if (row.ready && row.avg_confidence !== null && row.avg_confidence !== undefined) {
+          const conf = row.avg_confidence;
+          const pct = Math.round(conf * 100);
+          let barClass = 'score-bar--green';
+          if (conf < 0.50) barClass = 'score-bar--red';
+          else if (conf < 0.70) barClass = 'score-bar--amber';
+          barHtml = `<div class="score-bar-wrap">
+            <div class="score-bar ${barClass}" style="width:${pct}%"></div>
+            <span class="score-label">${conf.toFixed(2)}</span>
+          </div>`;
+        }
+        // Status badge
+        let statusHtml;
+        if (!row.ready) {
+          const needed = Math.max(0, 5 - row.sample_count);
+          statusHtml = `<span style="color:var(--text-muted,#6b7280)">⏳ Learning (need ${needed} more)</span>`;
+        } else if (row.avg_confidence !== null && row.avg_confidence < 0.50) {
+          statusHtml = '<span style="color:#ef4444;font-weight:600">⚠ Low confidence</span>';
+        } else {
+          statusHtml = '<span style="color:#22c55e;font-weight:600">● Ready</span>';
+        }
+        return `<tr>
+          <td style="font-family:monospace">${row.tag}</td>
+          <td>${row.sample_count}</td>
+          <td>${barHtml}</td>
+          <td class="status-cell">${statusHtml}</td>
+        </tr>`;
+      }).join('');
     }
   </script>
 {% endblock %}

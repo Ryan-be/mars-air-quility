@@ -211,3 +211,40 @@ def test_enable_source(app_client):
 def test_enable_unknown_source_returns_404(app_client):
     resp = app_client.post("/api/insights-engine/sources/nonexistent/enable")
     assert resp.status_code == 404
+
+
+def test_classifier_stats_returns_all_tags(app_client, db):
+    """GET /api/classifier/stats returns a row for every known fingerprint."""
+    resp = app_client.get("/api/classifier/stats")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert "total_samples" in data
+    assert "tag_stats" in data
+    assert isinstance(data["tag_stats"], list)
+    assert len(data["tag_stats"]) > 0
+    for row in data["tag_stats"]:
+        assert "tag" in row
+        assert "label" in row
+        assert "sample_count" in row
+        assert "ready" in row
+        assert "avg_confidence" in row
+
+
+def test_classifier_stats_sample_counts_match_tags(app_client, db):
+    """sample_count in classifier/stats reflects actual tagged events."""
+    from database.db_logger import save_inference, add_inference_tag
+
+    inf_id = save_inference(
+        event_type="tvoc_spike", severity="warning",
+        title="T", description="D", action="A",
+        evidence={"feature_vector": {"tvoc_current": 450.0}},
+        confidence=0.8,
+    )
+    # Tag without validation (no allowed_tags) so test is self-contained
+    add_inference_tag(inf_id, "test_fp")
+
+    resp = app_client.get("/api/classifier/stats")
+    data = resp.get_json()
+    test_fp_row = next((r for r in data["tag_stats"] if r["tag"] == "test_fp"), None)
+    assert test_fp_row is not None
+    assert test_fp_row["sample_count"] >= 1

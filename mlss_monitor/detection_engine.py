@@ -9,6 +9,7 @@ Switch mode by changing the dry_run flag in app.py once parity is confirmed.
 """
 from __future__ import annotations
 
+import dataclasses
 import logging
 import math
 import sqlite3
@@ -103,6 +104,60 @@ class DetectionEngine:
         except Exception as exc:
             log.warning("DetectionEngine: attribution error: %s", exc)
             return None
+
+    # ── Standalone ML detector ─────────────────────────────────────────────────
+
+    _ML_STANDALONE_THRESHOLD = 0.65
+    _ML_STANDALONE_DEDUPE_HOURS = 1
+
+    def _run_ml_standalone(self, fv: FeatureVector, fired: list[str]) -> None:
+        """Fire a standalone ML-only inference when the classifier is confident enough.
+
+        Only fires when no rule or anomaly event fired in this cycle, so it adds novel
+        detections the rule-based layer would miss. Uses a higher confidence threshold
+        than the hybrid fallback (0.65 vs 0.5) since there is no fingerprint confirmation.
+        """
+        if self._attribution_engine is None:
+            return
+        try:
+            ml_lbl, ml_cnf = self._attribution_engine.ml_score(fv)
+        except Exception as exc:
+            log.debug("DetectionEngine: ml_score error: %s", exc)
+            return
+        if not ml_lbl or ml_cnf < self._ML_STANDALONE_THRESHOLD:
+            return
+        fp = self._attribution_engine._fp_by_label(ml_lbl)
+        if fp is None:
+            return
+        event_type = f"ml_learned_{fp.id}"
+        if event_type in fired:
+            return
+        if get_recent_inference_by_type(event_type, hours=self._ML_STANDALONE_DEDUPE_HOURS):
+            return
+        fired.append(event_type)
+        if not self._dry_run:
+            evidence: dict = {"fv_timestamp": fv.timestamp.isoformat()}
+            evidence["feature_vector"] = dataclasses.asdict(fv)
+            evidence["attribution_source"] = ml_lbl
+            evidence["attribution_confidence"] = round(ml_cnf, 3)
+            evidence["detection_method"] = "ml_learned"
+            try:
+                save_inference(
+                    event_type=event_type,
+                    severity="warning",
+                    title=f"Learned pattern detected: {fp.label} ({ml_cnf:.0%} confidence)",
+                    description=(
+                        f"This event was detected by the ML model trained on your "
+                        f"user-applied tags. The classifier is {ml_cnf:.0%} confident "
+                        f"this matches a {ml_lbl} event."
+                    ),
+                    action="Tag this event to confirm or correct the prediction and "
+                           "improve the model.",
+                    evidence=evidence,
+                    confidence=round(ml_cnf, 2),
+                )
+            except Exception as exc:
+                log.error("DetectionEngine: save_inference failed for ml_standalone %r: %s", event_type, exc)
 
     # ── Bootstrap from historical DB ──────────────────────────────────────────
 
@@ -283,6 +338,7 @@ class DetectionEngine:
                 try:
                     attribution = self._attribute(fv)
                     evidence: dict = {"fv_timestamp": fv.timestamp.isoformat()}
+                    evidence["feature_vector"] = dataclasses.asdict(fv)
                     if attribution is not None:
                         evidence["attribution"] = attribution.source_id
                         evidence["attribution_confidence"] = round(attribution.confidence, 3)
@@ -380,11 +436,143 @@ class DetectionEngine:
                     except Exception as exc:
                         log.error("DetectionEngine: save_inference failed for multivar %r: %s", mid, exc)
 
+        # 4. Standalone ML-only detector — fires when the attribution classifier
+        #    has been trained on enough samples and produces a confident prediction
+        #    that no rule or anomaly detector would otherwise surface.
+        self._run_ml_standalone(fv, fired)
+
         if fired:
             mode = "DRY-RUN" if self._dry_run else "LIVE"
             log.info("[DetectionEngine][%s] fired: %s", mode, fired)
 
         return fired
+
+    def evaluate(self, fv: FeatureVector) -> list[dict[str, object]]:
+        """Evaluate a feature vector without saving any inferences.
+
+        This is used for range-based user inspection and tagging, where the
+        backend should produce a candidate detection card without persisting a
+        live inference.
+        """
+        results: list[dict[str, object]] = []
+
+        matches = self._rule_engine.evaluate(fv)
+        for match in matches:
+            attribution = self._attribute(fv)
+            evidence: dict[str, object] = {
+                "fv_timestamp": fv.timestamp.isoformat(),
+                "feature_vector": dataclasses.asdict(fv),
+            }
+            if attribution is not None:
+                evidence["attribution"] = attribution.source_id
+                evidence["attribution_confidence"] = round(attribution.confidence, 3)
+                if attribution.runner_up_id is not None:
+                    evidence["runner_up"] = attribution.runner_up_id
+                    evidence["runner_up_confidence"] = round(attribution.runner_up_confidence, 3)
+
+            title = match.title
+            description = match.description
+            if attribution is not None:
+                title = f"{match.title} — {attribution.label} ({attribution.confidence:.0%})"
+                description = f"{match.description}\n\n{attribution.description}"
+
+            results.append({
+                "event_type": match.event_type,
+                "severity": match.severity,
+                "title": title,
+                "description": description,
+                "action": attribution.action if attribution is not None else match.action,
+                "evidence": evidence,
+                "confidence": match.confidence,
+                "detection_method": "rule",
+            })
+
+        scores = self._anomaly_detector.learn_and_score(fv)
+        anomalous = self._anomaly_detector.anomalous_channels(scores)
+        for ch in anomalous:
+            score = scores[ch]
+            if score is None:
+                continue
+            fv_field = _DB_CH_TO_FV_FIELD.get(ch, ch)
+            baselines = {fv_field: self._anomaly_detector.baseline(ch)}
+            snapshot = build_sensor_snapshot(fv, [fv_field], baselines)
+            description = anomaly_description(snapshot)
+            action = anomaly_action(channel=ch)
+            results.append({
+                "event_type": f"anomaly_{ch}",
+                "severity": "warning",
+                "title": (
+                    f"Anomaly: {snapshot[0]['label'] if snapshot else ch.replace('_', ' ')}"
+                    f" — {score:.2f} score"
+                ),
+                "description": description,
+                "action": action,
+                "evidence": {
+                    "sensor_snapshot": snapshot,
+                    "anomaly_score": round(score, 4),
+                },
+                "confidence": round(score, 2),
+                "detection_method": "ml",
+            })
+
+        if self._multivar_detector is not None:
+            mv_scores = self._multivar_detector.learn_and_score(fv)
+            for mid in self._multivar_detector.anomalous_models(mv_scores):
+                score = mv_scores[mid]
+                if score is None:
+                    continue
+                channels = self._multivar_detector.model_channels(mid)
+                label = self._multivar_detector.model_label(mid)
+                baselines = self._multivar_detector.baselines(mid)
+                snapshot = build_sensor_snapshot(fv, channels, baselines)
+                description = anomaly_description(snapshot, model_label=label)
+                action = anomaly_action(model_id=mid)
+                results.append({
+                    "event_type": f"anomaly_{mid}",
+                    "severity": "warning",
+                    "title": f"Composite anomaly: {label} — {score:.2f} score",
+                    "description": description,
+                    "action": action,
+                    "evidence": {
+                        "sensor_snapshot": snapshot,
+                        "anomaly_score": round(score, 4),
+                        "model_id": mid,
+                    },
+                    "confidence": round(score, 2),
+                    "detection_method": "ml",
+                })
+
+        # 4. Standalone ML-only candidate — always shown in range-analysis so users
+        # can see what the trained model would fire independently.
+        if self._attribution_engine is not None:
+            try:
+                ml_lbl, ml_cnf = self._attribution_engine.ml_score(fv)
+                if ml_lbl and ml_cnf >= self._ML_STANDALONE_THRESHOLD:
+                    fp = self._attribution_engine._fp_by_label(ml_lbl)
+                    if fp is not None:
+                        event_type = f"ml_learned_{fp.id}"
+                        results.append({
+                            "event_type": event_type,
+                            "severity": "warning",
+                            "title": f"Learned pattern: {fp.label} ({ml_cnf:.0%} confidence)",
+                            "description": (
+                                f"Detected by the ML model trained on your user-applied tags. "
+                                f"The classifier is {ml_cnf:.0%} confident this matches {fp.label}."
+                            ),
+                            "action": "Tag this event to confirm or correct the prediction.",
+                            "evidence": {
+                                "feature_vector": dataclasses.asdict(fv),
+                                "attribution_source": fp.id,
+                                "attribution_confidence": round(ml_cnf, 3),
+                                "detection_method": "ml_learned",
+                            },
+                            "confidence": round(ml_cnf, 2),
+                            "detection_method": "ml_learned",
+                        })
+            except Exception:
+                pass
+
+        return results
 
     # ── Long-term summaries (call at _CYCLE_1H / _CYCLE_24H) ─────────────────
 

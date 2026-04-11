@@ -5,6 +5,13 @@ from datetime import datetime, timedelta
 
 from config import config
 
+
+class _SafeJSONEncoder(json.JSONEncoder):
+    def default(self, o):  # pylint: disable=arguments-renamed
+        if isinstance(o, datetime):
+            return o.isoformat()
+        return super().default(o)
+
 DB_FILE = config.get("DB_FILE", "data/sensor_data.db")
 
 
@@ -17,8 +24,18 @@ def _normalise_ts(ts: str | None) -> str | None:
         return None
     if ts.endswith("Z"):
         return ts
-    # Handle both "YYYY-MM-DD HH:MM:SS" and "YYYY-MM-DDTHH:MM:SS.ffffff"
     return ts.replace(" ", "T") + "Z"
+
+
+def _deep_to_str(obj):
+    """Recursively convert datetime objects in a nested structure to ISO strings."""
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    if isinstance(obj, dict):
+        return {k: _deep_to_str(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_deep_to_str(item) for item in obj]
+    return obj
 
 
 # ---------------------------------------------------------------------------
@@ -46,7 +63,7 @@ def compute_detection_method(event_type: str) -> str:
     'statistical' — per-channel River anomaly detector
     'rule'        — deterministic YAML threshold rule (default)
     """
-    if event_type in _ML_EVENT_TYPES:
+    if event_type in _ML_EVENT_TYPES or event_type.startswith("ml_learned_"):
         return "ml"
     if event_type.startswith("anomaly_"):
         suffix = event_type[len("anomaly_"):]
@@ -88,7 +105,7 @@ def log_sensor_data(temp, hum, eco2, tvoc, annotation=None, fan_power_w=None, vp
             (timestamp, temperature, humidity, eco2, tvoc, annotation, fan_power_w, vpd_kpa,
              pm1_0, pm2_5, pm10, gas_co, gas_no2, gas_nh3)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (datetime.utcnow().isoformat(), temp, hum, eco2, tvoc, annotation, fan_power_w, vpd_kpa,
+    """, (_normalise_ts(datetime.utcnow().isoformat()), temp, hum, eco2, tvoc, annotation, fan_power_w, vpd_kpa,
           pm1_0, pm2_5, pm10, gas_co, gas_no2, gas_nh3))
 
     conn.commit()
@@ -391,7 +408,7 @@ def save_inference(event_type, severity, title, description, action,
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         datetime.utcnow().isoformat(), event_type, severity, title,
-        description, action, json.dumps(evidence) if evidence else None,
+        description, action, json.dumps(_deep_to_str(evidence), cls=_SafeJSONEncoder) if evidence else None,
         confidence, start_id, end_id, annotation,
     ))
     inf_id = cur.lastrowid
@@ -497,6 +514,27 @@ def get_inference_by_id(inference_id: int) -> dict | None:
     return d
 
 
+def get_distinct_attribution_sources() -> set:
+    """Return the set of distinct attribution_source values stored in inference evidence."""
+    conn = _connect()
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute("SELECT DISTINCT evidence FROM inferences WHERE evidence IS NOT NULL")
+    sources = set()
+    for (ev_str,) in cur.fetchall():
+        if not ev_str:
+            continue
+        try:
+            ev = json.loads(ev_str)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        src = ev.get("attribution_source")
+        if src and isinstance(src, str):
+            sources.add(src)
+    conn.close()
+    return sources
+
+
 def update_inference_notes(inference_id, notes):
     conn = _connect()
     cur = conn.cursor()
@@ -517,6 +555,52 @@ def dismiss_inference(inference_id):
     )
     conn.commit()
     conn.close()
+
+
+def get_inference_tags(inference_id):
+    """Return list of tags for an inference."""
+    conn = _connect()
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT tag, confidence, created_at FROM event_tags WHERE inference_id = ? ORDER BY created_at DESC",
+        (inference_id,),
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return [
+        {"tag": r["tag"], "confidence": r["confidence"], "created_at": _normalise_ts(r["created_at"])}
+        for r in rows
+    ]
+
+
+def add_inference_tag(inference_id, tag, confidence=1.0, *, allowed_tags=None):
+    """Add a tag to an inference.
+
+    Args:
+        inference_id: The inference row id.
+        tag: Tag string — must be a fingerprint ID (underscore form).
+        confidence: User confidence 0–1.
+        allowed_tags: Optional frozenset of valid tag IDs. If provided, raises
+                      ValueError when tag is not in the set.
+    """
+    if allowed_tags is not None and tag not in allowed_tags:
+        raise ValueError(f"Unknown tag: {tag!r}. Allowed: {sorted(allowed_tags)}")
+    conn = _connect()
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO event_tags (inference_id, tag, confidence, created_at) VALUES (?, ?, ?, ?)",
+        (inference_id, tag, confidence, datetime.now().isoformat()),
+    )
+    conn.commit()
+    conn.close()
+    # Trigger ML training
+    try:
+        from mlss_monitor import state  # pylint: disable=import-outside-toplevel
+        if state.detection_engine and state.detection_engine._attribution_engine:
+            state.detection_engine._attribution_engine.train_on_tags()
+    except Exception:
+        pass
 
 
 # ── Inference thresholds ──────────────────────────────────────────────────────
