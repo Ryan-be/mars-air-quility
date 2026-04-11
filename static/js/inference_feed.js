@@ -76,6 +76,7 @@ export function createInferenceFeed({
     const feed    = document.getElementById(feedId);
     const countEl = document.getElementById(countId);
     if (!feed) return;
+    if (!_catsLoaded) _loadCategories();
 
     let filtered = _inferences;
     if (_activeCategory && _activeCategory !== 'all') {
@@ -154,6 +155,7 @@ export function createInferenceFeed({
 
   function setInferences(rows) {
     _inferences = rows;
+    if (!_catsLoaded) _loadCategories();
     _renderFeed();
   }
 

@@ -1,5 +1,7 @@
 """API routes for environment inferences."""
 
+import logging
+
 from flask import Blueprint, jsonify, request
 
 from database.db_logger import (
@@ -40,15 +42,21 @@ def list_inferences():
     return jsonify(rows)
 
 
+_log = logging.getLogger(__name__)
+
+
 @api_inferences_bp.route("/api/inferences/categories")
 def list_categories():
     result = dict(CATEGORIES)
     try:
-        for src in sorted(get_distinct_attribution_sources()):
+        sources = get_distinct_attribution_sources()
+        _log.debug("get_distinct_attribution_sources returned: %s", sources)
+        for src in sorted(sources):
             if src not in result:
                 result[src] = src.replace("_", " ").title()
-    except Exception:
-        pass
+    except Exception as exc:
+        _log.warning("list_categories failed to load fingerprint sources: %s", exc)
+    _log.debug("list_categories returning %d categories: %s", len(result), list(result.keys()))
     return jsonify(result)
 
 
