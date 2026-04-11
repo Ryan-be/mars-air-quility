@@ -89,7 +89,7 @@ def log_sensor_data(temp, hum, eco2, tvoc, annotation=None, fan_power_w=None, vp
             (timestamp, temperature, humidity, eco2, tvoc, annotation, fan_power_w, vpd_kpa,
              pm1_0, pm2_5, pm10, gas_co, gas_no2, gas_nh3, pressure_hpa)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (datetime.utcnow().isoformat(), temp, hum, eco2, tvoc, annotation, fan_power_w, vpd_kpa,
+    """, (_normalise_ts(datetime.utcnow().isoformat()), temp, hum, eco2, tvoc, annotation, fan_power_w, vpd_kpa,
           pm1_0, pm2_5, pm10, gas_co, gas_no2, gas_nh3, pressure_hpa))
 
     conn.commit()
