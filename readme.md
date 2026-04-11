@@ -718,6 +718,20 @@ ls -l /dev/serial0
 # Should show: /dev/serial0 -> ttyAMA0
 ```
 
+### Serial port permissions
+
+To access serial ports (PM sensor on UART), the user running the application needs permission:
+
+```bash
+# Add your user to the dialout group
+sudo usermod -a -G dialout $USER
+
+# Verify membership
+groups $USER
+```
+
+**Log out and log back in** (or run `newgrp dialout`) for the group change to take effect.
+
 > **Note:** On Pi 4, `/dev/serial0` is a symlink to `/dev/ttyAMA0` (the PL011 UART). The mini UART (`/dev/ttyS0`) is assigned to Bluetooth by default. If you need Bluetooth disabled, add `dtoverlay=disable-bt` to `/boot/config.txt`.
 
 ### Why piwheels?

@@ -47,6 +47,14 @@ else
     sudo sh -c "echo 'dtparam=i2c_arm=on' >> $CONFIG_FILE"
 fi
 
+# ── 2b. Add user to dialout group (for serial port access) ───────────────────
+if ! groups | grep -q dialout; then
+    warn "Adding user to dialout group — you will need to log out and back in"
+    sudo usermod -a -G dialout "$USER"
+else
+    success "User already in dialout group"
+fi
+
 # ── 3. Configure piwheels (pre-built ARM wheels — much faster installs) ───────
 info "Configuring pip to use piwheels..."
 pip config set global.extra-index-url https://www.piwheels.org/simple
@@ -133,6 +141,10 @@ if grep -q "Enabling I2C" <<< "$(cat /boot/firmware/config.txt 2>/dev/null || ca
 else
     echo "  2. Run: poetry run python mlss_monitor/app.py"
 fi
+echo ""
+echo "IMPORTANT: If you were added to the dialout group, you must log out"
+echo "           and log back in (or run 'newgrp dialout') for serial"
+echo "           port access to work."
 echo ""
 echo "  To install as a systemd service:"
 echo "    sudo cp mlss-monitor.service /etc/systemd/system/"
