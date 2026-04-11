@@ -16,7 +16,7 @@
  *     cardDataAttr:  'data-inf-id',        // data attribute on each card for the ID
  *     openDialog:    myOpenDialog,          // function(id) called when a card is clicked
  *   });
- *   feed.fetch();
+ *   feed.load();
  */
 'use strict';
 
@@ -123,7 +123,7 @@ export function createInferenceFeed({
       return;
     }
     try {
-      const res = await fetch('/api/inferences/categories');
+      const res = await window.fetch('/api/inferences/categories');
       console.log('[inference_feed] categories status:', res.status);
       if (!res.ok) {
         console.error('[inference_feed] categories fetch failed with status', res.status);
@@ -158,14 +158,20 @@ export function createInferenceFeed({
     }
   }
 
-  async function fetch(url = '/api/inferences?limit=50') {
+  async function load(url = '/api/inferences?limit=50') {
     try {
       await _loadCategories();
       const res = await window.fetch(url);
-      if (!res.ok) return;
+      if (!res.ok) {
+        console.error('[inference_feed] inferences fetch failed:', res.status, url);
+        return;
+      }
       _inferences = await res.json();
+      console.log('[inference_feed] load() got', _inferences.length, 'inferences');
       _renderFeed();
-    } catch { /* not available yet */ }
+    } catch (err) {
+      console.error('[inference_feed] load() failed:', err);
+    }
   }
 
   function setInferences(rows) {
@@ -182,7 +188,7 @@ export function createInferenceFeed({
     return _inferences;
   }
 
-  return { fetch, setInferences, getInferences, _loadCategories };
+  return { load, setInferences, getInferences, _loadCategories };
 }
 
 // Expose for plain-script usage (detections_insights.js is loaded as a plain script

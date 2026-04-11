@@ -403,7 +403,7 @@ const _infFeed = createInferenceFeed({
 });
 
 function fetchInferences() {
-  _infFeed.fetch('/api/inferences?limit=50');
+  _infFeed.load('/api/inferences?limit=50');
 }
 
 function _parseNum(v) {
