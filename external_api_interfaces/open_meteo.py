@@ -246,6 +246,7 @@ class OpenMeteoClient:
                 "wind_speed": float,    # mph
                 "weather_code": int,    # WMO code
                 "uv_index": float,
+                "pressure_hpa": float, # surface pressure in hPa
                 "source": "Open-Meteo",
             }
 
@@ -256,7 +257,7 @@ class OpenMeteoClient:
             f"{self.FORECAST_URL}"
             f"?latitude={lat}&longitude={lon}"
             f"&current=temperature_2m,relative_humidity_2m,apparent_temperature,"
-            f"weather_code,wind_speed_10m,uv_index"
+            f"weather_code,wind_speed_10m,uv_index,surface_pressure"
             f"&wind_speed_unit=mph&temperature_unit=celsius"
         )
         with urllib.request.urlopen(url, timeout=timeout) as resp:
@@ -269,5 +270,44 @@ class OpenMeteoClient:
             "wind_speed":   c.get("wind_speed_10m"),
             "weather_code": c.get("weather_code"),
             "uv_index":     c.get("uv_index"),
+            "pressure_hpa": c.get("surface_pressure"),
             "source":       "Open-Meteo",
+        }
+
+    # ------------------------------------------------------------------ #
+    # Air Quality
+    # ------------------------------------------------------------------ #
+
+    AIR_QUALITY_URL = "https://air-quality-api.open-meteo.com/v1/air-quality"
+
+    def get_current_air_quality(self, lat: float, lon: float, timeout: int = 8) -> dict:
+        """
+        Fetch current air quality from Open-Meteo Air Quality API.
+
+        Returns::
+
+            {
+                "aqi": int,             # US AQI (0-500+)
+                "pm2_5": float,         # µg/m³
+                "pm10": float,          # µg/m³
+                "ozone": float,         # µg/m³
+                "source": "Open-Meteo",
+            }
+
+        Raises ``urllib.error.URLError`` or ``KeyError`` on failure.
+        """
+        url = (
+            f"{self.AIR_QUALITY_URL}"
+            f"?latitude={lat}&longitude={lon}"
+            f"&current=us_aqi,pm2_5,pm10,ozone"
+        )
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            d = json.loads(resp.read())
+        c = d.get("current", {})
+        return {
+            "aqi":     c.get("us_aqi"),
+            "pm2_5":   c.get("pm2_5"),
+            "pm10":    c.get("pm10"),
+            "ozone":   c.get("ozone"),
+            "source":  "Open-Meteo",
         }

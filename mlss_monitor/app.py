@@ -631,6 +631,18 @@ def _weather_log_once():
                 w["wind_speed"], w["weather_code"], w["uv_index"])
     cleanup_old_weather(days=7)
     log.info("Weather logged: %.1f°C, %d%%RH", w["temp"], w["humidity"])
+
+    # Fetch air quality data
+    try:
+        aq = state.open_meteo.get_current_air_quality(loc["lat"], loc["lon"])
+        w["aqi"] = aq.get("aqi")
+        w["aqi_pm25"] = aq.get("pm2_5")
+        w["aqi_pm10"] = aq.get("pm10")
+        w["aqi_ozone"] = aq.get("ozone")
+        log.info("AQI logged: %d (PM2.5: %.1f)", aq.get("aqi", 0), aq.get("pm2_5", 0))
+    except Exception as e:
+        log.warning("Air quality fetch error: %s", e)
+
     if state.event_bus:
         state.event_bus.publish("weather_update", w)
         try:

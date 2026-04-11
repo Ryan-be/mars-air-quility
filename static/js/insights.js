@@ -111,12 +111,7 @@ export function updateWeather(w, indoorTemp, indoorHum) {
   document.getElementById("weatherCond").textContent = WMO[w.weather_code] ?? `Code ${w.weather_code}`;
 
   // Indoor pressure (from sensor_update via dashboard.js)
-  if (window._indoorPressure != null) {
-    const ventPressureEl = document.getElementById("ventPressure");
-    if (ventPressureEl) {
-      ventPressureEl.textContent = `Indoor: ${window._indoorPressure.toFixed(1)} hPa`;
-    }
-  }
+  // Outdoor pressure and AQI will be handled in updateInsights
 
   // Ventilation opportunity
   const ventEl = document.getElementById("ventVal");
@@ -284,56 +279,93 @@ export function updateInsights(temp, hum, tvoc, eco2, eco2Series, pressureHistor
     const cooler = w.temp < indoorTemp - 1;
     const drier  = w.humidity < indoorHum - 5;
 
-    // Pressure-based analysis
-    let pressureSignal = "";
-    let pressureBoost = false;
-    if (pressureHistory.length >= 5 && window._indoorPressure != null) {
-      const recent = pressureHistory.slice(-5);
-      const pressureTrend = recent[recent.length - 1] - recent[0]; // hPa change over ~30s
-      const pressureDropRate = pressureTrend / 5; // hPa per reading
+    // Air Quality check - bad AQI means don't open windows
+    const aqiBad = w.aqi != null && w.aqi > 100; // Unhealthy for sensitive groups
+    const aqiVeryBad = w.aqi != null && w.aqi > 150; // Unhealthy for everyone
 
-      // Rapid pressure drop suggests open window/door - good for ventilation
-      if (pressureDropRate < -0.5) {
-        pressureSignal = " (pressure dropping — likely open window)";
-        pressureBoost = true;
-      } else if (pressureDropRate < -0.2) {
-        pressureSignal = " (slight pressure drop)";
-      } else if (pressureDropRate > 0.5) {
-        pressureSignal = " (pressure rising — doors/window likely closed)";
+    // Pressure differential: higher inside = air wants to move out
+    const indoorPressure = window._indoorPressure;
+    const outdoorPressure = w.pressure_hpa;
+    let pressureDiff = 0;
+    let pressureSignal = "";
+    if (indoorPressure != null && outdoorPressure != null) {
+      pressureDiff = indoorPressure - outdoorPressure;
+      if (pressureDiff > 2) {
+        pressureSignal = ` (${pressureDiff.toFixed(1)} hPa higher inside — natural exhaust)`;
+      } else if (pressureDiff < -2) {
+        pressureSignal = ` (${Math.abs(pressureDiff).toFixed(1)} hPa lower inside — air wants in)`;
       }
     }
 
-    // Display indoor pressure with trend
-    if (window._indoorPressure != null) {
+    // Indoor pressure trend analysis
+    let pressureTrendSignal = "";
+    let pressureBoost = false;
+    if (pressureHistory.length >= 5 && indoorPressure != null) {
+      const recent = pressureHistory.slice(-5);
+      const trend = recent[recent.length - 1] - recent[0];
+      const dropRate = trend / 5;
+      if (dropRate < -0.5) {
+        pressureTrendSignal = " (pressure dropping — likely open window)";
+        pressureBoost = true;
+      } else if (dropRate < -0.2) {
+        pressureTrendSignal = " (slight pressure drop)";
+      } else if (dropRate > 0.5) {
+        pressureTrendSignal = " (pressure rising — doors/window likely closed)";
+      }
+    }
+
+    // Display pressure info
+    if (indoorPressure != null && outdoorPressure != null) {
       const trend = pressureHistory.length >= 3
         ? (pressureHistory.slice(-3).reduce((a, b) => a + b, 0) / 3 - pressureHistory[0]).toFixed(1)
         : null;
-      ventPressure.textContent = trend !== null
-        ? `Indoor: ${window._indoorPressure.toFixed(1)} hPa (${trend > 0 ? '+' : ''}${trend} hPa/30s)`
-        : `Indoor: ${window._indoorPressure.toFixed(1)} hPa`;
+      const trendStr = trend !== null
+        ? ` (${trend > 0 ? '+' : ''}${trend} hPa/30s)`
+        : "";
+      const aqiStr = w.aqi != null ? ` • AQI: ${w.aqi}` : "";
+      ventPressure.textContent = `In: ${indoorPressure.toFixed(1)} hPa${trendStr} • Out: ${outdoorPressure.toFixed(1)} hPa${aqiStr}`;
     }
 
-    // Calculate ventilation rating with pressure boost
+    // Calculate ventilation rating
     let rating, reason;
-    if (cooler && drier) {
-      rating = "Good"; reason = "Cooler & drier outside — ventilate";
-    } else if (cooler) {
-      rating = "Partial"; reason = "Cooler outside but similar humidity";
-    } else if (drier) {
-      rating = "Partial"; reason = "Drier outside but similar temperature";
+
+    // If AQI is very bad, force Poor regardless of other factors
+    if (aqiVeryBad) {
+      rating = "Poor";
+      reason = `Outdoor AQI ${w.aqi} (unhealthy) — keep windows closed`;
+    } else if (aqiBad) {
+      // AQI is moderate/unhealthy for sensitive - reduce rating
+      if (cooler && drier) {
+        rating = "Partial"; reason = "Cooler & drier but outdoor AQI elevated";
+      } else if (cooler) {
+        rating = "Partial"; reason = "Cooler but outdoor AQI elevated";
+      } else if (drier) {
+        rating = "Partial"; reason = "Drier but outdoor AQI elevated";
+      } else {
+        rating = "Poor"; reason = `Outdoor AQI ${w.aqi} (elevated) + conditions poor`;
+      }
     } else {
-      rating = "Poor"; reason = "Outside conditions not favourable";
+      // AQI OK - use normal temperature/humidity logic
+      if (cooler && drier) {
+        rating = "Good"; reason = "Cooler & drier outside — ventilate";
+      } else if (cooler) {
+        rating = "Partial"; reason = "Cooler outside but similar humidity";
+      } else if (drier) {
+        rating = "Partial"; reason = "Drier outside but similar temperature";
+      } else {
+        rating = "Poor"; reason = "Outside conditions not favourable";
+      }
     }
 
     // Override if pressure indicates open window/door and conditions aren't terrible
-    if (pressureBoost && rating === "Poor" && (cooler || drier)) {
+    if (pressureBoost && rating === "Poor" && (cooler || drier) && !aqiVeryBad) {
       rating = "Partial";
-      reason = `Outside not ideal but pressure suggests open window${pressureSignal}`;
+      reason = `Outside not ideal but pressure suggests open window${pressureTrendSignal}`;
     }
 
     ventEl.textContent = rating;
     ventEl.className = "value " + (rating === "Good" ? "good" : rating === "Partial" ? "moderate" : "neutral");
-    ventSub.textContent = reason + pressureSignal;
+    ventSub.textContent = reason + pressureSignal + pressureTrendSignal;
     ventCard.style.borderTopColor = rating === "Good" ? "#2d8a2d" : rating === "Partial" ? "#c87800" : "#555";
   } else {
     ventEl.textContent = "--"; ventEl.className = "value neutral";
