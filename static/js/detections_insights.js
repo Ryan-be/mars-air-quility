@@ -381,7 +381,11 @@ const DI = (function () {
 
     let filtered = _diInferences;
     if (_diActiveCategory && _diActiveCategory !== 'all') {
-      filtered = _diInferences.filter(function (i) { return i.category === _diActiveCategory; });
+      if (_diActiveCategory === 'ml') {
+        filtered = _diInferences.filter(function (i) { return i.detection_method === 'ml'; });
+      } else {
+        filtered = _diInferences.filter(function (i) { return i.category === _diActiveCategory; });
+      }
     }
 
     if (!filtered.length) {
@@ -451,6 +455,11 @@ const DI = (function () {
         btn.textContent = label;
         bar.appendChild(btn);
       }
+      const mlBtn = document.createElement('button');
+      mlBtn.className = 'inf-filter';
+      mlBtn.dataset.category = 'ml';
+      mlBtn.textContent = '🧠 ML';
+      bar.appendChild(mlBtn);
       bar.addEventListener('click', function (e) {
         const btn = e.target.closest('.inf-filter');
         if (!btn) return;
