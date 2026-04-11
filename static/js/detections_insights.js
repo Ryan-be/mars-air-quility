@@ -375,10 +375,13 @@ const DI = (function () {
     const url = `/api/inferences?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&limit=200`;
     try {
       const res = await window.fetch(url);
-      if (!res.ok) throw new Error('fetch failed');
+      console.log('[DI] /api/inferences status:', res.status, 'url:', url);
+      if (!res.ok) throw new Error('fetch failed: ' + res.status);
       const rows = await res.json();
+      console.log('[DI] /api/inferences returned', rows.length, 'rows');
       _feed.setInferences(rows);
     } catch (e) {
+      console.error('[DI] _renderInferenceTable error:', e);
       feed.innerHTML = '<div class="inference-empty">Could not load inferences.</div>';
     }
   }
