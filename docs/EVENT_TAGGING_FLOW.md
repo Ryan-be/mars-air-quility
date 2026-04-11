@@ -10,7 +10,7 @@ Event tagging in mars-air-quality is a sophisticated flow that allows users to m
 
 ### 1.1 UI Entry Point
 
-**File**: [templates/history.html](templates/history.html#L213)
+**File**: [templates/history.html](../templates/history.html)#L213)
 
 The Correlations tab provides:
 - **Time series brush chart**: User drags to select a time window of interest
@@ -25,7 +25,7 @@ When a time range is selected, the system displays:
 
 ### 1.2 JavaScript Handler
 
-**File**: [static/js/history.js](static/js/history.js#L59-L99)
+**File**: [static/js/history.js](../static/js/history.js)#L59-L99)
 
 When the user clicks "Save tagged event":
 ```javascript
@@ -47,7 +47,7 @@ The handler:
 
 ### 2.1 Endpoint Handler
 
-**File**: [mlss_monitor/routes/api_history.py](mlss_monitor/routes/api_history.py#L235-L315)
+**File**: [mlss_monitor/routes/api_history.py](../mlss_monitor/routes/api_history.py)#L235-L315)
 
 The endpoint performs these steps in sequence:
 
@@ -67,7 +67,7 @@ This:
 
 **Function**: `_build_range_readings(start, end)` → `list[NormalisedReading]`
 
-**NormalisedReading fields** (from [mlss_monitor/data_sources/base.py](mlss_monitor/data_sources/base.py)):
+**NormalisedReading fields** (from [mlss_monitor/data_sources/base.py](../mlss_monitor/data_sources/base.py))):
 ```
 timestamp, source, tvoc_ppb, eco2_ppm, temperature_c, humidity_pct,
 pm1_ug_m3, pm25_ug_m3, pm10_ug_m3, co_ppb, no2_ppb, nh3_ppb
@@ -109,7 +109,7 @@ The **baseline** is an **EMA (Exponential Moving Average)** maintained by the **
 
 #### Feature Vector Extraction
 
-**File**: [mlss_monitor/feature_extractor.py](mlss_monitor/feature_extractor.py)
+**File**: [mlss_monitor/feature_extractor.py](../mlss_monitor/feature_extractor.py))
 
 ```python
 fv = FeatureExtractor().extract(readings, baselines)
@@ -155,7 +155,7 @@ This **shadow evaluates** the range to see if any detection rules or ML models w
 
 ### 2.5 Inference Creation & Storage
 
-**File**: [database/db_logger.py](database/db_logger.py#L381-L425)
+**File**: [database/db_logger.py](../database/db_logger.py)#L381-L425)
 
 If an event is detected or suggested:
 ```python
@@ -177,7 +177,7 @@ inference_id = save_inference(
 )
 ```
 
-**Database Storage** ([inferences](database/db_logger.py)):
+**Database Storage** ([inferences](../database/db_logger.py))):
 ```sql
 CREATE TABLE inferences (
     id INTEGER PRIMARY KEY,
@@ -201,14 +201,14 @@ CREATE TABLE inferences (
 
 **Function**: `add_inference_tag(inference_id, tag, confidence=1.0)`
 
-**File**: [database/db_logger.py](database/db_logger.py#L536-L560)
+**File**: [database/db_logger.py](../database/db_logger.py)#L536-L560)
 
 ```python
 if tag:
     add_inference_tag(inference_id, tag, 1.0, allowed_tags=allowed)
 ```
 
-**Database Storage** ([event_tags](database/db_logger.py)):
+**Database Storage** ([event_tags](../database/db_logger.py))):
 ```sql
 CREATE TABLE event_tags (
     id INTEGER PRIMARY KEY,
@@ -224,7 +224,7 @@ CREATE TABLE event_tags (
 
 ## 3. What "0 above baseline" Means
 
-In the **Peak vs baseline** analysis panel ([static/js/charts_correlation.js](static/js/charts_correlation.js#L753-L759)):
+In the **Peak vs baseline** analysis panel ([static/js/charts_correlation.js](../static/js/charts_correlation.js)#L753-L759)):
 
 ```javascript
 const baseline = _corrBaselines[ch];
@@ -251,7 +251,7 @@ const ratioStr = baseline
 
 ### 4.1 Baseline Correlations (Pearson r²)
 
-**File**: [static/js/charts_correlation.js](static/js/charts_correlation.js#L462-L510)
+**File**: [static/js/charts_correlation.js](../static/js/charts_correlation.js)#L462-L510)
 
 When a range is selected, the system computes all pairwise linear regressions:
 
@@ -276,7 +276,7 @@ const reg = tvocEco2Pairs.length >= 2
 
 ### 4.2 Temporal Correlations (Feature-Based)
 
-**File**: [mlss_monitor/feature_extractor.py](mlss_monitor/feature_extractor.py#L225-L260)
+**File**: [mlss_monitor/feature_extractor.py](../mlss_monitor/feature_extractor.py)#L225-L260)
 
 ```python
 def _sensors_correlated(readings, field_a, field_b, window_seconds=300, invert_b=False):
@@ -352,7 +352,7 @@ All 100+ features in one snapshot:
 
 ### 5.3 Evidence JSON (Stored in DB)
 
-**Schema**: [inferences.evidence](database/db_logger.py#L410)
+**Schema**: [inferences.evidence](../database/db_logger.py)#L410)
 
 ```json
 {
@@ -368,7 +368,7 @@ All 100+ features in one snapshot:
 
 ### 5.4 User Tag
 
-Stored separately in [event_tags](database/db_logger.py) table:
+Stored separately in [event_tags](../database/db_logger.py)) table:
 - **tag**: Fingerprint ID (e.g., "cooking", "combustion", "external_pollution")
 - **confidence**: User confidence 0–1 (typically 1.0)
 - **created_at**: When the tag was applied
@@ -379,7 +379,7 @@ Stored separately in [event_tags](database/db_logger.py) table:
 
 ### 6.1 Attribution Engine Training
 
-**File**: [mlss_monitor/attribution/engine.py](mlss_monitor/attribution/engine.py#L188-L225)
+**File**: [mlss_monitor/attribution/engine.py](../mlss_monitor/attribution/engine.py)#L188-L225)
 
 When the engine initializes or is commanded to retrain:
 
@@ -415,7 +415,7 @@ def train_on_tags(self):
 
 ### 6.3 Attribution Scoring
 
-**File**: [mlss_monitor/attribution/engine.py](mlss_monitor/attribution/engine.py#L115-L180)
+**File**: [mlss_monitor/attribution/engine.py](../mlss_monitor/attribution/engine.py)#L115-L180)
 
 When a new inference is generated, the engine:
 
@@ -555,7 +555,7 @@ User interaction on Correlations tab:
 - Used for historical range analysis
 - Table: `sensor_data(timestamp, tvoc, eco2, temperature, ...)`
 
-**Selection logic** ([api_history.py](mlss_monitor/routes/api_history.py#L130-L150)):
+**Selection logic** ([api_history.py](../mlss_monitor/routes/api_history.py)#L130-L150)):
 ```python
 def _build_range_readings(start: str, end: str) -> list[NormalisedReading]:
     sensor_rows = _query_sensor_data(DB_FILE, start, end)
@@ -583,7 +583,7 @@ def _build_range_readings(start: str, end: str) -> list[NormalisedReading]:
 
 ### 9.1 Baseline Initialization
 
-**File**: [mlss_monitor/anomaly_detector.py](mlss_monitor/anomaly_detector.py#L55-L65)
+**File**: [mlss_monitor/anomaly_detector.py](../mlss_monitor/anomaly_detector.py)#L55-L65)
 
 On startup, attempts to load persisted models and EMA state from pickle files:
 ```python
@@ -592,7 +592,7 @@ self._ema: dict[str, float] = {}  # Channel → EMA value
 
 ### 9.2 Baseline Update Cycle
 
-During each detection cycle ([inference_engine.py](mlss_monitor/inference_engine.py) called ~every 60s):
+During each detection cycle ([inference_engine.py](../mlss_monitor/inference_engine.py)) called ~every 60s):
 
 ```python
 def learn_and_score(self, fv: FeatureVector) -> dict[str, float | None]:
@@ -635,7 +635,7 @@ scores[ch] = None if self._n_seen[ch] < cold_start else raw_score
 
 ### 9.4 Baseline Bootstrap
 
-**File**: [mlss_monitor/anomaly_detector.py](mlss_monitor/anomaly_detector.py#L82-L99)
+**File**: [mlss_monitor/anomaly_detector.py](../mlss_monitor/anomaly_detector.py)#L82-L99)
 
 On startup, can pre-load historical data to warm up baseline:
 
@@ -798,10 +798,10 @@ To add a new ML-learned fingerprint:
 
 ## Key Files Reference
 
-- **UI**: [templates/history.html](templates/history.html), [static/js/history.js](static/js/history.js), [static/js/charts_correlation.js](static/js/charts_correlation.js)
-- **Endpoint**: [mlss_monitor/routes/api_history.py](mlss_monitor/routes/api_history.py#L235)
-- **Feature extraction**: [mlss_monitor/feature_extractor.py](mlss_monitor/feature_extractor.py), [mlss_monitor/feature_vector.py](mlss_monitor/feature_vector.py)
-- **Baselines**: [mlss_monitor/anomaly_detector.py](mlss_monitor/anomaly_detector.py)
-- **Data persistence**: [database/db_logger.py](database/db_logger.py)
-- **Attribution ML**: [mlss_monitor/attribution/engine.py](mlss_monitor/attribution/engine.py)
-- **Detection**: [mlss_monitor/detection_engine.py](mlss_monitor/detection_engine.py)
+- **UI**: [templates/history.html](../templates/history.html)), [static/js/history.js](../static/js/history.js)), [static/js/charts_correlation.js](../static/js/charts_correlation.js))
+- **Endpoint**: [mlss_monitor/routes/api_history.py](../mlss_monitor/routes/api_history.py)#L235)
+- **Feature extraction**: [mlss_monitor/feature_extractor.py](../mlss_monitor/feature_extractor.py)), [mlss_monitor/feature_vector.py](../mlss_monitor/feature_vector.py))
+- **Baselines**: [mlss_monitor/anomaly_detector.py](../mlss_monitor/anomaly_detector.py))
+- **Data persistence**: [database/db_logger.py](../database/db_logger.py))
+- **Attribution ML**: [mlss_monitor/attribution/engine.py](../mlss_monitor/attribution/engine.py))
+- **Detection**: [mlss_monitor/detection_engine.py](../mlss_monitor/detection_engine.py))

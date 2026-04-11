@@ -557,41 +557,45 @@ The system uses a 4-layer detection architecture. Every inference carries a `det
 
 1. **Rule-based detection** — threshold rules declared in `config/rules.yaml` and evaluated by the `rule-engine` library. Fires immediately when a sensor crosses a threshold (e.g. TVOC > 500 ppb, eCO2 > 1000 ppm, temperature outside 15–28 °C). Low latency, high precision for known patterns.
 
-2. **Deterministic fingerprint matching** — programmatic scoring against hand-crafted profiles in `config/fingerprints.yaml`. Each fingerprint defines expected sensor states (`elevated`/`high`/`absent`/`normal`) and temporal criteria (rise rate, decay rate, cross-sensor correlation). Attribution score = `sensor_score × 0.6 + temporal_score × 0.4`. Instantaneous and fully interpretable.
+2. **Statistical ML anomaly detection** — per-sensor [River `HalfSpaceTrees`](https://riverml.xyz/latest/api/anomaly/HalfSpaceTrees/) models (`AnomalyDetector`). Each model learns an individual channel's baseline via EMA and scores each new reading; scores above 0.75 trigger an inference. Requires ~1,440 readings per channel for cold-start. Detects unusual patterns in individual channels without labels.
 
-3. **Statistical ML anomaly detection** — per-sensor [River `HalfSpaceTrees`](https://riverml.xyz/latest/api/anomaly/HalfSpaceTrees/) models (`AnomalyDetector`). Each model learns an individual channel's baseline via EMA and scores each new reading; scores above 0.75 trigger an inference. Requires ~1,440 readings per channel for cold-start. Detects unusual patterns in individual channels without labels.
+3. **Deterministic fingerprint matching** — programmatic scoring against hand-crafted profiles in `config/fingerprints.yaml` (e.g. `personal_care`, `cooking`, `combustion`). Each fingerprint defines expected sensor states (`elevated`/`high`/`absent`/`normal`) and temporal criteria. Attribution score = `sensor_score × 0.6 + temporal_score × 0.4`. Fires autonomously when the AttributionEngine (`mlss_monitor/attribution/engine.py`) finds a fingerprint match above its confidence floor. Results are stored in `inference.evidence.attribution_source`.
 
-4. **Trained ML fingerprint classifier** — a River `LogisticRegression` pipeline trained on user-tagged events. Users tag inference events with fingerprint labels (e.g. `personal_care`, `cooking`) constrained to the vocabulary in `config/fingerprints.yaml`. The classifier trains on the full 143-field `FeatureVector` (see [FeatureVector](#featurevector)) and learns temporal features such as slopes, acceleration, peak timing, rise time and slope variance. The model is persisted to `data/classifier.pkl` after each training run and auto-loaded on startup.
+4. **Trained ML fingerprint classifier** — a River `LogisticRegression` pipeline trained on user-tagged events. Users tag inference events with fingerprint labels constrained to the vocabulary in `config/fingerprints.yaml`. The classifier trains on the full 143-field `FeatureVector`. The model is persisted to `data/classifier.pkl` and auto-loaded on startup. After sufficient training samples, the classifier fires `ml_learned_<source>` events autonomously when its confidence exceeds 0.65 (overriding fingerprint when it disagrees if confidence ≥ 0.7).
 
-The dashboard displays a coloured chip (grey = Rule, teal = Fingerprint, blue = Statistical, purple = ML Classifier) on each inference card and in the detail dialog.
+The dashboard displays a coloured chip (grey = Rule, teal = Statistical, purple = ML) on each inference card and in the detail dialog. Fingerprint-matched events carry a "Rule" chip; their attribution source appears as a badge in the dialog.
 
 ### Attribution engine
 
-After a detection fires, the attribution engine (`attribution_engine.py`) identifies the most likely real-world source using two complementary methods:
+The `AttributionEngine` (`mlss_monitor/attribution/engine.py`) scores fingerprints against each new FeatureVector in two modes:
 
-**Deterministic fingerprint scoring** — each event is scored against profiles in `config/fingerprints.yaml`. Profiles define sensor states (`elevated`/`high`/`absent`/`normal`) and temporal criteria. Score = `sensor_score × 0.6 + temporal_score × 0.4`. Example sources:
+**Hybrid mode (augments rule-fired events):** When a rule fires, the engine scores all fingerprints and blends with the ML classifier prediction:
+- If classifier and top fingerprint agree: `conf = 0.6 × fp_score + 0.4 × ml_score`
+- If they disagree: `conf = 0.6 × fp_score` (classifier suppresses confidence)
+- If `ml_conf ≥ 0.7`: classifier overrides fingerprint disagreement
+- The best match above its fingerprint's `confidence_floor` is stored as `attribution_source`
+
+**Standalone ML mode:** When no rule fires but `ml_conf ≥ 0.65`, the engine fires `ml_learned_<source_id>` events autonomously. This allows the classifier to discover sources that rules cannot detect.
+
+Example fingerprint sources:
 
 | Source | Key sensor signals |
 |---|---|
-| Combustion | PM2.5 and TVOC both elevated and correlated; high PM2.5/PM10 ratio |
+| Personal Care Products | Elevated TVOC, eCO2; PM channels normal |
 | Cooking | PM2.5 spike with TVOC rise; CO resistance drop |
-| Chemical off-gassing | TVOC elevated but PM2.5 and eCO2 normal |
-| Biological off-gassing | Gradual TVOC rise, often overnight |
-| External pollution | PM2.5 elevated without indoor VOC or CO2 rise |
-
-**Trained ML classifier** — if a trained model exists (`data/classifier.pkl`), its confidence scores are blended with the fingerprint scores. The classifier is trained on user-tagged events and uses the full 143-field `FeatureVector`.
-
-The top-scoring source and a runner-up (if confidence is within 15%) are stored on the inference and shown in the dialog as a coloured attribution badge. Baselines for historical events are computed from the 60-minute pre-event median in the `sensor_data` table (not the live EMA).
+| Combustion | PM2.5 and TVOC both elevated and correlated; high PM2.5/PM10 ratio |
+| Biological Off-gassing | Gradual TVOC rise, often overnight |
+| Cleaning Products | Sharp TVOC spike; CO, NO2, NH3 resistance change |
 
 ### User tagging and incremental attribution training
 
-User-applied tags are stored in the `event_tags` table and linked to the originating inference. Tag names are constrained to the controlled vocabulary of fingerprint IDs defined in `config/fingerprints.yaml`. When a new tag is added, the attribution engine retrains its River `LogisticRegression` classifier from all existing tagged feature vectors. See `docs/tagging_design.md` for a flow description.
+User-applied tags are stored in the `event_tags` table and linked to the originating inference. Tag names are constrained to the controlled vocabulary of fingerprint IDs defined in `config/fingerprints.yaml`. When a new tag is added, the AttributionEngine retrains its River `LogisticRegression` classifier from all existing tagged feature vectors. See [docs/EVENT_TAGGING_FLOW.md](docs/EVENT_TAGGING_FLOW.md) for a flow description.
 
 - A tagged event must include a `feature_vector` in its evidence to be used as training data.
-- Tagging a historical range creates a `User-tagged event` inference with both raw readings and a derived feature vector. The feature vector baseline is computed from the 60-minute pre-event median from the `sensor_data` table (not the live EMA).
-- The classifier trains on all 143 fields of the `FeatureVector`, including temporal features (slopes, acceleration, peak timing, rise time, slope variance).
+- Tagging a historical range creates an `annotation_context_user_range` inference with both raw readings and a derived feature vector. The feature vector baseline is computed from the 60-minute pre-event median from the `sensor_data` table.
+- The classifier encodes string labels internally (via `_StringLabelClassifier`) because River 0.23.0's `LogisticRegression` requires numeric targets.
 - The trained model is saved to `data/classifier.pkl` after each training run and auto-loaded on startup.
-- Fingerprint heuristics remain the primary signal; the trained classifier refines confidence for future attributions.
+- Fingerprint heuristics remain the primary signal; the trained classifier refines confidence and can fire `ml_learned_*` events autonomously once it accumulates sufficient samples (≥5 per label).
 
 ### Configurable thresholds
 
