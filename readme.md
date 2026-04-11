@@ -705,6 +705,11 @@ Navigate to **Interface Options → Serial Port**:
 1. "Would you like a login shell to be accessible over serial?" → **No**
 2. "Would you like the serial port hardware to be enabled?" → **Yes**
 
+> **Important for Pi 4:** By default, Bluetooth uses the hardware UART (`ttyAMA0`), so `/dev/serial0` maps to the mini UART (`ttyS0`) which is too slow for the PMSA003. Add this to `/boot/config.txt` to disable Bluetooth and free the hardware UART:
+> ```
+> dtoverlay=disable-bt
+> ```
+
 Then reboot:
 
 ```bash
@@ -717,6 +722,8 @@ After reboot, verify the serial port exists:
 ls -l /dev/serial0
 # Should show: /dev/serial0 -> ttyAMA0
 ```
+
+> If it shows `ttyS0` instead, add `dtoverlay=disable-bt` to `/boot/config.txt` and reboot again.
 
 ### Serial port permissions
 
