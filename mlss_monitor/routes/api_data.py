@@ -52,6 +52,7 @@ def get_data():
                 "gas_co": row[12] if len(row) > 12 else None,
                 "gas_no2": row[13] if len(row) > 13 else None,
                 "gas_nh3": row[14] if len(row) > 14 else None,
+                "pressure_hpa": row[15] if len(row) > 15 else None,
             }
             for row in rows
         ]

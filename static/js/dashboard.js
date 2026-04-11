@@ -236,6 +236,13 @@ const SENSOR_INFO = {
     range: "PM2.5: 0–12 good · 12–35 moderate · >35 unhealthy",
     desc: "Fine particulate matter from the PMSA003 sensor via UART. PM2.5 (≤2.5 µm) penetrates deep into the lungs and bloodstream. WHO 24-hr guideline: 15 µg/m³. PM10 (≤10 µm) irritates the upper respiratory tract. Sources include cooking, candles, dust, traffic, and wildfires.",
   },
+  pressure: {
+    title: "🌪️ Pressure",
+    sensor: "BMP280 (I²C)",
+    unit: "hPa",
+    range: "980 – 1040 hPa (typical indoor)",
+    desc: "Barometric pressure from the BMP280 sensor. Pressure changes can indicate weather fronts passing through. Rapid drops may suggest open windows or doors. Useful for ventilation assessment when combined with CO₂ and humidity trends.",
+  },
 };
 
 document.querySelectorAll(".stat-card[data-sensor]").forEach(card => {
