@@ -139,11 +139,13 @@ export function createInferenceFeed({
         btn.textContent = label;
         bar.appendChild(btn);
       }
-      const mlBtn = document.createElement('button');
-      mlBtn.className = 'inf-filter';
-      mlBtn.dataset.category = 'ml';
-      mlBtn.textContent = '\uD83E\uDDE0 ML';
-      bar.appendChild(mlBtn);
+      if (!bar.querySelector('[data-category="ml"]')) {
+        const mlBtn = document.createElement('button');
+        mlBtn.className = 'inf-filter';
+        mlBtn.dataset.category = 'ml';
+        mlBtn.textContent = '\uD83E\uDDE0 ML';
+        bar.appendChild(mlBtn);
+      }
       bar.addEventListener('click', (e) => {
         const btn = e.target.closest('.inf-filter');
         if (!btn) return;
