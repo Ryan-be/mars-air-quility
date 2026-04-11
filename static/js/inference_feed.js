@@ -132,6 +132,9 @@ export function createInferenceFeed({
       const cats = await res.json();
       console.log('[inference_feed] categories loaded:', Object.keys(cats));
       for (const [key, label] of Object.entries(cats)) {
+        // Skip if a button with this category is already in the DOM
+        // (base categories are hardcoded in the HTML template)
+        if (bar.querySelector(`[data-category="${CSS.escape(key)}"]`)) continue;
         const btn = document.createElement('button');
         btn.className = 'inf-filter';
         btn.dataset.category = key;
