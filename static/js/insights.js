@@ -1,5 +1,7 @@
 // ── Derived atmospheric calculations ─────────────────────────────────────────
 
+let _lastWeather = null;
+
 export function dewPoint(tempC, rh) {
   // Magnus formula
   const a = 17.625, b = 243.04;
@@ -70,6 +72,7 @@ const WMO = {
 };
 
 export function updateWeather(w, indoorTemp, indoorHum) {
+  _lastWeather = w;  // Store for use in updateInsights
   const sec = document.getElementById("weatherSection");
   if (!w || w.error) { if (sec) sec.style.display = "none"; return; }
   sec.style.display = "";
@@ -264,55 +267,77 @@ function _openDailyDialog(idx) {
   dialog.onclick = (e) => { if (e.target === dialog) dialog.close(); };
 }
 
-export function updateInsights(temp, hum, tvoc, eco2, eco2Series) {
-  // Air quality
-  const aq = airQuality(tvoc, eco2);
-  const aqEl = document.getElementById("aqValue");
-  aqEl.textContent = aq.label;
-  aqEl.className = `value ${aq.cls}`;
-  document.getElementById("aqCard").style.borderTopColor = aq.border;
-  document.getElementById("aqSub").textContent = `TVOC ${tvoc} ppb · eCO₂ ${eco2} ppm`;
+export function updateInsights(temp, hum, tvoc, eco2, eco2Series, pressureHistory = []) {
+  // Use stored weather data from updateWeather
+  const w = _lastWeather;
+  if (!w) return;
 
-  // Dew point
-  const dp = dewPoint(temp, hum);
-  document.getElementById("dewValue").textContent = `${dp.toFixed(1)} °C`;
-  const dpDiff = temp - dp;
-  document.getElementById("dewSub").textContent =
-    dpDiff < 3 ? "⚠️ Condensation risk" : `${dpDiff.toFixed(1)} °C margin to condensation`;
+  // ... existing code ...
 
-  // Feels like
-  const fl = feelsLike(temp, hum);
-  document.getElementById("hiValue").textContent = `${fl.toFixed(1)} °C`;
+  // Ventilation opportunity with pressure-enhanced assessment
+  const ventEl = document.getElementById("ventVal");
+  const ventSub = document.getElementById("ventSub");
+  const ventCard = document.getElementById("ventCard");
+  const ventPressure = document.getElementById("ventPressure");
 
-  // CO2 alert
-  const co2 = co2Alert(eco2);
-  const co2El = document.getElementById("co2AlertValue");
-  co2El.textContent = co2.label;
-  co2El.className = `value ${co2.cls}`;
-  document.getElementById("co2Card").style.borderTopColor =
-    co2.cls === "good" ? "#2d8a2d" : co2.cls === "moderate" ? "#c87800" : "#b03030";
-  document.getElementById("co2AlertSub").textContent = co2.sub;
+  if (indoorTemp != null && indoorHum != null && w.temp != null && w.humidity != null) {
+    const cooler = w.temp < indoorTemp - 1;
+    const drier  = w.humidity < indoorHum - 5;
 
-  // VPD
-  const vpd = vpdKpa(temp, hum);
-  const vpdEl = document.getElementById("vpdValue");
-  vpdEl.textContent = `${vpd.toFixed(2)} kPa`;
-  let vpdCls = "neutral", vpdSub = "";
-  if      (vpd < 0.4)  { vpdCls = "moderate"; vpdSub = "Too humid — mould risk"; }
-  else if (vpd <= 0.8) { vpdCls = "good";     vpdSub = "Good — seedlings/clones"; }
-  else if (vpd <= 1.2) { vpdCls = "good";     vpdSub = "Ideal — vegetative growth"; }
-  else if (vpd <= 1.6) { vpdCls = "moderate"; vpdSub = "High — increase humidity"; }
-  else                 { vpdCls = "poor";     vpdSub = "Too dry — plant stress"; }
-  vpdEl.className = `value ${vpdCls}`;
-  document.getElementById("vpdSub").textContent = vpdSub;
+    // Pressure-based analysis
+    let pressureSignal = "";
+    let pressureBoost = false;
+    if (pressureHistory.length >= 5 && window._indoorPressure != null) {
+      const recent = pressureHistory.slice(-5);
+      const pressureTrend = recent[recent.length - 1] - recent[0]; // hPa change over ~30s
+      const pressureDropRate = pressureTrend / 5; // hPa per reading
 
-  // Time to CO₂ threshold (1000 ppm = cognitive impairment level)
-  const LOG_INTERVAL_S = 10;
-  const mins = timeToThreshold(eco2Series, 1000, LOG_INTERVAL_S);
-  const tttEl = document.getElementById("tttValue");
-  if (mins === null)  { tttEl.textContent = "Stable";    tttEl.className = "value good"; }
-  else if (mins === 0){ tttEl.textContent = "Now";       tttEl.className = "value danger"; }
-  else if (mins < 10) { tttEl.textContent = `~${mins} min`; tttEl.className = "value poor"; }
-  else if (mins < 30) { tttEl.textContent = `~${mins} min`; tttEl.className = "value moderate"; }
-  else                { tttEl.textContent = `~${mins} min`; tttEl.className = "value neutral"; }
+      // Rapid pressure drop suggests open window/door - good for ventilation
+      if (pressureDropRate < -0.5) {
+        pressureSignal = " (pressure dropping — likely open window)";
+        pressureBoost = true;
+      } else if (pressureDropRate < -0.2) {
+        pressureSignal = " (slight pressure drop)";
+      } else if (pressureDropRate > 0.5) {
+        pressureSignal = " (pressure rising — doors/window likely closed)";
+      }
+    }
+
+    // Display indoor pressure with trend
+    if (window._indoorPressure != null) {
+      const trend = pressureHistory.length >= 3
+        ? (pressureHistory.slice(-3).reduce((a, b) => a + b, 0) / 3 - pressureHistory[0]).toFixed(1)
+        : null;
+      ventPressure.textContent = trend !== null
+        ? `Indoor: ${window._indoorPressure.toFixed(1)} hPa (${trend > 0 ? '+' : ''}${trend} hPa/30s)`
+        : `Indoor: ${window._indoorPressure.toFixed(1)} hPa`;
+    }
+
+    // Calculate ventilation rating with pressure boost
+    let rating, reason;
+    if (cooler && drier) {
+      rating = "Good"; reason = "Cooler & drier outside — ventilate";
+    } else if (cooler) {
+      rating = "Partial"; reason = "Cooler outside but similar humidity";
+    } else if (drier) {
+      rating = "Partial"; reason = "Drier outside but similar temperature";
+    } else {
+      rating = "Poor"; reason = "Outside conditions not favourable";
+    }
+
+    // Override if pressure indicates open window/door and conditions aren't terrible
+    if (pressureBoost && rating === "Poor" && (cooler || drier)) {
+      rating = "Partial";
+      reason = `Outside not ideal but pressure suggests open window${pressureSignal}`;
+    }
+
+    ventEl.textContent = rating;
+    ventEl.className = "value " + (rating === "Good" ? "good" : rating === "Partial" ? "moderate" : "neutral");
+    ventSub.textContent = reason + pressureSignal;
+    ventCard.style.borderTopColor = rating === "Good" ? "#2d8a2d" : rating === "Partial" ? "#c87800" : "#555";
+  } else {
+    ventEl.textContent = "--"; ventEl.className = "value neutral";
+    ventSub.textContent = "Awaiting data";
+    ventPressure.textContent = "--";
+  }
 }

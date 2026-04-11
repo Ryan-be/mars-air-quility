@@ -20,6 +20,9 @@ let _gasCoHistory  = [];
 let _gasNo2History = [];
 let _gasNh3History = [];
 
+// ── Pressure history for ventilation assessment ───────────────────────────────
+let _pressureHistory = [];
+
 // Returns % by which gas concentration has risen vs the session average.
 // Positive = resistance dropped = gas level rising.
 function _gasTrendPct(vals) {
@@ -159,12 +162,13 @@ async function fetchData() {
   _gasCoHistory  = data.map(d => d.gas_co).filter(v => v != null);
   _gasNo2History = data.map(d => d.gas_no2).filter(v => v != null);
   _gasNh3History = data.map(d => d.gas_nh3).filter(v => v != null);
+  _pressureHistory = data.map(d => d.pressure_hpa).filter(v => v != null);
   _updateGasCard();
 
   _lastIndoorTemp = currentTemp;
   _lastIndoorHum  = currentHum;
 
-  updateInsights(currentTemp, currentHum, currentTvoc, currentEco2, eco2);
+  updateInsights(currentTemp, currentHum, currentTvoc, currentEco2, eco2, _pressureHistory);
   document.getElementById("last-updated").textContent =
     "Last updated: " + new Date().toLocaleString();
 }
@@ -742,10 +746,11 @@ function connectSSE() {
     if (d.pressure_hpa != null) {
       document.getElementById("pressureValue").textContent = d.pressure_hpa.toFixed(1);
       window._indoorPressure = d.pressure_hpa;
+      if (d.pressure_hpa != null) { _pressureHistory.push(d.pressure_hpa); if (_pressureHistory.length > 30) _pressureHistory.shift(); }
     }
     _lastIndoorTemp = t;
     _lastIndoorHum  = h;
-    updateInsights(t, h, d.tvoc, d.eco2, [d.eco2]);
+    updateInsights(t, h, d.tvoc, d.eco2, [d.eco2], _pressureHistory);
     document.getElementById("last-updated").textContent =
       "Last updated: " + new Date().toLocaleString();
   });
