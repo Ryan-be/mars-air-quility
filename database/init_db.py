@@ -79,6 +79,7 @@ def create_db():
             ) OR event_type LIKE 'annotation_context_%'
               OR event_type LIKE 'anomaly_%'
               OR event_type LIKE 'ml_learned_%'
+              OR event_type LIKE 'fingerprint_match'
         ),
         severity TEXT NOT NULL DEFAULT 'info'
             CHECK(severity IN ('info', 'warning', 'critical')),

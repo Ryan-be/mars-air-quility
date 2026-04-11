@@ -54,18 +54,21 @@ EVENT_TYPES = {
     # Patterns — detected trends and recurring behaviours
     "daily_pattern":         "pattern",
     "overnight_buildup":     "pattern",
+    # Attribution — fingerprint-matched and ML-learned source attribution
+    "fingerprint_match":     "attribution",
 }
 
 # Annotation-context events are dynamic (annotation_context_<id>)
 _ANNOTATION_PREFIX = "annotation_context_"
 
 CATEGORIES = {
-    "alert":   "Alerts",
-    "warning": "Warnings",
-    "summary": "Summaries",
-    "pattern": "Patterns",
-    "anomaly": "Anomalies",
-    "other":   "Other",
+    "alert":       "Alerts",
+    "warning":     "Warnings",
+    "summary":     "Summaries",
+    "pattern":     "Patterns",
+    "anomaly":     "Anomalies",
+    "attribution": "Attribution",
+    "other":       "Other",
 }
 
 
@@ -75,6 +78,8 @@ def event_category(event_type):
         return "pattern"
     if event_type.startswith("anomaly_"):
         return "anomaly"
+    if event_type.startswith("ml_learned_"):
+        return "attribution"
     return EVENT_TYPES.get(event_type, "other")
 
 

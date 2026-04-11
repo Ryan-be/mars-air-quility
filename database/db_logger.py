@@ -514,6 +514,27 @@ def get_inference_by_id(inference_id: int) -> dict | None:
     return d
 
 
+def get_distinct_attribution_sources() -> set:
+    """Return the set of distinct attribution_source values stored in inference evidence."""
+    conn = _connect()
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute("SELECT DISTINCT evidence FROM inferences WHERE evidence IS NOT NULL")
+    sources = set()
+    for (ev_str,) in cur.fetchall():
+        if not ev_str:
+            continue
+        try:
+            ev = json.loads(ev_str)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        src = ev.get("attribution_source")
+        if src and isinstance(src, str):
+            sources.add(src)
+    conn.close()
+    return sources
+
+
 def update_inference_notes(inference_id, notes):
     conn = _connect()
     cur = conn.cursor()

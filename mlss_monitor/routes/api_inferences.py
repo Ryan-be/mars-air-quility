@@ -4,6 +4,7 @@ from flask import Blueprint, jsonify, request
 
 from database.db_logger import (
     dismiss_inference,
+    get_distinct_attribution_sources,
     get_inferences,
     update_inference_notes,
     get_inference_tags,
@@ -30,14 +31,25 @@ def list_inferences():
         row["tags"] = get_inference_tags(row["id"])
 
     if category and category != "all":
-        rows = [r for r in rows if r["category"] == category]
+        if category in CATEGORIES:
+            rows = [r for r in rows if r["category"] == category]
+        else:
+            rows = [r for r in rows
+                    if (r.get("evidence") or {}).get("attribution_source") == category]
 
     return jsonify(rows)
 
 
 @api_inferences_bp.route("/api/inferences/categories")
 def list_categories():
-    return jsonify(CATEGORIES)
+    result = dict(CATEGORIES)
+    try:
+        for src in sorted(get_distinct_attribution_sources()):
+            if src not in result:
+                result[src] = src.replace("_", " ").title()
+    except Exception:
+        pass
+    return jsonify(result)
 
 
 @api_inferences_bp.route("/api/inferences/<int:inference_id>/notes", methods=["POST"])
