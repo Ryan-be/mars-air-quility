@@ -38,6 +38,23 @@ adafruit-circuitpython-busdevice = "*"
 adafruit-circuitpython-register = "*"
 
 [[package]]
+name = "adafruit-circuitpython-bmp280"
+version = "3.3.11"
+description = "CircuitPython driver for the BMP280."
+optional = false
+python-versions = "*"
+groups = ["main"]
+files = [
+    {file = "adafruit_circuitpython_bmp280-3.3.11-py3-none-any.whl", hash = "sha256:90d6cdbe1079dc8ca956163df49f581d4bd27b673518deba02c5cce251af77d4"},
+    {file = "adafruit_circuitpython_bmp280-3.3.11.tar.gz", hash = "sha256:2b68bdca73d6ee258fb2a153594e470b21ecb4658e1f76d1e1ec0e86c298e71d"},
+]
+
+[package.dependencies]
+Adafruit-Blinka = "*"
+adafruit-circuitpython-busdevice = "*"
+adafruit-circuitpython-register = "*"
+
+[[package]]
 name = "adafruit-circuitpython-busdevice"
 version = "5.2.13"
 description = "CircuitPython bus device classes to manage bus sharing."
@@ -2654,4 +2671,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "140b629db6cf50abb1fd487dd691b96281c73d0ff11c28c448f5afbe3f2fc612"
+content-hash = "1c22c0024482fc098739558736d1c5bb5200f1a6405fbfe156a596e743888723"
