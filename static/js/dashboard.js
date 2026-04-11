@@ -732,6 +732,10 @@ function connectSSE() {
     if (d.gas_no2 != null) { _gasNo2History.push(d.gas_no2); if (_gasNo2History.length > 30) _gasNo2History.shift(); }
     if (d.gas_nh3 != null) { _gasNh3History.push(d.gas_nh3); if (_gasNh3History.length > 30) _gasNh3History.shift(); }
     _updateGasCard();
+    if (d.pressure_hpa != null) {
+      document.getElementById("pressureValue").textContent = d.pressure_hpa.toFixed(1);
+      window._indoorPressure = d.pressure_hpa;
+    }
     _lastIndoorTemp = t;
     _lastIndoorHum  = h;
     updateInsights(t, h, d.tvoc, d.eco2, [d.eco2]);

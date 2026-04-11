@@ -36,6 +36,7 @@ A list of know issues and feature improvements including recomended fixes can be
 | Adafruit SGP30 | eCO2 & TVOC air quality (I2C, 0x58) |
 | SB Components Air Monitoring HAT (PMSA003) | Particulate matter PM1.0/PM2.5/PM10 (UART) |
 | Pimoroni MICS6814 Gas Sensor Breakout | CO, NO2 & NH3 gas detection (I2C, 0x04) |
+| Adafruit BMP280 | Barometric pressure (I2C, 0x76) |
 | 1.8" ST7735 TFT LCD | Local readout (SPI, 128x160) |
 | TP-Link Kasa smart plug | Fan control (effector) |
 

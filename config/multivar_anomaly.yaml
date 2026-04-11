@@ -66,3 +66,14 @@ multivar_anomaly:
         - temperature_current
         - humidity_current
         - vpd_kpa
+
+    - id: pressure_dynamics
+      label: "Pressure dynamics"
+      description: >
+        Monitors pressure changes in relation to ventilation. Rapid pressure drops
+        can indicate open windows/doors. When combined with CO2 and humidity changes,
+        helps assess air change rates and detect ventilation anomalies.
+      channels:
+        - pressure_hpa
+        - eco2_current
+        - humidity_current

@@ -39,6 +39,7 @@ _DB_TO_API = {
     "tvoc": "tvoc_ppb", "eco2": "eco2_ppm", "temperature": "temperature_c",
     "humidity": "humidity_pct", "pm1_0": "pm1_ug_m3", "pm2_5": "pm25_ug_m3",
     "pm10": "pm10_ug_m3", "gas_co": "co_ppb", "gas_no2": "no2_ppb", "gas_nh3": "nh3_ppb",
+    "pressure_hpa": "pressure_hpa",
 }
 _ALL_CHANNELS = list(_DB_TO_API.values())
 _BASELINE_CHANNELS = _ALL_CHANNELS
@@ -52,7 +53,7 @@ def _query_sensor_data(db_file: str, start: str, end: str) -> list[dict]:
     conn.row_factory = sqlite3.Row
     rows = conn.execute(
         """SELECT timestamp, tvoc, eco2, temperature, humidity,
-                  pm1_0, pm2_5, pm10, gas_co, gas_no2, gas_nh3
+                  pm1_0, pm2_5, pm10, gas_co, gas_no2, gas_nh3, pressure_hpa
            FROM sensor_data WHERE timestamp >= ? AND timestamp <= ?
            ORDER BY timestamp ASC""",
         (start_db, end_db),

@@ -33,11 +33,12 @@
     <button class="tab-btn" data-tab="detections">📅 Detections &amp; Insights</button>
   </div>
 
-  <!-- Climate tab: temperature and humidity only -->
+  <!-- Climate tab: temperature, humidity, and pressure -->
   <div class="tab-panel" id="tab-climate">
     <div class="plot-container">
       <div id="tempPlot"></div>
       <div id="humPlot"></div>
+      <div id="pressurePlot"></div>
     </div>
   </div>
 
@@ -235,6 +236,7 @@
         <button class="toggle-group-label" onclick="corrToggleGroup('environment')">Environment</button>
         <button class="channel-chip active" data-channel="temperature_c" data-group="environment" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#f97316"></span>Temperature <span class="chip-info" title="Ambient temperature in °C.">ⓘ</span></button>
         <button class="channel-chip active" data-channel="humidity_pct" data-group="environment" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#3b82f6"></span>Humidity <span class="chip-info" title="Relative humidity percentage.">ⓘ</span></button>
+        <button class="channel-chip active" data-channel="pressure_hpa" data-group="environment" onclick="corrToggleChip(this)"><span class="chip-dot" style="background:#6366f1"></span>Pressure <span class="chip-info" title="Barometric pressure in hPa from BMP280 sensor.">ⓘ</span></button>
       </div>
       <div class="toggle-presets">
         <button class="btn btn-sm" onclick="corrToggleAll(true)">All</button>

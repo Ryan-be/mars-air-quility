@@ -107,6 +107,14 @@ export function updateWeather(w, indoorTemp, indoorHum) {
   document.getElementById("windSpd").textContent = w.wind_speed != null ? `${w.wind_speed.toFixed(1)} mph` : "--";
   document.getElementById("weatherCond").textContent = WMO[w.weather_code] ?? `Code ${w.weather_code}`;
 
+  // Indoor pressure (from sensor_update via dashboard.js)
+  if (window._indoorPressure != null) {
+    const ventPressureEl = document.getElementById("ventPressure");
+    if (ventPressureEl) {
+      ventPressureEl.textContent = `Indoor: ${window._indoorPressure.toFixed(1)} hPa`;
+    }
+  }
+
   // Ventilation opportunity
   const ventEl = document.getElementById("ventVal");
   const ventSub = document.getElementById("ventSub");

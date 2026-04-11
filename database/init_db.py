@@ -202,6 +202,8 @@ def create_db():
         "ALTER TABLE sensor_data ADD COLUMN gas_nh3 REAL",
         "ALTER TABLE hot_tier ADD COLUMN pm1_ug_m3 REAL",
         "ALTER TABLE hot_tier ADD COLUMN pm10_ug_m3 REAL",
+        "ALTER TABLE sensor_data ADD COLUMN pressure_hpa REAL",
+        "ALTER TABLE hot_tier ADD COLUMN pressure_hpa REAL",
     ]:
         try:
             cur.execute(migration)

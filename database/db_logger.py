@@ -62,7 +62,7 @@ def _connect():
 
 def log_sensor_data(temp, hum, eco2, tvoc, annotation=None, fan_power_w=None, vpd_kpa=None,
                     pm1_0=None, pm2_5=None, pm10=None,
-                    gas_co=None, gas_no2=None, gas_nh3=None):
+                    gas_co=None, gas_no2=None, gas_nh3=None, pressure_hpa=None):
     """
     Log sensor data into the SQLite database.
 
@@ -79,6 +79,7 @@ def log_sensor_data(temp, hum, eco2, tvoc, annotation=None, fan_power_w=None, vp
     :param gas_co: CO reading from MICS6814 (None if unavailable)
     :param gas_no2: NO2 reading from MICS6814 (None if unavailable)
     :param gas_nh3: NH3 reading from MICS6814 (None if unavailable)
+    :param pressure_hpa: pressure in hPa from BMP280 (None if unavailable)
     """
     conn = _connect()
     cur = conn.cursor()
@@ -86,10 +87,10 @@ def log_sensor_data(temp, hum, eco2, tvoc, annotation=None, fan_power_w=None, vp
     cur.execute("""
         INSERT INTO sensor_data
             (timestamp, temperature, humidity, eco2, tvoc, annotation, fan_power_w, vpd_kpa,
-             pm1_0, pm2_5, pm10, gas_co, gas_no2, gas_nh3)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             pm1_0, pm2_5, pm10, gas_co, gas_no2, gas_nh3, pressure_hpa)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (datetime.utcnow().isoformat(), temp, hum, eco2, tvoc, annotation, fan_power_w, vpd_kpa,
-          pm1_0, pm2_5, pm10, gas_co, gas_no2, gas_nh3))
+          pm1_0, pm2_5, pm10, gas_co, gas_no2, gas_nh3, pressure_hpa))
 
     conn.commit()
     conn.close()

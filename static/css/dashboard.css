@@ -52,6 +52,19 @@
 .stat-card.gas.gas-good { border-top-color: #22c55e; }
 .stat-card.gas.gas-warn { border-top-color: #f59e0b; }
 .stat-card.gas.gas-bad  { border-top-color: #ef4444; }
+.stat-card.pressure { border-top-color: #6366f1; }
+
+.pressure-unit {
+  font-size: 0.7em;
+  color: #888;
+  margin-top: 0.2em;
+}
+
+.pressure-sub {
+  font-size: 0.75em;
+  color: #888;
+  margin-top: 0.3em;
+}
 
 .gas-trend {
   font-size: 0.8em;

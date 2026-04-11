@@ -49,6 +49,11 @@
       </div>
       <div class="pm-stale-hint" id="pmStaleHint"></div>
     </button>
+    <button class="stat-card pressure" data-sensor="pressure">
+      <div class="label">🌪️ Pressure</div>
+      <div class="current" id="pressureValue">--</div>
+      <div class="pressure-unit">hPa</div>
+    </button>
   </div>
 
   <!-- Sensor detail dialog -->
@@ -132,6 +137,7 @@
         <div class="label">🔄 Ventilation</div>
         <div class="value neutral" id="ventVal">--</div>
         <div class="sub" id="ventSub">--</div>
+        <div class="pressure-sub" id="ventPressure">--</div>
       </button>
     </div>
 

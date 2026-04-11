@@ -22,3 +22,4 @@ anomaly:
     - co_ppb       # sparse until MICS6814 has enough history
     - no2_ppb
     - nh3_ppb
+    - pressure_hpa
