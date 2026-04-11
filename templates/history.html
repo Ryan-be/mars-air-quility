@@ -453,6 +453,7 @@
 {% block scripts %}
   <script src="https://cdn.plot.ly/plotly-2.24.2.min.js"></script>
   <script src="{{ url_for('static', filename='js/sparkline.js') }}"></script>
+  <script type="module" src="{{ url_for('static', filename='js/inference_feed.js') }}"></script>
   <script type="module">
     // Populate both tag dropdowns from /api/tags on load.
     async function populateTagDropdowns() {

@@ -163,3 +163,8 @@ export function createInferenceFeed({
 
   return { fetch, setInferences, getInferences, _loadCategories };
 }
+
+// Expose for plain-script usage (detections_insights.js is loaded as a plain script
+// via dynamic injection, not as an ES module).
+window._createInferenceFeed = createInferenceFeed;
+window._renderDetectionChip = renderDetectionChip;
