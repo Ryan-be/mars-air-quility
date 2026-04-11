@@ -426,6 +426,11 @@ async function _loadCategories() {
       btn.textContent = label;
       bar.appendChild(btn);
     }
+    const mlBtn = document.createElement("button");
+    mlBtn.className = "inf-filter";
+    mlBtn.dataset.category = "ml";
+    mlBtn.textContent = "🧠 ML";
+    bar.appendChild(mlBtn);
     bar.addEventListener("click", (e) => {
       const btn = e.target.closest(".inf-filter");
       if (!btn) return;
@@ -453,10 +458,14 @@ function _renderInferenceFeed() {
   const countEl = document.getElementById("inferenceCount");
   if (!feed) return;
 
-  // Apply category filter
+  // Apply category filter — "ml" is a special filter for ML-detected events
   let filtered = _inferences;
   if (_activeCategory && _activeCategory !== "all") {
-    filtered = _inferences.filter(i => i.category === _activeCategory);
+    if (_activeCategory === "ml") {
+      filtered = _inferences.filter(i => i.detection_method === "ml");
+    } else {
+      filtered = _inferences.filter(i => i.category === _activeCategory);
+    }
   }
 
   if (!filtered.length) {
