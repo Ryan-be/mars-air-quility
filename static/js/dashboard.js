@@ -1,6 +1,7 @@
 import { toggleTheme } from './theme.js';
 import { updateInsights, updateWeather, updateForecast, updateDailyForecast } from './insights.js';
 import { fetchHealth, applyHealth } from './health.js';
+import { createInferenceFeed, renderDetectionChip, SEVERITY_LABEL, SEVERITY_CLS } from './inference_feed.js';
 
 window.toggleTheme = () => toggleTheme(fetchData);
 
@@ -392,126 +393,20 @@ function renderAttributionBadge(inf) {
   return `<div class="attribution-row"><span class="attribution-label">Source:</span> ${pill}${runnerHtml}</div>`;
 }
 
-// ── Detection method chip ────────────────────────────────────────────────────
-const _CHIP_METHOD_TOOLTIP =
-  'Rule = a fixed threshold was crossed. ' +
-  'Statistical = an unusual reading compared to this sensor\u2019s learned normal. ' +
-  'ML = an unusual pattern across multiple sensors simultaneously.';
+// ── Inference feed (shared) ──────────────────────────────────────────────────
+const _infFeed = createInferenceFeed({
+  feedId:       'inferenceFeed',
+  countId:      'inferenceCount',
+  filtersId:    'inferenceFilters',
+  cardDataAttr: 'data-inf-id',
+  openDialog:   _openInferenceDialog,
+});
 
-function renderDetectionChip(detectionMethod) {
-  const cls = { rule: 'chip--rule', statistical: 'chip--statistical', ml: 'chip--ml' }[detectionMethod] || 'chip--rule';
-  const label = { rule: 'Rule', statistical: 'Statistical', ml: 'ML' }[detectionMethod] || 'Rule';
-  return `<span class="chip ${cls}" title="${_CHIP_METHOD_TOOLTIP}">${label} <span class="chip-info">ⓘ</span></span>`;
-}
-
-// ── Environment inference feed ───────────────────────────────────────────────
-const SEVERITY_LABEL = { info: "Info", warning: "Warning", critical: "Critical" };
-const SEVERITY_CLS   = { info: "inf-info", warning: "inf-warning", critical: "inf-critical" };
-let _inferences = [];
-let _activeCategory = "all";
-let _categoriesLoaded = false;
-
-async function _loadCategories() {
-  if (_categoriesLoaded) return;
-  try {
-    const res = await fetch("/api/inferences/categories");
-    if (!res.ok) return;
-    const cats = await res.json();
-    const bar = document.getElementById("inferenceFilters");
-    if (!bar) return;
-    for (const [key, label] of Object.entries(cats)) {
-      const btn = document.createElement("button");
-      btn.className = "inf-filter";
-      btn.dataset.category = key;
-      btn.textContent = label;
-      bar.appendChild(btn);
-    }
-    const mlBtn = document.createElement("button");
-    mlBtn.className = "inf-filter";
-    mlBtn.dataset.category = "ml";
-    mlBtn.textContent = "🧠 ML";
-    bar.appendChild(mlBtn);
-    bar.addEventListener("click", (e) => {
-      const btn = e.target.closest(".inf-filter");
-      if (!btn) return;
-      bar.querySelectorAll(".inf-filter").forEach(b => b.classList.remove("active"));
-      btn.classList.add("active");
-      _activeCategory = btn.dataset.category;
-      _renderInferenceFeed();
-    });
-    _categoriesLoaded = true;
-  } catch { /* categories not available */ }
-}
-
-async function fetchInferences() {
-  try {
-    await _loadCategories();
-    const res = await fetch("/api/inferences?limit=50");
-    if (!res.ok) return;
-    _inferences = await res.json();
-    _renderInferenceFeed();
-  } catch { /* not available yet */ }
-}
-
-function _renderInferenceFeed() {
-  const feed = document.getElementById("inferenceFeed");
-  const countEl = document.getElementById("inferenceCount");
-  if (!feed) return;
-
-  // Apply category filter — "ml" is a special filter for ML-detected events
-  let filtered = _inferences;
-  if (_activeCategory && _activeCategory !== "all") {
-    if (_activeCategory === "ml") {
-      filtered = _inferences.filter(i => i.detection_method === "ml");
-    } else {
-      filtered = _inferences.filter(i => i.category === _activeCategory);
-    }
-  }
-
-  if (!filtered.length) {
-    const msg = _inferences.length
-      ? "No inferences in this category."
-      : "No inferences yet — data is being analysed.";
-    feed.innerHTML = `<div class="inference-empty">${msg}</div>`;
-    if (countEl) countEl.textContent = "";
-    return;
-  }
-
-  const active = filtered.filter(i => !i.dismissed);
-  if (countEl) countEl.textContent = active.length ? `(${active.length})` : "";
-
-  feed.innerHTML = filtered.slice(0, 30).map(inf => {
-    const sev = SEVERITY_CLS[inf.severity] || "inf-info";
-    const time = new Date(inf.created_at).toLocaleString(undefined, {
-      month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"
-    });
-    const chip = renderDetectionChip(inf.detection_method || 'rule');
-    return `
-      <button class="inference-card ${sev} inf-cat-${inf.category ?? 'other'}${inf.dismissed ? ' dismissed' : ''}"
-              data-inf-id="${inf.id}" title="Tap for details">
-        <div class="inf-card-left">
-          <div class="inf-card-badges">${chip} <span class="inf-badge ${SEVERITY_CLS[inf.severity] || 'inf-info'} inf-badge-sm">${SEVERITY_LABEL[inf.severity] || inf.severity}</span></div>
-          <span class="inf-card-type">${inf.event_type.replace(/_/g, " ")}</span>
-          <span class="inf-card-summary">${inf.title}</span>
-        </div>
-        <div class="inf-card-right">
-          <span class="inf-card-time">${time}</span>
-          <span class="inf-card-conf">${Math.round(inf.confidence * 100)}%</span>
-        </div>
-      </button>`;
-  }).join("");
-
-  feed.onclick = (e) => {
-    const card = e.target.closest(".inference-card");
-    if (!card) return;
-    const id = parseInt(card.dataset.infId, 10);
-    _openInferenceDialog(id);
-  };
+function fetchInferences() {
+  _infFeed.fetch('/api/inferences?limit=50');
 }
 
 function _parseNum(v) {
-  const m = String(v).match(/-?[\d.]+/);
-  return m ? parseFloat(m[0]) : null;
 }
 
 // Returns "ev-good", "ev-warn", "ev-bad", or "" (neutral)
@@ -582,7 +477,7 @@ function _evidenceColor(key, val) {
 // pages).
 
 function _openInferenceDialog(id) {
-  const inf = _inferences.find(i => i.id === id);
+  const inf = _infFeed.getInferences().find(i => i.id === id);
   if (!inf) return;
   const dialog = document.getElementById("inferenceDialog");
 

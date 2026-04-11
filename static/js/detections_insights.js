@@ -3,10 +3,7 @@
  */
 'use strict';
 
-// ── DI inference table state ─────────────────────────────────────────────────
-let _diInferences    = [];
-let _diActiveCategory = 'all';
-let _diCatsLoaded    = false;
+import { createInferenceFeed } from './inference_feed.js';
 
 const DI = (function () {
   let _narratives = null;
@@ -65,9 +62,22 @@ const DI = (function () {
     return { start: start.toISOString(), end: end.toISOString() };
   }
 
+  let _feed;
+
+  function _createFeed() {
+    _feed = createInferenceFeed({
+      feedId:       'diInferenceFeed',
+      countId:      'diEventsCount',
+      filtersId:    'diInferenceFilters',
+      cardDataAttr: 'data-di-inf-id',
+      openDialog:   openInferenceDialog,
+    });
+  }
+
   function init() {
     if (_initialised) return;
     _initialised = true;
+    _createFeed();
     load();
     _subscribeSSE();
     const rangeEl = document.getElementById('range');
@@ -356,122 +366,21 @@ const DI = (function () {
   async function _renderInferenceTable() {
     const section = document.getElementById('diEventsList');
     const feed    = document.getElementById('diInferenceFeed');
-    const countEl = document.getElementById('diEventsCount');
     if (!section || !feed) return;
 
     section.style.display = 'block';
-    feed.innerHTML = '<div class="inference-empty">Loading…</div>';
+    feed.innerHTML = '<div class="inference-empty">Loading\u2026</div>';
 
     const { start, end } = _range();
+    const url = `/api/inferences?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&limit=200`;
     try {
-      await _diLoadCategories();
-      const res = await fetch(`/api/inferences?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&limit=200`);
+      const res = await window.fetch(url);
       if (!res.ok) throw new Error('fetch failed');
       const rows = await res.json();
-      _diInferences = rows;
-      _diRenderFeed(countEl, feed);
+      _feed.setInferences(rows);
     } catch (e) {
       feed.innerHTML = '<div class="inference-empty">Could not load inferences.</div>';
     }
-  }
-
-  function _diRenderFeed(countEl, feed) {
-    const SEV_CLS   = { info:'inf-info', warning:'inf-warning', critical:'inf-critical' };
-    const SEV_LABEL = { info:'Info', warning:'Warning', critical:'Critical' };
-
-    let filtered = _diInferences;
-    if (_diActiveCategory && _diActiveCategory !== 'all') {
-      if (_diActiveCategory === 'ml') {
-        filtered = _diInferences.filter(function (i) { return i.detection_method === 'ml'; });
-      } else {
-        filtered = _diInferences.filter(function (i) { return i.category === _diActiveCategory; });
-      }
-    }
-
-    if (!filtered.length) {
-      const msg = _diInferences.length
-        ? 'No inferences in this category.'
-        : 'No inferences detected in this time window.';
-      feed.innerHTML = '<div class="inference-empty">' + msg + '</div>';
-      if (countEl) countEl.textContent = '';
-      return;
-    }
-
-    const active = filtered.filter(function (i) { return !i.dismissed; });
-    if (countEl) countEl.textContent = active.length ? '(' + active.length + ')' : '';
-
-    const _chipTooltip =
-      'Rule = a fixed threshold was crossed. ' +
-      'Statistical = an unusual reading compared to this sensor\u2019s learned normal. ' +
-      'ML = an unusual pattern across multiple sensors simultaneously.';
-
-    feed.innerHTML = filtered.slice(0, 30).map(function (inf) {
-      const sevCls = SEV_CLS[inf.severity] || 'inf-info';
-      const sevLbl = SEV_LABEL[inf.severity] || inf.severity;
-      const time = new Date(inf.created_at).toLocaleString(undefined, {
-        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
-      });
-      const dm = inf.detection_method || 'rule';
-      const chipCls = { rule: 'chip--rule', statistical: 'chip--statistical', ml: 'chip--ml' }[dm] || 'chip--rule';
-      const chipLbl = { rule: 'Rule', statistical: 'Statistical', ml: 'ML' }[dm] || 'Rule';
-      const chip = '<span class="chip ' + chipCls + '" title="' + _chipTooltip + '">' + chipLbl + ' <span class="chip-info">\u24d8</span></span>';
-      const catCls = 'inf-cat-' + (inf.category || 'other');
-      const dismissed = inf.dismissed ? ' dismissed' : '';
-      return '<button class="inference-card ' + sevCls + ' ' + catCls + dismissed + '" data-di-inf-id="' + inf.id + '" title="Tap for details">' +
-        '<div class="inf-card-left">' +
-          '<div class="inf-card-badges">' + chip + ' <span class="inf-badge ' + sevCls + ' inf-badge-sm">' + sevLbl + '</span></div>' +
-          '<span class="inf-card-type">' + inf.event_type.replace(/_/g, ' ') + '</span>' +
-          '<span class="inf-card-summary">' + inf.title + '</span>' +
-        '</div>' +
-        '<div class="inf-card-right">' +
-          '<span class="inf-card-time">' + time + '</span>' +
-          '<span class="inf-card-conf">' + Math.round(inf.confidence * 100) + '%</span>' +
-        '</div>' +
-      '</button>';
-    }).join('');
-
-    feed.onclick = function (e) {
-      const card = e.target.closest('.inference-card');
-      if (!card) return;
-      const id = parseInt(card.dataset.diInfId, 10);
-      openInferenceDialog(id);
-    };
-  }
-
-  async function _diLoadCategories() {
-    if (_diCatsLoaded) return;
-    try {
-      const res = await fetch('/api/inferences/categories');
-      if (!res.ok) return;
-      const cats = await res.json();
-      const bar = document.getElementById('diInferenceFilters');
-      if (!bar) return;
-      // Remove any previously added category buttons (keep "All")
-      bar.querySelectorAll('.inf-filter:not([data-category="all"])').forEach(function (b) { b.remove(); });
-      for (const [key, label] of Object.entries(cats)) {
-        const btn = document.createElement('button');
-        btn.className = 'inf-filter';
-        btn.dataset.category = key;
-        btn.textContent = label;
-        bar.appendChild(btn);
-      }
-      const mlBtn = document.createElement('button');
-      mlBtn.className = 'inf-filter';
-      mlBtn.dataset.category = 'ml';
-      mlBtn.textContent = '🧠 ML';
-      bar.appendChild(mlBtn);
-      bar.addEventListener('click', function (e) {
-        const btn = e.target.closest('.inf-filter');
-        if (!btn) return;
-        bar.querySelectorAll('.inf-filter').forEach(function (b) { b.classList.remove('active'); });
-        btn.classList.add('active');
-        _diActiveCategory = btn.dataset.category;
-        const feed    = document.getElementById('diInferenceFeed');
-        const countEl = document.getElementById('diEventsCount');
-        if (feed && countEl !== undefined) _diRenderFeed(countEl, feed);
-      });
-      _diCatsLoaded = true;
-    } catch (e) { /* categories not available */ }
   }
 
     function _renderDriftFlags() {
@@ -586,7 +495,7 @@ function renderFv(fv) {
 // On the dashboard page dashboard.js defines its own _openInferenceDialog.
 // On the history page this function is the sole dialog opener.
 function openInferenceDialog(id) {
-  const inf = _diInferences.find(function (i) { return i.id === id; });
+  const inf = (_feed && _feed.getInferences().find(function (i) { return i.id === id; }));
   if (!inf) return;
   const dialog = document.getElementById('inferenceDialog');
   if (!dialog) return;
