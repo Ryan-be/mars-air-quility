@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 # Stub hardware libs before any app code is imported
 _hw_mocks = [
     "board", "busio",
-    "adafruit_ahtx0", "adafruit_sgp30",
+    "adafruit_ahtx0", "adafruit_sgp30", "adafruit_bmp280",
     "mics6814",
     "authlib", "authlib.integrations", "authlib.integrations.flask_client",
 ]
