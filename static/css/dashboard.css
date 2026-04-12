@@ -544,3 +544,114 @@ dialog textarea:focus {
 .fan-meta { display: flex; gap: 1.5em; font-size: 0.85em; color: var(--color-text-secondary, #85a5c1); }
 .fan-meta span { display: flex; flex-direction: column; }
 .fan-meta span strong { color: var(--color-text-primary, #ffffff); font-size: 1.1em; }
+
+/* ══ Inference feed cards ════════════════════════════════════════════════ */
+.inference-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75em;
+  padding: 0.65em 0.9em;
+  background: var(--color-background-surface-default, #1b2d3e);
+  border: 1px solid var(--color-border-interactive-muted, #2b659b);
+  border-left: 4px solid var(--color-status-standby, #2dccff);
+  border-radius: 3px;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: var(--color-text-primary, #ffffff);
+  width: 100%;
+  transition: border-color 0.15s, background 0.15s;
+}
+.inference-card:hover {
+  background: var(--color-background-surface-hover, #172635);
+  border-color: var(--color-interactive-default, #4dacff);
+}
+.inference-card.dismissed {
+  opacity: 0.45;
+}
+
+/* Severity left-border colours */
+.inference-card.sev-critical { border-left-color: var(--color-status-critical, #ff3838); }
+.inference-card.sev-warning,
+.inference-card.sev-serious  { border-left-color: var(--color-status-serious, #ffb302); }
+.inference-card.sev-caution  { border-left-color: var(--color-status-caution, #fce83a); }
+.inference-card.sev-info,
+.inference-card.sev-normal   { border-left-color: var(--color-status-normal, #56f000); }
+
+.inf-card-left {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2em;
+  flex: 1 1 0;
+  min-width: 0;
+}
+.inf-card-badges {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  flex-wrap: wrap;
+}
+.inf-card-type {
+  font-size: 0.72em;
+  color: var(--color-text-secondary, #b0bec5);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.inf-card-summary {
+  font-size: 0.88em;
+  color: var(--color-text-primary, #ffffff);
+  line-height: 1.4;
+  white-space: normal;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.inf-card-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.2em;
+  flex-shrink: 0;
+  min-width: 60px;
+}
+.inf-card-time {
+  font-size: 0.72em;
+  color: var(--color-text-secondary, #b0bec5);
+  white-space: nowrap;
+}
+.inf-card-conf {
+  font-size: 0.8em;
+  font-weight: 600;
+  color: var(--color-interactive-default, #4dacff);
+}
+.inf-badge-sm {
+  font-size: 0.68em;
+  padding: 1px 5px;
+}
+
+/* ══ DI inference feed cards (same structure, history page) ══════════════ */
+.di-inference-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75em;
+  padding: 0.65em 0.9em;
+  background: var(--color-background-surface-default, #1b2d3e);
+  border: 1px solid var(--color-border-interactive-muted, #2b659b);
+  border-left: 4px solid var(--color-status-standby, #2dccff);
+  border-radius: 3px;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: var(--color-text-primary, #ffffff);
+  width: 100%;
+  transition: border-color 0.15s, background 0.15s;
+}
+.di-inference-card:hover { background: var(--color-background-surface-hover, #172635); }
+.di-inference-card.sev-critical { border-left-color: var(--color-status-critical, #ff3838); }
+.di-inference-card.sev-warning,
+.di-inference-card.sev-serious  { border-left-color: var(--color-status-serious, #ffb302); }
+.di-inference-card.sev-caution  { border-left-color: var(--color-status-caution, #fce83a); }
+.di-inference-card.sev-normal   { border-left-color: var(--color-status-normal, #56f000); }

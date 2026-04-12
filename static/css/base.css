@@ -770,3 +770,42 @@ label {
   .tab-nav a span    { display: none; }
   .tab-nav a         { padding: 0 14px; }
 }
+
+/* ══ Page controls bar (sub-header below tab-nav) ════════════════════════ */
+.page-controls-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75em;
+  flex-wrap: wrap;
+  padding: 8px 16px;
+  background: var(--color-background-surface-default, #1b2d3e);
+  border-bottom: 1px solid var(--color-border-interactive-muted, #2b659b);
+  font-size: 13px;
+}
+.page-controls-bar .controls {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  flex-wrap: wrap;
+}
+.page-controls-bar select {
+  background: var(--color-background-base-default, #101923);
+  color: var(--color-text-primary, #ffffff);
+  border: 1px solid var(--color-border-interactive-muted, #2b659b);
+  border-radius: 3px;
+  padding: 5px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  min-width: 130px;
+}
+.page-controls-bar select:focus {
+  outline: none;
+  border-color: var(--color-interactive-default, #4dacff);
+}
+.page-controls-bar #last-updated {
+  margin: 0;
+  font-size: 11px;
+  color: var(--color-text-secondary, #b0bec5);
+  font-style: italic;
+  margin-left: auto;
+}
