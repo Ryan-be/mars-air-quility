@@ -1,11 +1,16 @@
 """API routes for environment inferences."""
 
+import logging
+
 from flask import Blueprint, jsonify, request
 
 from database.db_logger import (
     dismiss_inference,
+    get_distinct_attribution_sources,
     get_inferences,
     update_inference_notes,
+    get_inference_tags,
+    add_inference_tag,
 )
 from mlss_monitor.inference_engine import CATEGORIES, event_category
 from mlss_monitor.rbac import require_role
@@ -25,16 +30,34 @@ def list_inferences():
 
     for row in rows:
         row["category"] = event_category(row.get("event_type", ""))
+        row["tags"] = get_inference_tags(row["id"])
 
     if category and category != "all":
-        rows = [r for r in rows if r["category"] == category]
+        if category in CATEGORIES:
+            rows = [r for r in rows if r["category"] == category]
+        else:
+            rows = [r for r in rows
+                    if (r.get("evidence") or {}).get("attribution_source") == category]
 
     return jsonify(rows)
 
 
+_log = logging.getLogger(__name__)
+
+
 @api_inferences_bp.route("/api/inferences/categories")
 def list_categories():
-    return jsonify(CATEGORIES)
+    result = dict(CATEGORIES)
+    try:
+        sources = get_distinct_attribution_sources()
+        _log.debug("get_distinct_attribution_sources returned: %s", sources)
+        for src in sorted(sources):
+            if src not in result:
+                result[src] = src.replace("_", " ").title()
+    except Exception as exc:
+        _log.warning("list_categories failed to load fingerprint sources: %s", exc)
+    _log.debug("list_categories returning %d categories: %s", len(result), list(result.keys()))
+    return jsonify(result)
 
 
 @api_inferences_bp.route("/api/inferences/<int:inference_id>/notes", methods=["POST"])
@@ -51,6 +74,38 @@ def save_notes(inference_id):
 def dismiss(inference_id):
     dismiss_inference(inference_id)
     return jsonify({"ok": True})
+
+
+@api_inferences_bp.route("/api/inferences/<int:inference_id>/tags", methods=["GET", "POST"])
+@require_role("controller", "admin")
+def tags(inference_id):
+    if request.method == "GET":
+        tags_list = get_inference_tags(inference_id)
+        return jsonify(tags_list)
+    if request.method == "POST":
+        data = request.get_json(force=True)
+        tag = data.get("tag", "").strip()
+        confidence = data.get("confidence", 1.0)
+        if not tag:
+            return jsonify({"ok": False, "error": "tag is required"}), 400
+
+        # Validate against controlled vocabulary when engine is available.
+        from mlss_monitor import state as _state  # pylint: disable=import-outside-toplevel
+        _engine = _state.detection_engine
+        allowed = (
+            _engine._attribution_engine.valid_tags
+            if _engine and _engine._attribution_engine
+            else None
+        )
+        if allowed is not None and tag not in allowed:
+            return jsonify({
+                "error": "invalid_tag",
+                "valid_tags": sorted(allowed),
+            }), 400
+
+        add_inference_tag(inference_id, tag, confidence, allowed_tags=allowed)
+        return jsonify({"ok": True})
+    return jsonify({"error": "method not allowed"}), 405
 
 
 @api_inferences_bp.route("/api/inferences/<int:inference_id>/sparkline")
@@ -88,6 +143,14 @@ def sparkline(inference_id):
         "anomaly_co":          ["co_ppb"],
         "anomaly_no2":         ["no2_ppb"],
         "anomaly_nh3":         ["nh3_ppb"],
+        # Composite multivariate anomaly events
+        "anomaly_combustion_signature":   ["tvoc_ppb", "co_ppb", "no2_ppb", "pm25_ug_m3"],
+        "anomaly_particle_distribution":  ["pm1_ug_m3", "pm25_ug_m3", "pm10_ug_m3"],
+        "anomaly_ventilation_quality":    ["eco2_ppm", "tvoc_ppb", "nh3_ppb"],
+        "anomaly_gas_relationship":       ["co_ppb", "no2_ppb", "nh3_ppb"],
+        "anomaly_thermal_moisture":       ["temperature_c", "humidity_pct"],
+        # User-tagged range events – show full gas profile
+        "annotation_context_user_range":  ["tvoc_ppb", "eco2_ppm", "pm25_ug_m3", "nh3_ppb", "co_ppb", "no2_ppb"],
     }
 
     inf = get_inference_by_id(inference_id)
@@ -96,8 +159,8 @@ def sparkline(inference_id):
 
     created_at = inf["created_at"]
     dt = datetime.fromisoformat(created_at.rstrip("Z")).replace(tzinfo=timezone.utc)
-    window_start = (dt - timedelta(minutes=15)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    window_end = (dt + timedelta(minutes=15)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    window_start = (dt - timedelta(minutes=20)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    window_end = (dt + timedelta(minutes=25)).strftime("%Y-%m-%dT%H:%M:%SZ")
     rows = _query_sensor_data(_dbl_mod.DB_FILE, window_start, window_end)
 
     # Also query hot_tier (1-second resolution, ~60 min retention) so that
@@ -162,27 +225,60 @@ def sparkline(inference_id):
         except Exception:
             evidence = {}
 
+    # For user-tagged range events, center on the actual event window
+    # instead of created_at (which is when the user clicked "tag").
+    range_start = evidence.get("range_start")
+    range_end = evidence.get("range_end")
+    if range_start and range_end:
+        try:
+            dt_start = datetime.fromisoformat(range_start.rstrip("Z")).replace(tzinfo=timezone.utc)
+            dt_end = datetime.fromisoformat(range_end.rstrip("Z")).replace(tzinfo=timezone.utc)
+            dt = dt_start + (dt_end - dt_start) / 2  # center of the tagged range
+            window_start = (dt - timedelta(minutes=20)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            window_end = (dt + timedelta(minutes=25)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            rows = _query_sensor_data(_dbl_mod.DB_FILE, window_start, window_end)
+        except Exception:
+            pass  # fall back to created_at-based window
+
     event_type = inf.get("event_type", "")
+
+    # Check whether the inference has user-applied tags.
+    tags = get_inference_tags(inference_id)
+    has_tags = len(tags) > 0
+
+    _FULL_GAS_PROFILE = ["tvoc_ppb", "eco2_ppm", "pm25_ug_m3", "nh3_ppb", "co_ppb", "no2_ppb"]
 
     _FV_TO_API = {
         "tvoc_current": "tvoc_ppb", "eco2_current": "eco2_ppm", "temperature_current": "temperature_c",
         "humidity_current": "humidity_pct", "pm1_current": "pm1_ug_m3", "pm25_current": "pm25_ug_m3",
         "pm10_current": "pm10_ug_m3", "co_current": "co_ppb", "no2_current": "no2_ppb", "nh3_current": "nh3_ppb",
     }
-    snapshot = evidence.get("sensor_snapshot", [])
-    triggering = []
-    for entry in snapshot:
-        api_key = _FV_TO_API.get(entry.get("channel", ""), entry.get("channel", ""))
-        if api_key and api_key not in triggering:
-            triggering.append(api_key)
-    if not triggering:
-        # For rule-based inferences, derive relevant channels from event_type.
-        # For ML/statistical inferences with no snapshot, fall back to all channels.
+
+    # Determine channel selection priority:
+    # 1. User-tagged events → full gas profile (most relevant for attribution).
+    # 2. Attribution / fingerprint events → full gas profile.
+    # 3. Rule-based or ML anomaly events → _RULE_CHANNEL_MAP.
+    # 4. Snapshot fallback → channels listed in evidence.sensor_snapshot.
+    # 5. Last resort → all channels.
+    _ATTRIBUTION_TYPES = {"attribution", "fingerprint_match", "ml_learned"}
+
+    is_ml_anomaly = event_type.startswith("anomaly_")
+
+    if has_tags or event_type in _ATTRIBUTION_TYPES:
+        triggering = _FULL_GAS_PROFILE
+    else:
         rule_channels = _RULE_CHANNEL_MAP.get(event_type, [])
         if rule_channels:
             triggering = rule_channels
         else:
-            triggering = list(_DB_TO_API.values())
+            snapshot = evidence.get("sensor_snapshot", [])
+            triggering = []
+            for entry in snapshot:
+                api_key = _FV_TO_API.get(entry.get("channel", ""), entry.get("channel", ""))
+                if api_key and api_key not in triggering:
+                    triggering.append(api_key)
+            if not triggering:
+                triggering = list(_DB_TO_API.values())
 
     timestamps = [_normalise_ts(r["timestamp"]) for r in rows]
     channels = {
@@ -193,4 +289,5 @@ def sparkline(inference_id):
     return jsonify({
         "timestamps": timestamps, "channels": channels,
         "inference_at": created_at, "triggering_channels": triggering,
+        "is_ml_anomaly": is_ml_anomaly,
     })

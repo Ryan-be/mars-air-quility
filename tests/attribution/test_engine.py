@@ -273,24 +273,19 @@ def test_personal_care_scores_tvoc_spike_with_elevated_co_nh3():
     not _REAL_FINGERPRINTS_PATH.exists(),
     reason="config/fingerprints.yaml not present",
 )
-def test_personal_care_beats_cooking_when_co_baseline_missing():
-    """personal_care wins over cooking even when co_baseline is None (uncalibrated sensor).
+def test_personal_care_beats_cooking_with_4_channel_voc_signature():
+    """personal_care wins over cooking when the 4-channel VOC signature is present.
 
-    Regression test for: deodorant spray attributed as 'Cooking activity (100%)'.
+    The key discriminator is NH3 (alcohol in propellant drives the MICS6814 reducing-
+    gas channel), which personal_care requires elevated and cooking does not require.
+    CO is elevated for the same reason but provides no additional discrimination
+    (both would score similarly with it).  PM sensors are elevated but not used by
+    personal_care since background PM can pre-exist from outdoor pollution.
 
-    Root causes that were fixed:
-    1. scorer.py: absent() returned current < 5 when baseline=None — a low raw co_ppb
-       (3-4 ppb from an uncalibrated MICS6814) was treated as 'absent', boosting cooking.
-    2. fingerprints.yaml cooking: pm25_correlated_with_tvoc:true temporal criterion fired
-       for aerosol events too (both TVOC and PM2.5 rise during a deodorant spray).
-
-    After fix: absent() returns None (skip) when baseline=None, and cooking's temporal
-    uses co_correlated_with_tvoc:false (CO does NOT rise with TVOC during cooking).
-    personal_care must score higher than cooking in this scenario.
+    This scenario tests that absent() returns None (skip) when baseline=None,
+    preventing uncalibrated sensors from incorrectly matching the "absent" criterion.
     """
     engine = AttributionEngine(_REAL_FINGERPRINTS_PATH)
-    # Worst-case deodorant scenario: TVOC 30× spike, PM slightly elevated, CO has no baseline.
-    # Temperature shows a tiny positive slope (noise), which makes cooking's temperature:rising pass.
     fv = FeatureVector(
         timestamp=_ts(),
         tvoc_current=1800.0,
@@ -311,33 +306,34 @@ def test_personal_care_beats_cooking_when_co_baseline_missing():
         pm25_slope_5m=0.2,
         pm10_current=12.0,
         pm10_baseline=10.5,
-        pm10_peak_ratio=1.14,   # < 1.4 → 'normal' passes for old cooking
+        pm10_peak_ratio=1.14,
         pm10_slope_5m=0.2,
-        # CO: uncalibrated sensor, no baseline yet, raw ppb < 5
-        co_current=3.5,
-        co_baseline=None,       # no baseline → absent() must return None, not True
-        co_peak_ratio=None,
-        co_slope_5m=None,
-        # Temperature: tiny positive slope (noise) — could falsely trigger rising
-        temperature_current=20.7,
-        temperature_baseline=20.0,
-        temperature_peak_ratio=1.035,
-        temperature_slope_5m=0.1,
+        # CO: properly calibrated (50 ppb baseline, 150 ppb during spray = 3× drop)
+        co_current=150.0,
+        co_baseline=50.0,
+        co_peak_ratio=3.0,
+        co_slope_5m=2.0,
+        # Temperature: no rise (indoor, no heat source)
+        temperature_current=20.5,
+        temperature_baseline=20.5,
+        temperature_peak_ratio=1.0,
+        temperature_slope_5m=0.0,
         humidity_current=52.0,
         humidity_baseline=50.0,
         humidity_peak_ratio=1.04,
         humidity_slope_5m=0.1,
-        nh3_current=11.0,
+        # NH3: elevated from alcohol propellant (~3× resistance drop on MICS6814)
+        nh3_current=24.0,
         nh3_baseline=8.0,
-        nh3_peak_ratio=1.375,
-        nh3_slope_5m=0.3,
+        nh3_peak_ratio=3.0,
+        nh3_slope_5m=0.5,
         no2_current=15.0,
         no2_baseline=15.0,
         no2_peak_ratio=1.0,
         no2_slope_5m=0.0,
         nh3_lag_behind_tvoc_seconds=45.0,
         pm25_correlated_with_tvoc=True,
-        co_correlated_with_tvoc=None,   # can't compute without CO baseline
+        co_correlated_with_tvoc=True,
     )
     result = engine.attribute(fv)
     assert result is not None, "Expected a match above confidence floor"

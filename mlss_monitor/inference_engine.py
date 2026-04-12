@@ -54,18 +54,21 @@ EVENT_TYPES = {
     # Patterns — detected trends and recurring behaviours
     "daily_pattern":         "pattern",
     "overnight_buildup":     "pattern",
+    # Attribution — fingerprint-matched and ML-learned source attribution
+    "fingerprint_match":     "attribution",
 }
 
 # Annotation-context events are dynamic (annotation_context_<id>)
 _ANNOTATION_PREFIX = "annotation_context_"
 
 CATEGORIES = {
-    "alert":   "Alerts",
-    "warning": "Warnings",
-    "summary": "Summaries",
-    "pattern": "Patterns",
-    "anomaly": "Anomalies",
-    "other":   "Other",
+    "alert":       "Alerts",
+    "warning":     "Warnings",
+    "summary":     "Summaries",
+    "pattern":     "Patterns",
+    "anomaly":     "Anomalies",
+    "attribution": "Attribution",
+    "other":       "Other",
 }
 
 
@@ -75,6 +78,8 @@ def event_category(event_type):
         return "pattern"
     if event_type.startswith("anomaly_"):
         return "anomaly"
+    if event_type.startswith("ml_learned_"):
+        return "attribution"
     return EVENT_TYPES.get(event_type, "other")
 
 
@@ -878,19 +883,32 @@ def _detect_annotation_context_event(rows):
         tvoc = row.get("tvoc", 0)
         eco2 = row.get("eco2", 0)
         temp = row.get("temperature", 0)
+        pm25 = row.get("pm2_5")
+        pm10 = row.get("pm10")
+        gas_co = row.get("gas_co")
+        gas_no2 = row.get("gas_no2")
+        gas_nh3 = row.get("gas_nh3")
         annotation = row.get("annotation", "")
 
-        if tvoc > _t("tvoc_moderate") or eco2 > 800 or temp > _t("temp_high") or temp < _t("temp_low"):
-            conditions = []
-            if tvoc > _t("tvoc_moderate"):
-                conditions.append(f"TVOC {tvoc} ppb")
-            if eco2 > 800:
-                conditions.append(f"eCO₂ {eco2} ppm")
-            if temp > _t("temp_high"):
-                conditions.append(f"temp {temp:.1f}°C")
-            if temp < _t("temp_low"):
-                conditions.append(f"temp {temp:.1f}°C")
+        conditions = []
+        if tvoc > _t("tvoc_moderate"):
+            conditions.append(f"TVOC {tvoc} ppb")
+        if eco2 > 800:
+            conditions.append(f"eCO₂ {eco2} ppm")
+        if temp > _t("temp_high") or temp < _t("temp_low"):
+            conditions.append(f"temp {temp:.1f}°C")
+        if pm25 is not None and pm25 > _t("pm25_moderate"):
+            conditions.append(f"PM2.5 {pm25} µg/m³")
+        if pm10 is not None and pm10 > _t("pm10_high"):
+            conditions.append(f"PM10 {pm10} µg/m³")
+        if gas_co is not None:
+            conditions.append(f"CO sensor {gas_co}")
+        if gas_no2 is not None:
+            conditions.append(f"NO₂ sensor {gas_no2}")
+        if gas_nh3 is not None:
+            conditions.append(f"NH₃ sensor {gas_nh3}")
 
+        if conditions:
             save_inference(
                 event_type=event_key,
                 severity="info",
@@ -908,6 +926,11 @@ def _detect_annotation_context_event(rows):
                     "tvoc": f"{tvoc} ppb",
                     "eco2": f"{eco2} ppm",
                     "temperature": f"{temp:.1f}°C",
+                    "pm25": f"{pm25} µg/m³" if pm25 is not None else None,
+                    "pm10": f"{pm10} µg/m³" if pm10 is not None else None,
+                        "gas_co": gas_co,
+                    "gas_no2": gas_no2,
+                    "gas_nh3": gas_nh3,
                 },
                 confidence=0.6,
                 start_id=row["id"],

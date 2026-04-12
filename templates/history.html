@@ -15,7 +15,7 @@
       <option value="6h">Last 6 hours</option>
       <option value="12h">Last 12 hours</option>
       <option value="24h">Last 24 hours</option>
-      <option value="all">All time</option>
+      <option value="14d">Last 14 days</option>
     </select>
     <button class="btn" onclick="downloadCSV()">Download CSV</button>
   </div>
@@ -287,6 +287,18 @@
           <h4>Peak vs baseline <span class="info-icon" title="Highest reading vs learned normal value.">ⓘ</span></h4>
           <div id="corrPeakBaseline"></div>
         </div>
+        <div class="analysis-section" id="corrRangeInferenceSuggestionSection" style="display:none;">
+          <h4>Suggested detection</h4>
+          <div id="corrRangeInferenceSuggestion"></div>
+        </div>
+        <div class="analysis-section corr-range-actions" id="corrRangeTagSection" style="display:none;">
+          <label for="corrRangeTagSelect">Tag this range</label>
+          <select id="corrRangeTagSelect">
+            <option value="">Select a tag...</option>
+          </select>
+          <button class="btn btn-sm" id="corrCreateRangeInferenceBtn" disabled>Save tagged event</button>
+          <span id="corrRangeInferenceStatus" class="corr-range-status"></span>
+        </div>
         <div class="analysis-section" id="corrAttributionSummarySection" style="display:none;">
           <h4>Attribution summary</h4>
           <div id="corrAttributionSummary"></div>
@@ -327,11 +339,6 @@
   </div>
 
   <div class="tab-panel tab-hidden" id="tab-detections">
-    <div class="window-selector" id="diWindowSelector">
-      <button class="window-btn active" data-window="6h"  onclick="diSetWindow('6h')">6h</button>
-      <button class="window-btn"        data-window="24h" onclick="diSetWindow('24h')">24h</button>
-      <button class="window-btn"        data-window="7d"  onclick="diSetWindow('7d')">7d</button>
-    </div>
     <div class="di-card" id="diPeriodSummary"><div class="di-loading">Loading…</div></div>
     <div id="diTrendIndicators" class="trend-row"></div>
     <div class="di-stat" id="diLongestClean"></div>
@@ -363,6 +370,12 @@
       <h3>Detection Events <span id="diEventsCount" class="badge-count inference-count"></span></h3>
       <div class="inference-filters" id="diInferenceFilters">
         <button class="inf-filter active" data-category="all">All</button>
+        <button class="inf-filter" data-category="alert">Alerts</button>
+        <button class="inf-filter" data-category="warning">Warnings</button>
+        <button class="inf-filter" data-category="pattern">Patterns</button>
+        <button class="inf-filter" data-category="anomaly">Anomalies</button>
+        <button class="inf-filter" data-category="attribution">Attribution</button>
+        <button class="inf-filter" data-category="summary">Summaries</button>
       </div>
       <div class="inference-feed" id="diInferenceFeed">
         <div class="inference-empty">Loading…</div>
@@ -420,6 +433,26 @@
         <textarea id="infNotes" rows="2" placeholder="Add your own notes to this inference…"></textarea>
         <button class="btn inf-save-note" id="infSaveNote">Save note</button>
       </div>
+      <div class="inf-section">
+        <div class="inf-section-title">
+          Tags
+          <span class="info-icon" title="Tags record what you believe caused this event. This feedback helps the attribution engine learn from your corrections.">ⓘ</span>
+        </div>
+        <div class="inf-tags-list" id="infTagsList"></div>
+        <div class="inf-tag-controls">
+          <select id="infTagSelect" class="inf-tag-select">
+            <option value="">Select a tag...</option>
+          </select>
+          <button class="btn inf-add-tag" id="infAddTag">Add Tag</button>
+        </div>
+      </div>
+      <div class="inf-section" id="infFvSection" style="display:none;">
+        <div class="inf-section-title">
+          Sensor Snapshot
+          <span class="info-icon" title="All sensor values and detected patterns at the time of this event, from the feature vector stored in evidence.">ⓘ</span>
+        </div>
+        <div id="infFvBody" class="inf-fv-body"></div>
+      </div>
     </div>
   </dialog>
 
@@ -428,5 +461,46 @@
 {% block scripts %}
   <script src="https://cdn.plot.ly/plotly-2.24.2.min.js"></script>
   <script src="{{ url_for('static', filename='js/sparkline.js') }}"></script>
+  <script type="module" src="{{ url_for('static', filename='js/inference_feed.js') }}"></script>
+  <script type="module">
+    // Populate both tag dropdowns from /api/tags on load.
+    async function populateTagDropdowns() {
+      let tags = [];
+      try {
+        const resp = await fetch('/api/tags');
+        if (resp.ok) {
+          const data = await resp.json();
+          tags = data.tags || [];
+        }
+      } catch (_) { /* silently ignore — dropdowns remain empty */ }
+
+      const EMOJI = {
+        cooking: '🍳',
+        external_pollution: '🌫️',
+        vehicle_exhaust: '🚗',
+        biological_offgas: '🧬',
+        chemical_offgassing: '🧪',
+        combustion: '🔥',
+        cleaning_products: '🧹',
+        human_activity: '👤',
+        mould_voc: '🍄',
+        personal_care: '🧴',
+      };
+
+      const selectors = ['#corrRangeTagSelect', '#infTagSelect'];
+      selectors.forEach(sel => {
+        const el = document.querySelector(sel);
+        if (!el) return;
+        tags.forEach(({ id, label }) => {
+          const opt = document.createElement('option');
+          opt.value = id;
+          opt.textContent = `${EMOJI[id] || ''} ${label}`.trim();
+          el.appendChild(opt);
+        });
+      });
+    }
+
+    document.addEventListener('DOMContentLoaded', populateTagDropdowns);
+  </script>
   <script type="module" src="{{ url_for('static', filename='js/history.js') }}"></script>
 {% endblock %}

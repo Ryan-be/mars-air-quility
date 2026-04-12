@@ -1,15 +1,11 @@
 /**
  * detections_insights.js — Detections & Insights tab logic.
+ * Loaded as a plain script (not ES module) so it can be dynamically injected.
+ * Uses window._createInferenceFeed set by inference_feed.js loaded before this.
  */
 'use strict';
 
-// ── DI inference table state ─────────────────────────────────────────────────
-let _diInferences    = [];
-let _diActiveCategory = 'all';
-let _diCatsLoaded    = false;
-
 const DI = (function () {
-  let _window = '24h';
   let _narratives = null;
   let _baselines  = null;
   let _sseSource  = null;
@@ -47,23 +43,47 @@ const DI = (function () {
   function _corrColours() { return (typeof CORR_COLOURS !== 'undefined') ? CORR_COLOURS : {}; }
   function _corrLabels()  { return (typeof CORR_LABELS  !== 'undefined') ? CORR_LABELS  : {}; }
 
-  function _windowMs() { return {  '6h':6, '24h':24, '7d':168 }[_window] * 3600000; }
+  /** Parse the global #range selector value into fractional hours. */
+  function _rangeHours() {
+    const sel = document.getElementById('range');
+    if (!sel) return 24;
+    const v = sel.value;
+    if (v === 'all') return 365 * 24;
+    if (v.endsWith('m')) return parseInt(v, 10) / 60;
+    if (v.endsWith('h')) return parseInt(v, 10);
+    if (v.endsWith('d')) return parseInt(v, 10) * 24;
+    return parseFloat(v) || 24;
+  }
+
   function _range() {
-    const end = new Date(); const start = new Date(end.getTime() - _windowMs());
+    const hours = _rangeHours();
+    const end = new Date();
+    const start = new Date(end.getTime() - hours * 3600000);
     return { start: start.toISOString(), end: end.toISOString() };
+  }
+
+  let _feed;
+
+  function _createFeed() {
+    _feed = (window._createInferenceFeed || window.createInferenceFeed)({
+      feedId:       'diInferenceFeed',
+      countId:      'diEventsCount',
+      filtersId:    'diInferenceFilters',
+      cardDataAttr: 'data-di-inf-id',
+      openDialog:   openInferenceDialog,
+    });
   }
 
   function init() {
     if (_initialised) return;
     _initialised = true;
+    _createFeed();
     load();
     _subscribeSSE();
-  }
-
-  function setWindow(w) {
-    _window = w;
-    document.querySelectorAll('.window-btn').forEach(b => b.classList.toggle('active', b.dataset.window === w));
-    load();
+    const rangeEl = document.getElementById('range');
+    if (rangeEl) {
+      rangeEl.addEventListener('change', load);
+    }
   }
 
   function _showLoadingSkeletons() {
@@ -140,7 +160,7 @@ const DI = (function () {
     const el = document.getElementById('diLongestClean');
     if (!el || _narratives.longest_clean_hours == null) return;
     const h = _narratives.longest_clean_hours;
-    const full = h >= (_windowMs() / 3600000 - 0.1);
+    const full = h >= (_rangeHours() - 0.1);
     if (full) {
       el.textContent = 'No events detected — the entire period was clean.';
     } else {
@@ -346,113 +366,24 @@ const DI = (function () {
   async function _renderInferenceTable() {
     const section = document.getElementById('diEventsList');
     const feed    = document.getElementById('diInferenceFeed');
-    const countEl = document.getElementById('diEventsCount');
     if (!section || !feed) return;
 
     section.style.display = 'block';
-    feed.innerHTML = '<div class="inference-empty">Loading…</div>';
+    feed.innerHTML = '<div class="inference-empty">Loading\u2026</div>';
 
     const { start, end } = _range();
+    const url = `/api/inferences?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&limit=200`;
     try {
-      await _diLoadCategories();
-      const res = await fetch(`/api/inferences?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&limit=200`);
-      if (!res.ok) throw new Error('fetch failed');
+      const res = await window.fetch(url);
+      console.log('[DI] /api/inferences status:', res.status, 'url:', url);
+      if (!res.ok) throw new Error('fetch failed: ' + res.status);
       const rows = await res.json();
-      _diInferences = rows;
-      _diRenderFeed(countEl, feed);
+      console.log('[DI] /api/inferences returned', rows.length, 'rows');
+      _feed.setInferences(rows);
     } catch (e) {
+      console.error('[DI] _renderInferenceTable error:', e);
       feed.innerHTML = '<div class="inference-empty">Could not load inferences.</div>';
     }
-  }
-
-  function _diRenderFeed(countEl, feed) {
-    const SEV_CLS   = { info:'inf-info', warning:'inf-warning', critical:'inf-critical' };
-    const SEV_LABEL = { info:'Info', warning:'Warning', critical:'Critical' };
-
-    let filtered = _diInferences;
-    if (_diActiveCategory && _diActiveCategory !== 'all') {
-      filtered = _diInferences.filter(function (i) { return i.category === _diActiveCategory; });
-    }
-
-    if (!filtered.length) {
-      const msg = _diInferences.length
-        ? 'No inferences in this category.'
-        : 'No inferences detected in this time window.';
-      feed.innerHTML = '<div class="inference-empty">' + msg + '</div>';
-      if (countEl) countEl.textContent = '';
-      return;
-    }
-
-    const active = filtered.filter(function (i) { return !i.dismissed; });
-    if (countEl) countEl.textContent = active.length ? '(' + active.length + ')' : '';
-
-    const _chipTooltip =
-      'Rule = a fixed threshold was crossed. ' +
-      'Statistical = an unusual reading compared to this sensor\u2019s learned normal. ' +
-      'ML = an unusual pattern across multiple sensors simultaneously.';
-
-    feed.innerHTML = filtered.slice(0, 30).map(function (inf) {
-      const sevCls = SEV_CLS[inf.severity] || 'inf-info';
-      const sevLbl = SEV_LABEL[inf.severity] || inf.severity;
-      const time = new Date(inf.created_at).toLocaleString(undefined, {
-        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
-      });
-      const dm = inf.detection_method || 'rule';
-      const chipCls = { rule: 'chip--rule', statistical: 'chip--statistical', ml: 'chip--ml' }[dm] || 'chip--rule';
-      const chipLbl = { rule: 'Rule', statistical: 'Statistical', ml: 'ML' }[dm] || 'Rule';
-      const chip = '<span class="chip ' + chipCls + '" title="' + _chipTooltip + '">' + chipLbl + ' <span class="chip-info">\u24d8</span></span>';
-      const catCls = 'inf-cat-' + (inf.category || 'other');
-      const dismissed = inf.dismissed ? ' dismissed' : '';
-      return '<button class="inference-card ' + sevCls + ' ' + catCls + dismissed + '" data-di-inf-id="' + inf.id + '" title="Tap for details">' +
-        '<div class="inf-card-left">' +
-          '<div class="inf-card-badges">' + chip + ' <span class="inf-badge ' + sevCls + ' inf-badge-sm">' + sevLbl + '</span></div>' +
-          '<span class="inf-card-type">' + inf.event_type.replace(/_/g, ' ') + '</span>' +
-          '<span class="inf-card-summary">' + inf.title + '</span>' +
-        '</div>' +
-        '<div class="inf-card-right">' +
-          '<span class="inf-card-time">' + time + '</span>' +
-          '<span class="inf-card-conf">' + Math.round(inf.confidence * 100) + '%</span>' +
-        '</div>' +
-      '</button>';
-    }).join('');
-
-    feed.onclick = function (e) {
-      const card = e.target.closest('.inference-card');
-      if (!card) return;
-      const id = parseInt(card.dataset.diInfId, 10);
-      openInferenceDialog(id);
-    };
-  }
-
-  async function _diLoadCategories() {
-    if (_diCatsLoaded) return;
-    try {
-      const res = await fetch('/api/inferences/categories');
-      if (!res.ok) return;
-      const cats = await res.json();
-      const bar = document.getElementById('diInferenceFilters');
-      if (!bar) return;
-      // Remove any previously added category buttons (keep "All")
-      bar.querySelectorAll('.inf-filter:not([data-category="all"])').forEach(function (b) { b.remove(); });
-      for (const [key, label] of Object.entries(cats)) {
-        const btn = document.createElement('button');
-        btn.className = 'inf-filter';
-        btn.dataset.category = key;
-        btn.textContent = label;
-        bar.appendChild(btn);
-      }
-      bar.addEventListener('click', function (e) {
-        const btn = e.target.closest('.inf-filter');
-        if (!btn) return;
-        bar.querySelectorAll('.inf-filter').forEach(function (b) { b.classList.remove('active'); });
-        btn.classList.add('active');
-        _diActiveCategory = btn.dataset.category;
-        const feed    = document.getElementById('diInferenceFeed');
-        const countEl = document.getElementById('diEventsCount');
-        if (feed && countEl !== undefined) _diRenderFeed(countEl, feed);
-      });
-      _diCatsLoaded = true;
-    } catch (e) { /* categories not available */ }
   }
 
     function _renderDriftFlags() {
@@ -473,14 +404,17 @@ const DI = (function () {
     _sseSource.addEventListener('inference_fired', function () { load(); });
   }
 
-  return { init, setWindow, load };
+  return { init, load, getFeed: () => _feed };
 })();
+
+window.openInferenceDialog = openInferenceDialog;
+window.diToggleChip = diToggleChip;
 
 // ── Global inference dialog opener (used by DI tab cards) ────────────────────
 // On the dashboard page dashboard.js defines its own _openInferenceDialog.
 // On the history page this function is the sole dialog opener.
 function openInferenceDialog(id) {
-  const inf = _diInferences.find(function (i) { return i.id === id; });
+  const inf = (DI.getFeed() && DI.getFeed().getInferences().find(function (i) { return i.id === id; }));
   if (!inf) return;
   const dialog = document.getElementById('inferenceDialog');
   if (!dialog) return;
@@ -530,6 +464,112 @@ function openInferenceDialog(id) {
 
   document.getElementById('infAction').textContent = inf.action || 'No specific action needed.';
 
+  function _renderFeatureVectorEvidence(featureVector) {
+    // Sensor prefix groups — order matches FV_GROUPS above
+    const GROUPS = [
+      ['TVOC',        'tvoc_'],
+      ['eCO\u2082',   'eco2_'],
+      ['Temperature', 'temperature_'],
+      ['Humidity',    'humidity_'],
+      ['PM1',         'pm1_'],
+      ['PM2.5',       'pm25_'],
+      ['PM10',        'pm10_'],
+      ['CO',          'co_'],
+      ['NO\u2082',    'no2_'],
+      ['NH\u2083',    'nh3_'],
+    ];
+
+    // Collect all non-null entries (skip timestamp)
+    const allEntries = Object.entries(featureVector).filter(function (e) {
+      return e[0] !== 'timestamp' && e[1] !== null && e[1] !== undefined;
+    });
+    if (!allEntries.length) return '';
+
+    // Track which keys have been placed into a sensor group
+    const placed = new Set();
+
+    function _fmtVal(v) {
+      if (typeof v === 'boolean') {
+        return '<span class="inf-fv-flag-' + v + '">' + (v ? '\u2713 yes' : '\u2717 no') + '</span>';
+      }
+      if (typeof v === 'number') {
+        return '<code class="inf-fv-mono">' + (Number.isInteger(v) ? String(v) : v.toFixed(4)) + '</code>';
+      }
+      return '<code class="inf-fv-mono">' + String(v) + '</code>';
+    }
+
+    function _fmtKey(rawKey) {
+      return rawKey
+        .replace(/_/g, ' ')
+        .replace(/\b\w/g, function (c) { return c.toUpperCase(); })
+        .replace(/Ppb/g, 'ppb')
+        .replace(/Ppm/g, 'ppm')
+        .replace(/Kpa/g, 'kPa');
+    }
+
+    var groupHtml = '';
+    GROUPS.forEach(function (pair) {
+      var label = pair[0], prefix = pair[1];
+      var fields = allEntries.filter(function (e) { return e[0].startsWith(prefix); });
+      if (!fields.length) return;
+      fields.forEach(function (e) { placed.add(e[0]); });
+      groupHtml += '<div class="inf-fv-group-label">' + label + '</div>';
+      fields.forEach(function (e) {
+        var shortKey = e[0].slice(prefix.length);
+        groupHtml += '<span class="inf-fv-key">' + _fmtKey(shortKey) + '</span>' +
+                     '<span class="inf-fv-val">' + _fmtVal(e[1]) + '</span>';
+      });
+    });
+
+    // Cross-sensor / derived — anything not placed by a sensor prefix group
+    var crossFields = allEntries.filter(function (e) { return !placed.has(e[0]); });
+    if (crossFields.length) {
+      groupHtml += '<div class="inf-fv-group-label">Cross-sensor / derived</div>';
+      crossFields.forEach(function (e) {
+        groupHtml += '<span class="inf-fv-key">' + _fmtKey(e[0]) + '</span>' +
+                     '<span class="inf-fv-val">' + _fmtVal(e[1]) + '</span>';
+      });
+    }
+
+    var count = allEntries.length;
+    return '<details class="inf-fv-details">' +
+      '<summary class="inf-fv-summary">Feature Vector (' + count + ' field' + (count !== 1 ? 's' : '') + ')</summary>' +
+      '<div class="inf-fv-grid">' + groupHtml + '</div>' +
+      '</details>';
+  }
+
+  function _renderRangeReadingsEvidence(evidence) {
+    const readings = Array.isArray(evidence.readings) ? evidence.readings : [];
+    if (!readings.length) return '';
+
+    const latest = readings[readings.length - 1];
+    const mapping = [
+      ['tvoc_ppb', 'TVOC', 'ppb', 'tvoc_baseline'],
+      ['eco2_ppm', 'eCO₂', 'ppm', 'eco2_baseline'],
+      ['temperature_c', 'Temperature', '°C', 'temperature_baseline'],
+      ['humidity_pct', 'Humidity', '%', 'humidity_baseline'],
+      ['pm1_ug_m3', 'PM1', 'µg/m³', 'pm1_baseline'],
+      ['pm25_ug_m3', 'PM2.5', 'µg/m³', 'pm25_baseline'],
+      ['pm10_ug_m3', 'PM10', 'µg/m³', 'pm10_baseline'],
+      ['co_ppb', 'CO (resistance)', 'Ω', 'co_baseline'],
+      ['no2_ppb', 'NO₂ (resistance)', 'Ω', 'no2_baseline'],
+      ['nh3_ppb', 'NH₃ (resistance)', 'Ω', 'nh3_baseline'],
+    ];
+
+    const summary = `<div class="inf-ev-row"><span class="fd-label">Selected range</span><span class="fd-value">${readings.length} readings from ${new Date(readings[0].timestamp).toLocaleString()} to ${new Date(latest.timestamp).toLocaleString()}</span></div>`;
+    const rows = mapping.map(([key, label, unit, baselineKey]) => {
+      const value = latest[key];
+      if (value == null) return null;
+      const baseline = evidence.feature_vector ? evidence.feature_vector[baselineKey] : null;
+      const status = baseline != null ? (value > baseline ? 'above baseline' : value < baseline ? 'below baseline' : 'at baseline') : '';
+      const statusText = status ? ` (${status})` : '';
+      const baselineText = baseline != null ? ` / baseline ${baseline} ${unit}` : '';
+      return `<div class="inf-ev-row"><span class="fd-label">${label}</span><span class="fd-value">${value} ${unit}${baselineText}${statusText}</span></div>`;
+    }).filter(Boolean);
+
+    return summary + rows.join('');
+  }
+
   // Evidence section
   const evEl  = document.getElementById('infEvidence');
   const thSec = document.getElementById('infThresholdsSection');
@@ -549,6 +589,14 @@ function openInferenceDialog(id) {
           '<span class="fd-value">' + s.value + ' ' + s.unit + ' <span class="ev-trend">' + arrow + '</span></span>' +
           ratio + '</div>';
       }).join('');
+    } else if (inf.evidence.readings && Array.isArray(inf.evidence.readings) && inf.evidence.readings.length > 0) {
+      evEl.innerHTML = _renderRangeReadingsEvidence(inf.evidence);
+      if (inf.evidence.feature_vector && typeof inf.evidence.feature_vector === 'object') {
+        evEl.innerHTML += _renderFeatureVectorEvidence(inf.evidence.feature_vector);
+      }
+    } else if (inf.evidence.feature_vector && typeof inf.evidence.feature_vector === 'object') {
+      const featureHtml = _renderFeatureVectorEvidence(inf.evidence.feature_vector);
+      evEl.innerHTML = featureHtml || 'No detailed evidence available.';
     } else {
       const entries = Object.entries(inf.evidence).filter(function ([k]) {
         return k !== '_thresholds' && k !== 'sensor_snapshot' && k !== 'model_id';
@@ -588,6 +636,11 @@ function openInferenceDialog(id) {
 
   // Notes
   document.getElementById('infNotes').value = inf.user_notes || '';
+
+  // Render feature vector sensor snapshot if present in evidence
+  var evidence = inf.evidence || {};
+  var evObj = (typeof evidence === 'string') ? (function () { try { return JSON.parse(evidence); } catch(_) { return {}; } })() : evidence;
+  // Feature vector is rendered inline in the evidence section above
   document.getElementById('infSaveNote').onclick = async function () {
     const notes = document.getElementById('infNotes').value;
     try {
@@ -597,6 +650,34 @@ function openInferenceDialog(id) {
         body: JSON.stringify({ notes }),
       });
       inf.user_notes = notes;
+    } catch (e) { /* ignore */ }
+  };
+
+  // Tags
+  const tagsList = document.getElementById('infTagsList');
+  if (tagsList && inf.tags) {
+    tagsList.innerHTML = inf.tags.map(t => `<span class="tag-chip">${t.tag}</span>`).join(' ');
+  } else if (tagsList) {
+    tagsList.innerHTML = '';
+  }
+  document.getElementById('infAddTag').onclick = async function () {
+    const select = document.getElementById('infTagSelect');
+    const tag = select.value;
+    if (!tag) return;
+    try {
+      await fetch('/api/inferences/' + id + '/tags', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tag }),
+      });
+      // Refresh tags
+      const res = await fetch('/api/inferences/' + id + '/tags');
+      const newTags = await res.json();
+      if (tagsList) {
+        tagsList.innerHTML = newTags.map(t => `<span class="tag-chip">${t.tag}</span>`).join(' ');
+      }
+      inf.tags = newTags;
+      select.value = '';
     } catch (e) { /* ignore */ }
   };
 
@@ -615,9 +696,13 @@ function openInferenceDialog(id) {
     if (chartDiv && window.Plotly) Plotly.Plots.resize(chartDiv);
   }, 50);
   dialog.onclick = function (e) { if (e.target === dialog) dialog.close(); };
+  dialog.addEventListener('close', function _onClose() {
+    document.getElementById('infFvBody').innerHTML = '';
+    document.getElementById('infFvSection').style.display = 'none';
+    dialog.removeEventListener('close', _onClose);
+  });
 }
 
-function diSetWindow(w) { DI.setWindow(w); }
 function diToggleChip(btn) {
   btn.classList.toggle('active');
   const chartDiv = document.getElementById('diBandsChart');

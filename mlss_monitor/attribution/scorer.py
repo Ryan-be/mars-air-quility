@@ -71,12 +71,9 @@ def _state_matches(state: str, fv: FeatureVector, prefix: str):
             return True
         baseline = getattr(fv, f"{prefix}_baseline", None)
         if baseline is None:
-            # No baseline available — cannot determine whether sensor is absent.
-            # Return None so the caller skips this criterion rather than
-            # incorrectly treating an uncharacterised reading as "absent".
             return None
         if baseline == 0:
-            return current < 5  # absolute low threshold when baseline is zero
+            return current < 5
         return current < baseline * 0.9
 
     if state == "rising":
@@ -114,16 +111,44 @@ def sensor_score(fp: Fingerprint, fv: FeatureVector) -> float:
     return matched / evaluated
 
 
+def _rise_rate_matches(rate: str, fv: FeatureVector) -> bool | None:
+    slope = fv.tvoc_slope_5m
+    if slope is None:
+        return None
+    if rate in {"fast", "moderate", "slow"}:
+        return slope > 0
+    return None
+
+
+def _decay_rate_matches(rate: str, fv: FeatureVector) -> bool | None:
+    decay = fv.tvoc_decay_rate
+    if decay is None:
+        return None
+    if rate in {"fast", "moderate", "slow"}:
+        return decay < 0
+    return None
+
+
+def _sustain_minutes_matches(key: str, threshold: float, fv: FeatureVector) -> bool | None:
+    elapsed = fv.tvoc_elevated_minutes
+    if elapsed is None:
+        return None
+    if key == "sustain_min_minutes":
+        return elapsed >= threshold
+    if key == "sustain_max_minutes":
+        return elapsed <= threshold
+    return None
+
+
 def temporal_score(fp: Fingerprint, fv: FeatureVector) -> float:
     """Fraction of evaluable temporal criteria that match the FeatureVector.
 
     Currently evaluates:
+      - rise_rate / decay_rate via TVOC slope and decay fields
+      - sustain_min_minutes / sustain_max_minutes via TVOC elevated duration
       - nh3_follows_tvoc + nh3_max_lag_seconds
       - pm25_correlated_with_tvoc
       - co_correlated_with_tvoc
-
-    Other temporal keys (rise_rate, decay_rate, sustain_*) are not yet mapped
-    to FeatureVector fields and are skipped.
 
     Returns 0.0 when no criteria can be evaluated.
     """
@@ -134,11 +159,35 @@ def temporal_score(fp: Fingerprint, fv: FeatureVector) -> float:
     matched = 0
     evaluated = 0
 
+    if "rise_rate" in t:
+        result = _rise_rate_matches(t["rise_rate"], fv)
+        evaluated += 1
+        if result is not None:
+            matched += 1 if result else 0
+
+    if "decay_rate" in t:
+        result = _decay_rate_matches(t["decay_rate"], fv)
+        evaluated += 1
+        if result is not None:
+            matched += 1 if result else 0
+
+    if "sustain_min_minutes" in t:
+        result = _sustain_minutes_matches("sustain_min_minutes", t["sustain_min_minutes"], fv)
+        evaluated += 1
+        if result is not None:
+            matched += 1 if result else 0
+
+    if "sustain_max_minutes" in t:
+        result = _sustain_minutes_matches("sustain_max_minutes", t["sustain_max_minutes"], fv)
+        evaluated += 1
+        if result is not None:
+            matched += 1 if result else 0
+
     # nh3_follows_tvoc
     if "nh3_follows_tvoc" in t:
         lag = fv.nh3_lag_behind_tvoc_seconds
+        evaluated += 1
         if lag is not None:
-            evaluated += 1
             max_lag = t.get("nh3_max_lag_seconds", 120)
             if t["nh3_follows_tvoc"] is True:
                 matched += 1 if lag <= max_lag else 0
@@ -148,15 +197,15 @@ def temporal_score(fp: Fingerprint, fv: FeatureVector) -> float:
     # pm25_correlated_with_tvoc
     if "pm25_correlated_with_tvoc" in t:
         corr = fv.pm25_correlated_with_tvoc
+        evaluated += 1
         if corr is not None:
-            evaluated += 1
             matched += 1 if (corr == t["pm25_correlated_with_tvoc"]) else 0
 
     # co_correlated_with_tvoc
     if "co_correlated_with_tvoc" in t:
         corr = fv.co_correlated_with_tvoc
+        evaluated += 1
         if corr is not None:
-            evaluated += 1
             matched += 1 if (corr == t["co_correlated_with_tvoc"]) else 0
 
     if evaluated == 0:
