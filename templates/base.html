@@ -144,11 +144,7 @@
   <!-- ═══════════════════════════════════════════════════════════════════════
        PAGE CONTENT
        ══════════════════════════════════════════════════════════════════════ -->
-  {% if self.topbar_controls() %}
-  <div class="page-controls-bar">
-    {% block topbar_controls %}{% endblock %}
-  </div>
-  {% endif %}
+  <div class="page-controls-bar">{% block topbar_controls %}{% endblock %}</div>
 
   <main class="page-content">
     {% block content %}{% endblock %}

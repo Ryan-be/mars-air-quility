@@ -767,9 +767,25 @@ label {
 @media (max-width: 600px) {
   .modebar-container { display: none !important; }
   .gsb-monitors      { display: none; }
-  .tab-nav a span    { display: none; }
-  .tab-nav a         { padding: 0 14px; }
+  .tab-nav {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .tab-nav::-webkit-scrollbar { display: none; }
+  .page-controls-bar { padding: 6px 12px; gap: 0.5em; }
+  .page-controls-bar select { font-size: 12px; padding: 4px 8px; }
 }
+
+@media (max-width: 420px) {
+  .tab-nav a span    { display: none; }
+  .tab-nav a         { padding: 0 12px; gap: 0; }
+  .gsb-app-name      { display: none; }
+  .gsb-status        { display: none; }
+}
+
+/* ── Empty controls bar collapses ── */
+.page-controls-bar:empty { display: none; }
 
 /* ══ Page controls bar (sub-header below tab-nav) ════════════════════════ */
 .page-controls-bar {

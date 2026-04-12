@@ -583,6 +583,267 @@ dialog::backdrop { background: rgba(0,0,0,0.7); }
 .chip--statistical { background: var(--color-interactive-default, #4dacff); color: var(--color-background-base-default, #101923); }
 .chip--ml          { background: #7c5cbf; color: #fff; }
 
+/* ══ DI tab — card container ════════════════════════════════════════════ */
+.di-card {
+  background: var(--color-background-surface-default, #1b2d3e);
+  border: 1px solid var(--color-border-interactive-muted, #2b659b);
+  border-radius: 3px;
+  padding: 0.9em 1em;
+  margin-bottom: 0.75em;
+}
+.di-card h3 {
+  margin: 0 0 0.6em;
+  font-size: 0.85em;
+  font-weight: 500;
+  color: var(--color-text-secondary, #b0bec5);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-bottom: 1px solid var(--color-border-interactive-muted, #2b659b);
+  padding-bottom: 0.4em;
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+}
+
+.di-stat {
+  font-size: 0.85em;
+  color: var(--color-text-secondary, #b0bec5);
+  padding: 0.5em 0;
+  margin-bottom: 0.5em;
+}
+
+.di-subtitle {
+  font-size: 0.82em;
+  color: var(--color-text-secondary, #b0bec5);
+  margin-bottom: 0.6em;
+}
+
+.di-sentence {
+  font-size: 0.9em;
+  color: var(--color-text-secondary, #b0bec5);
+  line-height: 1.6;
+  margin-top: 0.5em;
+  padding: 0.5em 0.75em;
+  background: var(--color-background-base-default, #101923);
+  border-left: 3px solid var(--color-interactive-default, #4dacff);
+  border-radius: 0 3px 3px 0;
+}
+
+/* ══ DI tab — inference feed filters ════════════════════════════════════ */
+.inference-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35em;
+  margin-bottom: 0.75em;
+}
+.inf-filter {
+  background: var(--color-background-base-default, #101923);
+  border: 1px solid var(--color-border-interactive-muted, #2b659b);
+  color: var(--color-text-secondary, #b0bec5);
+  border-radius: 2px;
+  padding: 0.2em 0.7em;
+  font-size: 0.78em;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  min-height: 26px;
+}
+.inf-filter:hover {
+  background: var(--color-background-surface-hover, #172635);
+  color: var(--color-text-primary, #ffffff);
+}
+.inf-filter.active {
+  background: var(--color-background-surface-selected, #253f55);
+  border-color: var(--color-interactive-default, #4dacff);
+  color: var(--color-interactive-default, #4dacff);
+  font-weight: 500;
+}
+
+.inference-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4em;
+  margin-bottom: 0.75em;
+}
+.inference-empty {
+  font-size: 0.88em;
+  color: var(--color-text-secondary, #b0bec5);
+  padding: 1em 0;
+  text-align: center;
+}
+
+/* ══ DI loading state ════════════════════════════════════════════════════ */
+.di-loading {
+  font-size: 0.88em;
+  color: var(--color-text-secondary, #b0bec5);
+  padding: 0.75em 0;
+  text-align: center;
+}
+
+/* ══ Badge count (event count chip on section headings) ═════════════════ */
+.badge-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-size: 0.72em;
+  font-weight: 700;
+  background: var(--color-background-surface-selected, #253f55);
+  color: var(--color-interactive-default, #4dacff);
+  border: 1px solid var(--color-border-interactive-muted, #2b659b);
+  margin-left: 0.3em;
+  vertical-align: middle;
+}
+
+/* ══ Correlation inference panel ════════════════════════════════════════ */
+.corr-inference-panel {
+  background: var(--color-background-surface-default, #1b2d3e);
+  border: 1px solid var(--color-border-interactive-muted, #2b659b);
+  border-radius: 3px;
+  padding: 0.9em 1em;
+  margin-bottom: 1em;
+}
+.corr-inference-panel h4 {
+  margin: 0 0 0.6em;
+  font-size: 0.85em;
+  color: var(--color-text-secondary, #b0bec5);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.corr-inference-placeholder {
+  font-size: 0.85em;
+  color: var(--color-text-secondary, #b0bec5);
+  padding: 0.5em 0;
+  font-style: italic;
+}
+
+/* ══ ML analysis panel (zoom-triggered) ════════════════════════════════ */
+.analysis-panel {
+  background: var(--color-background-surface-default, #1b2d3e);
+  border: 1px solid var(--color-border-interactive-muted, #2b659b);
+  border-radius: 3px;
+  padding: 0.9em 1em;
+  margin-bottom: 1em;
+}
+.analysis-loading {
+  font-size: 0.85em;
+  color: var(--color-text-secondary, #b0bec5);
+  padding: 0.75em 0;
+  text-align: center;
+  font-style: italic;
+}
+.analysis-section {
+  margin-bottom: 0.9em;
+  padding-bottom: 0.9em;
+  border-bottom: 1px solid var(--color-border-interactive-muted, #2b659b);
+}
+.analysis-section:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+.analysis-section h4 {
+  margin: 0 0 0.4em;
+  font-size: 0.82em;
+  font-weight: 500;
+  color: var(--color-text-secondary, #b0bec5);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+}
+
+/* ══ Correlation range-tag actions row ══════════════════════════════════ */
+.corr-range-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  flex-wrap: wrap;
+}
+.corr-range-actions label {
+  font-size: 0.82em;
+  color: var(--color-text-secondary, #b0bec5);
+  text-transform: none;
+  letter-spacing: 0;
+  margin-bottom: 0;
+  white-space: nowrap;
+}
+.corr-range-actions select {
+  background: var(--color-background-base-default, #101923);
+  color: var(--color-text-primary, #ffffff);
+  border: 1px solid var(--color-border-interactive-muted, #2b659b);
+  border-radius: 3px;
+  padding: 0.3em 0.5em;
+  font-size: 0.85em;
+  font-family: inherit;
+  flex: 1 1 120px;
+  min-width: 0;
+}
+
+/* ══ Correlation brush controls bar ════════════════════════════════════ */
+.corr-brush-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.75em;
+  flex-wrap: wrap;
+  margin-top: 0.5em;
+}
+.overlay-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  font-size: 0.82em;
+  color: var(--color-text-secondary, #b0bec5);
+  cursor: pointer;
+  user-select: none;
+}
+.overlay-toggle input[type="checkbox"] {
+  width: auto;
+  cursor: pointer;
+  accent-color: var(--color-interactive-default, #4dacff);
+}
+
+/* ══ Dialog header (fd-header) ══════════════════════════════════════════ */
+.fd-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5em;
+  margin-bottom: 0.75em;
+  padding-bottom: 0.75em;
+  border-bottom: 1px solid var(--color-border-interactive-muted, #2b659b);
+}
+.fd-header > div { display: flex; align-items: center; gap: 0.5em; }
+.fd-header h3 { margin: 0; font-size: 1em; color: var(--color-text-primary, #ffffff); }
+
+/* ══ Threshold grid in inference dialog ═════════════════════════════════ */
+.inf-thresholds-section { margin-top: 0.3em; }
+.inf-thresholds-section summary { cursor: pointer; }
+.inf-thresholds-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 0.4em;
+  margin-top: 0.5em;
+  font-size: 0.82em;
+  color: var(--color-text-secondary, #b0bec5);
+}
+.inf-detection-chip {
+  font-size: 0.72em;
+  color: var(--color-text-secondary, #b0bec5);
+}
+
+/* ══ Trend row (DI tab trend indicators wrapper) ════════════════════════ */
+.trend-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5em;
+  margin-bottom: 1em;
+}
+
 /* ══ Mobile ══════════════════════════════════════════════════════════════ */
 @media (max-width: 600px) {
   .tab-btn { padding: 0.5em 0.75em; font-size: 0.82em; }
