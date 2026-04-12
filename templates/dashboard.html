@@ -15,23 +15,23 @@
   <!-- Sensor stat cards (click for detail) -->
   <div class="section-heading">🏠 Indoor Sensors</div>
   <div class="stat-grid">
-    <button class="stat-card temp" data-sensor="temp">
+    <button class="stat-card astro-card temp" data-sensor="temp">
       <div class="label">🌡️ Temperature</div>
       <div class="current" id="tempValue">--</div>
     </button>
-    <button class="stat-card hum" data-sensor="hum">
+    <button class="stat-card astro-card hum" data-sensor="hum">
       <div class="label">💧 Humidity</div>
       <div class="current" id="humValue">--</div>
     </button>
-    <button class="stat-card eco2" data-sensor="eco2">
+    <button class="stat-card astro-card eco2" data-sensor="eco2">
       <div class="label" title="Estimated from TVOC via SGP30 algorithm — not a direct CO₂ measurement.">🫁 eCO₂</div>
       <div class="current" id="eco2Value">--</div>
     </button>
-    <button class="stat-card tvoc" data-sensor="tvoc">
+    <button class="stat-card astro-card tvoc" data-sensor="tvoc">
       <div class="label">🧪 TVOC</div>
       <div class="current" id="tvocValue">--</div>
     </button>
-    <button class="stat-card gas" data-sensor="gas">
+    <button class="stat-card astro-card gas" data-sensor="gas">
       <div class="label">🔥 Gas (MICS6814)</div>
       <div class="current" id="gasCoValue">--</div>
       <div class="gas-trend" id="gasTrend">--</div>
@@ -40,7 +40,7 @@
         <span class="pm-sub">NH₃: <span id="gasNh3SubValue">--</span></span>
       </div>
     </button>
-    <button class="stat-card pm" data-sensor="pm">
+    <button class="stat-card astro-card pm" data-sensor="pm">
       <div class="label">🌫️ Particulate</div>
       <div class="current" id="pm25Value">--</div>
       <div class="pm-sub-row">
@@ -69,32 +69,32 @@
   <!-- Insight cards -->
   <div class="section-heading">🧠 Derived Insights</div>
   <div class="insight-grid">
-    <button class="insight-card" id="aqCard" data-insight="aq">
+    <button class="insight-card astro-card" id="aqCard" data-insight="aq">
       <div class="label">🌿 Air Quality</div>
       <div class="value" id="aqValue">--</div>
       <div class="sub" id="aqSub">--</div>
     </button>
-    <button class="insight-card" data-insight="dew">
+    <button class="insight-card astro-card" data-insight="dew">
       <div class="label">💦 Dew Point</div>
       <div class="value neutral" id="dewValue">--</div>
       <div class="sub" id="dewSub">--</div>
     </button>
-    <button class="insight-card" data-insight="feels">
+    <button class="insight-card astro-card" data-insight="feels">
       <div class="label">🌡️ Feels Like</div>
       <div class="value neutral" id="hiValue">--</div>
       <div class="sub">Apparent temperature (no wind)</div>
     </button>
-    <button class="insight-card" id="co2Card" data-insight="co2">
+    <button class="insight-card astro-card" id="co2Card" data-insight="co2">
       <div class="label">🧠 eCO₂ Alert</div>
       <div class="value" id="co2AlertValue">--</div>
       <div class="sub" id="co2AlertSub">--</div>
     </button>
-    <button class="insight-card" data-insight="vpd">
+    <button class="insight-card astro-card" data-insight="vpd">
       <div class="label">🌱 Vapour Pressure Deficit</div>
       <div class="value neutral" id="vpdValue">--</div>
       <div class="sub" id="vpdSub">--</div>
     </button>
-    <button class="insight-card" data-insight="ttt">
+    <button class="insight-card astro-card" data-insight="ttt">
       <div class="label">⏱️ Time to eCO₂ Threshold</div>
       <div class="value neutral" id="tttValue">--</div>
       <div class="sub">At current rate of change</div>
@@ -108,27 +108,27 @@
       <span class="weather-updated" id="weatherUpdated"></span>
     </div>
     <div class="weather-grid">
-      <button class="insight-card" data-insight="outTemp">
+      <button class="insight-card astro-card" data-insight="outTemp">
         <div class="label">🌡️ Outdoor Temp</div>
         <div class="value neutral" id="outTemp">--</div>
         <div class="sub" id="outTempDelta">--</div>
       </button>
-      <button class="insight-card" data-insight="outHum">
+      <button class="insight-card astro-card" data-insight="outHum">
         <div class="label">💧 Outdoor Humidity</div>
         <div class="value neutral" id="outHum">--</div>
         <div class="sub" id="outHumDelta">--</div>
       </button>
-      <button class="insight-card" data-insight="uv">
+      <button class="insight-card astro-card" data-insight="uv">
         <div class="label">☀️ UV Index</div>
         <div class="value neutral" id="uvIdx">--</div>
         <div class="sub" id="uvSub">--</div>
       </button>
-      <button class="insight-card" data-insight="wind">
+      <button class="insight-card astro-card" data-insight="wind">
         <div class="label">💨 Wind Speed</div>
         <div class="value neutral" id="windSpd">--</div>
         <div class="sub" id="weatherCond">--</div>
       </button>
-      <button class="insight-card" id="ventCard" data-insight="vent">
+      <button class="insight-card astro-card" id="ventCard" data-insight="vent">
         <div class="label">🔄 Ventilation</div>
         <div class="value neutral" id="ventVal">--</div>
         <div class="sub" id="ventSub">--</div>
@@ -273,7 +273,7 @@
   </dialog>
 
   <!-- System health -->
-  <div class="health-card">
+  <div class="health-card astro-card">
     <h3>🔧 System Health</h3>
     <div class="health-grid">
       <button class="health-item" data-health="aht20">
