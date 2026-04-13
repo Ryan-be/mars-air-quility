@@ -287,18 +287,42 @@ const DI = (function () {
       }).join('');
     }
   }
-    function _renderFingerprintNarratives() {
+    function _fpStatus(fp) {
+    const pct = fp.avg_confidence != null ? Math.round(fp.avg_confidence * 100) : 0;
+    if (pct >= 80) return 'critical';
+    if (pct >= 60) return 'serious';
+    if (pct >= 40) return 'caution';
+    return 'normal';
+  }
+
+  function _stripEmoji(name) {
+    return (name || '').replace(/^\p{Emoji_Presentation}\s*/u, '').trim();
+  }
+
+  function _renderFingerprintNarratives() {
     const el = document.getElementById('diFingerprintCards');
     if (!el) return;
     const fps = (_narratives.fingerprint_narratives || []).slice().sort((a,b) => b.event_count - a.event_count);
     el.innerHTML = fps.map(function (fp) {
       const colour = _SOURCE_COLOURS[fp.source_id] || '#6b7280';
-      const badge = fp.event_count > 0 ? `<span class="badge-count">${fp.event_count} event${fp.event_count !== 1 ? 's' : ''}</span>` : '';
-      const conf  = fp.event_count > 0 ? `<span class="fp-meta">Avg. confidence: ${Math.round(fp.avg_confidence*100)}%</span>` : '';
-      return `<div class="fp-card" style="border-left:3px solid ${colour}">
-        <div class="fp-header">${fp.emoji} <strong>${fp.label}</strong> ${badge}</div>
-        ${conf}
-        <p class="fp-narrative">${fp.narrative}</p>
+      const cleanName = _stripEmoji(fp.label || fp.source_id || '');
+      if (!fp.event_count) {
+        return `<div class="fp-card fp-card--inactive">
+          <span class="fp-card-name fp-card-name--dim">${cleanName}</span>
+          <span class="fp-card-none">No events detected</span>
+        </div>`;
+      }
+      const n = fp.event_count;
+      const conf = Math.round((fp.avg_confidence || 0) * 100);
+      const status = _fpStatus(fp);
+      return `<div class="fp-card fp-card--active" style="border-left:3px solid ${colour}">
+        <div class="fp-card-header">
+          <rux-status status="${status}"></rux-status>
+          <span class="fp-card-name">${cleanName}</span>
+          <span class="fp-card-count">${n} event${n !== 1 ? 's' : ''}</span>
+          <span class="fp-card-conf">avg ${conf}% confidence</span>
+        </div>
+        <div class="fp-card-narrative">${fp.narrative}</div>
       </div>`;
     }).join('');
   }

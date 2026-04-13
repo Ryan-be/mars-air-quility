@@ -20,7 +20,11 @@ window.createTimelineDetailPanel = function createTimelineDetailPanel(panelId, t
   function _fmt(isoStr) {
     if (!isoStr) return '—';
     try {
-      return new Date(isoStr).toUTCString().replace(':00 GMT', ' UTC');
+      return new Date(isoStr).toLocaleString(undefined, {
+        year: 'numeric', month: 'short', day: 'numeric',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        timeZoneName: 'short'
+      });
     } catch (_) { return isoStr; }
   }
 

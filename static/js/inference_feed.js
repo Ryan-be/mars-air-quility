@@ -52,7 +52,7 @@ export function createInferenceFeed({
     const sevCls = SEVERITY_CLS[inf.severity]  || 'inf-info';
     const sevLbl = SEVERITY_LABEL[inf.severity] || inf.severity;
     const time   = new Date(inf.created_at).toLocaleString(undefined, {
-      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZoneName: 'short'
     });
     const chip   = renderDetectionChip(inf.detection_method || 'rule');
     const catCls = 'inf-cat-' + (inf.category || 'other');

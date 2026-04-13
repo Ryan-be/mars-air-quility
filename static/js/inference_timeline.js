@@ -53,12 +53,16 @@ window.createInferenceTimeline = function createInferenceTimeline({
   }
 
   // ── Check if event extends outside the given range ───────────────────────
+  // Returns 'ongoing', 'start', 'end', or null (no partial).
   function _isPartial(infStart, infEnd, rangeStart, rangeEnd) {
     const s = new Date(infStart).getTime();
     const e = new Date(infEnd).getTime();
     const rs = new Date(rangeStart).getTime();
     const re = new Date(rangeEnd).getTime();
-    return s < rs || e > re;
+    if (s < rs && e > re) return 'ongoing';
+    if (s < rs) return 'start';
+    if (e > re) return 'end';
+    return null;
   }
 
   // ── Assign inferences to tracks (first matching wins) ───────────────────
@@ -108,7 +112,9 @@ window.createInferenceTimeline = function createInferenceTimeline({
     tl.setAttribute('zoom', '2');
     tl.setAttribute('show-grid', '');
     tl.setAttribute('show-secondary-ruler', '');
-    tl.setAttribute('timezone', 'UTC');
+    tl.style.minHeight = '250px';
+    const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    tl.setAttribute('timezone', browserTz);
 
     const tracks = _assignToTracks(active);
 
@@ -135,8 +141,9 @@ window.createInferenceTimeline = function createInferenceTimeline({
         region.setAttribute('hide-timestamp', '');
         region.setAttribute('data-inf-id', inf.id);
 
-        if (_isPartial(infStart, infEnd, start, end)) {
-          region.setAttribute('partial', '');
+        const partial = _isPartial(infStart, infEnd, start, end);
+        if (partial) {
+          region.setAttribute('partial', partial);
         }
 
         region.textContent = title;
