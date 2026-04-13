@@ -5,78 +5,27 @@
 {% block extra_css %}
   <link rel="stylesheet" href="{{ url_for('static', filename='css/history.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
-  <style>
-    /* ── Insights Engine tab: table styles ── */
-    .insights-table {
-      width: 100%;
-      font-size: .85rem;
-      border-collapse: collapse;
-      table-layout: fixed;
-    }
-    .insights-table th,
-    .insights-table td {
-      padding: .3rem .5rem;
-      word-break: break-word;
-      overflow-wrap: break-word;
-    }
-    .insights-table thead tr {
-      text-align: left;
-      border-bottom: 1px solid #333;
-    }
-    .insights-table thead th { padding: .35rem .5rem; }
-    .insights-table tbody tr { border-bottom: 1px solid #222; }
-    /* Rules table column widths */
-    .rules-table col.col-id         { width: 38%; }
-    .rules-table col.col-event      { width: 30%; }
-    .rules-table col.col-severity   { width: 17%; }
-    .rules-table col.col-confidence { width: 15%; }
-    /* Source Fingerprints table column widths */
-    .fp-table col.col-id      { width: 22%; }
-    .fp-table col.col-label   { width: 20%; }
-    .fp-table col.col-floor   { width: 12%; }
-    .fp-table col.col-sensors { width: 46%; }
-    /* Anomaly Models table column widths */
-    .anomaly-table col.col-channel   { width: 25%; }
-    .anomaly-table col.col-readings  { width: 15%; }
-    .anomaly-table col.col-coldstart { width: 15%; }
-    .anomaly-table col.col-score     { width: 25%; }
-    .anomaly-table col.col-status    { width: 20%; }
-    .classifier-table col.col-tag       { width: 28%; }
-    .classifier-table col.col-samples   { width: 12%; }
-    .classifier-table col.col-conf      { width: 30%; }
-    .classifier-table col.col-clstatus  { width: 30%; }
-    /* Score bar */
-    .score-bar-wrap {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      min-width: 120px;
-    }
-    .score-bar {
-      height: 10px;
-      border-radius: 5px;
-      transition: width 0.4s ease, background-color 0.4s ease;
-      min-width: 0;
-    }
-    .score-bar--green  { background: #22c55e; }
-    .score-bar--amber  { background: #f59e0b; }
-    .score-bar--red    { background: #ef4444; }
-    .score-bar--none   { background: #d1d5db; width: 4px !important; }
-    .score-label { font-size: 0.8rem; color: var(--text-muted, #6b7280); min-width: 32px; }
-    .status-elevated { color: #ef4444; font-weight: 600; }
-  </style>
 {% endblock %}
 
 {% block topbar_controls %}
-  <a href="/">← Back to dashboard</a>
+  <a href="/" class="btn">← Dashboard</a>
 {% endblock %}
 
 {% block content %}
 
 <div class="tab-bar">
-  <button class="tab-btn tab-active" data-tab="settings">🔧 Settings</button>
-  <button class="tab-btn" data-tab="users">👥 Users</button>
-  <button class="tab-btn" data-tab="insights-engine">🧠 Insights Engine</button>
+  <button class="tab-btn tab-active astro-tab" data-tab="settings">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2"/></svg>
+    Settings
+  </button>
+  <button class="tab-btn astro-tab" data-tab="users">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+    Users
+  </button>
+  <button class="tab-btn astro-tab" data-tab="insights-engine">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+    Insights Engine
+  </button>
 </div>
 
 <!-- ── Settings tab ─────────────────────────────────────────────────────── -->
@@ -84,7 +33,7 @@
 <div class="settings-grid">
 
   <div class="card">
-    <h3>🌀 Auto Fan Settings</h3>
+    <h3>Auto Fan Settings</h3>
 
     <form id="fanForm">
 
@@ -180,7 +129,7 @@
 
   <!-- Energy rate card -->
   <div class="card">
-    <h3>⚡ Energy Rate</h3>
+    <h3>Energy Rate</h3>
     <p class="card-desc">Used to calculate estimated fan running costs from daily kWh usage.</p>
     <div class="field-group">
       <legend>Unit rate</legend>
@@ -197,7 +146,7 @@
 
   <!-- Location card -->
   <div class="card">
-    <h3>📍 Location</h3>
+    <h3>Location</h3>
     <p class="card-desc">Used to fetch outdoor weather data for comparison insights on the dashboard.</p>
 
     <div class="field-group">
@@ -230,7 +179,7 @@
 
   <!-- Inference thresholds card -->
   <div class="card">
-    <h3>🔬 Inference Thresholds</h3>
+    <h3>Inference Thresholds</h3>
     <p class="card-desc">
       Controls when the inference engine flags events.
       Leave a field blank to use the default value.
@@ -265,7 +214,7 @@
 <div class="settings-grid">
 
   <div class="card users-card">
-    <h3>👥 Users</h3>
+    <h3>Users</h3>
     <p class="card-desc">
       All users authenticate via GitHub OAuth.
       Add a GitHub username and choose their role.
