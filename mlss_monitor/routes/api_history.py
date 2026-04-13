@@ -5,6 +5,7 @@ import dataclasses
 import json
 import math
 import sqlite3
+import time
 from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, jsonify, request
@@ -20,6 +21,9 @@ from mlss_monitor.feature_vector import FeatureVector
 from mlss_monitor.narrative_engine import _DAY_NAMES
 
 api_history_bp = Blueprint("api_history", __name__)
+
+_narratives_cache: dict = {}
+_narratives_cache_ttl: int = 60  # seconds
 
 
 def _parse_utc_flexible(ts: str) -> datetime:
@@ -605,18 +609,35 @@ def _get_baselines_7d_ago(db_file: str, window_start: str) -> dict:
         start_dt = datetime.fromisoformat(window_start.rstrip("Z")).replace(tzinfo=timezone.utc)
         ago_end = start_dt - timedelta(days=7)
         ago_start = ago_end - timedelta(hours=24)
-        rows = _query_sensor_data(
-            db_file, ago_start.strftime("%Y-%m-%dT%H:%M:%SZ"), ago_end.strftime("%Y-%m-%dT%H:%M:%SZ")
-        )
-        if not rows:
+        ago_start_db = ago_start.strftime("%Y-%m-%d %H:%M:%S")
+        ago_end_db = ago_end.strftime("%Y-%m-%d %H:%M:%S")
+        conn = sqlite3.connect(db_file)
+        try:
+            row = conn.execute(
+                """SELECT AVG(tvoc), AVG(eco2), AVG(temperature), AVG(humidity),
+                          AVG(pm1_0), AVG(pm2_5), AVG(pm10),
+                          AVG(gas_co), AVG(gas_no2), AVG(gas_nh3)
+                   FROM sensor_data WHERE timestamp >= ? AND timestamp < ?""",
+                (ago_start_db, ago_end_db),
+            ).fetchone()
+        finally:
+            conn.close()
+        if row is None or all(v is None for v in row):
             return {}
-        result = {}
-        for db_col, api_key in _DB_TO_API.items():
-            vals = [r.get(db_col) for r in rows if r.get(db_col) is not None]
-            result[api_key] = sum(vals)/len(vals) if vals else None
-        return result
+        db_cols = ["tvoc", "eco2", "temperature", "humidity", "pm1_0", "pm2_5", "pm10",
+                   "gas_co", "gas_no2", "gas_nh3"]
+        return {_DB_TO_API[col]: row[i] for i, col in enumerate(db_cols)}
     except Exception:
         return {}
+
+
+def _round_to_minute(ts: str) -> str:
+    """Round an ISO timestamp string down to the nearest minute for cache key use."""
+    try:
+        dt = _parse_utc_flexible(ts)
+        return dt.strftime("%Y-%m-%dT%H:%M")
+    except Exception:
+        return ts[:16]
 
 
 @api_history_bp.route("/api/history/narratives")
@@ -625,10 +646,19 @@ def narratives():
     end = request.args.get("end", "")
     if not start or not end:
         return jsonify({"error": "start and end are required"}), 400
+
+    cache_key = _round_to_minute(start) + "|" + _round_to_minute(end)
+    cached = _narratives_cache.get(cache_key)
+    if cached is not None:
+        payload, stored_at = cached
+        if time.monotonic() - stored_at < _narratives_cache_ttl:
+            return jsonify(payload)
+
     from mlss_monitor.inference_evidence import _CHANNEL_META
     from mlss_monitor.narrative_engine import _parse_utc
 
-    window = get_inferences(limit=2000, include_dismissed=False, start=start, end=end)
+    window = get_inferences(limit=2000, include_dismissed=False, start=start, end=end,
+                            parse_evidence=False)
 
     engine = state.detection_engine
     baselines_now = {}
@@ -715,7 +745,7 @@ def narratives():
             "detection_method": inf.get("detection_method", "rule") or "rule",
         })
 
-    return jsonify({
+    result_payload = {
         "period_summary": period_summary, "trend_indicators": trend_indicators,
         "longest_clean_hours": clean["hours"], "longest_clean_start": clean["start"],
         "longest_clean_end": clean["end"],
@@ -724,4 +754,6 @@ def narratives():
         "pattern_heatmap": heatmap, "pattern_sentence": pattern_sentence, "drift_flags": drift_flags,
         "detection_method_breakdown": method_breakdown, "total_events": len(window),
         "inferences": window_infs_slim,
-    })
+    }
+    _narratives_cache[cache_key] = (result_payload, time.monotonic())
+    return jsonify(result_payload)

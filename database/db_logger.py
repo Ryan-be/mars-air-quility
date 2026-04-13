@@ -438,7 +438,8 @@ def save_inference(event_type, severity, title, description, action,
 
 
 def get_inferences(limit=50, include_dismissed=False,
-                   start: "str | None" = None, end: "str | None" = None):
+                   start: "str | None" = None, end: "str | None" = None,
+                   parse_evidence: bool = True):
     """Return inferences ordered by created_at DESC.
 
     Optional ``start``/``end`` (ISO-8601 strings, space or T separator) constrain
@@ -486,7 +487,7 @@ def get_inferences(limit=50, include_dismissed=False,
     conn.close()
     for r in rows:
         r["created_at"] = _normalise_ts(r.get("created_at"))
-        if r.get("evidence"):
+        if parse_evidence and r.get("evidence"):
             try:
                 r["evidence"] = json.loads(r["evidence"])
             except (json.JSONDecodeError, TypeError):
