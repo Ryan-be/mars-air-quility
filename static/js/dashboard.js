@@ -402,8 +402,25 @@ const _infFeed = createInferenceFeed({
   openDialog:   _openInferenceDialog,
 });
 
-function fetchInferences() {
-  _infFeed.load('/api/inferences?limit=50');
+// Init dashboard timeline + detail panel
+if (typeof window.createInferenceTimeline === 'function') {
+  window._dashTimeline = window.createInferenceTimeline({
+    timelineContainerId: 'dashTimeline',
+    openDialog: _openInferenceDialog,
+    getRange: () => {
+      const end = new Date();
+      const start = new Date(end.getTime() - 24 * 3600000);
+      return { start: start.toISOString(), end: end.toISOString() };
+    },
+  });
+}
+if (typeof window.createTimelineDetailPanel === 'function') {
+  window._dashDetailPanel = window.createTimelineDetailPanel('dashDetailPanel', 'dashDetailTitle', 'dashDetailBody');
+}
+
+async function fetchInferences() {
+  await _infFeed.load('/api/inferences?limit=50');
+  if (window._dashTimeline) window._dashTimeline.render(_infFeed.getInferences());
 }
 
 function _parseNum(v) {

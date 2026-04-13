@@ -1,8 +1,6 @@
 """Page routes: dashboard, history, controls, admin."""
 
-import os
-
-from flask import Blueprint, redirect, render_template, send_from_directory, url_for
+from flask import Blueprint, redirect, render_template, url_for
 
 from mlss_monitor import state
 from mlss_monitor.rbac import require_role
@@ -129,10 +127,3 @@ def ie_sources():
     return redirect(url_for("pages.ie_config") + "#sources")
 
 
-@pages_bp.route("/timeline-mockup")
-def timeline_mockup():
-    """Standalone rux-timeline mockup — static HTML demo, no auth required."""
-    static_dir = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "..", "..", "static")
-    )
-    return send_from_directory(static_dir, "timeline_mockup.html")

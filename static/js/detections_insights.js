@@ -78,6 +78,17 @@ const DI = (function () {
     if (_initialised) return;
     _initialised = true;
     _createFeed();
+    // Init timeline
+    if (typeof window.createInferenceTimeline === 'function') {
+      window._diTimeline = window.createInferenceTimeline({
+        timelineContainerId: 'diTimeline',
+        openDialog: openInferenceDialog,
+        getRange: _range,
+      });
+    }
+    if (typeof window.createTimelineDetailPanel === 'function') {
+      window._diDetailPanel = window.createTimelineDetailPanel('diDetailPanel', 'diDetailTitle', 'diDetailBody');
+    }
     load();
     _subscribeSSE();
     const rangeEl = document.getElementById('range');
@@ -380,6 +391,7 @@ const DI = (function () {
       const rows = await res.json();
       console.log('[DI] /api/inferences returned', rows.length, 'rows');
       _feed.setInferences(rows);
+      if (window._diTimeline) window._diTimeline.render(rows);
     } catch (e) {
       console.error('[DI] _renderInferenceTable error:', e);
       feed.innerHTML = '<div class="inference-empty">Could not load inferences.</div>';
