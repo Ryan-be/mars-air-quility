@@ -28,7 +28,7 @@ async function loadSparkline(inferenceId, inferenceAt) {
     console.log('sparkline data:', data);
     loading.style.display = 'none';
     if (!data.triggering_channels || data.triggering_channels.length === 0) {
-      error.style.display = 'block';
+      container.style.display = 'none';
       return;
     }
     // Guard: if every value across all channels is null, the sensor was offline —

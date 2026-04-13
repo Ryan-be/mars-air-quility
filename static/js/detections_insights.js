@@ -681,10 +681,10 @@ function openInferenceDialog(id) {
     } catch (e) { /* ignore */ }
   };
 
-  // Sparkline (suppress if loadSparkline not available on this page)
+  // Sparkline (suppress if loadSparkline not available, or no triggering channels)
   const sparkline = document.getElementById('infSparkline');
   if (sparkline) sparkline.style.display = 'none';
-  if (typeof loadSparkline === 'function') {
+  if (typeof loadSparkline === 'function' && inf.triggering_channels && inf.triggering_channels.length > 0) {
     loadSparkline(inf.id, inf.created_at);
   }
 
