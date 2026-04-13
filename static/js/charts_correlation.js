@@ -196,7 +196,7 @@ export function updateCorrelationData(data) {
 function _renderBrushChart(data, overlayShapes, hoverTrace) {
   const ts = data.map(d => new Date(d.timestamp));
   const activeChannels = _getActiveCorrChannels();
-  const titleFont = { color: isLight ? "#111" : "#ccc" };
+  const titleFont = { color: isLight ? "#111" : "#b0bec5" };
 
   const traces = Object.entries(CORR_CHANNEL_META).map(([channel, meta]) => {
     const values = data.map(d => d[meta.field]);
@@ -282,7 +282,7 @@ function _renderScatterCharts(data) {
   const hum  = data.map(d => d.humidity);
   const vpd  = data.map(d => d.vpd_kpa);
   const timeColour = data.map((_, i) => i / (data.length - 1 || 1));
-  const titleFont  = { color: isLight ? "#111" : "#ccc" };
+  const titleFont  = { color: isLight ? "#111" : "#b0bec5" };
 
   // Regression
   const pairs = data.filter(d => d.eco2 != null && d.tvoc != null);
@@ -318,7 +318,7 @@ function _renderScatterCharts(data) {
     : "";
 
   Plotly.newPlot("tvocEco2ScatterPlot", traces, themeLayout({
-    title: { text: "🔍 TVOC vs eCO₂ (colour = time)", font: titleFont },
+    title: { text: "TVOC vs eCO₂ (colour = time)", font: titleFont },
     xaxis: { title: "eCO₂ (ppm)" },
     yaxis: { title: "TVOC (ppb)" },
     annotations: reg ? [{
@@ -337,7 +337,7 @@ function _renderScatterCharts(data) {
     marker: { color: vpd.map(vpdColour), size: 6 },
     hovertemplate: "Humidity: %{x}%<br>Temp: %{y} °C<extra></extra>",
   }], themeLayout({
-    title: { text: "🔍 Temperature vs Humidity (colour = VPD zone)", font: titleFont },
+    title: { text: "Temperature vs Humidity (colour = VPD zone)", font: titleFont },
     xaxis: { title: "Humidity (%)" },
     yaxis: { title: "Temperature (°C)" },
   }), { responsive: true });
@@ -378,7 +378,7 @@ function _renderScatterCharts(data) {
               : "Weak link — particles and VOCs have independent sources")
         : "";
       Plotly.newPlot("pm25TvocScatterPlot", pmTraces, themeLayout({
-        title: { text: "🔍 PM2.5 vs TVOC (colour = time)", font: titleFont },
+        title: { text: "PM2.5 vs TVOC (colour = time)", font: titleFont },
         xaxis: { title: "PM2.5 (µg/m³)" },
         yaxis: { title: "TVOC (ppb)" },
         annotations: pmReg ? [{
@@ -430,7 +430,7 @@ function _renderScatterCharts(data) {
               : "Weak link — particles and CO₂ have independent origins (e.g. outdoor PM + indoor occupants)")
         : "";
       Plotly.newPlot("pm25Eco2ScatterPlot", pTraces, themeLayout({
-        title: { text: "🔍 PM2.5 vs eCO₂ (colour = time)", font: titleFont },
+        title: { text: "PM2.5 vs eCO₂ (colour = time)", font: titleFont },
         xaxis: { title: "PM2.5 (µg/m³)" },
         yaxis: { title: "eCO₂ (ppm)" },
         annotations: pReg ? [{

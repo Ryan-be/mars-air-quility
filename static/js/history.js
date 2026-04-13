@@ -201,7 +201,7 @@ function renderPmTable(data) {
       const pm1  = pmRows.map(d => d.pm1_0);
       const pm25 = pmRows.map(d => d.pm2_5);
       const pm10 = pmRows.map(d => d.pm10);
-      const titleFont = { color: isLight ? "#111" : "#ccc" };
+      const titleFont = { color: isLight ? "#111" : "#b0bec5" };
 
       const traces = [
         {
@@ -235,7 +235,7 @@ function renderPmTable(data) {
       ];
 
       Plotly.newPlot("pmTimeSeriesPlot", traces, themeLayout({
-        title: { text: "🌫️ Particulate Matter over time", font: titleFont },
+        title: { text: "Particulate Matter over time", font: titleFont },
         xaxis: { type: "date" },
         yaxis: { title: "µg/m³", rangemode: "tozero" },
         legend: { orientation: "h", x: 0.5, xanchor: "center", y: 1.04, bgcolor: "rgba(0,0,0,0)" },
@@ -312,7 +312,7 @@ function renderAirQualityTab(data) {
       const co  = gasRows.map(d => d.gas_co);
       const no2 = gasRows.map(d => d.gas_no2);
       const nh3 = gasRows.map(d => d.gas_nh3);
-      const titleFont = { color: isLight ? "#111" : "#ccc" };
+      const titleFont = { color: isLight ? "#111" : "#b0bec5" };
 
       const traces = [
         {
@@ -333,7 +333,7 @@ function renderAirQualityTab(data) {
       ];
 
       Plotly.newPlot("gasTimeSeriesPlot", traces, themeLayout({
-        title: { text: "🔥 MICS6814 Gas Sensor — resistance over time", font: titleFont },
+        title: { text: "MICS6814 Gas Sensor — resistance over time", font: titleFont },
         xaxis: { type: "date" },
         yaxis: { title: "Resistance (Ω) — lower = higher concentration", rangemode: "tozero" },
         legend: { orientation: "h", x: 0.5, xanchor: "center", y: 1.04, bgcolor: "rgba(0,0,0,0)" },

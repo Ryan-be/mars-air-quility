@@ -150,18 +150,48 @@ h1, h2, h3, h4, h5, h6 {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
-  font-size: 10px;
-  letter-spacing: 0.08em;
+  justify-content: center;
+  gap: 3px;
+  padding: 4px 10px;
+  min-width: 64px;
+  border: 1px solid var(--color-border-interactive-muted);
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--color-text-secondary);
+  background: var(--color-background-base-default);
+  transition: border-color 0.2s, background 0.2s;
+  cursor: default;
+}
+
+.gsb-monitor:hover {
+  background: var(--color-background-surface-default);
+  border-color: var(--color-border-interactive-default);
 }
 
 .gsb-monitor-dot {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   flex-shrink: 0;
+  box-shadow: 0 0 6px currentColor;
+}
+
+/* Status-coloured dot glow */
+.gsb-monitor-dot.status-normal   { color: var(--color-status-normal);   box-shadow: 0 0 6px var(--color-status-normal); }
+.gsb-monitor-dot.status-caution  { color: var(--color-status-caution);  box-shadow: 0 0 6px var(--color-status-caution); }
+.gsb-monitor-dot.status-serious  { color: var(--color-status-serious);  box-shadow: 0 0 6px var(--color-status-serious); }
+.gsb-monitor-dot.status-critical { color: var(--color-status-critical); box-shadow: 0 0 6px var(--color-status-critical); }
+.gsb-monitor-dot.status-standby  { color: var(--color-status-standby);  box-shadow: 0 0 6px var(--color-status-standby); }
+.gsb-monitor-dot.status-off      { color: var(--color-status-off); }
+
+.gsb-monitor-status {
+  font-size: 8px;
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  color: var(--color-text-placeholder);
 }
 
 .gsb-right {
@@ -813,6 +843,7 @@ label {
   font-size: 13px;
   font-family: inherit;
   min-width: 130px;
+  width: auto;
 }
 .page-controls-bar select:focus {
   outline: none;

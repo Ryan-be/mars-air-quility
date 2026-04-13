@@ -11,7 +11,7 @@ export function renderPatternCharts(data) {
   }
 
   const DAY_NAMES = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-  const titleFont = { color: isLight ? "#111" : "#ccc" };
+  const titleFont = { color: isLight ? "#111" : "#b0bec5" };
 
   // Hour-of-day heatmap (TVOC)
   const matrix = {};
@@ -41,7 +41,7 @@ export function renderPatternCharts(data) {
     colorbar: { title: "ppb", thickness: 12 },
     hoverongaps: false,
   }], themeLayout({
-    title: { text: "📅 Avg TVOC by Hour & Day (ppb)", font: titleFont },
+    title: { text: "Avg TVOC by Hour & Day (ppb)", font: titleFont },
     margin: { t: 50, r: 80, b: 60, l: 50 },
   }), { responsive: true });
 
@@ -72,7 +72,7 @@ export function renderPatternCharts(data) {
     { x: days, y: dayMins, mode: "lines", name: "Daily min",
       line: { color: "#ff88aa", dash: "dot", width: 1 } },
   ], themeLayout({
-    title: { text: "📅 Daily Temperature Range (°C)", font: titleFont },
+    title: { text: "Daily Temperature Range (°C)", font: titleFont },
     legend: { orientation: "h", x: 0.5, xanchor: "center", y: 1.3, bgcolor: "rgba(0,0,0,0)" },
     margin: { t: 75 },
   }), { responsive: true });

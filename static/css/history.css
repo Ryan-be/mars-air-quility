@@ -16,30 +16,38 @@
 .tab-bar::-webkit-scrollbar { display: none; }
 
 .tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   background: none;
   border: none;
   border-bottom: 3px solid transparent;
   color: var(--color-text-secondary, #b0bec5);
-  padding: 0.55em 1.1em;
-  font-size: 0.88em;
+  padding: 0 1.1em;
+  height: 38px;
+  font-size: 12px;
   font-family: inherit;
   cursor: pointer;
   margin-bottom: -2px;
   transition: color 0.15s, border-color 0.15s, background 0.15s;
   border-radius: 3px 3px 0 0;
   white-space: nowrap;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   flex-shrink: 0;
 }
+.tab-btn svg { flex-shrink: 0; opacity: 0.7; transition: opacity 0.15s; }
 .tab-btn:hover {
-  color: var(--color-text-primary, #ffffff);
+  color: var(--color-interactive-hover, #92cbff);
   background: var(--color-background-surface-hover, #172635);
 }
+.tab-btn:hover svg { opacity: 1; }
 .tab-btn.tab-active {
   color: var(--color-interactive-default, #4dacff);
   border-bottom-color: var(--color-interactive-default, #4dacff);
-  font-weight: 600;
+  font-weight: 500;
 }
+.tab-btn.tab-active svg { opacity: 1; }
 .tab-hidden { display: none !important; }
 
 .patterns-note { font-size: 0.82em; color: var(--color-text-secondary, #b0bec5); font-style: italic; margin: 0 0 0.75em; }
@@ -384,12 +392,15 @@
 }
 .di-section-title {
   font-size: 0.78em;
+  font-weight: 600;
   color: var(--color-text-secondary, #b0bec5);
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  margin: 1em 0 0.5em;
-  border-bottom: 1px solid var(--color-border-interactive-muted, #2b659b);
-  padding-bottom: 0.3em;
+  margin: 1.25em 0 0.6em;
+  padding: 0.4em 0.75em;
+  border-left: 3px solid var(--color-interactive-default, #4dacff);
+  background: var(--color-background-surface-default, #1b2d3e);
+  border-radius: 0 3px 3px 0;
 }
 
 .di-fingerprint-cards {
@@ -485,9 +496,15 @@ dialog::backdrop { background: rgba(0,0,0,0.7); }
 .inf-section { display: flex; flex-direction: column; gap: 0.4em; }
 .inf-section-title {
   font-size: 0.72em;
+  font-weight: 600;
   color: var(--color-text-secondary, #b0bec5);
   text-transform: uppercase;
   letter-spacing: 0.08em;
+  padding: 0.35em 0.6em;
+  border-left: 2px solid var(--color-interactive-default, #4dacff);
+  background: var(--color-background-surface-default, #1b2d3e);
+  border-radius: 0 2px 2px 0;
+  margin-bottom: 0.4em;
 }
 .inf-evidence { font-size: 0.88em; color: var(--color-text-secondary, #b0bec5); line-height: 1.6; }
 .inf-tags-list { display: flex; flex-wrap: wrap; gap: 0.4em; margin-bottom: 0.5em; min-height: 1.5em; }

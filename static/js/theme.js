@@ -5,10 +5,10 @@ const THEME_KEY = 'mlss_theme';
 export let isLight = localStorage.getItem(THEME_KEY) === 'light';
 
 export const DARK_LAYOUT = {
-  paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "#1a1a1a",
-  font: { color: "#ccc" },
-  xaxis: { gridcolor: "#2a2a2a", zerolinecolor: "#333", automargin: true },
-  yaxis: { gridcolor: "#2a2a2a", zerolinecolor: "#333", automargin: true },
+  paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "#101923",
+  font: { color: "#b0bec5", size: 11 },
+  xaxis: { gridcolor: "#1b2d3e", zerolinecolor: "#2b659b", automargin: true, tickfont: { color: "#b0bec5", size: 10 } },
+  yaxis: { gridcolor: "#1b2d3e", zerolinecolor: "#2b659b", automargin: true, tickfont: { color: "#b0bec5", size: 10 } },
   margin: { t: 40, r: 20, b: 40, l: 45 }, autosize: true,
 };
 
