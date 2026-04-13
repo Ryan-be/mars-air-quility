@@ -201,10 +201,11 @@ h1, h2, h3, h4, h5, h6 {
   margin-left: auto;
 }
 
-.gsb-clock {
-  font-family: 'Roboto Mono', 'Courier New', monospace;
+.gsb-clock,
+rux-clock.gsb-clock {
   font-size: 13px;
-  color: var(--color-interactive-default);
+  --color-text-primary: #4dacff;
+  --font-body-1-font-family: 'Roboto Mono', 'Courier New', monospace;
   letter-spacing: 0.05em;
 }
 
@@ -855,4 +856,83 @@ label {
   color: var(--color-text-secondary, #b0bec5);
   font-style: italic;
   margin-left: auto;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   TOOLTIP  (AstroUXDS-style, CSS-only)
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.info-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--color-background-surface-selected, #253f55);
+  border: 1px solid var(--color-border-interactive-muted, #2b659b);
+  color: var(--color-interactive-default, #4dacff);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 700;
+  cursor: help;
+  position: relative;
+  vertical-align: middle;
+  flex-shrink: 0;
+  user-select: none;
+  text-decoration: none;
+}
+
+.info-icon::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--color-background-surface-default, #1b2d3e);
+  border: 1px solid var(--color-border-interactive-default, #4dacff);
+  color: var(--color-text-primary, #ffffff);
+  font-size: 11px;
+  font-weight: 400;
+  padding: 6px 10px;
+  border-radius: 3px;
+  white-space: nowrap;
+  max-width: 260px;
+  white-space: normal;
+  text-align: left;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 300;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+
+/* Arrow pointing down */
+.info-icon::before {
+  content: "";
+  position: absolute;
+  bottom: calc(100% + 2px);
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: var(--color-border-interactive-default, #4dacff);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 301;
+}
+
+.info-icon:hover::after,
+.info-icon:hover::before { opacity: 1; }
+
+/* Tooltip that opens below instead */
+.info-icon.tooltip-below::after {
+  bottom: auto;
+  top: calc(100% + 8px);
+}
+.info-icon.tooltip-below::before {
+  bottom: auto;
+  top: calc(100% + 2px);
+  border-top-color: transparent;
+  border-bottom-color: var(--color-border-interactive-default, #4dacff);
 }

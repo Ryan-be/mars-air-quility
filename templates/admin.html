@@ -253,7 +253,7 @@
 <!-- ── Insights Engine tab ────────────────────────────────────────────────── -->
 <div class="tab-panel tab-hidden" id="tab-insights-engine">
   <div id="ieContent" class="settings-grid">
-    <p class="loading-text" style="padding:1rem;color:#888;">Loading Insights Engine status…</p>
+    <p class="loading-text" style="padding:1rem;color:var(--color-text-secondary);">Loading Insights Engine status…</p>
   </div>
 </div><!-- /#tab-insights-engine -->
 
@@ -642,15 +642,15 @@
     let _ieCached = false;
 
     function _sevColor(sev) {
-      if (sev === 'critical') return '#e74c3c';
-      if (sev === 'warning')  return '#f39c12';
-      return '#888';
+      if (sev === 'critical') return 'var(--color-status-critical, #ff3838)';
+      if (sev === 'warning')  return 'var(--color-status-serious, #ffb302)';
+      return 'var(--color-text-secondary)';
     }
 
     function _renderIE(d) {
       const modeBadge = d.dry_run
-        ? '<span style="color:#f39c12;font-weight:600;">Shadow (dry run)</span>'
-        : '<span style="color:#2ecc71;font-weight:600;">Live</span>';
+        ? '<span style="color:var(--color-status-serious, #ffb302);font-weight:600;">Shadow (dry run)</span>'
+        : '<span style="color:var(--color-status-normal, #56f000);font-weight:600;">Live</span>';
 
       const rulesRows = d.rules.length
         ? d.rules.map(r => `
@@ -660,7 +660,7 @@
               <td><span style="color:${_sevColor(r.severity)}">${r.severity}</span></td>
               <td>${Math.round(r.confidence * 100)}%</td>
             </tr>`).join("")
-        : '<tr><td colspan="4" style="color:#888;">No rules loaded.</td></tr>';
+        : '<tr><td colspan="4" style="color:var(--color-text-secondary);">No rules loaded.</td></tr>';
 
       const fpRows = d.fingerprints.length
         ? d.fingerprints.map(fp => `
@@ -668,15 +668,15 @@
               <td style="font-family:monospace;">${fp.id}</td>
               <td>${fp.label}</td>
               <td>${Math.round(fp.floor * 100)}%</td>
-              <td style="color:#888;font-size:.8rem;">${(fp.sensors || []).join(', ')}</td>
+              <td style="color:var(--color-text-secondary);font-size:.8rem;">${(fp.sensors || []).join(', ')}</td>
             </tr>`).join("")
-        : '<tr><td colspan="4" style="color:#888;">No fingerprints loaded.</td></tr>';
+        : '<tr><td colspan="4" style="color:var(--color-text-secondary);">No fingerprints loaded.</td></tr>';
 
       const acRows = d.anomaly_channels.length
         ? d.anomaly_channels.map(ch => {
             const readyBadge = ch.ready
-              ? '<span style="color:#2ecc71;">● Ready</span>'
-              : `<span style="color:#888;">⏳ Learning (${Math.round((ch.n_seen / ch.cold_start) * 100)}%)</span>`;
+              ? '<span style="color:var(--color-status-normal, #56f000);">● Ready</span>'
+              : `<span style="color:var(--color-text-secondary);">⏳ Learning (${Math.round((ch.n_seen / ch.cold_start) * 100)}%)</span>`;
             return `
               <tr data-model-id="${ch.channel}">
                 <td style="font-family:monospace;">${ch.channel}</td>
@@ -691,7 +691,7 @@
                 <td class="status-cell">${readyBadge}</td>
               </tr>`;
           }).join("")
-        : '<tr><td colspan="5" style="color:#888;">No anomaly channels configured.</td></tr>';
+        : '<tr><td colspan="5" style="color:var(--color-text-secondary);">No anomaly channels configured.</td></tr>';
 
       document.getElementById("ieContent").innerHTML = `
         <div class="card">
@@ -704,7 +704,7 @@
               ${d.dry_run ? 'Go Live' : 'Back to Shadow'}
             </button>
           </div>
-          <p style="margin-top:.5rem;color:#888;font-size:.85rem;">
+          <p style="margin-top:.5rem;color:var(--color-text-secondary);font-size:.85rem;">
             Shadow mode logs what would fire but does not save inferences.
             Live mode saves attributed inferences to the database.
           </p>
@@ -783,12 +783,12 @@
               </tr>
             </thead>
             <tbody id="classifierTableBody">
-              <tr><td colspan="4" style="color:var(--text-muted,#6b7280)">Loading…</td></tr>
+              <tr><td colspan="4" style="color:var(--color-text-secondary)">Loading…</td></tr>
             </tbody>
           </table>
           <div style="margin-top:10px; display:flex; align-items:center; gap:10px;">
             <button class="btn btn-sm" id="classifierRetrainBtn" onclick="retrainClassifier()">🔄 Retrain Classifier</button>
-            <span id="classifierRetrainStatus" style="font-size:0.8rem; color:var(--text-muted,#6b7280);"></span>
+            <span id="classifierRetrainStatus" style="font-size:0.8rem; color:var(--color-text-secondary);"></span>
           </div>
         </div>`;
 
@@ -851,7 +851,7 @@
         loadClassifierStats();
       } catch (err) {
         document.getElementById("ieContent").innerHTML =
-          `<p style="padding:1rem;color:#e74c3c;">Failed to load Insights Engine status: ${err.message}</p>`;
+          `<p style="padding:1rem;color:var(--color-status-critical, #ff3838);">Failed to load Insights Engine status: ${err.message}</p>`;
       }
     }
 
@@ -876,15 +876,15 @@
         const d = await res.json();
         if (res.ok) {
           status.textContent = d.message || 'Done.';
-          status.style.color = '#22c55e';
+          status.style.color = 'var(--color-status-normal, #56f000)';
           loadClassifierStats(); // refresh table
         } else {
           status.textContent = d.error || 'Failed.';
-          status.style.color = '#ef4444';
+          status.style.color = 'var(--color-status-critical, #ff3838)';
         }
       } catch (e) {
         status.textContent = 'Network error.';
-        status.style.color = '#ef4444';
+        status.style.color = 'var(--color-status-critical, #ff3838)';
       } finally {
         btn.disabled = false;
         btn.textContent = '🔄 Retrain Classifier';
@@ -896,12 +896,12 @@
       if (!tbody) return;
       const stats = data.tag_stats || [];
       if (!stats.length) {
-        tbody.innerHTML = '<tr><td colspan="4" style="color:var(--text-muted,#6b7280)">No fingerprints loaded.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="4" style="color:var(--color-text-secondary)">No fingerprints loaded.</td></tr>';
         return;
       }
       tbody.innerHTML = stats.map(function(row) {
         // Confidence bar
-        let barHtml = '<span style="color:var(--text-muted,#6b7280)">—</span>';
+        let barHtml = '<span style="color:var(--color-text-secondary)">—</span>';
         if (row.ready && row.avg_confidence !== null && row.avg_confidence !== undefined) {
           const conf = row.avg_confidence;
           const pct = Math.round(conf * 100);
@@ -917,11 +917,11 @@
         let statusHtml;
         if (!row.ready) {
           const needed = Math.max(0, 5 - row.sample_count);
-          statusHtml = `<span style="color:var(--text-muted,#6b7280)">⏳ Learning (need ${needed} more)</span>`;
+          statusHtml = `<span style="color:var(--color-text-secondary)">⏳ Learning (need ${needed} more)</span>`;
         } else if (row.avg_confidence !== null && row.avg_confidence < 0.50) {
-          statusHtml = '<span style="color:#ef4444;font-weight:600">⚠ Low confidence</span>';
+          statusHtml = '<span style="color:var(--color-status-critical, #ff3838);font-weight:600">⚠ Low confidence</span>';
         } else {
-          statusHtml = '<span style="color:#22c55e;font-weight:600">● Ready</span>';
+          statusHtml = '<span style="color:var(--color-status-normal, #56f000);font-weight:600">● Ready</span>';
         }
         return `<tr>
           <td style="font-family:monospace">${row.tag}</td>
