@@ -18,11 +18,11 @@ let _lastFetchRange = null;  // Track range to detect changes, forcing full corr
 function _initHistoryTabs() {
   const ruxTabsEl = document.getElementById("historyTabs");
   if (ruxTabsEl) {
-    // rux-tabs fires ruxTabSelected with detail.tabId = the selected rux-tab element's id
-    ruxTabsEl.addEventListener("ruxTabSelected", (e) => {
-      // tab id format: "tab-btn-<tabname>"
-      const tabId  = e.detail?.tabId ?? e.detail?.id ?? "";
-      const tabKey = tabId.replace(/^tab-btn-/, "");
+    // rux-tabs in Astro v6 does NOT bubble ruxTabSelected to the parent — use click delegation
+    ruxTabsEl.addEventListener("click", (e) => {
+      const tab = e.target.closest("rux-tab");
+      if (!tab) return;
+      const tabKey = tab.id.replace(/^tab-btn-/, "");
       _switchToTab(tabKey);
     });
     return;

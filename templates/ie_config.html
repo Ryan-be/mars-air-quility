@@ -332,12 +332,12 @@
       <input type="text" id="new-rule-expr" placeholder="e.g. pm25 > 150" autocomplete="off" class="rule-expr">
     </div>
     <div class="modal-field">
-      <rux-select label="Severity" id="new-rule-severity">
+      <select id="new-rule-severity" class="rux-input" style="background:var(--color-background-base-default);color:var(--color-text-primary);border:1px solid var(--color-border-interactive-muted);padding:0.4rem 0.6rem;border-radius:3px;font-family:inherit;font-size:14px;width:100%;">
         <option value="info">info</option>
         <option value="warning" selected>warning</option>
         <option value="alert">alert</option>
         <option value="critical">critical</option>
-      </rux-select>
+      </select>
     </div>
     <div class="modal-status" id="add-rule-modal-status"></div>
     <div class="modal-actions">
@@ -449,11 +449,12 @@ function renderRules(rules) {
       '<td><code>' + escHtml(rule.id) + '</code></td>' +
       '<td><input class="inline-edit rule-expr" data-id="' + escHtml(rule.id) + '" data-field="expression"' +
       '     value="' + escHtml(rule.expression) + '" title="Edit expression"></td>' +
-      '<td><rux-select class="inline-edit" data-id="' + escHtml(rule.id) + '" data-field="severity">' +
+      '<td><select class="inline-edit" data-id="' + escHtml(rule.id) + '" data-field="severity"' +
+      ' style="background:var(--color-background-base-default);color:var(--color-text-primary);border:1px solid var(--color-border-interactive-muted);padding:0.2rem 0.4rem;border-radius:3px;font-family:inherit;font-size:13px;">' +
         ['info','warning','alert','critical'].map(function (s) {
           return '<option value="' + s + '"' + (rule.severity === s ? ' selected' : '') + '>' + s + '</option>';
         }).join('') +
-      '</rux-select></td>' +
+      '</select></td>' +
       '<td><input class="inline-edit" type="number" step="0.05" min="0" max="1"' +
       '     data-id="' + escHtml(rule.id) + '" data-field="confidence"' +
       '     value="' + (rule.confidence != null ? rule.confidence : '') + '" style="width:5rem;"></td>' +
