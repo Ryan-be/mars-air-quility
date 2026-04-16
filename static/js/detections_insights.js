@@ -641,11 +641,10 @@ function openInferenceDialog(id) {
       evEl.innerHTML = snapshot.map(function (s) {
         const arrow = TREND_ARROW[s.trend] || '→';
         const cls   = BAND_CLS[s.ratio_band] || '';
-        const ratio = s.ratio != null ? '<span class="ev-ratio">' + s.ratio + '\u00d7 normal</span>' : '';
-        return '<div class="inf-ev-row ' + cls + '">' +
-          '<span class="fd-label">' + s.label + '</span>' +
-          '<span class="fd-value">' + s.value + ' ' + s.unit + ' <span class="ev-trend">' + arrow + '</span></span>' +
-          ratio + '</div>';
+        const ratioTxt = s.ratio != null ? ' <span class="ev-ratio">' + s.ratio + '\u00d7</span>' : '';
+        return '<span class="inf-ev-key">' + s.label + '</span>' +
+          '<span class="inf-ev-val ' + cls + '">' + s.value + ' ' + s.unit +
+          ' <span class="ev-trend">' + arrow + '</span>' + ratioTxt + '</span>';
       }).join('');
     } else if (inf.evidence.readings && Array.isArray(inf.evidence.readings) && inf.evidence.readings.length > 0) {
       evEl.innerHTML = _renderRangeReadingsEvidence(inf.evidence);
@@ -660,8 +659,9 @@ function openInferenceDialog(id) {
         return k !== '_thresholds' && k !== 'sensor_snapshot' && k !== 'model_id';
       });
       evEl.innerHTML = entries.map(function ([k, v]) {
-        return '<div class="inf-ev-row"><span class="fd-label">' + k.replace(/_/g, ' ') + '</span><span class="fd-value">' + v + '</span></div>';
-      }).join('') || 'No detailed evidence available.';
+        return '<span class="inf-ev-key">' + k.replace(/_/g, ' ') + '</span>' +
+               '<span class="inf-ev-val">' + v + '</span>';
+      }).join('') || '<span class="inf-ev-key" style="grid-column:1/-1;color:var(--color-text-placeholder)">No detailed evidence available.</span>';
     }
     if (thresholds && typeof thresholds === 'object' && Object.keys(thresholds).length) {
       thSec.style.display = '';
