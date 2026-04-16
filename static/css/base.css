@@ -1047,6 +1047,39 @@ label {
   scrollbar-width: thin;
   scrollbar-color: var(--color-border-interactive-muted) transparent;
   max-height: none;
+  padding: 1.5rem 1.75rem 2.5rem;
+  gap: 1.25em;
+}
+
+/* rux-accordion inside slide panel */
+.inf-slide-panel rux-accordion {
+  --accordion-border-color: var(--color-border-interactive-muted, #2b659b);
+}
+.inf-slide-panel rux-accordion-item {
+  border-radius: 4px;
+  overflow: hidden;
+}
+.inf-slide-panel rux-accordion-item::part(header) {
+  background: rgba(27,45,62,0.6);
+  color: var(--color-text-interactive-default, #4dacff);
+  font-size: 0.8em;
+  font-family: 'Roboto Mono', monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  border: 1px solid var(--color-border-interactive-muted, #2b659b);
+  border-radius: 4px;
+  padding: 0.6em 0.75em;
+}
+.inf-slide-panel rux-accordion-item[open]::part(header) {
+  border-radius: 4px 4px 0 0;
+  border-bottom-color: transparent;
+}
+.inf-slide-panel rux-accordion-item::part(content) {
+  background: rgba(11,27,43,0.5);
+  border: 1px solid var(--color-border-interactive-muted, #2b659b);
+  border-top: none;
+  border-radius: 0 0 4px 4px;
+  padding: 0.75rem 1rem;
 }
 .inf-slide-backdrop {
   display: none;

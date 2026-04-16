@@ -461,18 +461,22 @@
         <div id="infSparklineLoading" style="display:none; text-align:center; padding:20px;">Loading…</div>
         <div id="infSparklineError" style="display:none; color:var(--text-muted,#6b7280); font-size:0.8rem; padding:8px 0;">Sparkline unavailable.</div>
       </div>
-      <details class="inf-fv-details inf-evidence-details" open>
-        <summary class="inf-fv-summary">Evidence</summary>
-        <div class="inf-evidence" id="infEvidence"></div>
-      </details>
+      <rux-accordion>
+        <rux-accordion-item open>
+          <span slot="label">Evidence</span>
+          <div class="inf-evidence" id="infEvidence"></div>
+        </rux-accordion-item>
+      </rux-accordion>
       <div class="inf-section">
         <div class="inf-section-title">Recommended action</div>
         <div id="infAction"></div>
       </div>
-      <details class="inf-thresholds-section" id="infThresholdsSection" style="display:none">
-        <summary class="inf-section-title">Thresholds used</summary>
-        <div class="inf-thresholds-grid" id="infThresholds"></div>
-      </details>
+      <rux-accordion id="infThresholdsSection" style="display:none">
+        <rux-accordion-item open>
+          <span slot="label">Thresholds used</span>
+          <div class="inf-thresholds-grid" id="infThresholds"></div>
+        </rux-accordion-item>
+      </rux-accordion>
       <div class="inf-section" id="infAnnotationSection" style="display:none">
         <div class="inf-section-title">Your annotation</div>
         <div id="infAnnotationText"></div>
