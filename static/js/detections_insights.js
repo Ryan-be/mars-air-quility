@@ -110,9 +110,15 @@ const DI = (function () {
     _skel('diDriftFlags');
   }
 
+  function _setProgress(visible) {
+    const bar = document.getElementById('diProgressBar');
+    if (bar) bar.style.display = visible ? 'block' : 'none';
+  }
+
   async function load() {
     const { start, end } = _range();
     _showLoadingSkeletons();
+    _setProgress(true);
     try {
       const [nResp, bResp] = await Promise.all([
         fetch(`/api/history/narratives?start=${start}&end=${end}`),
@@ -121,6 +127,7 @@ const DI = (function () {
       [_narratives, _baselines] = await Promise.all([nResp.json(), bResp.json()]);
       _render();
     } catch (e) { console.error('DI load error', e); }
+    finally { _setProgress(false); }
   }
 
   function _render() {
@@ -429,8 +436,8 @@ const DI = (function () {
     if (!flags.length) { el.style.display = 'none'; return; }
     el.style.display = 'block';
     el.innerHTML = `<div class="di-card drift-section">
-      <h3>Sensor Drift Flags <span class="info-icon" title="Baseline shift vs 7 days ago.">ⓘ</span></h3>
-      ${flags.map(f => `<div class="drift-card">⚠ <strong>${f.channel}</strong> — ${f.message} <span class="drift-shift">${f.direction==='up'?'↑':'↓'} ${f.shift_pct}%</span></div>`).join('')}
+      <h3>Sensor Drift Flags <rux-tooltip message="Baseline shift vs 7 days ago."><span class="info-icon">ⓘ</span></rux-tooltip></h3>
+      ${flags.map(f => `<rux-notification status="caution" message="${f.channel} — ${f.message} ${f.direction==='up'?'↑':'↓'} ${f.shift_pct}%" open></rux-notification>`).join('')}
     </div>`;
   }
 
@@ -449,11 +456,26 @@ window.diToggleChip = diToggleChip;
 // ── Global inference dialog opener (used by DI tab cards) ────────────────────
 // On the dashboard page dashboard.js defines its own _openInferenceDialog.
 // On the history page this function is the sole dialog opener.
+window.closeInferencePanel = function() {
+  var panel = document.getElementById('inferencePanel');
+  var backdrop = document.getElementById('infSlideBackdrop');
+  if (panel) panel.classList.remove('open');
+  if (backdrop) backdrop.classList.remove('visible');
+  document.body.style.overflow = '';
+};
+
+function _bindEscClose() {
+  var onKey = function(e) {
+    if (e.key === 'Escape') { window.closeInferencePanel(); document.removeEventListener('keydown', onKey); }
+  };
+  document.addEventListener('keydown', onKey);
+}
+
 function openInferenceDialog(id) {
   const inf = (DI.getFeed() && DI.getFeed().getInferences().find(function (i) { return i.id === id; }));
   if (!inf) return;
-  const dialog = document.getElementById('inferenceDialog');
-  if (!dialog) return;
+  const panel = document.getElementById('inferencePanel');
+  if (!panel) return;
 
   const SEV_CLS   = { info:'inf-info', warning:'inf-warning', critical:'inf-critical' };
   const SEV_LABEL = { info:'Info', warning:'Warning', critical:'Critical' };
@@ -724,19 +746,17 @@ function openInferenceDialog(id) {
     loadSparkline(inf.id, inf.created_at);
   }
 
-  dialog.showModal();
-  // Resize the sparkline chart after the dialog is visible so Plotly measures
-  // the correct dimensions (it renders before the dialog is fully painted).
+  panel.classList.add('open');
+  var backdrop = document.getElementById('infSlideBackdrop');
+  if (backdrop) backdrop.classList.add('visible');
+  document.body.style.overflow = 'hidden';
+  _bindEscClose();
+  // Resize the sparkline chart after the panel is visible so Plotly measures
+  // the correct dimensions.
   setTimeout(function () {
     var chartDiv = document.getElementById('infSparklineChart');
     if (chartDiv && window.Plotly) Plotly.Plots.resize(chartDiv);
   }, 50);
-  dialog.onclick = function (e) { if (e.target === dialog) dialog.close(); };
-  dialog.addEventListener('close', function _onClose() {
-    document.getElementById('infFvBody').innerHTML = '';
-    document.getElementById('infFvSection').style.display = 'none';
-    dialog.removeEventListener('close', _onClose);
-  });
 }
 
 function diToggleChip(btn) {

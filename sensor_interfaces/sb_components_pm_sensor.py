@@ -1,8 +1,14 @@
 import logging
 import time
 import serial
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 
 log = logging.getLogger(__name__)
+
+# Module-level backoff state — shared across all instances of the class.
+_skip_until: float = 0.0
+# Single-worker executor so that a stalled serial read never spawns extra threads.
+_pm_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="pm_sensor")
 
 # PMS5003/PMSA003 frame constants
 _START1 = 0x42
@@ -40,11 +46,11 @@ class AirMonitoringHAT_PM:
     The HAT's SET pin (GPIO27) must be held HIGH for the sensor to stream data.
     """
 
-    def __init__(self, port="/dev/serial0", baudrate=9600, timeout=5,
+    def __init__(self, port="/dev/serial0", baudrate=9600, timeout=2,
                  set_pin=_DEFAULT_SET_PIN):
         self._port = port
         self._baudrate = baudrate
-        self._timeout = timeout
+        self._timeout = timeout  # serial port hard read timeout (seconds)
         self._set_pin = set_pin
         self._ser = None
         self._consecutive_failures = 0
@@ -132,30 +138,65 @@ class AirMonitoringHAT_PM:
             log.error("PM sensor unexpected error: %s", e)
             return None
 
+    def _do_read_attempt(self, attempt: int):
+        """Run _try_read_frame in the module-level executor with a hard wall-clock
+        timeout so a stalled serial read never blocks the calling thread."""
+        future = _pm_executor.submit(self._try_read_frame, attempt)
+        try:
+            return future.result(timeout=3.0)
+        except FuturesTimeout:
+            log.warning("PM sensor: read attempt %d timed out after 3s", attempt + 1)
+            # Force-close the serial port so the stuck read unblocks.
+            try:
+                self.close()
+            except Exception:
+                pass
+            return None
+
     def read_pm(self):
         """Read one PM frame with up to 3 retries.
 
         Returns dict with pm1_0, pm2_5, pm10 (ug/m3), or None on failure.
-        Tracks consecutive failures; after 5 in a row the sensor is re-woken
-        via GPIO reset to recover from lock-up conditions.
+
+        Consecutive-failure backoff:
+          - After 5 failures: re-wake the sensor via GPIO.
+          - After 10 failures: enter a 60-second cooldown to avoid hammering a
+            broken serial port and blocking the sensor loop.
         """
+        global _skip_until
+
+        # Cooldown check — skip reads until the backoff timer expires.
+        if time.monotonic() < _skip_until:
+            return None
+
         for attempt in range(3):
             if attempt == 1 and self._ser is not None and self._ser.is_open:
-                # second attempt, flush stale buffer
-                self._ser.reset_input_buffer()
-            result = self._try_read_frame(attempt)
+                # Second attempt: flush stale buffer (non-blocking, safe).
+                try:
+                    self._ser.reset_input_buffer()
+                except Exception:
+                    pass
+            result = self._do_read_attempt(attempt)
             if result is not None:
                 self._consecutive_failures = 0
                 return result
             if attempt < 2:
-                # Wait for the next 1 Hz frame to arrive before retrying
-                time.sleep(1.2)
+                # Wait for the next 1 Hz frame — but only 1s, not 1.2s, to keep
+                # the total worst-case read time under the caller's expectations.
+                time.sleep(1.0)
 
         self._consecutive_failures += 1
         log.warning("PM sensor: could not read a valid frame after 3 attempts "
                     "(consecutive failures: %d)", self._consecutive_failures)
 
-        if self._consecutive_failures >= 5:
+        if self._consecutive_failures >= 10:
+            _skip_until = time.monotonic() + 60.0
+            log.warning(
+                "PM sensor: backing off for 60s after %d consecutive failures",
+                self._consecutive_failures,
+            )
+            self._consecutive_failures = 0
+        elif self._consecutive_failures >= 5:
             log.warning("PM sensor: %d consecutive failures — re-waking sensor",
                         self._consecutive_failures)
             _wake_sensor(self._set_pin)

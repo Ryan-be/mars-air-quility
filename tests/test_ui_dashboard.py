@@ -54,12 +54,12 @@ def test_inference_feed_exists(app_client):
     assert soup.find(id="inferenceFeed") is not None, "#inferenceFeed missing"
 
 
-def test_inference_dialog_preserved(app_client):
+def test_inference_panel_preserved(app_client):
     client, _ = app_client
     resp = client.get("/")
     soup = BeautifulSoup(resp.data, "html.parser")
-    dlg = soup.find("dialog", {"id": "inferenceDialog"})
-    assert dlg is not None, "inferenceDialog missing"
+    panel = soup.find(id="inferencePanel")
+    assert panel is not None, "inferencePanel missing"
     assert soup.find(id="infTitle") is not None, "#infTitle missing"
     assert soup.find(id="infEvidence") is not None, "#infEvidence missing"
     assert soup.find(id="infSparklineChart") is not None, "#infSparklineChart missing"

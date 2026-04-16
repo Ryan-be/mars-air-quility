@@ -16,9 +16,20 @@ let _weatherData = [];
 let _lastFetchRange = null;  // Track range to detect changes, forcing full corr re-render
 
 function _initHistoryTabs() {
+  const ruxTabsEl = document.getElementById("historyTabs");
+  if (ruxTabsEl) {
+    // rux-tabs fires ruxTabSelected with detail.tabId = the selected rux-tab element's id
+    ruxTabsEl.addEventListener("ruxTabSelected", (e) => {
+      // tab id format: "tab-btn-<tabname>"
+      const tabId  = e.detail?.tabId ?? e.detail?.id ?? "";
+      const tabKey = tabId.replace(/^tab-btn-/, "");
+      _switchToTab(tabKey);
+    });
+    return;
+  }
+  // Fallback: legacy .tab-btn buttons (admin page, ie_config page)
   const buttons = document.querySelectorAll(".tab-btn");
   if (!buttons || buttons.length === 0) return;
-
   buttons.forEach(btn => {
     btn.addEventListener("click", () => {
       buttons.forEach(b => b.classList.remove("tab-active"));
@@ -32,7 +43,21 @@ function _initHistoryTabs() {
   });
 }
 
+function _switchToTab(tabKey) {
+  TABS.forEach(t => {
+    const panel = document.getElementById(`tab-${t}`);
+    if (panel) panel.classList.toggle("tab-hidden", t !== tabKey);
+  });
+  renderActiveTab();
+}
+
 function activeTab() {
+  // With rux-tabs, find the selected rux-tab and derive key from its id
+  const ruxTabsEl = document.getElementById("historyTabs");
+  if (ruxTabsEl) {
+    const selected = ruxTabsEl.querySelector("rux-tab[selected], rux-tab[aria-selected='true']");
+    if (selected) return selected.id.replace(/^tab-btn-/, "");
+  }
   return document.querySelector(".tab-btn.tab-active")?.dataset.tab ?? "climate";
 }
 

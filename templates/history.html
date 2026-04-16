@@ -36,61 +36,26 @@
 
 {% block content %}
 
-  <div class="tab-bar">
-    <button class="tab-btn astro-tab tab-active" data-tab="climate">
-      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-        <line x1="8" y1="2" x2="8" y2="10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
-        <circle cx="8" cy="12" r="2.5" stroke="currentColor" stroke-width="1.4"/>
-        <line x1="10.5" y1="3.5" x2="13" y2="3.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
-        <line x1="10.5" y1="6" x2="12" y2="6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
-      </svg>
-      Climate
-    </button>
-    <button class="tab-btn astro-tab" data-tab="air-quality">
-      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-        <path d="M2 8 Q5 4 8 8 Q11 12 14 8" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"/>
-        <path d="M2 11 Q5 7 8 11 Q11 15 14 11" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round" opacity="0.5"/>
-      </svg>
-      Air Quality
-    </button>
-    <button class="tab-btn astro-tab" data-tab="particulate">
-      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-        <circle cx="5" cy="8" r="2" stroke="currentColor" stroke-width="1.2"/>
-        <circle cx="11" cy="5" r="1.5" stroke="currentColor" stroke-width="1.2"/>
-        <circle cx="10" cy="11" r="1" stroke="currentColor" stroke-width="1.2"/>
-        <circle cx="3" cy="4" r="0.8" fill="currentColor" opacity="0.6"/>
-        <circle cx="13" cy="10" r="0.8" fill="currentColor" opacity="0.6"/>
-      </svg>
-      Particulate
-    </button>
-    <button class="tab-btn astro-tab" data-tab="environment">
-      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-        <path d="M8 14 L8 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
-        <path d="M8 8 Q4 8 3 4 Q7 3 8 8" stroke="currentColor" stroke-width="1.2" fill="none"/>
-        <path d="M8 6 Q12 6 13 2 Q9 1 8 6" stroke="currentColor" stroke-width="1.2" fill="none"/>
-      </svg>
-      Environment
-    </button>
-    <button class="tab-btn astro-tab" data-tab="correlation">
-      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-        <circle cx="4" cy="12" r="1.5" stroke="currentColor" stroke-width="1.2"/>
-        <circle cx="8" cy="8" r="1.5" stroke="currentColor" stroke-width="1.2"/>
-        <circle cx="12" cy="4" r="1.5" stroke="currentColor" stroke-width="1.2"/>
-        <line x1="5.1" y1="10.9" x2="6.9" y2="9.1" stroke="currentColor" stroke-width="1" opacity="0.6"/>
-        <line x1="9.1" y1="6.9" x2="10.9" y2="5.1" stroke="currentColor" stroke-width="1" opacity="0.6"/>
-      </svg>
-      Correlation
-    </button>
-    <button class="tab-btn astro-tab" data-tab="detections">
-      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-        <circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.4"/>
-        <circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.2"/>
-        <line x1="8" y1="2.5" x2="8" y2="1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
-        <line x1="13.5" y1="8" x2="15" y2="8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
-      </svg>
-      Detections &amp; Insights
-    </button>
-  </div>
+  <rux-tabs id="historyTabs" small>
+    <rux-tab id="tab-btn-climate" selected>
+      <rux-icon icon="device-thermostat" size="extra-small"></rux-icon> Climate
+    </rux-tab>
+    <rux-tab id="tab-btn-air-quality">
+      <rux-icon icon="air" size="extra-small"></rux-icon> Air Quality
+    </rux-tab>
+    <rux-tab id="tab-btn-particulate">
+      <rux-icon icon="grain" size="extra-small"></rux-icon> Particulate
+    </rux-tab>
+    <rux-tab id="tab-btn-environment">
+      <rux-icon icon="eco" size="extra-small"></rux-icon> Environment
+    </rux-tab>
+    <rux-tab id="tab-btn-correlation">
+      <rux-icon icon="scatter-plot" size="extra-small"></rux-icon> Correlation
+    </rux-tab>
+    <rux-tab id="tab-btn-detections">
+      <rux-icon icon="radar" size="extra-small"></rux-icon> Detections &amp; Insights
+    </rux-tab>
+  </rux-tabs>
 
   <!-- Climate tab: temperature and humidity only -->
   <div class="tab-panel" id="tab-climate">
@@ -313,7 +278,7 @@
         <button class="btn btn-sm" id="corrResetBtn">Reset to full range</button>
         <span class="corr-range-label" id="corrRangeLabel">Showing: full range</span>
         <label class="overlay-toggle">
-          <input type="checkbox" id="corrShowDetections" checked onchange="corrToggleOverlay(this.checked)">
+          <rux-switch id="corrShowDetections" checked></rux-switch>
           Show detections
           <span class="info-icon" title="Shows when events were detected — align these with sensor spikes to understand what triggered each detection.">ⓘ</span>
         </label>
@@ -396,6 +361,7 @@
   </div>
 
   <div class="tab-panel tab-hidden" id="tab-detections">
+    <rux-progress id="diProgressBar" hide-label value="-1" style="margin-bottom:0.5rem;"></rux-progress>
     <div class="di-card" id="diPeriodSummary"><div class="di-loading">Loading…</div></div>
     <div id="diTrendIndicators" class="trend-row"></div>
     <div class="di-stat" id="diLongestClean"></div>
@@ -428,7 +394,7 @@
       <div class="tl-split-layout" id="diTimelineSplit">
         <div class="tl-main">
           <div class="di-card" style="padding:0.75rem 1rem 0.5rem;">
-            <h3 style="margin:0 0 0.5rem;">Detection Events <span id="diEventsCount" class="badge-count inference-count"></span></h3>
+            <h3 style="margin:0 0 0.5rem;">Detection Events <rux-badge id="diEventsCount"></rux-badge></h3>
             <div id="diTimeline" class="tl-container"></div>
           </div>
           <!-- Keep existing card list below -->
@@ -463,14 +429,18 @@
     <div id="diDriftFlags"></div>
   </div>
 
-  <!-- Inference detail dialog (shared with DI tab) -->
-  <dialog id="inferenceDialog" aria-modal="true" aria-labelledby="infTitle">
-    <div class="fd-header">
-      <div><h3 id="infTitle"></h3></div>
-      <button class="fd-close btn" aria-label="Close"
-              onclick="document.getElementById('inferenceDialog').close()">✕</button>
+  <!-- Inference detail slide panel (shared with DI tab) -->
+  <div class="inf-slide-panel" id="inferencePanel" role="complementary" aria-label="Event detail">
+    <div class="inf-slide-header">
+      <div class="inf-slide-title-row">
+        <h3 id="infTitle" class="inf-slide-title"></h3>
+      </div>
+      <button class="inf-slide-close" id="infCloseBtn" aria-label="Close detail panel"
+              onclick="closeInferencePanel()">
+        <rux-icon icon="close" size="extra-small"></rux-icon>
+      </button>
     </div>
-    <div class="inf-body">
+    <div class="inf-body" id="infBody">
       <div class="inf-meta" id="infMeta">
         <span class="inf-badge" id="infSeverity"></span>
         <span class="inf-detection-chip"></span>
@@ -533,7 +503,9 @@
         <div id="infFvBody" class="inf-fv-body"></div>
       </div>
     </div>
-  </dialog>
+  </div>
+  <!-- Backdrop for closing on outside click -->
+  <div class="inf-slide-backdrop" id="infSlideBackdrop" onclick="closeInferencePanel()"></div>
 
 {% endblock %}
 
@@ -585,6 +557,18 @@
   </script>
   <script type="module" src="{{ url_for('static', filename='js/history.js') }}"></script>
   <script>
+    // Wire rux-switch for correlation overlay toggle
+    document.addEventListener('DOMContentLoaded', function() {
+      var corrSwitch = document.getElementById('corrShowDetections');
+      if (corrSwitch) {
+        corrSwitch.addEventListener('ruxchange', function() {
+          if (typeof window.corrToggleOverlay === 'function') {
+            window.corrToggleOverlay(corrSwitch.checked);
+          }
+        });
+      }
+    });
+
     function setHistoryRange(val) {
       // Update hidden select
       const sel = document.getElementById('range');

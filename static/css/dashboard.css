@@ -221,7 +221,6 @@ dialog textarea:focus {
 #forecastDailyDialog { max-width: 340px; padding: 1.4em 1.6em; }
 #sensorDialog        { max-width: 360px; }
 #insightDialog       { max-width: 360px; }
-#inferenceDialog     { max-width: 520px; max-height: 85vh; overflow-y: auto; }
 
 .fd-header {
   display: flex;

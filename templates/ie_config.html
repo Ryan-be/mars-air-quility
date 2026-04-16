@@ -332,13 +332,12 @@
       <input type="text" id="new-rule-expr" placeholder="e.g. pm25 > 150" autocomplete="off" class="rule-expr">
     </div>
     <div class="modal-field">
-      <label for="new-rule-severity">Severity</label>
-      <select id="new-rule-severity">
+      <rux-select label="Severity" id="new-rule-severity">
         <option value="info">info</option>
         <option value="warning" selected>warning</option>
         <option value="alert">alert</option>
         <option value="critical">critical</option>
-      </select>
+      </rux-select>
     </div>
     <div class="modal-status" id="add-rule-modal-status"></div>
     <div class="modal-actions">
@@ -450,17 +449,17 @@ function renderRules(rules) {
       '<td><code>' + escHtml(rule.id) + '</code></td>' +
       '<td><input class="inline-edit rule-expr" data-id="' + escHtml(rule.id) + '" data-field="expression"' +
       '     value="' + escHtml(rule.expression) + '" title="Edit expression"></td>' +
-      '<td><select class="inline-edit" data-id="' + escHtml(rule.id) + '" data-field="severity">' +
+      '<td><rux-select class="inline-edit" data-id="' + escHtml(rule.id) + '" data-field="severity">' +
         ['info','warning','alert','critical'].map(function (s) {
           return '<option value="' + s + '"' + (rule.severity === s ? ' selected' : '') + '>' + s + '</option>';
         }).join('') +
-      '</select></td>' +
+      '</rux-select></td>' +
       '<td><input class="inline-edit" type="number" step="0.05" min="0" max="1"' +
       '     data-id="' + escHtml(rule.id) + '" data-field="confidence"' +
       '     value="' + (rule.confidence != null ? rule.confidence : '') + '" style="width:5rem;"></td>' +
-      '<td><input type="checkbox" data-id="' + escHtml(rule.id) + '" data-field="enabled"' +
+      '<td><rux-switch data-id="' + escHtml(rule.id) + '" data-field="enabled"' +
       '     ' + (enabled ? 'checked' : '') + ' class="toggle-enabled"' +
-      '     onchange="ruleRowToggleEnabled(this)"></td>' +
+      '"></rux-switch></td>' +
       '<td><button class="btn btn-sm" onclick="saveRule(\'' + escHtml(rule.id) + '\')">Save</button></td>';
     tbody.appendChild(tr);
   });
@@ -541,6 +540,12 @@ async function submitAddRule() {
 
 document.getElementById('add-rule-modal').addEventListener('click', function (e) {
   if (e.target === this) closeAddRuleModal();
+});
+
+// Event delegation for rux-switch toggles inside the rules table
+document.getElementById('rules-body').addEventListener('ruxchange', function (e) {
+  var sw = e.target.closest('rux-switch.toggle-enabled');
+  if (sw) ruleRowToggleEnabled(sw);
 });
 
 document.addEventListener('keydown', function (e) {

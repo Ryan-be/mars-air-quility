@@ -400,6 +400,7 @@ const _infFeed = createInferenceFeed({
   filtersId:    'inferenceFilters',
   cardDataAttr: 'data-inf-id',
   openDialog:   _openInferenceDialog,
+  progressId:   'dashProgressBar',
 });
 
 // Init dashboard timeline + detail panel
@@ -496,7 +497,7 @@ function _evidenceColor(key, val) {
 function _openInferenceDialog(id) {
   const inf = _infFeed.getInferences().find(i => i.id === id);
   if (!inf) return;
-  const dialog = document.getElementById("inferenceDialog");
+  const panel = document.getElementById("inferencePanel");
 
   document.getElementById("infTitle").textContent = inf.title;
 
@@ -777,15 +778,29 @@ function _openInferenceDialog(id) {
     loadSparkline(inf.id, inf.created_at);
   }
 
-  dialog.showModal();
-  // Resize the sparkline chart after the dialog is visible so Plotly measures
-  // the correct dimensions (it renders before the dialog is fully painted).
+  if (!panel) return;
+  panel.classList.add('open');
+  const backdrop = document.getElementById('infSlideBackdrop');
+  if (backdrop) backdrop.classList.add('visible');
+  document.body.style.overflow = 'hidden';
+  // Bind Escape key close
+  const onKey = (e) => { if (e.key === 'Escape') { closeInferencePanel(); document.removeEventListener('keydown', onKey); } };
+  document.addEventListener('keydown', onKey);
+  // Resize the sparkline chart after the panel is visible so Plotly measures
+  // the correct dimensions.
   setTimeout(() => {
     const chartDiv = document.getElementById('infSparklineChart');
     if (chartDiv && window.Plotly) Plotly.Plots.resize(chartDiv);
   }, 50);
-  dialog.onclick = (e) => { if (e.target === dialog) dialog.close(); };
 }
+
+window.closeInferencePanel = window.closeInferencePanel || function() {
+  const panel = document.getElementById('inferencePanel');
+  const backdrop = document.getElementById('infSlideBackdrop');
+  if (panel) panel.classList.remove('open');
+  if (backdrop) backdrop.classList.remove('visible');
+  document.body.style.overflow = '';
+};
 
 // ── Server-Sent Events (real-time push) ─────────────────────────────────────
 

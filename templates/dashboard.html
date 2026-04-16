@@ -205,7 +205,7 @@
 
   <!-- Environment inference feed -->
   <div class="section-heading">🔬 Environment Insights
-    <span class="inference-count" id="inferenceCount"></span>
+    <rux-badge id="inferenceCount"></rux-badge>
   </div>
   <div class="tl-split-layout" id="dashTimelineSplit">
     <div class="tl-main">
@@ -219,6 +219,7 @@
         <button class="inf-filter" data-category="attribution">Attribution</button>
         <button class="inf-filter" data-category="summary">Summaries</button>
       </div>
+      <rux-progress id="dashProgressBar" hide-label value="-1" style="display:none;margin-bottom:0.5rem;"></rux-progress>
       <div class="inference-feed" id="inferenceFeed">
         <div class="inference-empty">Analysing environment data…</div>
       </div>
@@ -234,14 +235,18 @@
     </div>
   </div>
 
-  <!-- Inference detail dialog -->
-  <dialog id="inferenceDialog" aria-modal="true" aria-labelledby="infTitle">
-    <div class="fd-header">
-      <div><h3 id="infTitle"></h3></div>
-      <button class="fd-close btn" aria-label="Close"
-              onclick="document.getElementById('inferenceDialog').close()">✕</button>
+  <!-- Inference detail slide panel -->
+  <div class="inf-slide-panel" id="inferencePanel" role="complementary" aria-label="Event detail">
+    <div class="inf-slide-header">
+      <div class="inf-slide-title-row">
+        <h3 id="infTitle" class="inf-slide-title"></h3>
+      </div>
+      <button class="inf-slide-close" id="infCloseBtn" aria-label="Close detail panel"
+              onclick="closeInferencePanel()">
+        <rux-icon icon="close" size="extra-small"></rux-icon>
+      </button>
     </div>
-    <div class="inf-body">
+    <div class="inf-body" id="infBody">
       <div class="inf-meta" id="infMeta">
         <span class="inf-badge" id="infSeverity"></span>
         <span class="inf-detection-chip"></span>
@@ -256,7 +261,7 @@
       <div id="infSparkline" class="sparkline-container" style="display:none;">
         <div class="sparkline-header">
           Sensor activity around this event
-          <span class="info-icon" title="Shows how sensor values moved in the 30 minutes around this event.">ⓘ</span>
+          <rux-tooltip message="Shows how sensor values moved in the 30 minutes around this event."><span class="info-icon">ⓘ</span></rux-tooltip>
         </div>
         <div id="infSparklineChart" style="height:180px;"></div>
         <div id="infSparklineLoading" style="display:none; text-align:center; padding:20px;">Loading…</div>
@@ -284,7 +289,9 @@
         <button class="btn inf-save-note" id="infSaveNote">Save note</button>
       </div>
     </div>
-  </dialog>
+  </div>
+  <!-- Backdrop for closing on outside click -->
+  <div class="inf-slide-backdrop" id="infSlideBackdrop" onclick="closeInferencePanel()"></div>
 
   <!-- System health -->
   <div class="health-card astro-card">

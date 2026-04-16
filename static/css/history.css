@@ -530,6 +530,77 @@ dialog::backdrop { background: rgba(0,0,0,0.7); }
 }
 .fd-close:hover { border-color: var(--color-interactive-default, #4dacff); color: var(--color-text-primary, #ffffff); }
 
+/* ── Inference Slide Panel ── */
+.inf-slide-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 480px;
+  max-width: 95vw;
+  height: 100vh;
+  background: var(--color-background-surface-default);
+  border-left: 1px solid var(--color-border-interactive-muted);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  transform: translateX(100%);
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: -4px 0 24px rgba(0,0,0,0.4);
+}
+.inf-slide-panel.open {
+  transform: translateX(0);
+}
+.inf-slide-header {
+  background: var(--color-background-base-header);
+  border-bottom: 1px solid var(--color-border-interactive-muted);
+  padding: 0.75rem 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-shrink: 0;
+}
+.inf-slide-title-row { flex: 1; min-width: 0; }
+.inf-slide-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.inf-slide-close {
+  background: transparent;
+  border: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 2px;
+  display: flex;
+  align-items: center;
+  transition: color 0.15s, background 0.15s;
+  flex-shrink: 0;
+}
+.inf-slide-close:hover {
+  color: var(--color-text-primary);
+  background: var(--color-background-surface-hover);
+}
+.inf-slide-panel .inf-body {
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-interactive-muted) transparent;
+  max-height: none;
+}
+.inf-slide-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.4);
+  z-index: 999;
+}
+.inf-slide-backdrop.visible { display: block; }
+
 /* Inference detail styles (shared with dashboard) */
 .inf-body { display: flex; flex-direction: column; gap: 0.9em; }
 .inf-meta {

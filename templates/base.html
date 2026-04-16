@@ -109,10 +109,7 @@
     <a href="{{ url_for('pages.dashboard') }}"
        data-tab="dashboard"
        class="{{ 'active' if active == 'pages.dashboard' else '' }}">
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M2 6.5L8 2l6 4.5V14a.5.5 0 01-.5.5h-3.75v-3.25h-3.5V14.5H2.5A.5.5 0 012 14V6.5z"
-              stroke="currentColor" stroke-width="1.2" fill="none"/>
-      </svg>
+      <rux-icon icon="apps" size="extra-small"></rux-icon>
       <span>Dashboard</span>
     </a>
 
@@ -120,10 +117,7 @@
     <a href="{{ url_for('pages.history_page') }}"
        data-tab="history"
        class="{{ 'active' if active and active.startswith('pages.history') else '' }}">
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <polyline points="1,12 5,7 8,10 11,5 15,8"
-                  stroke="currentColor" stroke-width="1.2" fill="none" stroke-linejoin="round"/>
-      </svg>
+      <rux-icon icon="trending-up" size="extra-small"></rux-icon>
       <span>History</span>
     </a>
 
@@ -131,14 +125,7 @@
     <a href="{{ url_for('pages.controls_page') }}"
        data-tab="controls"
        class="{{ 'active' if active == 'pages.controls_page' else '' }}">
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <line x1="2" y1="4"  x2="14" y2="4"  stroke="currentColor" stroke-width="1.2"/>
-        <line x1="2" y1="8"  x2="14" y2="8"  stroke="currentColor" stroke-width="1.2"/>
-        <line x1="2" y1="12" x2="14" y2="12" stroke="currentColor" stroke-width="1.2"/>
-        <circle cx="5"  cy="4"  r="2" fill="var(--color-background-base-default)" stroke="currentColor" stroke-width="1.2"/>
-        <circle cx="10" cy="8"  r="2" fill="var(--color-background-base-default)" stroke="currentColor" stroke-width="1.2"/>
-        <circle cx="5"  cy="12" r="2" fill="var(--color-background-base-default)" stroke="currentColor" stroke-width="1.2"/>
-      </svg>
+      <rux-icon icon="tune" size="extra-small"></rux-icon>
       <span>Controls</span>
     </a>
 
@@ -147,11 +134,7 @@
     <a href="{{ url_for('pages.admin') }}"
        data-tab="settings"
        class="{{ 'active' if active and ('settings' in active or 'admin' in active or 'insights' in active) else '' }}">
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <circle cx="8" cy="8" r="2.5" stroke="currentColor" stroke-width="1.2"/>
-        <path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.42 1.42M11.53 11.53l1.42 1.42M3.05 12.95l1.42-1.42M11.53 4.47l1.42-1.42"
-              stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
-      </svg>
+      <rux-icon icon="settings" size="extra-small"></rux-icon>
       <span>Settings</span>
     </a>
     {% endif %}
@@ -170,11 +153,15 @@
   {% block extra_js %}{% endblock %}
 
   <script>
-    // Convert .info-icon title="" attributes to data-tooltip="" for CSS tooltips
+    // Wrap .info-icon[title] elements with rux-tooltip web components
     document.addEventListener('DOMContentLoaded', function() {
       document.querySelectorAll('.info-icon[title]').forEach(function(el) {
-        el.setAttribute('data-tooltip', el.getAttribute('title'));
+        var msg = el.getAttribute('title');
         el.removeAttribute('title');
+        var tooltip = document.createElement('rux-tooltip');
+        tooltip.setAttribute('message', msg);
+        el.parentNode.insertBefore(tooltip, el);
+        tooltip.appendChild(el);
       });
     });
   </script>

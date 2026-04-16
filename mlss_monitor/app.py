@@ -586,7 +586,14 @@ def _sensor_read_loop() -> None:
             readings = []
             for source in _data_sources:
                 try:
+                    _t0 = time.monotonic()
                     readings.append(source.get_latest())
+                    _elapsed = time.monotonic() - _t0
+                    if _elapsed > 2.0:
+                        log.warning(
+                            "DataSource %s read took %.1fs — potential blocking issue",
+                            source.name, _elapsed,
+                        )
                     source.last_reading_at = datetime.utcnow()
                 except Exception as exc:
                     log.warning(
@@ -745,7 +752,7 @@ def main():
     protocol = "https" if ssl_ctx else "http"
     log.info("STARTUP: about to call app.run (%.1fs elapsed)", time.monotonic() - _t0)
     log.info("Starting server on %s://0.0.0.0:%d", protocol, port)
-    app.run(host="0.0.0.0", port=port, ssl_context=ssl_ctx)
+    app.run(host="0.0.0.0", port=port, threaded=True, ssl_context=ssl_ctx)
 
 
 if __name__ == "__main__":

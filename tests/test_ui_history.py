@@ -67,12 +67,12 @@ def test_range_tag_ml_elements_preserved(app_client):
         assert soup.find(id=el_id) is not None, f"ML element #{el_id} missing"
 
 
-def test_inference_dialog_in_history(app_client):
+def test_inference_panel_in_history(app_client):
     client, _ = app_client
     resp = client.get("/history")
     soup = BeautifulSoup(resp.data, "html.parser")
-    dlg = soup.find("dialog", {"id": "inferenceDialog"})
-    assert dlg is not None, "inferenceDialog missing from history page"
+    panel = soup.find(id="inferencePanel")
+    assert panel is not None, "inferencePanel missing from history page"
     assert soup.find(id="infTagsList") is not None, "#infTagsList missing"
     assert soup.find(id="infTagSelect") is not None, "#infTagSelect missing"
     assert soup.find(id="infAddTag") is not None, "#infAddTag missing"

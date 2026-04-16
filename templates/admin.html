@@ -15,15 +15,15 @@
 
 <div class="tab-bar">
   <button class="tab-btn tab-active astro-tab" data-tab="settings">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2"/></svg>
+    <rux-icon icon="settings" size="extra-small"></rux-icon>
     Settings
   </button>
   <button class="tab-btn astro-tab" data-tab="users">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+    <rux-icon icon="person" size="extra-small"></rux-icon>
     Users
   </button>
   <button class="tab-btn astro-tab" data-tab="insights-engine">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+    <rux-icon icon="radar" size="extra-small"></rux-icon>
     Insights Engine
   </button>
 </div>
@@ -39,19 +39,13 @@
 
       <div class="toggle-row">
         <span>Enable auto fan control</span>
-        <label class="switch">
-          <input type="checkbox" id="enabled">
-          <span class="slider"></span>
-        </label>
+        <rux-switch id="enabled"></rux-switch>
       </div>
 
       <div class="field-group">
         <legend>
           Temperature rule
-          <label class="switch switch-sm">
-            <input type="checkbox" id="tempEnabled">
-            <span class="slider"></span>
-          </label>
+          <rux-switch id="tempEnabled"></rux-switch>
         </legend>
         <div class="field-row">
           <div class="field">
@@ -68,10 +62,7 @@
       <div class="field-group">
         <legend>
           TVOC rule
-          <label class="switch switch-sm">
-            <input type="checkbox" id="tvocEnabled">
-            <span class="slider"></span>
-          </label>
+          <rux-switch id="tvocEnabled"></rux-switch>
         </legend>
         <div class="field-row">
           <div class="field">
@@ -88,10 +79,7 @@
       <div class="field-group">
         <legend>
           Humidity rule
-          <label class="switch switch-sm">
-            <input type="checkbox" id="humidityEnabled">
-            <span class="slider"></span>
-          </label>
+          <rux-switch id="humidityEnabled"></rux-switch>
         </legend>
         <div class="field-row">
           <div class="field">
@@ -104,10 +92,7 @@
       <div class="field-group">
         <legend>
           PM2.5 rule
-          <label class="switch switch-sm">
-            <input type="checkbox" id="pm25Enabled">
-            <span class="slider"></span>
-          </label>
+          <rux-switch id="pm25Enabled"></rux-switch>
         </legend>
         <div class="field-row">
           <div class="field">
@@ -227,12 +212,11 @@
           <input type="text" id="newGithubUser" placeholder="e.g. octocat" autocomplete="off">
         </div>
         <div class="field field-role">
-          <label for="newUserRole">Role</label>
-          <select id="newUserRole">
+          <rux-select label="Role" id="newUserRole">
             <option value="viewer">viewer</option>
             <option value="controller">controller</option>
             <option value="admin">admin</option>
-          </select>
+          </rux-select>
         </div>
         <div class="field field-btn">
           <label>&nbsp;</label>
