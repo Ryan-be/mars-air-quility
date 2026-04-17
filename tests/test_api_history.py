@@ -20,8 +20,12 @@ def _insert_sensor_row(db_path, timestamp, tvoc=100, eco2=500, temp=21.0, hum=50
 
 def test_sensor_endpoint_returns_all_channels(app_client, db):
     client, _ = app_client
-    _insert_sensor_row(db, "2026-04-04 14:00:00")
-    _insert_sensor_row(db, "2026-04-04 14:01:00", tvoc=110)
+    # log_sensor_data stores timestamps as 'YYYY-MM-DDTHH:MM:SSZ' (T-separator + Z).
+    # Production writes use datetime.utcnow().isoformat() + _normalise_ts, which
+    # gives this exact shape.  Insert rows in the same format so the query
+    # comparison matches real production data.
+    _insert_sensor_row(db, "2026-04-04T14:00:00Z")
+    _insert_sensor_row(db, "2026-04-04T14:01:00Z", tvoc=110)
     resp = client.get(
         "/api/history/sensor?start=2026-04-04T13:00:00Z&end=2026-04-04T15:00:00Z"
     )
@@ -171,7 +175,8 @@ def test_sparkline_returns_window_around_inference(app_client, db):
     _now = datetime.now(timezone.utc)
 
     def _fmt(dt):
-        return dt.strftime("%Y-%m-%d %H:%M:%S")
+        # Match production storage format: T-separator + Z suffix.
+        return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
     _insert_sensor_row(db, _fmt(_now - timedelta(minutes=10)), tvoc=100)
     _insert_sensor_row(db, _fmt(_now), tvoc=350)
     _insert_sensor_row(db, _fmt(_now + timedelta(minutes=5)), tvoc=200)
@@ -206,9 +211,9 @@ def test_range_tag_endpoint(app_client, db):
     """Test the range-tag endpoint creates an inference with a tag."""
     client, _ = app_client
     # Insert some test sensor data
-    _insert_sensor_row(db, "2023-01-01 10:00:00", tvoc=100, eco2=400)
-    _insert_sensor_row(db, "2023-01-01 10:01:00", tvoc=150, eco2=450)
-    _insert_sensor_row(db, "2023-01-01 10:02:00", tvoc=200, eco2=500)
+    _insert_sensor_row(db, "2023-01-01T10:00:00Z", tvoc=100, eco2=400)
+    _insert_sensor_row(db, "2023-01-01T10:01:00Z", tvoc=150, eco2=450)
+    _insert_sensor_row(db, "2023-01-01T10:02:00Z", tvoc=200, eco2=500)
 
     # Test the range-tag endpoint
     start = "2023-01-01T10:00:00Z"
@@ -290,20 +295,21 @@ def test_compute_historical_baselines_returns_median(tmp_path, monkeypatch):
 
     # event start: 2026-01-01T12:00:00Z
     # baseline window: 2026-01-01T11:00:00Z – 2026-01-01T12:00:00Z (exclusive)
-    _insert_baseline_row(db_file, "2026-01-01 11:00:00", tvoc=100.0)
-    _insert_baseline_row(db_file, "2026-01-01 11:30:00", tvoc=200.0)
-    _insert_baseline_row(db_file, "2026-01-01 11:59:00", tvoc=300.0)
+    # Use production storage format (T-separator + Z) — see log_sensor_data.
+    _insert_baseline_row(db_file, "2026-01-01T11:00:00Z", tvoc=100.0)
+    _insert_baseline_row(db_file, "2026-01-01T11:30:00Z", tvoc=200.0)
+    _insert_baseline_row(db_file, "2026-01-01T11:59:00Z", tvoc=300.0)
     # Row at exactly the event start must NOT be included (window is < start)
-    _insert_baseline_row(db_file, "2026-01-01 12:00:00", tvoc=999.0)
+    _insert_baseline_row(db_file, "2026-01-01T12:00:00Z", tvoc=999.0)
     # Row outside the window must NOT be included
-    _insert_baseline_row(db_file, "2026-01-01 10:59:00", tvoc=1.0)
+    _insert_baseline_row(db_file, "2026-01-01T10:59:00Z", tvoc=1.0)
 
     import database.db_logger as _dbl
     monkeypatch.setattr(_dbl, "DB_FILE", db_file)
 
-    from mlss_monitor.routes.api_history import _compute_historical_baselines
+    from database.db_logger import get_pre_event_baselines
 
-    result = _compute_historical_baselines("2026-01-01T12:00:00Z")
+    result = get_pre_event_baselines("2026-01-01T12:00:00Z")
 
     # Median of [100, 200, 300] = 200
     assert result["tvoc_ppb"] == pytest.approx(200.0)
@@ -326,9 +332,9 @@ def test_compute_historical_baselines_no_data_returns_none(tmp_path, monkeypatch
     import database.db_logger as _dbl
     monkeypatch.setattr(_dbl, "DB_FILE", db_file)
 
-    from mlss_monitor.routes.api_history import _compute_historical_baselines
+    from database.db_logger import get_pre_event_baselines
 
-    result = _compute_historical_baselines("2026-01-01T12:00:00Z")
+    result = get_pre_event_baselines("2026-01-01T12:00:00Z")
 
     for field, value in result.items():
         assert value is None, f"Expected None for {field}, got {value}"
@@ -339,15 +345,15 @@ def test_compute_historical_baselines_even_count_uses_average(tmp_path, monkeypa
     db_file = str(tmp_path / "even_sensor.db")
     _create_sensor_db(db_file)
 
-    _insert_baseline_row(db_file, "2026-01-01 11:00:00", tvoc=100.0)
-    _insert_baseline_row(db_file, "2026-01-01 11:30:00", tvoc=200.0)
+    _insert_baseline_row(db_file, "2026-01-01T11:00:00Z", tvoc=100.0)
+    _insert_baseline_row(db_file, "2026-01-01T11:30:00Z", tvoc=200.0)
 
     import database.db_logger as _dbl
     monkeypatch.setattr(_dbl, "DB_FILE", db_file)
 
-    from mlss_monitor.routes.api_history import _compute_historical_baselines
+    from database.db_logger import get_pre_event_baselines
 
-    result = _compute_historical_baselines("2026-01-01T12:00:00Z")
+    result = get_pre_event_baselines("2026-01-01T12:00:00Z")
 
     # Median of [100, 200] (even) = (100 + 200) / 2 = 150
     assert result["tvoc_ppb"] == pytest.approx(150.0)

@@ -736,12 +736,30 @@ def get_24h_baselines() -> dict[str, float | None]:
 def get_sensor_data_range(start: str, end: str) -> list[dict]:
     """Return sensor_data rows (as dicts) for the given ISO-8601 time window.
 
-    ``start`` and ``end`` may use either the space separator or the T separator
-    and may carry a trailing Z.  The function normalises them to the
-    space-separated format used by the sensor_data table before querying.
+    The ``sensor_data`` table stores timestamps in the form
+    ``YYYY-MM-DDTHH:MM:SS.ffffffZ`` (see :func:`log_sensor_data`, which uses
+    ``datetime.utcnow().isoformat()`` and :func:`_normalise_ts`).  We therefore
+    normalise input bounds to the **T-separator** form so that SQLite's
+    lexicographic string comparison matches correctly:
+
+    * ``start`` keeps its T separator and *drops* any trailing ``Z``.  For a
+      stored row ``2024-01-01T10:00:00.500000Z`` to be included when ``start``
+      is ``2024-01-01T10:00:00`` (a prefix of the row), the bound must NOT have
+      a ``Z`` (because ``'.' < 'Z'`` would otherwise exclude the fractional row).
+    * ``end`` keeps its T separator and *adds* a trailing ``Z`` if missing.
+      For a row stored exactly at the end second to be included, the bound must
+      end in ``Z`` (or the row's longer microsecond suffix would compare as
+      larger than the bound).
+
+    Historically this function normalised bounds to a space separator, which
+    produced empty results for any same-day narrow window because ``'T' > ' '``
+    in ASCII caused stored rows to sort AFTER the end bound.  ``start`` and
+    ``end`` may be supplied with either separator.
     """
-    start_db = start.rstrip("Z").replace("T", " ")
-    end_db = end.rstrip("Z").replace("T", " ")
+    start_db = start.replace(" ", "T").rstrip("Z")
+    end_db = end.replace(" ", "T")
+    if not end_db.endswith("Z"):
+        end_db += "Z"
     conn = _connect()
     conn.row_factory = sqlite3.Row
     rows = conn.execute(
@@ -812,8 +830,9 @@ def get_pre_event_baselines(event_start: str) -> dict[str, float | None]:
             WHERE timestamp >= ? AND timestamp < ?
             ORDER BY timestamp
             """,
-            (window_start.strftime("%Y-%m-%d %H:%M:%S"),
-             window_end.strftime("%Y-%m-%d %H:%M:%S")),
+            # sensor_data timestamps use T-separator + Z suffix (see log_sensor_data).
+            (window_start.strftime("%Y-%m-%dT%H:%M:%S"),
+             window_end.strftime("%Y-%m-%dT%H:%M:%S")),
         )
         rows = cur.fetchall()
         conn.close()
@@ -851,8 +870,9 @@ def get_baselines_7d_ago(window_start: str) -> dict[str, float | None]:
         start_dt = datetime.fromisoformat(ts).replace(tzinfo=timezone.utc)
         ago_end = start_dt - timedelta(days=7)
         ago_start = ago_end - timedelta(hours=24)
-        ago_start_db = ago_start.strftime("%Y-%m-%d %H:%M:%S")
-        ago_end_db = ago_end.strftime("%Y-%m-%d %H:%M:%S")
+        # sensor_data timestamps use T-separator + Z suffix (see log_sensor_data).
+        ago_start_db = ago_start.strftime("%Y-%m-%dT%H:%M:%S")
+        ago_end_db = ago_end.strftime("%Y-%m-%dT%H:%M:%S")
 
         conn = _connect()
         try:
