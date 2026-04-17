@@ -225,18 +225,49 @@ def sparkline(inference_id):
         except Exception:
             evidence = {}
 
-    # For user-tagged range events, center on the actual event window
-    # instead of created_at (which is when the user clicked "tag").
+    # For user-tagged range events, use the actual tagged range as the window.
     range_start = evidence.get("range_start")
     range_end = evidence.get("range_end")
     if range_start and range_end:
         try:
             dt_start = datetime.fromisoformat(range_start.rstrip("Z")).replace(tzinfo=timezone.utc)
             dt_end = datetime.fromisoformat(range_end.rstrip("Z")).replace(tzinfo=timezone.utc)
-            dt = dt_start + (dt_end - dt_start) / 2  # center of the tagged range
-            window_start = (dt - timedelta(minutes=20)).strftime("%Y-%m-%dT%H:%M:%SZ")
-            window_end = (dt + timedelta(minutes=25)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            dt = dt_start + (dt_end - dt_start) / 2  # centre for inference_at marker
+            window_start = (dt_start - timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            window_end = (dt_end + timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
             rows = _query_sensor_data(_dbl_mod.DB_FILE, window_start, window_end)
+            # Re-query hot_tier with the new window too
+            try:
+                start_db = window_start.rstrip("Z")
+                end_db = window_end.rstrip("Z")
+                _conn2 = _sqlite3.connect(_dbl_mod.DB_FILE)
+                _conn2.row_factory = _sqlite3.Row
+                hot_raw2 = _conn2.execute(
+                    """SELECT timestamp, tvoc_ppb, eco2_ppm, temperature_c, humidity_pct,
+                              pm25_ug_m3, co_ppb, no2_ppb, nh3_ppb
+                       FROM hot_tier WHERE timestamp >= ? AND timestamp <= ?
+                       ORDER BY timestamp ASC""",
+                    (start_db, end_db),
+                ).fetchall()
+                _conn2.close()
+                hot_rows_range = []
+                for hr in hot_raw2:
+                    d = {}
+                    for hot_col, api_name in _hot_to_api.items():
+                        db_col = _api_to_db.get(api_name)
+                        if db_col:
+                            d[db_col] = hr[hot_col]
+                    d["timestamp"] = hr["timestamp"]
+                    d.setdefault("pm1_0", None)
+                    d.setdefault("pm10", None)
+                    hot_rows_range.append(d)
+                if hot_rows_range:
+                    cold_ts = {r["timestamp"] for r in rows}
+                    extra = [r for r in hot_rows_range if r["timestamp"] not in cold_ts]
+                    if extra:
+                        rows = sorted(rows + extra, key=lambda r: r["timestamp"])
+            except Exception:
+                pass
         except Exception:
             pass  # fall back to created_at-based window
 
@@ -290,4 +321,6 @@ def sparkline(inference_id):
         "timestamps": timestamps, "channels": channels,
         "inference_at": created_at, "triggering_channels": triggering,
         "is_ml_anomaly": is_ml_anomaly,
+        "range_start": range_start,
+        "range_end": range_end,
     })

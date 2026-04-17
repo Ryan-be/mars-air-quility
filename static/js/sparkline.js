@@ -42,7 +42,7 @@ async function loadSparkline(inferenceId, inferenceAt) {
       return;
     }
     chartDiv.style.display = 'block';
-    var inferenceTime = new Date(data.inference_at).getTime();
+    var hasRange = data.range_start && data.range_end;
     var traces = data.triggering_channels.map(function (ch) {
       var raw = data.channels[ch] || [];
       // Per-channel normalization to [0, 1] so that high-resistance channels
@@ -57,43 +57,68 @@ async function loadSparkline(inferenceId, inferenceAt) {
         return range === 0 ? 0.5 : (v - yMin) / range;
       });
       return {
-        x: data.timestamps.map(function (ts) { return (new Date(ts).getTime() - inferenceTime) / 60000; }),
+        x: data.timestamps,
         y: yNorm,
         mode: 'lines', name: ch,
         line: { color: _CHANNEL_COLOURS[ch] || '#6b7280', width: 1.5 },
-        hoverinfo: 'none',
+        hoverinfo: 'x+name',
       };
     });
-    var layout = {
-      height: 180,
-      margin: { l:10, r:10, t:5, b:30 },
-      xaxis: { title: { text:'minutes', font:{size:10} }, tickfont:{size:9}, zeroline:false },
-      yaxis: { title: { text:'normalised', font:{size:10} }, showticklabels:false, zeroline:false, autorange:true },
-      showlegend: true,
-      legend: { font: { size: 8 }, x: 0, y: 1, bgcolor: 'rgba(0,0,0,0)' },
-      shapes: [{
-        type:'line', x0:0, x1:0, y0:0, y1:1,
-        xref:'x', yref:'paper',
-        layer:'below',
-        line:{ color:'#ef4444', width:1.5, dash:'dash' }
-      }],
-      annotations: [{
-        x:0, y:1, xref:'x', yref:'paper',
-        text:'Event', showarrow:false,
-        font:{ size:9, color:'#ef4444' }, yanchor:'bottom'
-      }],
-      paper_bgcolor:'transparent', plot_bgcolor:'transparent',
-    };
-    // For ML anomaly events draw a semi-transparent detection window around t=0.
-    if (data.is_ml_anomaly) {
-      layout.shapes.push({
-        type: 'rect', x0: -2, x1: 2, y0: 0, y1: 1,
+    var shapes = [];
+    var annotations = [];
+    if (hasRange) {
+      // Shaded region for the tagged event range
+      shapes.push({
+        type: 'rect',
+        x0: data.range_start, x1: data.range_end, y0: 0, y1: 1,
+        xref: 'x', yref: 'paper',
+        fillcolor: 'rgba(239,68,68,0.12)', line: { color: 'rgba(239,68,68,0.4)', width: 1 },
+        layer: 'below',
+      });
+      annotations.push({
+        x: data.range_start, y: 1, xref: 'x', yref: 'paper',
+        text: 'Tagged range', showarrow: false,
+        font: { size: 9, color: '#ef4444' }, yanchor: 'bottom', xanchor: 'left',
+      });
+    } else {
+      // Single point marker
+      shapes.push({
+        type: 'line', x0: data.inference_at, x1: data.inference_at, y0: 0, y1: 1,
+        xref: 'x', yref: 'paper', layer: 'below',
+        line: { color: '#ef4444', width: 1.5, dash: 'dash' }
+      });
+      annotations.push({
+        x: data.inference_at, y: 1, xref: 'x', yref: 'paper',
+        text: 'Event', showarrow: false,
+        font: { size: 9, color: '#ef4444' }, yanchor: 'bottom'
+      });
+    }
+    // For ML anomaly events draw a semi-transparent detection window around inference_at.
+    if (data.is_ml_anomaly && !hasRange) {
+      var infMs = new Date(data.inference_at).getTime();
+      var m2ms = 2 * 60000;
+      shapes.push({
+        type: 'rect',
+        x0: new Date(infMs - m2ms).toISOString(),
+        x1: new Date(infMs + m2ms).toISOString(),
+        y0: 0, y1: 1,
         xref: 'x', yref: 'paper',
         fillcolor: 'rgba(239,68,68,0.10)', line: { width: 0 },
         layer: 'below',
       });
     }
-    Plotly.newPlot(chartDiv, traces, layout, { displayModeBar:false, responsive:true });
+    var layout = {
+      height: 180,
+      margin: { l: 10, r: 10, t: 5, b: 30 },
+      xaxis: { type: 'date', tickfont: { size: 9 }, zeroline: false },
+      yaxis: { title: { text: 'normalised', font: { size: 10 } }, showticklabels: false, zeroline: false, autorange: true },
+      showlegend: true,
+      legend: { font: { size: 8 }, x: 0, y: 1, bgcolor: 'rgba(0,0,0,0)' },
+      shapes: shapes,
+      annotations: annotations,
+      paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
+    };
+    Plotly.newPlot(chartDiv, traces, layout, { displayModeBar: false, responsive: true });
     // Resize immediately and after animation completes (panel transition is 280ms)
     Plotly.Plots.resize(chartDiv);
     setTimeout(function() { Plotly.Plots.resize(chartDiv); }, 320);
