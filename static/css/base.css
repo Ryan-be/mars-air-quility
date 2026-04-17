@@ -794,25 +794,89 @@ label {
 
 .drift-shift { font-weight: 700; margin-left: 8px; }
 
-/* ── Mobile ── */
+/* ── Tablet / narrow viewport ── */
+/* At tablet widths the absolutely-centred .gsb-monitors row begins to overlap
+   the right-aligned clock + user block. Hide the monitor row early so the
+   clock stays legible, and let both the main tab-nav and the page's own
+   rux-tabs (Climate / Air / Detections / …) scroll horizontally instead of
+   wrapping on top of themselves. */
+@media (max-width: 900px) {
+  .gsb-monitors { display: none !important; }
+  rux-tabs {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    white-space: nowrap;
+  }
+  rux-tabs::-webkit-scrollbar { display: none; }
+  rux-tab { flex-shrink: 0; }
+}
+
+/* ── Mobile / phone ── */
 @media (max-width: 600px) {
   .modebar-container { display: none !important; }
-  .gsb-monitors      { display: none; }
+  .page-controls-bar { padding: 6px 12px; gap: 0.5em; }
+  .page-controls-bar select { font-size: 12px; padding: 4px 8px; }
+
+  /* The clock's monospace glyphs crowd the user-auth block on phones; let the
+     clock wrap to the next line before the ellipsis clipping kicks in. */
+  .gsb-right { gap: 8px; }
+  .gsb-clock, rux-clock.gsb-clock { font-size: 11px; }
+
+  /* Thumb-friendly: move the main tab-nav to the bottom of the viewport,
+     matching the original mockups. Stack icon above label so the six-tab
+     navigation fits without horizontal scrolling on typical phone widths. */
   .tab-nav {
+    position: fixed;
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 56px;
+    padding: 0;
+    border-top: 1px solid var(--color-border-interactive-muted);
+    border-bottom: none;
+    justify-content: space-around;
+    box-shadow: 0 -1px 6px rgba(0, 0, 0, 0.35);
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
   }
   .tab-nav::-webkit-scrollbar { display: none; }
-  .page-controls-bar { padding: 6px 12px; gap: 0.5em; }
-  .page-controls-bar select { font-size: 12px; padding: 4px 8px; }
+  .tab-nav a {
+    flex: 1 1 0;
+    min-width: 72px;
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+    padding: 6px 4px;
+    font-size: 10px;
+    line-height: 1.1;
+    letter-spacing: 0.04em;
+    border-bottom: none;
+    border-top: 2px solid transparent;
+  }
+  .tab-nav a.active {
+    border-bottom-color: transparent;
+    border-top-color: var(--color-interactive-default);
+  }
+  .tab-nav rux-icon { font-size: 18px; opacity: 0.9; }
+  /* Reserve room at the bottom of the scroll area so the fixed nav doesn't
+     hide the last row of cards. */
+  .page-content { padding-bottom: 72px; }
+  /* Page-controls bar becomes the sticky sub-header (since tab-nav moved). */
+  .page-controls-bar {
+    position: sticky;
+    top: 56px;
+    z-index: 98;
+  }
 }
 
 @media (max-width: 420px) {
-  .tab-nav a span    { display: none; }
-  .tab-nav a         { padding: 0 12px; gap: 0; }
-  .gsb-app-name      { display: none; }
-  .gsb-status        { display: none; }
+  .gsb-app-name { display: none; }
+  .gsb-status   { display: none; }
+  .tab-nav a    { min-width: 60px; padding: 6px 2px; font-size: 9px; }
 }
 
 /* ── Empty controls bar collapses ── */

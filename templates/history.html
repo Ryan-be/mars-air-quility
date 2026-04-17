@@ -381,16 +381,6 @@
       <h3>ML Model Detections <rux-tooltip message="Detections from ML models watching multiple sensors together." placement="top"><span class="info-icon">ⓘ</span></rux-tooltip></h3>
       <div id="diModelCards"></div>
     </div>
-    <div class="di-card" id="diHeatmapSection">
-      <h3>Recurring Patterns <rux-tooltip message="Events recurring at similar times across multiple days." placement="top"><span class="info-icon">ⓘ</span></rux-tooltip></h3>
-      <div id="diHeatmap" style="height:200px;"></div>
-      <div id="diPatternSentence" class="di-sentence"></div>
-    </div>
-    <div class="di-card" id="diBandsSection">
-      <h3>Sensor Normal Bands <rux-tooltip message="The shaded band shows the system's learned normal range." placement="top"><span class="info-icon">ⓘ</span></rux-tooltip></h3>
-      <div class="channel-toggles" id="diToggles"></div>
-      <div id="diBandsChart" style="height:300px;"></div>
-    </div>
     <div id="diEventsList" style="display:none;">
       <!-- Timeline view -->
       <div class="tl-split-layout" id="diTimelineSplit">
@@ -427,6 +417,16 @@
           </div>
         </div>
       </div>
+    </div>
+    <div class="di-card" id="diHeatmapSection">
+      <h3>Recurring Patterns <rux-tooltip message="Events recurring at similar times across multiple days." placement="top"><span class="info-icon">ⓘ</span></rux-tooltip></h3>
+      <div id="diHeatmap" style="height:200px;"></div>
+      <div id="diPatternSentence" class="di-sentence"></div>
+    </div>
+    <div class="di-card" id="diBandsSection">
+      <h3>Sensor Normal Bands <rux-tooltip message="The shaded band shows the system's learned normal range." placement="top"><span class="info-icon">ⓘ</span></rux-tooltip></h3>
+      <div class="channel-toggles" id="diToggles"></div>
+      <div id="diBandsChart" style="height:300px;"></div>
     </div>
     <div id="diDriftFlags"></div>
   </div>
