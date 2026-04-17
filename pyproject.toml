@@ -27,6 +27,7 @@ gunicorn = "^25.3.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0"
+beautifulsoup4 = "^4.12"
 
 [tool.poetry.group.visualization]
 optional = true

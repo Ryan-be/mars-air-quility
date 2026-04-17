@@ -125,5 +125,3 @@ def ie_anomaly():
 @require_role("admin")
 def ie_sources():
     return redirect(url_for("pages.ie_config") + "#sources")
-
-

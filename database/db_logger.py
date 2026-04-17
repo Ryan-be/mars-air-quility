@@ -699,7 +699,7 @@ _DB_COLUMNS = (
 
 # Mapping used by history query helpers and baseline computations.
 # DB column name → NormalisedReading / API field name.
-_DB_COL_TO_FIELD: dict[str, str] = {col: field for col, field in _DB_COLUMNS}
+_DB_COL_TO_FIELD: dict[str, str] = dict(_DB_COLUMNS)
 
 SENSOR_FIELDS: list[str] = [field for _, field in _DB_COLUMNS]
 
@@ -862,7 +862,7 @@ def get_baselines_7d_ago(window_start: str) -> dict[str, float | None]:
     (e.g. ``"tvoc_ppb"``, ``"temperature_c"``).
     """
     # Build a DB column → API field lookup from _DB_COLUMNS.
-    _db_to_api = {col: field for col, field in _DB_COLUMNS}
+    _db_to_api = dict(_DB_COLUMNS)
     db_cols = [col for col, _ in _DB_COLUMNS]
 
     try:

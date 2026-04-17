@@ -43,20 +43,39 @@ preload_app = True
 def post_fork(server, worker):
     """Restart background services INSIDE the worker after fork.
 
-    `preload_app = True` imports wsgi.py in the master, which calls
-    `_start_background_services()` there. Only the calling thread survives
-    fork(), so the sensor-read loop, weather loop, inference engine and
-    anomaly bootstrap Timer are left behind in the master — the worker
-    serves HTTP with an empty hot tier and no event bus publishing.
+    `preload_app = True` imports the app in the master before forking. Only
+    the calling thread survives `fork()`, so threads started at module import
+    (the asyncio `thread_loop` in app.py used for smart-plug I/O) and threads
+    started by `_start_background_services()` are all left behind in the
+    master process — without this hook, the worker serves HTTP with an empty
+    hot tier, a silent event bus, and a dead asyncio loop (every
+    `run_coroutine_threadsafe` call times out, which is why `get_power` was
+    failing with no message).
 
-    This hook resets the idempotency guard set in the master and re-starts
-    the background threads in the worker, which is where they need to run
-    for `/api/data` / `/api/stream` / inference pipelines to see live data.
+    This hook rebuilds both in the worker:
+    - a fresh `asyncio.new_event_loop()` + its driver thread, so the Kasa
+      smart-plug coroutines have a running loop to dispatch to;
+    - the background services (sensor loop, weather loop, detection engine,
+      anomaly bootstrap Timer) via `_start_background_services()` after
+      clearing the idempotency guard inherited from the master.
     """
     try:
+        import asyncio
+        from threading import Thread
         from mlss_monitor import app as _app_mod
+        # Fresh asyncio loop for this process (the master's loop object was
+        # inherited by fork but its driver thread is gone — submitting work
+        # to it just hangs).
+        _app_mod.thread_loop = asyncio.new_event_loop()
+        _app_mod.state.thread_loop = _app_mod.thread_loop
+        Thread(target=_app_mod._start_thread_event_loop, daemon=True).start()
+        # Reset the idempotency Event (set in master via preload) so services
+        # actually start here.
         _app_mod._services_started.clear()
         _app_mod._start_background_services()
-        server.log.info("post_fork: background services restarted in worker pid=%d", worker.pid)
+        server.log.info(
+            "post_fork: thread_loop + background services restarted in worker pid=%d",
+            worker.pid,
+        )
     except Exception as exc:  # pragma: no cover — best-effort recovery
         server.log.exception("post_fork: failed to restart background services: %s", exc)
