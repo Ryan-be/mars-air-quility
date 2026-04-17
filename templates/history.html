@@ -280,7 +280,9 @@
         <label class="overlay-toggle">
           <rux-switch id="corrShowDetections" checked></rux-switch>
           Show detections
-          <span class="info-icon" title="Shows when events were detected — align these with sensor spikes to understand what triggered each detection.">ⓘ</span>
+          <rux-tooltip message="Shows when events were detected — align these with sensor spikes to understand what triggered each detection." placement="top">
+            <span class="info-icon">ⓘ</span>
+          </rux-tooltip>
         </label>
       </div>
     </div>
@@ -298,15 +300,15 @@
       <div class="analysis-loading" id="corrAnalysisLoading">Analysing window…</div>
       <div id="corrAnalysisContent" style="display:none;">
         <div class="analysis-section">
-          <h4>Events in window <span class="info-icon" title="Inferences that fired within the zoomed time range.">ⓘ</span></h4>
+          <h4>Events in window <rux-tooltip message="Inferences that fired within the zoomed time range." placement="top"><span class="info-icon">ⓘ</span></rux-tooltip></h4>
           <div id="corrEventsList"></div>
         </div>
         <div class="analysis-section">
-          <h4>Sensor co-movement <span class="info-icon" title="Channels that moved together strongly (Pearson r > 0.7).">ⓘ</span></h4>
+          <h4>Sensor co-movement <rux-tooltip message="Channels that moved together strongly (Pearson r > 0.7)." placement="top"><span class="info-icon">ⓘ</span></rux-tooltip></h4>
           <div id="corrComovement"></div>
         </div>
         <div class="analysis-section">
-          <h4>Peak vs baseline <span class="info-icon" title="Highest reading vs learned normal value.">ⓘ</span></h4>
+          <h4>Peak vs baseline <rux-tooltip message="Highest reading vs learned normal value." placement="top"><span class="info-icon">ⓘ</span></rux-tooltip></h4>
           <div id="corrPeakBaseline"></div>
         </div>
         <div class="analysis-section" id="corrRangeInferenceSuggestionSection" style="display:none;">
@@ -366,26 +368,26 @@
     <div id="diTrendIndicators" class="trend-row"></div>
     <div class="di-stat" id="diLongestClean"></div>
     <div class="di-card" id="diAttributionBreakdown">
-      <h3>Attribution Breakdown <span class="info-icon" title="Attribution assigns detected events to likely real-world causes.">ⓘ</span></h3>
+      <h3>Attribution Breakdown <rux-tooltip message="Attribution assigns detected events to likely real-world causes." placement="top"><span class="info-icon">ⓘ</span></rux-tooltip></h3>
       <div id="diAttributionSubtitle" class="di-subtitle"></div>
       <div id="diDonutChart"></div>
       <div id="diDominantSentence" class="di-sentence"></div>
     </div>
     <div class="di-card" id="diFingerprints">
-      <h3>Source Fingerprints <span class="info-icon" title="Sensor patterns associated with real-world causes.">ⓘ</span></h3>
+      <h3>Source Fingerprints <rux-tooltip message="Sensor patterns associated with real-world causes." placement="top"><span class="info-icon">ⓘ</span></rux-tooltip></h3>
       <div id="diFingerprintCards"></div>
     </div>
     <div class="di-card" id="diAnomalyModels" style="display:none;">
-      <h3>ML Model Detections <span class="info-icon" title="Detections from ML models watching multiple sensors together.">ⓘ</span></h3>
+      <h3>ML Model Detections <rux-tooltip message="Detections from ML models watching multiple sensors together." placement="top"><span class="info-icon">ⓘ</span></rux-tooltip></h3>
       <div id="diModelCards"></div>
     </div>
     <div class="di-card" id="diHeatmapSection">
-      <h3>Recurring Patterns <span class="info-icon" title="Events recurring at similar times across multiple days.">ⓘ</span></h3>
+      <h3>Recurring Patterns <rux-tooltip message="Events recurring at similar times across multiple days." placement="top"><span class="info-icon">ⓘ</span></rux-tooltip></h3>
       <div id="diHeatmap" style="height:200px;"></div>
       <div id="diPatternSentence" class="di-sentence"></div>
     </div>
     <div class="di-card" id="diBandsSection">
-      <h3>Sensor Normal Bands <span class="info-icon" title="The shaded band shows the system's learned normal range.">ⓘ</span></h3>
+      <h3>Sensor Normal Bands <rux-tooltip message="The shaded band shows the system's learned normal range." placement="top"><span class="info-icon">ⓘ</span></rux-tooltip></h3>
       <div class="channel-toggles" id="diToggles"></div>
       <div id="diBandsChart" style="height:300px;"></div>
     </div>
@@ -442,8 +444,10 @@
     </div>
     <div class="inf-body" id="infBody">
       <div class="inf-meta" id="infMeta">
-        <span class="inf-badge" id="infSeverity"></span>
-        <span class="inf-detection-chip"></span>
+        <div class="inf-meta-badges">
+          <span class="inf-badge" id="infSeverity"></span>
+          <span class="inf-detection-chip"></span>
+        </div>
         <span class="inf-time" id="infTime"></span>
         <span class="inf-confidence" id="infConfidence"></span>
       </div>
@@ -455,7 +459,9 @@
       <div id="infSparkline" class="sparkline-container" style="display:none;">
         <div class="sparkline-header">
           Sensor activity around this event
-          <span class="info-icon" title="Shows how sensor values moved in the 30 minutes around this event.">ⓘ</span>
+          <rux-tooltip message="Shows how sensor values moved in the 30 minutes around this event." placement="top">
+            <span class="info-icon">ⓘ</span>
+          </rux-tooltip>
         </div>
         <div id="infSparklineChart" style="height:180px;"></div>
         <div id="infSparklineLoading" style="display:none; text-align:center; padding:20px;">Loading…</div>
@@ -489,7 +495,9 @@
       <div class="inf-section">
         <div class="inf-section-title">
           Tags
-          <span class="info-icon" title="Tags record what you believe caused this event. This feedback helps the attribution engine learn from your corrections.">ⓘ</span>
+          <rux-tooltip message="Tags record what you believe caused this event. This feedback helps the attribution engine learn from your corrections." placement="top">
+            <span class="info-icon">ⓘ</span>
+          </rux-tooltip>
         </div>
         <div class="inf-tags-list" id="infTagsList"></div>
         <div class="inf-tag-controls">
@@ -502,7 +510,9 @@
       <div class="inf-section" id="infFvSection" style="display:none;">
         <div class="inf-section-title">
           Sensor Snapshot
-          <span class="info-icon" title="All sensor values and detected patterns at the time of this event, from the feature vector stored in evidence.">ⓘ</span>
+          <rux-tooltip message="All sensor values and detected patterns at the time of this event, from the feature vector stored in evidence." placement="top">
+            <span class="info-icon">ⓘ</span>
+          </rux-tooltip>
         </div>
         <div id="infFvBody" class="inf-fv-body"></div>
       </div>

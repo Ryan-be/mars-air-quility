@@ -821,6 +821,7 @@ function connectSSE() {
 
   _evtSource.addEventListener("sensor_update", (e) => {
     const d = JSON.parse(e.data);
+    window._sseLatest = d;
     const t = d.temperature;
     const h = d.humidity;
     document.getElementById("tempValue").textContent =
@@ -888,3 +889,100 @@ fetchForecast();
 fetchDailyForecast();
 fetchInferences();
 connectSSE();
+
+// ── Status bar button popovers ──────────────────────────────────────────────
+(function() {
+  const _POPOVER_GROUPS = {
+    'gsb-btn-env':      { title: 'Environment', keys: ['temperature','humidity','vpd','dew_point'] },
+    'gsb-btn-air':      { title: 'Air Quality',  keys: ['tvoc','eco2','air_quality'] },
+    'gsb-btn-sensors':  { title: 'Sensors',      keys: ['pm1','pm25','pm10','co','no2','nh3'] },
+    'gsb-btn-inference':{ title: 'Inference',    keys: ['inference_count','last_inference'] },
+  };
+
+  function _removePopover() {
+    const el = document.getElementById('gsb-popover');
+    if (el) el.remove();
+  }
+
+  function _showPopover(btn, groupId) {
+    _removePopover();
+    const group = _POPOVER_GROUPS[groupId];
+    if (!group) return;
+
+    const pop = document.createElement('div');
+    pop.id = 'gsb-popover';
+    pop.style.cssText = [
+      'position:fixed',
+      'z-index:10000',
+      'background:var(--color-background-surface-default,#1b2d3e)',
+      'border:1px solid var(--color-border-interactive-muted,#2b659b)',
+      'border-radius:4px',
+      'padding:0.75rem 1rem',
+      'box-shadow:0 4px 24px rgba(0,0,0,0.5)',
+      'min-width:180px',
+      'font-size:0.8rem',
+    ].join(';');
+
+    const rect = btn.getBoundingClientRect();
+    pop.style.top  = (rect.bottom + 6) + 'px';
+    pop.style.left = Math.max(4, rect.left - 20) + 'px';
+
+    // Title
+    const title = document.createElement('div');
+    title.style.cssText = 'font-size:0.7em;text-transform:uppercase;letter-spacing:0.1em;color:var(--color-text-placeholder,#52667a);margin-bottom:0.5rem';
+    title.textContent = group.title;
+    pop.appendChild(title);
+
+    // Pull current readings from the latest SSE data state
+    const latest = (window._sseLatest) || {};
+    const rows = {
+      temperature: ['Temperature', latest.temperature != null ? latest.temperature.toFixed(1) + ' °C' : '—'],
+      humidity:    ['Humidity',    latest.humidity    != null ? latest.humidity.toFixed(1)    + ' %'  : '—'],
+      vpd:         ['VPD',         latest.vpd_kpa     != null ? latest.vpd_kpa.toFixed(2)     + ' kPa': '—'],
+      dew_point:   ['Dew point',   latest.dew_point   != null ? latest.dew_point.toFixed(1)   + ' °C' : '—'],
+      tvoc:        ['TVOC',        latest.tvoc        != null ? latest.tvoc                   + ' ppb': '—'],
+      eco2:        ['eCO₂',        latest.eco2        != null ? latest.eco2                   + ' ppm': '—'],
+      air_quality: ['Air quality', (document.getElementById('airQualityStatus') || {}).textContent || '—'],
+      pm1:         ['PM1',         latest.pm1_0       != null ? latest.pm1_0                  + ' µg/m³': '—'],
+      pm25:        ['PM2.5',       latest.pm2_5       != null ? latest.pm2_5                  + ' µg/m³': '—'],
+      pm10:        ['pm10',        latest.pm10        != null ? latest.pm10                   + ' µg/m³': '—'],
+      co:          ['CO',          latest.co          != null ? latest.co                     + ' Ω'  : '—'],
+      no2:         ['NO₂',         latest.no2         != null ? latest.no2                    + ' Ω'  : '—'],
+      nh3:         ['NH₃',         latest.nh3         != null ? latest.nh3                    + ' Ω'  : '—'],
+    };
+
+    group.keys.forEach(function(key) {
+      const row = rows[key];
+      if (!row) return;
+      const line = document.createElement('div');
+      line.style.cssText = 'display:flex;justify-content:space-between;gap:1rem;padding:0.15rem 0;color:var(--color-text-primary,#fff)';
+      line.innerHTML = '<span style="color:var(--color-text-placeholder,#52667a)">' + row[0] + '</span><span>' + row[1] + '</span>';
+      pop.appendChild(line);
+    });
+
+    document.body.appendChild(pop);
+
+    setTimeout(function() {
+      document.addEventListener('click', function _close(e) {
+        if (!pop.contains(e.target) && e.target !== btn) {
+          _removePopover();
+          document.removeEventListener('click', _close, true);
+        }
+      }, true);
+    }, 0);
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    Object.keys(_POPOVER_GROUPS).forEach(function(id) {
+      const btn = document.getElementById(id);
+      if (!btn) return;
+      btn.style.cursor = 'pointer';
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        const existing = document.getElementById('gsb-popover');
+        if (existing) { _removePopover(); return; }
+        _showPopover(btn, id);
+      });
+    });
+  });
+})();

@@ -547,8 +547,14 @@ dialog::backdrop { background: rgba(0,0,0,0.7); }
   padding-bottom: 1rem;
   border-bottom: 1px solid var(--color-border-interactive-muted, #2b659b);
 }
-.inf-meta .inf-badge       { grid-column: 1; grid-row: 1; align-self: center; }
-.inf-meta .inf-detection-chip { grid-column: 1; grid-row: 1; align-self: center; margin-left: 0.5em; }
+.inf-meta-badges {
+  grid-column: 1;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  flex-wrap: wrap;
+}
 .inf-meta .inf-time        { grid-column: 2; grid-row: 1; margin-left: 0; white-space: nowrap; align-self: center; }
 .inf-meta .inf-confidence  { grid-column: 2; grid-row: 2; text-align: right; }
 
