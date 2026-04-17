@@ -115,18 +115,47 @@ const DI = (function () {
     if (bar) bar.style.display = visible ? 'block' : 'none';
   }
 
+  // Fetch with retry + exponential backoff. Previously a single network
+  // hiccup (e.g. a gunicorn restart caught mid-reload) would leave the
+  // detections cards stuck on "Loading…" forever because there was no retry.
+  async function _fetchJSONWithRetry(url, { retries = 3, baseDelayMs = 600 } = {}) {
+    let lastErr;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        const ctrl = new AbortController();
+        const to = setTimeout(() => ctrl.abort(), 20000);
+        const resp = await fetch(url, { signal: ctrl.signal, credentials: 'same-origin' });
+        clearTimeout(to);
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        return await resp.json();
+      } catch (e) {
+        lastErr = e;
+        if (attempt === retries) break;
+        const delay = baseDelayMs * Math.pow(2, attempt);
+        await new Promise(r => setTimeout(r, delay));
+      }
+    }
+    throw lastErr;
+  }
+
   async function load() {
     const { start, end } = _range();
     _showLoadingSkeletons();
     _setProgress(true);
     try {
-      const [nResp, bResp] = await Promise.all([
-        fetch(`/api/history/narratives?start=${start}&end=${end}`),
-        fetch('/api/history/baselines'),
+      [_narratives, _baselines] = await Promise.all([
+        _fetchJSONWithRetry(`/api/history/narratives?start=${start}&end=${end}`),
+        _fetchJSONWithRetry('/api/history/baselines'),
       ]);
-      [_narratives, _baselines] = await Promise.all([nResp.json(), bResp.json()]);
       _render();
-    } catch (e) { console.error('DI load error', e); }
+    } catch (e) {
+      console.error('DI load error (after retries)', e);
+      const msg = '<p class="di-loading" style="color:var(--rux-color-status-critical,#d32f2f)">Failed to load — <a href="#" onclick="DI.load();return false;">retry</a></p>';
+      ['diPeriodSummary','diTrendIndicators','diLongestClean','diFingerprintCards','diModelCards','diDriftFlags'].forEach(function (id) {
+        const el = document.getElementById(id);
+        if (el) el.innerHTML = msg;
+      });
+    }
     finally { _setProgress(false); }
   }
 

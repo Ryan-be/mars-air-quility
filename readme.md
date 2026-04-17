@@ -806,7 +806,7 @@ Dashboard available at `http://<pi-ip>:5000` (or `https://...` if `SSL_CERT_FILE
 poetry run gunicorn -c gunicorn.conf.py mlss_monitor.wsgi:application
 ```
 
-The configuration in `gunicorn.conf.py` is deliberate -- single `gthread` worker, 8 threads, `timeout = 0`, `preload_app = True`. See [Key design decisions](#key-design-decisions) and [PRODUCTION.md](docs/PRODUCTION.md) for the rationale (the short version: SSE plus a single in-process event bus, hot tier and detector model set requires exactly one worker process).
+The configuration in `gunicorn.conf.py` is deliberate -- single `gthread` worker, 32 threads, `timeout = 0`, `preload_app = True`, plus a `post_fork` hook that starts background services inside the worker (not the master). See [Key design decisions](#key-design-decisions) and [PRODUCTION.md](docs/PRODUCTION.md) for the rationale (the short version: SSE plus a single in-process event bus, hot tier and detector model set requires exactly one worker process, and SSE connections park a thread each so the pool must be sized for headroom).
 
 ### As a systemd service
 
