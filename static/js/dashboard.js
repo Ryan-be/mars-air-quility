@@ -935,20 +935,24 @@ connectSSE();
 
     // Pull current readings from the latest SSE data state
     const latest = (window._sseLatest) || {};
+    const _inferences = _infFeed ? _infFeed.getInferences() : [];
+    const _lastInf = _inferences[0];
     const rows = {
-      temperature: ['Temperature', latest.temperature != null ? latest.temperature.toFixed(1) + ' °C' : '—'],
-      humidity:    ['Humidity',    latest.humidity    != null ? latest.humidity.toFixed(1)    + ' %'  : '—'],
-      vpd:         ['VPD',         latest.vpd_kpa     != null ? latest.vpd_kpa.toFixed(2)     + ' kPa': '—'],
-      dew_point:   ['Dew point',   latest.dew_point   != null ? latest.dew_point.toFixed(1)   + ' °C' : '—'],
-      tvoc:        ['TVOC',        latest.tvoc        != null ? latest.tvoc                   + ' ppb': '—'],
-      eco2:        ['eCO₂',        latest.eco2        != null ? latest.eco2                   + ' ppm': '—'],
-      air_quality: ['Air quality', (document.getElementById('airQualityStatus') || {}).textContent || '—'],
-      pm1:         ['PM1',         latest.pm1_0       != null ? latest.pm1_0                  + ' µg/m³': '—'],
-      pm25:        ['PM2.5',       latest.pm2_5       != null ? latest.pm2_5                  + ' µg/m³': '—'],
-      pm10:        ['pm10',        latest.pm10        != null ? latest.pm10                   + ' µg/m³': '—'],
-      co:          ['CO',          latest.co          != null ? latest.co                     + ' Ω'  : '—'],
-      no2:         ['NO₂',         latest.no2         != null ? latest.no2                    + ' Ω'  : '—'],
-      nh3:         ['NH₃',         latest.nh3         != null ? latest.nh3                    + ' Ω'  : '—'],
+      temperature:     ['Temperature', latest.temperature != null ? latest.temperature.toFixed(1) + ' °C' : '—'],
+      humidity:        ['Humidity',    latest.humidity    != null ? latest.humidity.toFixed(1)    + ' %'  : '—'],
+      vpd:             ['VPD',         latest.vpd_kpa     != null ? latest.vpd_kpa.toFixed(2)     + ' kPa': '—'],
+      dew_point:       ['Dew point',   latest.dew_point   != null ? latest.dew_point.toFixed(1)   + ' °C' : '—'],
+      tvoc:            ['TVOC',        latest.tvoc        != null ? latest.tvoc                   + ' ppb': '—'],
+      eco2:            ['eCO₂',        latest.eco2        != null ? latest.eco2                   + ' ppm': '—'],
+      air_quality:     ['Air quality', (document.getElementById('airQualityStatus') || {}).textContent || '—'],
+      pm1:             ['PM1',         latest.pm1_0       != null ? latest.pm1_0                  + ' µg/m³': '—'],
+      pm25:            ['PM2.5',       latest.pm2_5       != null ? latest.pm2_5                  + ' µg/m³': '—'],
+      pm10:            ['PM10',        latest.pm10        != null ? latest.pm10                   + ' µg/m³': '—'],
+      co:              ['CO',          latest.co          != null ? latest.co                     + ' Ω'  : '—'],
+      no2:             ['NO₂',         latest.no2         != null ? latest.no2                    + ' Ω'  : '—'],
+      nh3:             ['NH₃',         latest.nh3         != null ? latest.nh3                    + ' Ω'  : '—'],
+      inference_count: ['Events (24h)', _inferences.length ? String(_inferences.length) : '0'],
+      last_inference:  ['Last event',   _lastInf ? new Date(_lastInf.created_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '—'],
     };
 
     group.keys.forEach(function(key) {
@@ -972,7 +976,7 @@ connectSSE();
     }, 0);
   }
 
-  document.addEventListener('DOMContentLoaded', function() {
+  function _bindPopovers() {
     Object.keys(_POPOVER_GROUPS).forEach(function(id) {
       const btn = document.getElementById(id);
       if (!btn) return;
@@ -984,5 +988,12 @@ connectSSE();
         _showPopover(btn, id);
       });
     });
-  });
+  }
+  // type="module" scripts run after the DOM is parsed (deferred semantics), so
+  // DOMContentLoaded may already have fired.  Call directly if the DOM is ready.
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _bindPopovers);
+  } else {
+    _bindPopovers();
+  }
 })();

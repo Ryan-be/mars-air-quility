@@ -1,6 +1,8 @@
 """API routes for environment inferences."""
 
+import json as _json
 import logging
+from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, jsonify, request
 
@@ -8,12 +10,18 @@ from database.db_logger import (
     dismiss_inference,
     get_distinct_attribution_sources,
     get_inferences,
+    get_inference_by_id,
     update_inference_notes,
     get_inference_tags,
     add_inference_tag,
+    get_sensor_data_range,
+    get_hot_tier_range,
+    _normalise_ts,
 )
+import database.db_logger as _dbl
 from mlss_monitor.inference_engine import CATEGORIES, event_category
 from mlss_monitor.rbac import require_role
+from mlss_monitor.routes.api_history import _DB_TO_API
 
 api_inferences_bp = Blueprint("api_inferences", __name__)
 
@@ -110,17 +118,7 @@ def tags(inference_id):
 
 @api_inferences_bp.route("/api/inferences/<int:inference_id>/sparkline")
 def sparkline(inference_id):
-    """Return sensor data for ±15 min around a specific inference."""
-    import json as _json
-    import database.db_logger as _dbl_mod
-    from datetime import datetime, timedelta, timezone
-    from database.db_logger import (
-        get_inference_by_id,
-        get_sensor_data_range,
-        get_hot_tier_range,
-        _normalise_ts,
-    )
-    from mlss_monitor.routes.api_history import _DB_TO_API
+    """Return sensor data covering the event window for sparkline charts."""
 
     # Map rule-based and statistical event_type values to the channels most relevant to them.
     _RULE_CHANNEL_MAP = {

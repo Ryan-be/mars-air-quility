@@ -437,7 +437,10 @@ const DI = (function () {
     el.style.display = 'block';
     el.innerHTML = `<div class="di-card drift-section">
       <h3>Sensor Drift Flags <rux-tooltip message="Baseline shift vs 7 days ago."><span class="info-icon">ⓘ</span></rux-tooltip></h3>
-      ${flags.map(f => `<rux-notification status="caution" message="${f.channel} — ${f.message} ${f.direction==='up'?'↑':'↓'} ${f.shift_pct}%" open></rux-notification>`).join('')}
+      ${flags.map(f => {
+        const _ea = s => String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+        return `<rux-notification status="caution" message="${_ea(f.channel)} — ${_ea(f.message)} ${f.direction==='up'?'↑':'↓'} ${_ea(f.shift_pct)}%" open></rux-notification>`;
+      }).join('')}
     </div>`;
   }
 
@@ -456,7 +459,9 @@ window.diToggleChip = diToggleChip;
 // ── Global inference dialog opener (used by DI tab cards) ────────────────────
 // On the dashboard page dashboard.js defines its own _openInferenceDialog.
 // On the history page this function is the sole dialog opener.
-window.closeInferencePanel = function() {
+// Use `||` guard so dashboard.js (which also defines this) isn't silently
+// overwritten when both scripts are present on the same page.
+window.closeInferencePanel = window.closeInferencePanel || function() {
   var panel = document.getElementById('inferencePanel');
   var backdrop = document.getElementById('infSlideBackdrop');
   if (panel) panel.classList.remove('open');
@@ -723,13 +728,19 @@ function openInferenceDialog(id) {
     } catch (e) { /* ignore */ }
   };
 
-  // Tags
-  const tagsList = document.getElementById('infTagsList');
-  if (tagsList && inf.tags) {
-    tagsList.innerHTML = inf.tags.map(t => `<span class="tag-chip">${t.tag}</span>`).join(' ');
-  } else if (tagsList) {
-    tagsList.innerHTML = '';
+  // Tags — use textContent (not innerHTML) to prevent stored XSS from user-entered tag text.
+  function _renderTags(tags, container) {
+    if (!container) return;
+    container.innerHTML = '';
+    (tags || []).forEach(function(t) {
+      const chip = document.createElement('span');
+      chip.className = 'tag-chip';
+      chip.textContent = t.tag;
+      container.appendChild(chip);
+    });
   }
+  const tagsList = document.getElementById('infTagsList');
+  _renderTags(inf.tags, tagsList);
   document.getElementById('infAddTag').onclick = async function () {
     const select = document.getElementById('infTagSelect');
     const tag = select.value;
@@ -743,9 +754,7 @@ function openInferenceDialog(id) {
       // Refresh tags
       const res = await fetch('/api/inferences/' + id + '/tags');
       const newTags = await res.json();
-      if (tagsList) {
-        tagsList.innerHTML = newTags.map(t => `<span class="tag-chip">${t.tag}</span>`).join(' ');
-      }
+      _renderTags(newTags, tagsList);
       inf.tags = newTags;
       select.value = '';
     } catch (e) { /* ignore */ }

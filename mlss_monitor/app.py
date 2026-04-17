@@ -665,6 +665,7 @@ def _build_ssl_context():
 
 # ── Background services ────────────────────────────────────────────────────────
 
+_services_lock    = threading.Lock()
 _services_started = threading.Event()
 
 
@@ -674,10 +675,14 @@ def _start_background_services():
     Idempotent — safe to call multiple times (subsequent calls are no-ops).
     Designed to be called from wsgi.py before gunicorn forks workers, and also
     from main() so the dev-server path continues to work unchanged.
+
+    Uses a Lock + Event to prevent TOCTOU races if two threads ever call this
+    concurrently (e.g. during testing or if preload_app is ever disabled).
     """
-    if _services_started.is_set():
-        return
-    _services_started.set()
+    with _services_lock:
+        if _services_started.is_set():
+            return
+        _services_started.set()
 
     def _startup_analysis():
         try:
@@ -697,6 +702,8 @@ def _start_background_services():
             _detection_engine.bootstrap_from_db(str(DB_FILE))
         except Exception as exc:
             log.warning("DetectionEngine.bootstrap_from_db failed: %s", exc)
+    # 20-second delay lets Flask/gunicorn finish binding before the CPU-heavy
+    # River learn_one() calls inside bootstrap_from_db() compete for the GIL.
     Timer(20, _bootstrap).start()
 
 

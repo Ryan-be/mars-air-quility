@@ -8,7 +8,8 @@ bind = "0.0.0.0:5000"
 worker_class = "gthread"
 workers = 1
 threads = 8          # max 8 concurrent requests (incl. SSE connections)
-timeout = 120
+timeout = 0  # gthread workers: disable timeout — SSE heartbeat (10s) keeps connections alive;
+             # per-connection lifetime (600s) is enforced by generate() in api_stream.py
 keepalive = 5
 
 # SSL — use the same config keys as app.py so certs/cert.pem + certs/key.pem
