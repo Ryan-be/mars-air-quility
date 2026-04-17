@@ -1090,20 +1090,44 @@ label {
   word-break: break-word;
 }
 .inf-slide-close {
+  /* Reset default user-agent button styling so mobile browsers (iOS Safari,
+     Android Chrome) don't apply native chrome — otherwise the X inside
+     renders with a shaded/bordered pill around it. */
+  -webkit-appearance: none;
+  appearance: none;
   background: transparent;
   border: none;
+  outline: none;
   color: var(--color-text-secondary);
   cursor: pointer;
-  padding: 4px;
-  border-radius: 2px;
-  display: flex;
+  padding: 0;
+  border-radius: 4px;
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
+  /* Explicit square tap target — 32×32 on desktop, 44×44 on touch (below). */
+  width: 32px;
+  height: 32px;
   transition: color 0.15s, background 0.15s;
   flex-shrink: 0;
+}
+.inf-slide-close rux-icon {
+  /* Constrain rux-icon so the SVG fills exactly the intended size, not the
+     component's default flex-grown box. */
+  width: 18px;
+  height: 18px;
+  display: block;
 }
 .inf-slide-close:hover {
   color: var(--color-text-primary);
   background: var(--color-background-surface-hover);
+}
+.inf-slide-close:focus-visible {
+  outline: 2px solid var(--color-border-interactive);
+  outline-offset: 2px;
+}
+@media (pointer: coarse), (max-width: 600px) {
+  .inf-slide-close { width: 44px; height: 44px; }
 }
 .inf-slide-panel .inf-body {
   flex: 1;

@@ -796,7 +796,11 @@ function _openInferenceDialog(id) {
 
   // Load sparkline after panel is open so Plotly gets the correct panel width.
   // 100ms lets the CSS transition start and the browser measure the container.
-  if (typeof loadSparkline === 'function' && inf.triggering_channels && inf.triggering_channels.length > 0) {
+  // (Matches detections_insights.js: sparkline.js itself fetches
+  // /api/inferences/<id>/sparkline and decides whether to render — no need to
+  // pre-filter on inf.triggering_channels, which isn't always populated on the
+  // feed object even when the server has data.)
+  if (typeof loadSparkline === 'function') {
     setTimeout(() => { loadSparkline(inf.id, inf.created_at); }, 100);
   }
   // Remove the old resize setTimeout — sparkline.js handles its own resize now.
