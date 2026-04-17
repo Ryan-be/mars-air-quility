@@ -73,8 +73,11 @@ def compute_detection_method(event_type: str) -> str:
 
 
 def _connect():
-    """Open a SQLite connection with a 15-second write-wait timeout."""
-    return sqlite3.connect(DB_FILE, timeout=15)
+    """Open a SQLite connection with WAL mode and a 10-second busy timeout."""
+    conn = sqlite3.connect(DB_FILE, timeout=10)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=8000")
+    return conn
 
 
 def log_sensor_data(temp, hum, eco2, tvoc, annotation=None, fan_power_w=None, vpd_kpa=None,

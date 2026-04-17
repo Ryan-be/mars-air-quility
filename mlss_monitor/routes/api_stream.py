@@ -2,6 +2,7 @@
 
 import json
 import queue
+import time as _time
 
 from flask import Blueprint, Response, current_app, jsonify, request
 
@@ -9,7 +10,8 @@ from mlss_monitor import state
 
 api_stream_bp = Blueprint("api_stream", __name__)
 
-_HEARTBEAT_SECONDS = 30
+_HEARTBEAT_SECONDS = 10
+_MAX_LIFETIME_SECONDS = 600  # 10 min; EventSource auto-reconnects
 
 
 def _sse_format(msg: dict) -> str:
@@ -34,8 +36,12 @@ def stream():
     sub_queue = bus.subscribe(replay=True)
 
     def generate():
+        start_time = _time.monotonic()
         try:
             while True:
+                if _time.monotonic() - start_time > _MAX_LIFETIME_SECONDS:
+                    yield ": reconnect\n\n"
+                    return
                 try:
                     timeout = 0.1 if testing else _HEARTBEAT_SECONDS
                     msg = sub_queue.get(timeout=timeout)

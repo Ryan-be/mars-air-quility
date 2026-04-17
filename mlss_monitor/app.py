@@ -4,6 +4,7 @@ import math
 import mimetypes
 import os
 import ssl
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -662,6 +663,43 @@ def _build_ssl_context():
     return ctx
 
 
+# ── Background services ────────────────────────────────────────────────────────
+
+_services_started = threading.Event()
+
+
+def _start_background_services():
+    """Start sensor, log, and weather background threads.
+
+    Idempotent — safe to call multiple times (subsequent calls are no-ops).
+    Designed to be called from wsgi.py before gunicorn forks workers, and also
+    from main() so the dev-server path continues to work unchanged.
+    """
+    if _services_started.is_set():
+        return
+    _services_started.set()
+
+    def _startup_analysis():
+        try:
+            from mlss_monitor.inference_engine import run_startup_analysis
+            run_startup_analysis()
+        except Exception as e:
+            log.error("Startup analysis failed: %s", e)
+
+    Thread(target=_startup_analysis, daemon=True).start()
+    Thread(target=_background_log, daemon=True).start()
+    Thread(target=_weather_log_loop, daemon=True).start()
+    Thread(target=_sensor_read_loop, daemon=True).start()
+
+    from threading import Timer
+    def _bootstrap():
+        try:
+            _detection_engine.bootstrap_from_db(str(DB_FILE))
+        except Exception as exc:
+            log.warning("DetectionEngine.bootstrap_from_db failed: %s", exc)
+    Timer(20, _bootstrap).start()
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main():
@@ -706,17 +744,6 @@ def main():
     state.hot_tier = hot_tier
     log.info("STARTUP: HotTier init (%.1fs elapsed)", time.monotonic() - _t0)
 
-    def _bootstrap():
-        try:
-            _detection_engine.bootstrap_from_db(str(DB_FILE))
-        except Exception as exc:
-            log.warning("DetectionEngine.bootstrap_from_db failed: %s", exc)
-    # Delay bootstrap 20s so Flask can fully bind before the CPU-heavy
-    # river learn_one() calls compete for the GIL.
-    from threading import Timer
-    Timer(20, _bootstrap).start()
-    log.info("STARTUP: bootstrap Timer(20s) scheduled (%.1fs elapsed)", time.monotonic() - _t0)
-
     if state.github_oauth:
         log.info("🔒 Auth ENABLED — GitHub OAuth")
         if state.ALLOWED_GITHUB_USER:
@@ -732,19 +759,7 @@ def main():
     state.fan_mode = "auto" if _fan_settings["enabled"] else "manual"
     log.info("STARTUP: get_fan_settings (%.1fs elapsed)", time.monotonic() - _t0)
 
-    # Backfill any missing long-term inferences from historical data (background)
-    def _startup_analysis():
-        try:
-            from mlss_monitor.inference_engine import run_startup_analysis
-            run_startup_analysis()
-        except Exception as e:
-            log.error("Startup analysis failed: %s", e)
-    Thread(target=_startup_analysis, daemon=True).start()
-    log.info("STARTUP: _startup_analysis thread started (%.1fs elapsed)", time.monotonic() - _t0)
-
-    Thread(target=_background_log, daemon=True).start()
-    Thread(target=_weather_log_loop, daemon=True).start()
-    Thread(target=_sensor_read_loop, daemon=True).start()
+    _start_background_services()
     log.info("STARTUP: background threads started (%.1fs elapsed)", time.monotonic() - _t0)
 
     ssl_ctx = _build_ssl_context()

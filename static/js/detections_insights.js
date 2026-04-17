@@ -656,12 +656,24 @@ function openInferenceDialog(id) {
       evEl.innerHTML = featureHtml || 'No detailed evidence available.';
     } else {
       const entries = Object.entries(inf.evidence).filter(function ([k]) {
-        return k !== '_thresholds' && k !== 'sensor_snapshot' && k !== 'model_id';
+        return k !== '_thresholds' && k !== 'sensor_snapshot' && k !== 'model_id' &&
+               k !== 'feature_vector' && k !== 'readings';
       });
-      evEl.innerHTML = entries.map(function ([k, v]) {
+      var html = entries.map(function ([k, v]) {
+        if (typeof v === 'object' || Array.isArray(v)) return null;
         return '<span class="inf-ev-key">' + k.replace(/_/g, ' ') + '</span>' +
                '<span class="inf-ev-val">' + v + '</span>';
-      }).join('') || '<span class="inf-ev-key" style="grid-column:1/-1;color:var(--color-text-placeholder)">No detailed evidence available.</span>';
+      }).filter(Boolean).join('');
+      // Always show range info for user-tagged events
+      if (inf.evidence.range_start && inf.evidence.range_end) {
+        html = '<span class="inf-ev-key">Tagged range</span>' +
+               '<span class="inf-ev-val">' +
+               new Date(inf.evidence.range_start).toLocaleString() + ' \u2192 ' +
+               new Date(inf.evidence.range_end).toLocaleString() +
+               '</span>' + html;
+      }
+      evEl.innerHTML = html ||
+        '<span class="inf-ev-key" style="grid-column:1/-1;color:var(--color-text-placeholder)">No detailed evidence available.</span>';
     }
     if (thresholds && typeof thresholds === 'object' && Object.keys(thresholds).length) {
       thSec.style.display = '';
@@ -742,21 +754,19 @@ function openInferenceDialog(id) {
   // Sparkline (suppress if loadSparkline not available, or no triggering channels)
   const sparkline = document.getElementById('infSparkline');
   if (sparkline) sparkline.style.display = 'none';
-  if (typeof loadSparkline === 'function' && inf.triggering_channels && inf.triggering_channels.length > 0) {
-    loadSparkline(inf.id, inf.created_at);
-  }
 
   panel.classList.add('open');
   var backdrop = document.getElementById('infSlideBackdrop');
   if (backdrop) backdrop.classList.add('visible');
   document.body.style.overflow = 'hidden';
   _bindEscClose();
-  // Resize the sparkline chart after the panel is visible so Plotly measures
-  // the correct dimensions.
-  setTimeout(function () {
-    var chartDiv = document.getElementById('infSparklineChart');
-    if (chartDiv && window.Plotly) Plotly.Plots.resize(chartDiv);
-  }, 50);
+
+  // Load sparkline after panel is open so Plotly gets the correct panel width.
+  // 100ms lets the CSS transition start and the browser measure the container.
+  if (typeof loadSparkline === 'function' && inf.triggering_channels && inf.triggering_channels.length > 0) {
+    setTimeout(function() { loadSparkline(inf.id, inf.created_at); }, 100);
+  }
+  // Remove the old resize setTimeout — sparkline.js handles its own resize now.
 }
 
 function diToggleChip(btn) {

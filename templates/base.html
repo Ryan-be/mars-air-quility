@@ -79,7 +79,13 @@
 
     <!-- Right: UTC clock + auth zone -->
     <div class="gsb-right">
-      <rux-clock class="gsb-clock" hide-date hide-labels timezone="UTC"></rux-clock>
+      <rux-clock class="gsb-clock" hide-date hide-labels id="gsb-header-clock"></rux-clock>
+      <script>
+        (function() {
+          var tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+          document.getElementById('gsb-header-clock').setAttribute('timezone', tz);
+        })();
+      </script>
       <div class="gsb-user">
         {% if auth_enabled %}
           {% if session_user %}

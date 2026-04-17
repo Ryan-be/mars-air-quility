@@ -94,6 +94,9 @@ async function loadSparkline(inferenceId, inferenceAt) {
       });
     }
     Plotly.newPlot(chartDiv, traces, layout, { displayModeBar:false, responsive:true });
+    // Resize immediately and after animation completes (panel transition is 280ms)
+    Plotly.Plots.resize(chartDiv);
+    setTimeout(function() { Plotly.Plots.resize(chartDiv); }, 320);
   } catch (e) {
     loading.style.display = 'none';
     error.style.display = 'block';

@@ -118,6 +118,63 @@ window.createInferenceTimeline = function createInferenceTimeline({
 
     const tracks = _assignToTracks(active);
 
+    // Build inference lookup and overlap map
+    const inferenceMap = {};
+    active.forEach(inf => { inferenceMap[inf.id] = inf; });
+
+    function _buildOverlapMap(tracks) {
+      const map = {};
+      tracks.forEach(track => {
+        const items = track.items;
+        for (let i = 0; i < items.length; i++) {
+          for (let j = i + 1; j < items.length; j++) {
+            const a = items[i], b = items[j];
+            const aS = new Date(a.created_at).getTime(), aE = new Date(_deriveEnd(a)).getTime();
+            const bS = new Date(b.created_at).getTime(), bE = new Date(_deriveEnd(b)).getTime();
+            if (aS < bE && aE > bS) {
+              (map[a.id] = map[a.id] || []).push(b.id);
+              (map[b.id] = map[b.id] || []).push(a.id);
+            }
+          }
+        }
+      });
+      return map;
+    }
+    const overlapMap = _buildOverlapMap(tracks);
+
+    function _showOverlapPicker(evt, inferences) {
+      const existing = document.getElementById('tl-overlap-picker');
+      if (existing) existing.remove();
+      const picker = document.createElement('div');
+      picker.id = 'tl-overlap-picker';
+      Object.assign(picker.style, {
+        position: 'fixed', zIndex: '9999',
+        background: 'var(--color-background-surface-default,#1b2d3e)',
+        border: '1px solid var(--color-border-interactive-muted,#2b659b)',
+        borderRadius: '4px', padding: '0.25rem 0',
+        boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
+        minWidth: '200px', maxWidth: '320px',
+        left: Math.min(evt.clientX, window.innerWidth - 340) + 'px',
+        top: (evt.clientY + 8) + 'px',
+      });
+      inferences.forEach(inf => {
+        const item = document.createElement('div');
+        item.style.cssText = 'padding:0.4rem 0.75rem;cursor:pointer;font-size:0.82em;color:var(--color-text-primary,#fff);border-bottom:1px solid rgba(43,101,155,0.3)';
+        item.textContent = (inf.title || 'Event #' + inf.id) + ' · ' +
+          new Date(inf.created_at).toLocaleString(undefined, { hour: '2-digit', minute: '2-digit' });
+        item.addEventListener('mouseenter', () => item.style.background = 'var(--color-background-surface-hover,rgba(77,172,255,0.08))');
+        item.addEventListener('mouseleave', () => item.style.background = '');
+        item.addEventListener('click', e => { e.stopPropagation(); picker.remove(); openDialog(inf.id); });
+        picker.appendChild(item);
+      });
+      document.body.appendChild(picker);
+      setTimeout(() => {
+        document.addEventListener('click', function _close(e) {
+          if (!picker.contains(e.target)) { picker.remove(); document.removeEventListener('click', _close, true); }
+        }, true);
+      }, 0);
+    }
+
     tracks.forEach(track => {
       const ruxTrack = document.createElement('rux-track');
 
@@ -148,8 +205,14 @@ window.createInferenceTimeline = function createInferenceTimeline({
 
         region.textContent = title;
 
-        region.addEventListener('click', () => {
-          openDialog(inf.id);
+        region.addEventListener('click', evt => {
+          const overlapping = (overlapMap[inf.id] || []).map(oid => inferenceMap[oid]).filter(Boolean);
+          if (overlapping.length === 0) {
+            openDialog(inf.id);
+          } else {
+            evt.stopPropagation();
+            _showOverlapPicker(evt, [inf, ...overlapping]);
+          }
         });
 
         ruxTrack.appendChild(region);

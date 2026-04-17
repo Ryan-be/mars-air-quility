@@ -420,7 +420,10 @@ if (typeof window.createTimelineDetailPanel === 'function') {
 }
 
 async function fetchInferences() {
-  await _infFeed.load('/api/inferences?limit=50');
+  const end = new Date();
+  const start = new Date(end.getTime() - 24 * 3600000);
+  const url = `/api/inferences?limit=500&start=${start.toISOString()}&end=${end.toISOString()}`;
+  await _infFeed.load(url);
   if (window._dashTimeline) window._dashTimeline.render(_infFeed.getInferences());
 }
 
@@ -719,12 +722,19 @@ function _openInferenceDialog(id) {
     } else {
       // Fallback: generic key-value pairs (existing behaviour for older inferences)
       const entries = Object.entries(inf.evidence).filter(
-        ([k]) => k !== "_thresholds" && k !== "sensor_snapshot" && k !== "model_id"
+        ([k]) => k !== "_thresholds" && k !== "sensor_snapshot" && k !== "model_id" &&
+                 k !== "feature_vector" && k !== "readings"
       );
-      evEl.innerHTML = entries.map(([k, v]) => {
-        const cls = _evidenceColor(k, v);
+      let html = entries.map(([k, v]) => {
+        if (typeof v === 'object' || Array.isArray(v)) return null;
+        const cls = _evidenceColor(k, String(v));
         return `<div class="inf-ev-row ${cls}"><span class="fd-label">${k.replace(/_/g, " ")}</span><span class="fd-value">${v}</span></div>`;
-      }).join("") || "No detailed evidence available.";
+      }).filter(Boolean).join("");
+      // Always show range info for user-tagged events
+      if (inf.evidence.range_start && inf.evidence.range_end) {
+        html = `<div class="inf-ev-row"><span class="fd-label">Tagged range</span><span class="fd-value">${new Date(inf.evidence.range_start).toLocaleString()} \u2192 ${new Date(inf.evidence.range_end).toLocaleString()}</span></div>` + html;
+      }
+      evEl.innerHTML = html || "No detailed evidence available.";
     }
 
     // Thresholds section (unchanged)
@@ -774,9 +784,6 @@ function _openInferenceDialog(id) {
   // Sparkline — guard in case sparkline.js failed to load
   const sparkline = document.getElementById('infSparkline');
   if (sparkline) sparkline.style.display = 'none';
-  if (typeof loadSparkline === 'function') {
-    loadSparkline(inf.id, inf.created_at);
-  }
 
   if (!panel) return;
   panel.classList.add('open');
@@ -786,12 +793,13 @@ function _openInferenceDialog(id) {
   // Bind Escape key close
   const onKey = (e) => { if (e.key === 'Escape') { closeInferencePanel(); document.removeEventListener('keydown', onKey); } };
   document.addEventListener('keydown', onKey);
-  // Resize the sparkline chart after the panel is visible so Plotly measures
-  // the correct dimensions.
-  setTimeout(() => {
-    const chartDiv = document.getElementById('infSparklineChart');
-    if (chartDiv && window.Plotly) Plotly.Plots.resize(chartDiv);
-  }, 50);
+
+  // Load sparkline after panel is open so Plotly gets the correct panel width.
+  // 100ms lets the CSS transition start and the browser measure the container.
+  if (typeof loadSparkline === 'function' && inf.triggering_channels && inf.triggering_channels.length > 0) {
+    setTimeout(() => { loadSparkline(inf.id, inf.created_at); }, 100);
+  }
+  // Remove the old resize setTimeout — sparkline.js handles its own resize now.
 }
 
 window.closeInferencePanel = window.closeInferencePanel || function() {

@@ -48,7 +48,13 @@ function _switchToTab(tabKey) {
     const panel = document.getElementById(`tab-${t}`);
     if (panel) panel.classList.toggle("tab-hidden", t !== tabKey);
   });
-  renderActiveTab();
+  renderActiveTab(tabKey);
+  requestAnimationFrame(() => {
+    const panel = document.getElementById(`tab-${tabKey}`);
+    if (panel && window.Plotly) {
+      panel.querySelectorAll('.js-plotly-plot').forEach(el => Plotly.Plots.resize(el));
+    }
+  });
 }
 
 function activeTab() {
@@ -61,8 +67,8 @@ function activeTab() {
   return document.querySelector(".tab-btn.tab-active")?.dataset.tab ?? "climate";
 }
 
-function renderActiveTab() {
-  const tab = activeTab();
+function renderActiveTab(forcedTab) {
+  const tab = forcedTab || activeTab();
   if (_rendered[tab]) return;
   _rendered[tab] = true;
   if (tab === "climate")     renderClimateCharts(_sensorData);
