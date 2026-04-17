@@ -1,7 +1,7 @@
 import json
 import sqlite3
 import statistics
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from config import config
 
@@ -697,6 +697,12 @@ _DB_COLUMNS = (
     ("gas_nh3",     "nh3_ppb"),
 )
 
+# Mapping used by history query helpers and baseline computations.
+# DB column name → NormalisedReading / API field name.
+_DB_COL_TO_FIELD: dict[str, str] = {col: field for col, field in _DB_COLUMNS}
+
+SENSOR_FIELDS: list[str] = [field for _, field in _DB_COLUMNS]
+
 
 def get_24h_baselines() -> dict[str, float | None]:
     """Return 24-hour median for each sensor channel, keyed by NormalisedReading field name.
@@ -723,3 +729,143 @@ def get_24h_baselines() -> dict[str, float | None]:
         values = [row[i] for row in rows if row[i] is not None]
         result[nr_field] = statistics.median(values) if values else None
     return result
+
+
+# ── History range query helpers ───────────────────────────────────────────────
+
+def get_sensor_data_range(start: str, end: str) -> list[dict]:
+    """Return sensor_data rows (as dicts) for the given ISO-8601 time window.
+
+    ``start`` and ``end`` may use either the space separator or the T separator
+    and may carry a trailing Z.  The function normalises them to the
+    space-separated format used by the sensor_data table before querying.
+    """
+    start_db = start.rstrip("Z").replace("T", " ")
+    end_db = end.rstrip("Z").replace("T", " ")
+    conn = _connect()
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        """SELECT timestamp, tvoc, eco2, temperature, humidity,
+                  pm1_0, pm2_5, pm10, gas_co, gas_no2, gas_nh3
+           FROM sensor_data WHERE timestamp >= ? AND timestamp <= ?
+           ORDER BY timestamp ASC""",
+        (start_db, end_db),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_hot_tier_range(start: str, end: str) -> list[dict]:
+    """Return hot_tier rows (as dicts) for the given ISO-8601 time window.
+
+    hot_tier stores timestamps with the T separator (no space), so the bounds
+    are normalised to T-format (trailing Z stripped, space NOT replaced).
+    """
+    start_db = start.rstrip("Z")
+    end_db = end.rstrip("Z")
+    conn = _connect()
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        """SELECT timestamp, tvoc_ppb, eco2_ppm, temperature_c, humidity_pct,
+                  pm25_ug_m3, co_ppb, no2_ppb, nh3_ppb
+           FROM hot_tier WHERE timestamp >= ? AND timestamp <= ?
+           ORDER BY timestamp ASC""",
+        (start_db, end_db),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_pre_event_baselines(event_start: str) -> dict[str, float | None]:
+    """Compute per-channel median over the 60-minute window ending at *event_start*.
+
+    Returns a dict keyed by NormalisedReading / API field names
+    (e.g. ``"tvoc_ppb"``, ``"temperature_c"``).  Any channel with no data in
+    the window is mapped to ``None``.
+    """
+    try:
+        ts = event_start.strip().replace(" ", "T")
+        if ts.endswith("Z"):
+            ts = ts[:-1] + "+00:00"
+        try:
+            start_dt = datetime.fromisoformat(ts)
+        except ValueError:
+            ts = ts[:19] + ts[19:].lstrip("0123456789.")
+            if not ts.endswith("+00:00"):
+                ts += "+00:00"
+            start_dt = datetime.fromisoformat(ts)
+        window_end = start_dt
+        window_start = start_dt - timedelta(hours=1)
+    except (ValueError, TypeError):
+        return {f: None for f in SENSOR_FIELDS}
+
+    baselines: dict[str, float | None] = {}
+    try:
+        conn = _connect()
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT tvoc, eco2, temperature, humidity,
+                   pm1_0, pm2_5, pm10, gas_co, gas_no2, gas_nh3
+            FROM sensor_data
+            WHERE timestamp >= ? AND timestamp < ?
+            ORDER BY timestamp
+            """,
+            (window_start.strftime("%Y-%m-%d %H:%M:%S"),
+             window_end.strftime("%Y-%m-%d %H:%M:%S")),
+        )
+        rows = cur.fetchall()
+        conn.close()
+    except Exception:
+        return {f: None for f in SENSOR_FIELDS}
+
+    if not rows:
+        return {f: None for f in SENSOR_FIELDS}
+
+    for db_col, field in _DB_COL_TO_FIELD.items():
+        vals = [r[db_col] for r in rows if r[db_col] is not None]
+        if vals:
+            vals.sort()
+            mid = len(vals) // 2
+            baselines[field] = (vals[mid] if len(vals) % 2 else (vals[mid - 1] + vals[mid]) / 2)
+        else:
+            baselines[field] = None
+
+    return baselines
+
+
+def get_baselines_7d_ago(window_start: str) -> dict[str, float | None]:
+    """Return per-channel averages from the 24-hour window that ended 7 days before *window_start*.
+
+    Returns an empty dict if no data is available for that period.
+    Keys use the NormalisedReading / API field naming convention
+    (e.g. ``"tvoc_ppb"``, ``"temperature_c"``).
+    """
+    # Build a DB column → API field lookup from _DB_COLUMNS.
+    _db_to_api = {col: field for col, field in _DB_COLUMNS}
+    db_cols = [col for col, _ in _DB_COLUMNS]
+
+    try:
+        ts = window_start.rstrip("Z")
+        start_dt = datetime.fromisoformat(ts).replace(tzinfo=timezone.utc)
+        ago_end = start_dt - timedelta(days=7)
+        ago_start = ago_end - timedelta(hours=24)
+        ago_start_db = ago_start.strftime("%Y-%m-%d %H:%M:%S")
+        ago_end_db = ago_end.strftime("%Y-%m-%d %H:%M:%S")
+
+        conn = _connect()
+        try:
+            cols_sql = ", ".join(f"AVG({c})" for c in db_cols)
+            row = conn.execute(
+                f"SELECT {cols_sql} FROM sensor_data WHERE timestamp >= ? AND timestamp < ?",
+                (ago_start_db, ago_end_db),
+            ).fetchone()
+        finally:
+            conn.close()
+
+        if row is None or all(v is None for v in row):
+            return {}
+        return {_db_to_api[col]: row[i] for i, col in enumerate(db_cols)}
+    except Exception:
+        return {}

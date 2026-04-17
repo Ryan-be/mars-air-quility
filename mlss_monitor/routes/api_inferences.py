@@ -114,9 +114,13 @@ def sparkline(inference_id):
     import json as _json
     import database.db_logger as _dbl_mod
     from datetime import datetime, timedelta, timezone
-    from database.db_logger import get_inference_by_id
-    from mlss_monitor.routes.api_history import _query_sensor_data, _DB_TO_API
-    from database.db_logger import _normalise_ts
+    from database.db_logger import (
+        get_inference_by_id,
+        get_sensor_data_range,
+        get_hot_tier_range,
+        _normalise_ts,
+    )
+    from mlss_monitor.routes.api_history import _DB_TO_API
 
     # Map rule-based and statistical event_type values to the channels most relevant to them.
     _RULE_CHANNEL_MAP = {
@@ -161,48 +165,25 @@ def sparkline(inference_id):
     dt = datetime.fromisoformat(created_at.rstrip("Z")).replace(tzinfo=timezone.utc)
     window_start = (dt - timedelta(minutes=20)).strftime("%Y-%m-%dT%H:%M:%SZ")
     window_end = (dt + timedelta(minutes=25)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    rows = _query_sensor_data(_dbl_mod.DB_FILE, window_start, window_end)
+    rows = get_sensor_data_range(window_start, window_end)
 
     # Also query hot_tier (1-second resolution, ~60 min retention) so that
     # recent inferences that haven't been downsampled to sensor_data yet still
     # have chart data.  hot_tier lacks pm1/pm10, so those are left as None.
-    import sqlite3 as _sqlite3
-    _hot_to_api = {
-        "tvoc_ppb": "tvoc_ppb", "eco2_ppm": "eco2_ppm",
-        "temperature_c": "temperature_c", "humidity_pct": "humidity_pct",
-        "pm25_ug_m3": "pm25_ug_m3", "co_ppb": "co_ppb",
-        "no2_ppb": "no2_ppb", "nh3_ppb": "nh3_ppb",
-    }
     # _DB_TO_API maps sensor_data col names → api names; build reverse to get db col from api name
     _api_to_db = {v: k for k, v in _DB_TO_API.items()}
     try:
-        # hot_tier stores timestamps as datetime.isoformat() — "YYYY-MM-DDTHH:MM:SS"
-        # (T separator, no Z).  Do NOT replace "T" with " " here; sensor_data uses
-        # space-formatted strings but hot_tier uses the ISO T format.  Using space-
-        # formatted bounds against T-formatted values fails because 'T' > ' ' in
-        # SQLite string ordering, making every hot_tier row appear past the end bound.
-        start_db = window_start.rstrip("Z")  # keeps T: "YYYY-MM-DDTHH:MM:SS"
-        end_db = window_end.rstrip("Z")
-        _conn = _sqlite3.connect(_dbl_mod.DB_FILE)
-        _conn.row_factory = _sqlite3.Row
-        hot_raw = _conn.execute(
-            """SELECT timestamp, tvoc_ppb, eco2_ppm, temperature_c, humidity_pct,
-                      pm25_ug_m3, co_ppb, no2_ppb, nh3_ppb
-               FROM hot_tier
-               WHERE timestamp >= ? AND timestamp <= ?
-               ORDER BY timestamp ASC""",
-            (start_db, end_db),
-        ).fetchall()
-        _conn.close()
+        hot_raw = get_hot_tier_range(window_start, window_end)
         # Convert hot_tier rows to the same dict shape as sensor_data rows
         # (keyed by sensor_data column names so _DB_TO_API still works).
         hot_rows = []
         for hr in hot_raw:
             d = {}
-            for hot_col, api_name in _hot_to_api.items():
-                db_col = _api_to_db.get(api_name)
+            for hot_col in ("tvoc_ppb", "eco2_ppm", "temperature_c", "humidity_pct",
+                            "pm25_ug_m3", "co_ppb", "no2_ppb", "nh3_ppb"):
+                db_col = _api_to_db.get(hot_col)
                 if db_col:
-                    d[db_col] = hr[hot_col]
+                    d[db_col] = hr.get(hot_col)
             d["timestamp"] = hr["timestamp"]
             # pm1_0 and pm10 not in hot_tier
             d.setdefault("pm1_0", None)
@@ -235,28 +216,18 @@ def sparkline(inference_id):
             dt = dt_start + (dt_end - dt_start) / 2  # centre for inference_at marker
             window_start = (dt_start - timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
             window_end = (dt_end + timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
-            rows = _query_sensor_data(_dbl_mod.DB_FILE, window_start, window_end)
+            rows = get_sensor_data_range(window_start, window_end)
             # Re-query hot_tier with the new window too
             try:
-                start_db = window_start.rstrip("Z")
-                end_db = window_end.rstrip("Z")
-                _conn2 = _sqlite3.connect(_dbl_mod.DB_FILE)
-                _conn2.row_factory = _sqlite3.Row
-                hot_raw2 = _conn2.execute(
-                    """SELECT timestamp, tvoc_ppb, eco2_ppm, temperature_c, humidity_pct,
-                              pm25_ug_m3, co_ppb, no2_ppb, nh3_ppb
-                       FROM hot_tier WHERE timestamp >= ? AND timestamp <= ?
-                       ORDER BY timestamp ASC""",
-                    (start_db, end_db),
-                ).fetchall()
-                _conn2.close()
+                hot_raw2 = get_hot_tier_range(window_start, window_end)
                 hot_rows_range = []
                 for hr in hot_raw2:
                     d = {}
-                    for hot_col, api_name in _hot_to_api.items():
-                        db_col = _api_to_db.get(api_name)
+                    for hot_col in ("tvoc_ppb", "eco2_ppm", "temperature_c", "humidity_pct",
+                                    "pm25_ug_m3", "co_ppb", "no2_ppb", "nh3_ppb"):
+                        db_col = _api_to_db.get(hot_col)
                         if db_col:
-                            d[db_col] = hr[hot_col]
+                            d[db_col] = hr.get(hot_col)
                     d["timestamp"] = hr["timestamp"]
                     d.setdefault("pm1_0", None)
                     d.setdefault("pm10", None)

@@ -4,14 +4,22 @@ from __future__ import annotations
 import dataclasses
 import json
 import math
-import sqlite3
 import time
 from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, jsonify, request
 
 import database.db_logger as _dbl
-from database.db_logger import _normalise_ts, get_inferences, save_inference, add_inference_tag
+from database.db_logger import (
+    _normalise_ts,
+    get_inferences,
+    save_inference,
+    add_inference_tag,
+    get_sensor_data_range,
+    get_hot_tier_range,
+    get_pre_event_baselines,
+    get_baselines_7d_ago,
+)
 from mlss_monitor.rbac import require_role
 from mlss_monitor import narrative_engine, state
 from mlss_monitor.data_sources.base import NormalisedReading
@@ -54,37 +62,6 @@ _ALL_CHANNELS = list(_DB_TO_API.values())
 _BASELINE_CHANNELS = _ALL_CHANNELS
 _ANOMALY_THRESHOLD_FACTOR = 0.25
 
-
-def _query_sensor_data(db_file: str, start: str, end: str) -> list[dict]:
-    start_db = start.rstrip("Z").replace("T", " ")
-    end_db = end.rstrip("Z").replace("T", " ")
-    conn = sqlite3.connect(db_file)
-    conn.row_factory = sqlite3.Row
-    rows = conn.execute(
-        """SELECT timestamp, tvoc, eco2, temperature, humidity,
-                  pm1_0, pm2_5, pm10, gas_co, gas_no2, gas_nh3
-           FROM sensor_data WHERE timestamp >= ? AND timestamp <= ?
-           ORDER BY timestamp ASC""",
-        (start_db, end_db),
-    ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
-
-
-def _query_hot_tier(db_file: str, start: str, end: str) -> list[dict]:
-    start_db = start.rstrip("Z")
-    end_db = end.rstrip("Z")
-    conn = sqlite3.connect(db_file)
-    conn.row_factory = sqlite3.Row
-    rows = conn.execute(
-        """SELECT timestamp, tvoc_ppb, eco2_ppm, temperature_c, humidity_pct,
-                  pm25_ug_m3, co_ppb, no2_ppb, nh3_ppb
-           FROM hot_tier WHERE timestamp >= ? AND timestamp <= ?
-           ORDER BY timestamp ASC""",
-        (start_db, end_db),
-    ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
 
 
 def _normalise_iso_ts(ts: str) -> str:
@@ -143,8 +120,8 @@ def _rows_to_readings(rows: list[dict], source: str) -> list[NormalisedReading]:
 
 
 def _build_range_readings(start: str, end: str) -> list[NormalisedReading]:
-    sensor_rows = _query_sensor_data(_dbl.DB_FILE, start, end)
-    hot_rows = _query_hot_tier(_dbl.DB_FILE, start, end)
+    sensor_rows = get_sensor_data_range(start, end)
+    hot_rows = get_hot_tier_range(start, end)
     merged: dict[str, dict] = {}
     for row in sensor_rows:
         key = row.get("timestamp", "").strip().replace(" ", "T")
@@ -158,74 +135,10 @@ def _build_range_readings(start: str, end: str) -> list[NormalisedReading]:
     return readings
 
 
-_SENSOR_FIELDS = [
-    "tvoc_ppb", "eco2_ppm", "temperature_c", "humidity_pct",
-    "pm1_ug_m3", "pm25_ug_m3", "pm10_ug_m3", "co_ppb",
-    "no2_ppb", "nh3_ppb",
-]
-
-# DB column name → NormalisedReading / _ALL_CHANNELS field name
-_DB_COL_TO_FIELD = {
-    "tvoc": "tvoc_ppb", "eco2": "eco2_ppm", "temperature": "temperature_c",
-    "humidity": "humidity_pct", "pm1_0": "pm1_ug_m3", "pm2_5": "pm25_ug_m3",
-    "pm10": "pm10_ug_m3", "gas_co": "co_ppb", "gas_no2": "no2_ppb", "gas_nh3": "nh3_ppb",
-}
-
-
-def _compute_historical_baselines(start: str) -> dict[str, float | None]:
-    """Compute pre-event baseline for each sensor channel.
-
-    Queries the 60-minute window ending at `start` from `sensor_data`,
-    returns the median value per channel. Returns None for channels with
-    no data in that window.
-    """
-    try:
-        start_dt = _parse_utc_flexible(start)
-        window_end = start_dt
-        window_start = start_dt - timedelta(hours=1)
-    except (ValueError, TypeError):
-        return {f: None for f in _SENSOR_FIELDS}
-
-    baselines: dict[str, float | None] = {}
-    try:
-        db_path = _dbl.DB_FILE
-        con = sqlite3.connect(db_path)
-        con.row_factory = sqlite3.Row
-        cur = con.cursor()
-        cur.execute(
-            """
-            SELECT tvoc, eco2, temperature, humidity,
-                   pm1_0, pm2_5, pm10, gas_co, gas_no2, gas_nh3
-            FROM sensor_data
-            WHERE timestamp >= ? AND timestamp < ?
-            ORDER BY timestamp
-            """,
-            (window_start.strftime("%Y-%m-%d %H:%M:%S"),
-             window_end.strftime("%Y-%m-%d %H:%M:%S")),
-        )
-        rows = cur.fetchall()
-        con.close()
-    except Exception:
-        return {f: None for f in _SENSOR_FIELDS}
-
-    if not rows:
-        return {f: None for f in _SENSOR_FIELDS}
-
-    for db_col, field in _DB_COL_TO_FIELD.items():
-        vals = [r[db_col] for r in rows if r[db_col] is not None]
-        if vals:
-            vals.sort()
-            mid = len(vals) // 2
-            baselines[field] = (vals[mid] if len(vals) % 2 else (vals[mid - 1] + vals[mid]) / 2)
-        else:
-            baselines[field] = None
-
-    return baselines
-
 
 def _build_feature_vector(start: str, end: str) -> dict[str, object]:
     readings = _build_range_readings(start, end)
-    baselines = _compute_historical_baselines(start)
+    baselines = get_pre_event_baselines(start)
     fv = FeatureExtractor().extract(readings, baselines)
     fv_dict = dataclasses.asdict(fv)
     # Convert datetime to ISO string for JSON serialization
@@ -387,7 +300,7 @@ def sensor_history():
     end = request.args.get("end", "")
     if not start or not end:
         return jsonify({"error": "start and end are required"}), 400
-    rows = _query_sensor_data(_dbl.DB_FILE, start, end)
+    rows = get_sensor_data_range(start, end)
     timestamps = [_normalise_ts(r["timestamp"]) for r in rows]
     channels: dict = {ch: [] for ch in _ALL_CHANNELS}
     for row in rows:
@@ -604,32 +517,6 @@ _FV_TO_API = {
 }
 
 
-def _get_baselines_7d_ago(db_file: str, window_start: str) -> dict:
-    try:
-        start_dt = datetime.fromisoformat(window_start.rstrip("Z")).replace(tzinfo=timezone.utc)
-        ago_end = start_dt - timedelta(days=7)
-        ago_start = ago_end - timedelta(hours=24)
-        ago_start_db = ago_start.strftime("%Y-%m-%d %H:%M:%S")
-        ago_end_db = ago_end.strftime("%Y-%m-%d %H:%M:%S")
-        conn = sqlite3.connect(db_file)
-        try:
-            row = conn.execute(
-                """SELECT AVG(tvoc), AVG(eco2), AVG(temperature), AVG(humidity),
-                          AVG(pm1_0), AVG(pm2_5), AVG(pm10),
-                          AVG(gas_co), AVG(gas_no2), AVG(gas_nh3)
-                   FROM sensor_data WHERE timestamp >= ? AND timestamp < ?""",
-                (ago_start_db, ago_end_db),
-            ).fetchone()
-        finally:
-            conn.close()
-        if row is None or all(v is None for v in row):
-            return {}
-        db_cols = ["tvoc", "eco2", "temperature", "humidity", "pm1_0", "pm2_5", "pm10",
-                   "gas_co", "gas_no2", "gas_nh3"]
-        return {_DB_TO_API[col]: row[i] for i, col in enumerate(db_cols)}
-    except Exception:
-        return {}
-
 
 def _round_to_minute(ts: str) -> str:
     """Round an ISO timestamp string down to the nearest minute for cache key use."""
@@ -664,7 +551,7 @@ def narratives():
     baselines_now = {}
     if engine and engine._anomaly_detector:
         baselines_now = {ch: engine._anomaly_detector.baseline(ch) for ch in _BASELINE_CHANNELS}
-    baselines_7d = _get_baselines_7d_ago(_dbl.DB_FILE, start)
+    baselines_7d = get_baselines_7d_ago(start)
 
     ch_meta_api = {
         _FV_TO_API[k]: {"label": v["label"], "unit": v["unit"]}

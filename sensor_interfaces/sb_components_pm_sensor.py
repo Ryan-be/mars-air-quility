@@ -5,11 +5,6 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeou
 
 log = logging.getLogger(__name__)
 
-# Module-level backoff state — shared across all instances of the class.
-_skip_until: float = 0.0
-# Single-worker executor so that a stalled serial read never spawns extra threads.
-_pm_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="pm_sensor")
-
 # PMS5003/PMSA003 frame constants
 _START1 = 0x42
 _START2 = 0x4D
@@ -19,22 +14,6 @@ _FRAME_LEN = 32
 # HIGH = active (sensor fan + laser on, streaming data)
 # LOW  = sleep  (sensor powered down, no data)
 _DEFAULT_SET_PIN = 27
-
-
-def _wake_sensor(set_pin):
-    """Pull the SET pin HIGH to wake the PMSA003 from sleep mode."""
-    try:
-        import RPi.GPIO as GPIO
-        GPIO.setwarnings(False)
-        GPIO.setmode(GPIO.BCM)
-        GPIO.setup(set_pin, GPIO.OUT)
-        GPIO.output(set_pin, GPIO.HIGH)
-        log.info("PM sensor: SET pin (GPIO%d) pulled HIGH — waking sensor", set_pin)
-        time.sleep(5)  # sensor needs ~2-3s to spin up fan and stabilise
-    except ImportError:
-        log.warning("RPi.GPIO not available — cannot control PM sensor SET pin")
-    except Exception as e:
-        log.error("PM sensor: failed to set wake pin GPIO%d: %s", set_pin, e)
 
 
 class AirMonitoringHAT_PM:
@@ -54,6 +33,21 @@ class AirMonitoringHAT_PM:
         self._set_pin = set_pin
         self._ser = None
         self._consecutive_failures = 0
+        # Per-instance backoff state (was module-level _skip_until).
+        self._skip_until: float = 0.0
+        # Per-instance single-worker executor (was module-level _pm_executor).
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="pm_sensor")
+
+    def close(self):
+        if self._ser and self._ser.is_open:
+            self._ser.close()
+            self._ser = None
+
+    def __del__(self):
+        try:
+            self._executor.shutdown(wait=False)
+        except Exception:
+            pass
 
     def _open(self):
         if self._ser is None or not self._ser.is_open:
@@ -61,10 +55,20 @@ class AirMonitoringHAT_PM:
                 self._port, self._baudrate, timeout=self._timeout,
             )
 
-    def close(self):
-        if self._ser and self._ser.is_open:
-            self._ser.close()
-            self._ser = None
+    def _wake_sensor(self):
+        """Pull the SET pin HIGH to wake the PMSA003 from sleep mode."""
+        try:
+            import RPi.GPIO as GPIO
+            GPIO.setwarnings(False)
+            GPIO.setmode(GPIO.BCM)
+            GPIO.setup(self._set_pin, GPIO.OUT)
+            GPIO.output(self._set_pin, GPIO.HIGH)
+            log.info("PM sensor: SET pin (GPIO%d) pulled HIGH — waking sensor", self._set_pin)
+            time.sleep(5)  # sensor needs ~2-3s to spin up fan and stabilise
+        except ImportError:
+            log.warning("RPi.GPIO not available — cannot control PM sensor SET pin")
+        except Exception as e:
+            log.error("PM sensor: failed to set wake pin GPIO%d: %s", self._set_pin, e)
 
     def _sync_to_frame(self):
         """Scan the byte stream until we find the 0x42 0x4D start marker.
@@ -139,9 +143,9 @@ class AirMonitoringHAT_PM:
             return None
 
     def _do_read_attempt(self, attempt: int):
-        """Run _try_read_frame in the module-level executor with a hard wall-clock
+        """Run _try_read_frame in the per-instance executor with a hard wall-clock
         timeout so a stalled serial read never blocks the calling thread."""
-        future = _pm_executor.submit(self._try_read_frame, attempt)
+        future = self._executor.submit(self._try_read_frame, attempt)
         try:
             return future.result(timeout=3.0)
         except FuturesTimeout:
@@ -153,6 +157,25 @@ class AirMonitoringHAT_PM:
                 pass
             return None
 
+    def _handle_failure(self):
+        """Apply backoff/retry logic after all read attempts for a cycle are exhausted."""
+        self._consecutive_failures += 1
+        log.warning("PM sensor: could not read a valid frame after 3 attempts "
+                    "(consecutive failures: %d)", self._consecutive_failures)
+
+        if self._consecutive_failures >= 10:
+            self._skip_until = time.monotonic() + 60.0
+            log.warning(
+                "PM sensor: backing off for 60s after %d consecutive failures",
+                self._consecutive_failures,
+            )
+            self._consecutive_failures = 0
+        elif self._consecutive_failures >= 5:
+            log.warning("PM sensor: %d consecutive failures — re-waking sensor",
+                        self._consecutive_failures)
+            self._wake_sensor()
+            self._consecutive_failures = 0
+
     def read_pm(self):
         """Read one PM frame with up to 3 retries.
 
@@ -163,10 +186,8 @@ class AirMonitoringHAT_PM:
           - After 10 failures: enter a 60-second cooldown to avoid hammering a
             broken serial port and blocking the sensor loop.
         """
-        global _skip_until
-
         # Cooldown check — skip reads until the backoff timer expires.
-        if time.monotonic() < _skip_until:
+        if time.monotonic() < self._skip_until:
             return None
 
         for attempt in range(3):
@@ -185,23 +206,7 @@ class AirMonitoringHAT_PM:
                 # the total worst-case read time under the caller's expectations.
                 time.sleep(1.0)
 
-        self._consecutive_failures += 1
-        log.warning("PM sensor: could not read a valid frame after 3 attempts "
-                    "(consecutive failures: %d)", self._consecutive_failures)
-
-        if self._consecutive_failures >= 10:
-            _skip_until = time.monotonic() + 60.0
-            log.warning(
-                "PM sensor: backing off for 60s after %d consecutive failures",
-                self._consecutive_failures,
-            )
-            self._consecutive_failures = 0
-        elif self._consecutive_failures >= 5:
-            log.warning("PM sensor: %d consecutive failures — re-waking sensor",
-                        self._consecutive_failures)
-            _wake_sensor(self._set_pin)
-            self._consecutive_failures = 0
-
+        self._handle_failure()
         return None
 
 
@@ -212,8 +217,8 @@ _sensor = None
 def init_pm_sensor(port="/dev/serial0", set_pin=_DEFAULT_SET_PIN):
     global _sensor
     try:
-        _wake_sensor(set_pin)
         _sensor = AirMonitoringHAT_PM(port=port, set_pin=set_pin)
+        _sensor._wake_sensor()
         # Do a test read to confirm sensor is responding
         result = _sensor.read_pm()
         if result is not None:
