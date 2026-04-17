@@ -33,11 +33,11 @@ MLSS Monitor uses GitHub OAuth for authentication. Local username/password login
 
 ### TLS (optional, for direct HTTPS)
 
-These are only needed if running Flask with TLS directly (without nginx). For production, an nginx reverse proxy with Let's Encrypt is recommended instead -- see the [Production deployment guide](PRODUCTION.md).
+These are needed if you want the application server to terminate TLS itself (no nginx in front). The same three keys are honoured by both the Flask development server and gunicorn (`gunicorn.conf.py` reads `SSL_CERT_FILE` / `SSL_KEY_FILE` from dynaconf), so HTTPS works in both modes without any extra flags. For internet-facing deployments, an nginx reverse proxy with Let's Encrypt is still recommended -- see the [Production deployment guide](PRODUCTION.md).
 
 | Variable | Default | Description |
 |---|---|---|
-| `HTTPS_ENABLED` | `true` | Enable TLS on the Flask server |
+| `HTTPS_ENABLED` | `true` | Enable TLS on the Flask dev server (gunicorn enables TLS automatically when both cert and key files exist) |
 | `SSL_CERT_FILE` | `certs/cert.pem` | Path to TLS certificate file |
 | `SSL_KEY_FILE` | `certs/key.pem` | Path to TLS private key file |
 

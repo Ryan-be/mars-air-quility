@@ -1,6 +1,6 @@
 # MLSS Monitor: Mars Life Support Sensor Monitor
 
-A lightweight environmental monitoring system for Raspberry Pi, designed as a prototype for Mars habitat life-support applications. Logs sensor data to SQLite, serves a live web dashboard with historical plots, controls effectors automatically via rule-based thresholds, and displays status on a small TFT screen.
+A lightweight environmental monitoring system for Raspberry Pi, designed as a prototype for Mars habitat life-support applications. Logs sensor data to SQLite, serves a live web dashboard with historical plots, controls effectors automatically via rule-based thresholds, and displays status on a small TFT screen. The web UI is built with [AstroUXDS](https://astrouxds.com), NASA / Lockheed Martin's open-source space-mission design system, giving the dashboard a consistent dark space-mission look befitting the project's theme.
 
 A list of know issues and feature improvements including recomended fixes can be found here: [Bugs, Improvements and Roadmap](docs/Bugs_Improvements_and_Roadmap.md)
 ---
@@ -109,12 +109,14 @@ The Pimoroni MICS6814 breakout uses I2C and can be daisy-chained with the AHT20 
 - Environment inference engine -- continuously analyses sensor data to detect pollution events, threshold breaches, and trends
 - Interactive dashboard card popups -- tap any card for detailed information about the metric, sensor, or calculation
 - Real-time Server-Sent Events (SSE) -- sensor readings, fan status, inference alerts, and weather updates are pushed to the browser instantly via an in-process event bus, replacing most polling
+- **AstroUXDS** web-component design system -- dashboard, history, controls, admin, login, and inference-engine config pages all use NASA / Lockheed Martin's [Astro UXDS](https://astrouxds.com) for a consistent dark space-mission look (deep navy / charcoal background, cyan accents, Roboto typography)
+- Per-event sparkline panels -- each detected event on the history page opens a slide-in inference panel with a Plotly sparkline showing the relevant channels around the event timestamp (range events get a shaded "Tagged range" rectangle; point events get a dashed "Event" line)
 
 ---
 
 ## Architecture
 
-MLSS Monitor follows a layered architecture with background processing threads, a Flask web server, hardware abstraction interfaces, and an in-process event bus for real-time push.
+MLSS Monitor follows a layered architecture with background processing threads, a Flask web server, hardware abstraction interfaces, and an in-process event bus for real-time push. In production the WSGI app is served by **gunicorn** (entry point `mlss_monitor.wsgi:application`, configured via `gunicorn.conf.py`); the bare Flask development server is used only when running locally. The frontend is a vanilla JS + Plotly application built on the [AstroUXDS](https://astrouxds.com) web-component library (loaded from CDN in `templates/base.html`).
 
 ### System overview
 
@@ -226,8 +228,9 @@ sequenceDiagram
         SSE-->>Browser: event: weather_update\ndata: {...}
     end
 
-    Note over SSE,Browser: Heartbeat (": heartbeat\n\n") sent every 30s to keep connection alive
-    Note over Browser: On disconnect, EventSource auto-reconnects with exponential back-off
+    Note over SSE,Browser: Heartbeat (": heartbeat\n\n") sent every 10s to keep connection alive through proxies
+    Note over SSE,Browser: Each connection is recycled after 600s (enforced inside generate()) so gunicorn workers don't accumulate stale subscribers
+    Note over Browser: On disconnect, native EventSource auto-reconnects with exponential back-off
 ```
 
 **Event types**:
@@ -249,6 +252,23 @@ sequenceDiagram
 - **Shared state module** (`state.py`) -- holds mutable references to hardware objects, fan mode, the event bus, and the async event loop, allowing routes and background threads to coordinate.
 - **Blueprint architecture** -- Flask routes are organised into ten blueprints for separation of concerns.
 - **RBAC decorator** (`rbac.py`) -- `@require_role()` decorator enforces per-endpoint permission checks based on the authenticated user's role.
+- **gunicorn in production, Flask dev server locally** -- the WSGI entry point is `mlss_monitor.wsgi:application`. `gunicorn.conf.py` pins the deployment to a single `gthread` worker with 8 threads, `timeout = 0` (per-connection lifetime is enforced inside the SSE generator instead, since gthread workers must not be killed mid-stream), and `preload_app = True` so background services start once before the worker forks. SSL cert/key paths are read from the same dynaconf keys as the Flask dev server, so HTTPS works in both modes. See [PRODUCTION.md](docs/PRODUCTION.md) for the rationale.
+- **Thread-safe service bootstrap** -- `_start_background_services()` in `mlss_monitor/app.py` uses a `threading.Lock` plus a `threading.Event` to be idempotent and TOCTOU-safe under both gunicorn's preload and Flask's debug-mode reloader. The anomaly detector cold-start (River `learn_one()` over the warm-up window is CPU-heavy) is deferred onto a 20-second `Timer` so it does not compete with gunicorn binding the listening socket.
+- **Database query layer in `db_logger.py`** -- route handlers no longer open raw `sqlite3` connections. `get_sensor_data_range`, `get_hot_tier_range`, `get_pre_event_baselines`, and `get_baselines_7d_ago` are public functions that go through `_connect()` (WAL mode + busy-timeout). The `idx_sensor_data_timestamp` index added in `init_db.py` accelerates these range queries. Range bounds use the same `YYYY-MM-DDTHH:MM:SS.ffffffZ` shape the writer stores, so lexicographic comparison is correct.
+- **AstroUXDS frontend** -- see the [User interface](#user-interface) section below.
+
+### User interface
+
+The browser frontend is built on **[AstroUXDS](https://astrouxds.com)** -- NASA / Lockheed Martin's open-source space-mission UI design system. AstroUXDS provides accessible, theme-able primitives that fit the project's "Mars life-support" framing without any bespoke design work for common controls.
+
+- Loaded as web components from CDN in `templates/base.html`:
+  ```html
+  <script type="module" src="https://cdn.jsdelivr.net/npm/@astrouxds/astro-web-components/dist/astro-web-components/astro-web-components.esm.js"></script>
+  ```
+- Components in active use include `rux-tab`, `rux-tab-panel`, `rux-tab-group`, `rux-tooltip`, `rux-notification`, `rux-accordion`, `rux-clock`, and `rux-monitoring-icon`.
+- Dark space-mission theme (deep navy / charcoal background, cyan accents) with Roboto typography from Google Fonts.
+- All page-specific styling in `static/css/base.css` (and per-page CSS files) layers project-specific styles -- cards, sparklines, slide-in inference panels, the time-brush chart -- on top of the AstroUXDS design tokens.
+- Charts remain Plotly; AstroUXDS wraps the chrome (nav, tabs, dialogs, notifications) around them.
 
 ---
 
@@ -772,13 +792,21 @@ poetry run python database/init_db.py
 
 ## Running
 
-### Directly
+### Development (Flask dev server)
 
 ```bash
 poetry run python mlss_monitor/app.py
 ```
 
-Dashboard available at `http://<pi-ip>:5000`.
+Dashboard available at `http://<pi-ip>:5000` (or `https://...` if `SSL_CERT_FILE` / `SSL_KEY_FILE` are configured). Use this only for local iteration -- the Werkzeug dev server is single-threaded and unsuitable for production.
+
+### Production (gunicorn)
+
+```bash
+poetry run gunicorn -c gunicorn.conf.py mlss_monitor.wsgi:application
+```
+
+The configuration in `gunicorn.conf.py` is deliberate -- single `gthread` worker, 8 threads, `timeout = 0`, `preload_app = True`. See [Key design decisions](#key-design-decisions) and [PRODUCTION.md](docs/PRODUCTION.md) for the rationale (the short version: SSE plus a single in-process event bus, hot tier and detector model set requires exactly one worker process).
 
 ### As a systemd service
 
@@ -792,6 +820,8 @@ sudo systemctl enable --now mlss-monitor
 sudo systemctl status mlss-monitor
 sudo journalctl -u mlss-monitor -f
 ```
+
+The shipped `mlss-monitor.service` invokes gunicorn with the conf file above. Do not replace `ExecStart` with `python -m mlss_monitor.app` for a production unit.
 
 ---
 
@@ -874,6 +904,7 @@ The `MLSS_ALLOWED_GITHUB_USER` bootstrap account always has the **admin** role r
 |---|---|---|---|
 | `GET` | `/api/inferences?limit=50` | viewer | List inferences. `dismissed=1` includes dismissed. |
 | `GET` | `/api/inferences/categories` | viewer | List category names |
+| `GET` | `/api/inferences/<id>/sparkline` | viewer | Channel data around the event for the slide-in inference panel sparkline (merges downsampled `sensor_data` + 1-sec `hot_tier` rows; X-axis is ISO timestamps, range events get a "Tagged range" rectangle and point events get an "Event" line) |
 | `POST` | `/api/inferences/<id>/notes` | controller | Save user notes -- body: `{"notes": "text"}` |
 | `POST` | `/api/inferences/<id>/dismiss` | controller | Dismiss an inference |
 
@@ -949,7 +980,8 @@ poetry install --with visualization
 
 ```
 mlss_monitor/
-  app.py                      Flask app factory, hardware init, background loops
+  app.py                      Flask app factory, hardware init, thread-safe background-service bootstrap
+  wsgi.py                     gunicorn WSGI entry point -- imports app, calls _start_background_services()
   state.py                    Shared mutable state (fan mode, hardware refs, event bus, event loop)
   event_bus.py                In-process pub/sub for SSE -- thread-safe, rolling history
   rbac.py                     Role-Based Access Control -- require_role() decorator
@@ -967,8 +999,10 @@ mlss_monitor/
     api_stream.py             SSE streaming endpoint + event history API
     system.py                 System health endpoint
 database/
-  db_logger.py                SQLite read/write helpers
-  init_db.py                  Schema creation -- safe to re-run on existing DB
+  db_logger.py                SQLite read/write helpers; route handlers go through this layer
+                              (get_sensor_data_range, get_hot_tier_range, get_pre_event_baselines,
+                              get_baselines_7d_ago) -- no raw sqlite3.connect() in routes
+  init_db.py                  Schema creation -- safe to re-run on existing DB; creates idx_sensor_data_timestamp
   user_db.py                  User & login_log CRUD operations
   import_csv_to_db.py         One-off CSV import utility
 sensor_interfaces/
@@ -981,7 +1015,7 @@ external_api_interfaces/
   kasa_smart_plug.py          Async TP-Link Kasa plug control
   open_meteo.py               Open-Meteo weather + forecast + UK geocoding client
 templates/
-  base.html                   Shared layout (nav bar, auth controls)
+  base.html                   Shared layout (nav bar, auth controls); loads AstroUXDS web components from CDN
   dashboard.html              Live sensor dashboard with forecasts
   history.html                Tabbed historical charts (sensors, particulate, environment, correlation, patterns)
   controls.html               Device control hub (fan, future devices)
@@ -1028,7 +1062,8 @@ docs/
   CONFIGURATION.md            Full configuration reference
   PRODUCTION.md               Production deployment guide
 config.py                     Dynaconf configuration loader
-mlss-monitor.service          systemd unit file
+gunicorn.conf.py              Production gunicorn config (single gthread worker, preload_app, SSL from dynaconf)
+mlss-monitor.service          systemd unit file (invokes gunicorn with mlss_monitor.wsgi:application)
 .env.example                  Template for environment variables
 ```
 
@@ -1044,4 +1079,4 @@ mlss-monitor.service          systemd unit file
 | PMSA003 UART must be enabled | The PM sensor requires the hardware UART to be enabled via `raspi-config` on Pi 4. Without it, `/dev/serial0` does not exist and PM readings will be null. See the [UART setup](#uart-setup-for-pm-sensor) section. |
 | MICS6814 readings are relative | The gas sensor outputs analogue resistance values, not calibrated ppm concentrations. Compare trends rather than treating readings as absolute measurements. The sensor benefits from a warm-up period of several minutes. |
 | Kasa `SmartPlug` API deprecated | The `python-kasa` library has deprecated `SmartPlug` in favour of `IotPlug`. A migration warning appears on startup; functionality is unaffected for now. |
-| Flask dev server | `app.run()` uses Flask's single-threaded development server. For production, use gunicorn behind nginx -- see the [Production deployment guide](docs/PRODUCTION.md). |
+| Flask dev server is for development only | `python mlss_monitor/app.py` runs Werkzeug's single-threaded dev server. Production deployments must use the shipped `gunicorn.conf.py` + `mlss_monitor.wsgi:application` entry point (single `gthread` worker, `preload_app = True`, `timeout = 0`) behind nginx -- see [PRODUCTION.md](docs/PRODUCTION.md). |
