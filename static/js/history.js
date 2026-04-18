@@ -6,7 +6,7 @@ import { renderCorrelationCharts, updateCorrelationData, getSelectedAnalysisRang
 
 window.toggleTheme = () => toggleTheme(() => { _rendered = {}; renderActiveTab(); });
 window.downloadCSV = () => {
-  window.open(`/api/download?range=${document.getElementById("range").value}`, "_blank");
+  window.open(`/api/data?range=${document.getElementById("range").value}&format=csv`, "_blank");
 };
 
 const TABS = ["climate", "air-quality", "particulate", "environment", "correlation", "detections"];

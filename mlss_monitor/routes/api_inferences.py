@@ -68,19 +68,27 @@ def list_categories():
     return jsonify(result)
 
 
-@api_inferences_bp.route("/api/inferences/<int:inference_id>/notes", methods=["POST"])
+@api_inferences_bp.route("/api/inferences/<int:inference_id>", methods=["PATCH"])
 @require_role("controller", "admin")
-def save_notes(inference_id):
-    data = request.get_json(force=True)
-    notes = data.get("notes", "")
-    update_inference_notes(inference_id, notes)
-    return jsonify({"ok": True})
+def patch_inference(inference_id):
+    """Partial update of an inference.
 
+    Accepts a JSON body with any combination of:
+      * ``notes``      — string, replaces ``user_notes``.
+      * ``dismissed``  — bool, ``True`` to mark the inference as dismissed.
 
-@api_inferences_bp.route("/api/inferences/<int:inference_id>/dismiss", methods=["POST"])
-@require_role("controller", "admin")
-def dismiss(inference_id):
-    dismiss_inference(inference_id)
+    At least one of the two fields must be present; unknown fields are ignored.
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    has_notes = "notes" in data
+    has_dismissed = "dismissed" in data
+    if not has_notes and not has_dismissed:
+        return jsonify({"error": "At least one of 'notes' or 'dismissed' is required."}), 400
+
+    if has_notes:
+        update_inference_notes(inference_id, data.get("notes", ""))
+    if has_dismissed and bool(data.get("dismissed")):
+        dismiss_inference(inference_id)
     return jsonify({"ok": True})
 
 

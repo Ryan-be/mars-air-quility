@@ -801,11 +801,12 @@ function resetAnomalyChannel(channel) {
 
   window.toggleSource = async function (name, enable, btn) {
     if (btn) btn.disabled = true;
-    var action = enable ? 'enable' : 'disable';
     var resp;
     try {
-      resp = await fetch('/api/insights-engine/sources/' + encodeURIComponent(name) + '/' + action, {
-        method: 'POST', headers: {'Content-Type': 'application/json'}
+      resp = await fetch('/api/insights-engine/sources/' + encodeURIComponent(name), {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({enabled: !!enable})
       });
     } catch (e) {
       showSourcesStatus('Network error: ' + e.message, true);

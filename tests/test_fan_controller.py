@@ -190,7 +190,7 @@ class TestFanSettingsPerRule:
 class TestFanModeSync:
     def test_auto_button_enables_in_db(self, app_client):
         client, _ = app_client
-        res = client.post("/api/fan?state=auto")
+        res = client.post("/api/fan/mode", json={"mode": "auto"})
         assert res.status_code == 200
         # DB should now have enabled=True
         settings_res = client.get("/api/fan/settings")
@@ -201,14 +201,16 @@ class TestFanModeSync:
 
         client, _ = app_client
         # First enable auto
-        client.post("/api/fan?state=auto")
-        # Then switch to manual
+        client.post("/api/fan/mode", json={"mode": "auto"})
+        # Then switch to manual + flip the effector
         mock_future = MagicMock()
         mock_future.result.return_value = None
 
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(asyncio, "run_coroutine_threadsafe", lambda coro, loop: mock_future)
-            res = client.post("/api/fan?state=on")
+            mode_res = client.post("/api/fan/mode", json={"mode": "manual"})
+            res = client.post("/api/effector", json={"key": "fan1", "state": "on"})
+        assert mode_res.status_code == 200
         assert res.status_code == 200
         settings_res = client.get("/api/fan/settings")
         assert settings_res.get_json()["enabled"] is False

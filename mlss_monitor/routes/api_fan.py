@@ -1,4 +1,10 @@
-"""Fan control API routes: toggle, status, settings, auto-status."""
+"""Fan control API routes: status, mode (auto/manual), settings, auto-status.
+
+The on/off write has moved to the generic effector API
+(:mod:`mlss_monitor.routes.api_effectors`); the remaining endpoints expose
+fan-specific reads (live plug telemetry, last auto-evaluation) and the
+auto-mode threshold config that is unique to this effector.
+"""
 
 import asyncio
 import logging
@@ -16,45 +22,42 @@ log = logging.getLogger(__name__)
 api_fan_bp = Blueprint("api_fan", __name__)
 
 
-@api_fan_bp.route("/api/fan", methods=["POST"])
+@api_fan_bp.route("/api/fan/mode", methods=["POST"])
 @require_role("controller", "admin")
-def control_fan():
-    try:
-        cmd = request.args.get("state")
-        if cmd not in ("on", "off", "auto"):
-            return jsonify({"error": "'state' must be 'on', 'off', or 'auto'."}), 400
+def set_fan_mode():
+    """Switch the fan between ``auto`` and ``manual`` modes.
 
-        if cmd == "auto":
-            state.fan_mode = "auto"
-            # Sync: also enable auto in the DB so settings page stays in sync
-            set_fan_enabled(True)
-        else:
-            state.fan_mode = "manual"
-            state.fan_state = cmd
-            # Sync: disable auto in the DB so settings page stays in sync
-            set_fan_enabled(False)
-            asyncio.run_coroutine_threadsafe(
-                state.fan_smart_plug.switch(cmd == "on"), state.thread_loop
-            ).result()
-
-        return jsonify({"message": f"Fan set to {cmd} successfully.", "mode": state.fan_mode}), 200
-    except Exception as e:
-        log.error("Error controlling fan: %s", e)
-        return jsonify({"error": f"Error controlling fan: {str(e)}"}), 500
+    Accepts a JSON body ``{"mode": "auto"|"manual"}`` or the legacy
+    ``?mode=`` query parameter.  Manual mode leaves the plug in its current
+    state; use ``POST /api/effector`` to flip it on or off.
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    mode = data.get("mode") or request.args.get("mode")
+    if mode not in ("auto", "manual"):
+        return jsonify({"error": "'mode' must be 'auto' or 'manual'."}), 400
+    state.set_fan_mode(mode)
+    set_fan_enabled(mode == "auto")
+    return jsonify({"message": f"Fan mode set to {mode}.", "mode": mode}), 200
 
 
 @api_fan_bp.route("/api/fan/status", methods=["GET"])
 def get_fan_status():
     try:
-        update_task = asyncio.run_coroutine_threadsafe(
-            state.fan_smart_plug.plug.update(), state.thread_loop
-        )
-        update_task.result()
+        try:
+            update_task = asyncio.run_coroutine_threadsafe(
+                state.fan_smart_plug.plug.update(), state.thread_loop
+            )
+            update_task.result(timeout=5)
 
-        state_task = asyncio.run_coroutine_threadsafe(
-            state.fan_smart_plug.get_state(), state.thread_loop
-        )
-        plug_state = state_task.result()
+            state_task = asyncio.run_coroutine_threadsafe(
+                state.fan_smart_plug.get_state(), state.thread_loop
+            )
+            plug_state = state_task.result(timeout=5)
+        except Exception as plug_exc:
+            log.error("[get_fan_status] plug read failed: %s", plug_exc)
+            return jsonify({
+                "error": f"Smart plug unavailable: {plug_exc}",
+            }), 503
 
         try:
             power_task = asyncio.run_coroutine_threadsafe(
@@ -66,7 +69,7 @@ def get_fan_status():
             plug_state["power_w"] = None
             plug_state["today_kwh"] = None
 
-        plug_state["mode"] = state.fan_mode
+        plug_state["mode"] = state.get_fan_snapshot()["fan_mode"]
         plug_state["unit_rate_pence"] = get_unit_rate()
         return jsonify(plug_state), 200
     except Exception as e:
@@ -98,7 +101,7 @@ def update_fan_settings_route():
         pm_stale_minutes=data.get("pm_stale_minutes", 10.0),
     )
     # Sync: keep in-memory fan_mode consistent with the DB toggle
-    state.fan_mode = "auto" if enabled else "manual"
+    state.set_fan_mode("auto" if enabled else "manual")
     return jsonify({"message": "Fan settings updated"})
 
 
@@ -106,9 +109,10 @@ def update_fan_settings_route():
 def get_auto_status():
     """Return the last auto-evaluation results for the controls (i) tooltip."""
     settings = get_fan_settings()
+    snap = state.get_fan_snapshot()
     return jsonify({
-        "mode": state.fan_mode,
+        "mode": snap["fan_mode"],
         "auto_enabled": settings["enabled"],
-        "action": state.last_auto_action,
-        "rules": state.last_auto_evaluation or [],
+        "action": snap["last_auto_action"],
+        "rules": snap["last_auto_evaluation"] or [],
     })

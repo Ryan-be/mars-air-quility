@@ -1,4 +1,4 @@
-"""Sensor data API routes: fetch, download CSV, annotations."""
+"""Sensor data API routes: fetch (JSON / CSV via ?format=) and annotations."""
 
 import csv
 import io
@@ -30,67 +30,74 @@ def _parse_range(range_param):
     return since, now
 
 
+def _rows_as_csv(rows):
+    """Render the canonical sensor-data CSV attachment from raw DB rows."""
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["id", "timestamp", "temperature", "humidity", "eco2", "tvoc", "annotation"])
+    writer.writerows([
+        (
+            r[0],
+            _normalise_ts(r[1]),
+            r[2],
+            r[3],
+            r[4],
+            r[5],
+            r[6],
+        )
+        for r in rows
+    ])
+    output.seek(0)
+    return send_file(
+        io.BytesIO(output.getvalue().encode("utf-8")),
+        mimetype="text/csv",
+        as_attachment=True,
+        download_name="sensor_data.csv",
+    )
+
+
+def _rows_as_json(rows):
+    return [
+        {
+            "id": row[0],
+            "timestamp": _normalise_ts(row[1]),
+            "temperature": row[2],
+            "humidity": row[3],
+            "eco2": row[4],
+            "tvoc": row[5],
+            "annotation": row[6],
+            "fan_power_w": row[7] if len(row) > 7 else None,
+            "vpd_kpa": row[8] if len(row) > 8 else None,
+            "pm1_0": row[9] if len(row) > 9 else None,
+            "pm2_5": row[10] if len(row) > 10 else None,
+            "pm10": row[11] if len(row) > 11 else None,
+            "gas_co": row[12] if len(row) > 12 else None,
+            "gas_no2": row[13] if len(row) > 13 else None,
+            "gas_nh3": row[14] if len(row) > 14 else None,
+        }
+        for row in rows
+    ]
+
+
 @api_data_bp.route("/api/data")
 def get_data():
+    """Sensor readings for a `?range=` window.
+
+    `?format=json` (default) returns a JSON array of rows.
+    `?format=csv` streams the canonical CSV download.
+    """
     range_param = request.args.get("range", "24h")
+    fmt = request.args.get("format", "json").lower()
+    if fmt not in ("json", "csv"):
+        return jsonify({"error": "'format' must be 'json' or 'csv'."}), 400
     since, now = _parse_range(range_param)
     try:
         rows = get_sensor_data_by_date(_normalise_ts(since.isoformat()), _normalise_ts(now.isoformat()))
-        data = [
-            {
-                "id": row[0],
-                "timestamp": _normalise_ts(row[1]),
-                "temperature": row[2],
-                "humidity": row[3],
-                "eco2": row[4],
-                "tvoc": row[5],
-                "annotation": row[6],
-                "fan_power_w": row[7] if len(row) > 7 else None,
-                "vpd_kpa": row[8] if len(row) > 8 else None,
-                "pm1_0": row[9] if len(row) > 9 else None,
-                "pm2_5": row[10] if len(row) > 10 else None,
-                "pm10": row[11] if len(row) > 11 else None,
-                "gas_co": row[12] if len(row) > 12 else None,
-                "gas_no2": row[13] if len(row) > 13 else None,
-                "gas_nh3": row[14] if len(row) > 14 else None,
-            }
-            for row in rows
-        ]
+        if fmt == "csv":
+            return _rows_as_csv(rows)
+        return jsonify(_rows_as_json(rows))
     except Exception as e:
         return jsonify({"error": f"Error reading data: {str(e)}"}), 500
-    return jsonify(data)
-
-
-@api_data_bp.route("/api/download")
-def download_data():
-    range_param = request.args.get("range", "24h")
-    since, now = _parse_range(range_param)
-    try:
-        rows = get_sensor_data_by_date(_normalise_ts(since.isoformat()), _normalise_ts(now.isoformat()))
-        output = io.StringIO()
-        writer = csv.writer(output)
-        writer.writerow(["id", "timestamp", "temperature", "humidity", "eco2", "tvoc", "annotation"])
-        writer.writerows([
-            (
-                r[0],
-                _normalise_ts(r[1]),
-                r[2],
-                r[3],
-                r[4],
-                r[5],
-                r[6],
-            )
-            for r in rows
-        ])
-        output.seek(0)
-        return send_file(
-            io.BytesIO(output.getvalue().encode("utf-8")),
-            mimetype="text/csv",
-            as_attachment=True,
-            download_name="sensor_data.csv",
-        )
-    except Exception as e:
-        return jsonify({"error": f"Error generating CSV: {str(e)}"}), 500
 
 
 @api_data_bp.route("/api/annotate", methods=["POST"])

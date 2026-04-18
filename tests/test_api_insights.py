@@ -194,7 +194,11 @@ def test_get_sources_returns_list(app_client):
 
 
 def test_disable_source(app_client):
-    resp = app_client.post("/api/insights-engine/sources/sgp30/disable")
+    resp = app_client.patch(
+        "/api/insights-engine/sources/sgp30",
+        json={"enabled": False},
+        content_type="application/json",
+    )
     assert resp.status_code == 200
     from mlss_monitor import state
     assert state.data_source_enabled["sgp30"] is False
@@ -203,14 +207,31 @@ def test_disable_source(app_client):
 def test_enable_source(app_client):
     from mlss_monitor import state
     state.data_source_enabled["aht20"] = False
-    resp = app_client.post("/api/insights-engine/sources/aht20/enable")
+    resp = app_client.patch(
+        "/api/insights-engine/sources/aht20",
+        json={"enabled": True},
+        content_type="application/json",
+    )
     assert resp.status_code == 200
     assert state.data_source_enabled["aht20"] is True
 
 
 def test_enable_unknown_source_returns_404(app_client):
-    resp = app_client.post("/api/insights-engine/sources/nonexistent/enable")
+    resp = app_client.patch(
+        "/api/insights-engine/sources/nonexistent",
+        json={"enabled": True},
+        content_type="application/json",
+    )
     assert resp.status_code == 404
+
+
+def test_patch_source_missing_enabled_returns_400(app_client):
+    resp = app_client.patch(
+        "/api/insights-engine/sources/sgp30",
+        json={},
+        content_type="application/json",
+    )
+    assert resp.status_code == 400
 
 
 def test_classifier_stats_returns_all_tags(app_client, db):

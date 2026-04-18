@@ -1,4 +1,4 @@
-"""Weather API routes: current, forecast (hourly & daily), history, geocode."""
+"""Weather API routes: current, forecast (hourly/daily via ?resolution), history, geocode."""
 
 from flask import Blueprint, jsonify, request
 
@@ -37,22 +37,21 @@ def weather():
 
 @api_weather_bp.route("/api/weather/forecast")
 def forecast():
+    """Weather forecast via Open-Meteo.
+
+    `?resolution=hourly` (default) returns the short-term hourly forecast.
+    `?resolution=daily` returns a 14-day daily forecast.
+    """
+    resolution = request.args.get("resolution", "hourly").lower()
+    if resolution not in ("hourly", "daily"):
+        return jsonify({"error": "'resolution' must be 'hourly' or 'daily'."}), 400
     loc = get_location()
     if not loc or loc.get("lat") is None:
         return jsonify({"error": "Location not configured"}), 404
     try:
+        if resolution == "daily":
+            return jsonify(state.open_meteo.get_daily_forecast(loc["lat"], loc["lon"], days=14))
         return jsonify(state.open_meteo.get_forecast(loc["lat"], loc["lon"]))
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-@api_weather_bp.route("/api/weather/forecast/daily")
-def daily_forecast():
-    loc = get_location()
-    if not loc or loc.get("lat") is None:
-        return jsonify({"error": "Location not configured"}), 404
-    try:
-        return jsonify(state.open_meteo.get_daily_forecast(loc["lat"], loc["lon"], days=14))
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

@@ -179,7 +179,7 @@ async function fetchWeather() {
 
 async function fetchForecast() {
   try {
-    const res = await fetch("/api/weather/forecast");
+    const res = await fetch("/api/weather/forecast?resolution=hourly");
     if (!res.ok) return;
     updateForecast((await res.json()).hours);
   } catch { /* location not set */ }
@@ -187,7 +187,7 @@ async function fetchForecast() {
 
 async function fetchDailyForecast() {
   try {
-    const res = await fetch("/api/weather/forecast/daily");
+    const res = await fetch("/api/weather/forecast?resolution=daily");
     if (!res.ok) return;
     updateDailyForecast((await res.json()).days);
   } catch { /* location not set */ }
@@ -772,8 +772,8 @@ function _openInferenceDialog(id) {
   document.getElementById("infSaveNote").onclick = async () => {
     const notes = document.getElementById("infNotes").value;
     try {
-      await fetch(`/api/inferences/${id}/notes`, {
-        method: "POST",
+      await fetch(`/api/inferences/${id}`, {
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ notes }),
       });

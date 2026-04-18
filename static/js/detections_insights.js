@@ -748,8 +748,8 @@ function openInferenceDialog(id) {
   document.getElementById('infSaveNote').onclick = async function () {
     const notes = document.getElementById('infNotes').value;
     try {
-      await fetch('/api/inferences/' + id + '/notes', {
-        method: 'POST',
+      await fetch('/api/inferences/' + id, {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ notes }),
       });
