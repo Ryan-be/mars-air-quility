@@ -415,10 +415,6 @@ if (typeof window.createInferenceTimeline === 'function') {
     },
   });
 }
-if (typeof window.createTimelineDetailPanel === 'function') {
-  window._dashDetailPanel = window.createTimelineDetailPanel('dashDetailPanel', 'dashDetailTitle', 'dashDetailBody');
-}
-
 async function fetchInferences() {
   const end = new Date();
   const start = new Date(end.getTime() - 24 * 3600000);

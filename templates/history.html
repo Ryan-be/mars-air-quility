@@ -383,38 +383,24 @@
     </div>
     <div id="diEventsList" style="display:none;">
       <!-- Timeline view -->
-      <div class="tl-split-layout" id="diTimelineSplit">
-        <div class="tl-main">
-          <div class="di-card" style="padding:0.75rem 1rem 0.5rem;">
-            <h3 style="margin:0 0 0.5rem;">Detection Events <rux-badge id="diEventsCount"></rux-badge></h3>
-            <div id="diTimeline" class="tl-container"></div>
-          </div>
-          <!-- Keep existing card list below -->
-          <div class="di-card" style="margin-top:0.75rem;">
-            <h3>Event List</h3>
-            <div class="inference-filters" id="diInferenceFilters">
-              <button class="inf-filter active" data-category="all">All</button>
-              <button class="inf-filter" data-category="alert">Alerts</button>
-              <button class="inf-filter" data-category="warning">Warnings</button>
-              <button class="inf-filter" data-category="pattern">Patterns</button>
-              <button class="inf-filter" data-category="anomaly">Anomalies</button>
-              <button class="inf-filter" data-category="attribution">Attribution</button>
-              <button class="inf-filter" data-category="summary">Summaries</button>
-            </div>
-            <div class="inference-feed" id="diInferenceFeed">
-              <div class="inference-empty">Loading…</div>
-            </div>
-          </div>
+      <div class="di-card" style="padding:0.75rem 1rem 0.5rem;">
+        <h3 style="margin:0 0 0.5rem;">Detection Events <rux-badge id="diEventsCount"></rux-badge></h3>
+        <div id="diTimeline" class="tl-container"></div>
+      </div>
+      <!-- Keep existing card list below -->
+      <div class="di-card" style="margin-top:0.75rem;">
+        <h3>Event List</h3>
+        <div class="inference-filters" id="diInferenceFilters">
+          <button class="inf-filter active" data-category="all">All</button>
+          <button class="inf-filter" data-category="alert">Alerts</button>
+          <button class="inf-filter" data-category="warning">Warnings</button>
+          <button class="inf-filter" data-category="pattern">Patterns</button>
+          <button class="inf-filter" data-category="anomaly">Anomalies</button>
+          <button class="inf-filter" data-category="attribution">Attribution</button>
+          <button class="inf-filter" data-category="summary">Summaries</button>
         </div>
-        <!-- Slide-out detail panel -->
-        <div class="tl-detail-panel" id="diDetailPanel">
-          <div class="tl-detail-header">
-            <span class="tl-detail-title" id="diDetailTitle">Event Detail</span>
-            <button class="tl-detail-close" onclick="if(window._diDetailPanel)window._diDetailPanel.hide()">✕</button>
-          </div>
-          <div class="tl-detail-body" id="diDetailBody">
-            <div class="tl-detail-empty">Select an event on the timeline to inspect it.</div>
-          </div>
+        <div class="inference-feed" id="diInferenceFeed">
+          <div class="inference-empty">Loading…</div>
         </div>
       </div>
     </div>
@@ -527,7 +513,6 @@
   <script src="https://cdn.plot.ly/plotly-2.24.2.min.js"></script>
   <script src="{{ url_for('static', filename='js/sparkline.js') }}"></script>
   <script src="{{ url_for('static', filename='js/inference_timeline.js') }}"></script>
-  <script src="{{ url_for('static', filename='js/timeline_detail_panel.js') }}"></script>
   <script type="module" src="{{ url_for('static', filename='js/inference_feed.js') }}"></script>
   <script type="module" src="{{ url_for('static', filename='js/detections_insights.js') }}"></script>
   <script type="module">

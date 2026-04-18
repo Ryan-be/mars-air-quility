@@ -86,9 +86,6 @@ const DI = (function () {
         getRange: _range,
       });
     }
-    if (typeof window.createTimelineDetailPanel === 'function') {
-      window._diDetailPanel = window.createTimelineDetailPanel('diDetailPanel', 'diDetailTitle', 'diDetailBody');
-    }
     load();
     _subscribeSSE();
     const rangeEl = document.getElementById('range');
