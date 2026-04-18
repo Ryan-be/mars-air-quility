@@ -466,15 +466,21 @@ def log_data():
         )
         try:
             action, results = fan_controller.evaluate(reading, settings)
-            state.last_auto_action = action
-            state.last_auto_evaluation = [
+            evaluation = [
                 {"rule": r.rule_name, "action": r.action.value, "reason": r.reason}
                 for r in results
             ]
-            state.fan_state = action
-            asyncio.run_coroutine_threadsafe(
+            # Single lock-guarded write so HTTP readers never see torn state (H3).
+            state.update_auto_snapshot(action, evaluation, action)
+            # Wait for the plug-switch coroutine with a hard timeout so a dead
+            # event loop or unreachable plug never silently drops the error (H4).
+            switch_future = asyncio.run_coroutine_threadsafe(
                 state.fan_smart_plug.switch(action == "on"), thread_loop
             )
+            try:
+                switch_future.result(timeout=5)
+            except Exception as switch_exc:
+                log.error("[log_data] smart-plug switch failed: %s", switch_exc)
             # Broadcast fan status change
             if state.event_bus:
                 state.event_bus.publish("fan_status", {
@@ -763,7 +769,7 @@ def main():
 
     # Sync fan_mode from persisted settings
     _fan_settings = get_fan_settings()
-    state.fan_mode = "auto" if _fan_settings["enabled"] else "manual"
+    state.set_fan_mode("auto" if _fan_settings["enabled"] else "manual")
     log.info("STARTUP: get_fan_settings (%.1fs elapsed)", time.monotonic() - _t0)
 
     _start_background_services()
