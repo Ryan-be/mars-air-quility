@@ -1,4 +1,5 @@
 import logging
+import threading
 import time
 import serial
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
@@ -37,6 +38,17 @@ class AirMonitoringHAT_PM:
         self._skip_until: float = 0.0
         # Per-instance single-worker executor (was module-level _pm_executor).
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="pm_sensor")
+        # Background poller state — the serial read can block for up to ~11s
+        # per failed cycle (3 attempts × 3s timeout + 2 × 1s sleep). Running
+        # that on the sensor loop / log-data thread would stall the hot tier
+        # and the SSE sensor_update broadcast, making the dashboard appear
+        # frozen. The poller owns the blocking path; callers get cached
+        # results instantly via get_cached_pm().
+        self._cache_lock = threading.Lock()
+        self._cached_result: dict | None = None
+        self._cached_monotonic_ts: float = 0.0
+        self._poller_thread: threading.Thread | None = None
+        self._poller_stop = threading.Event()
 
     def close(self):
         if self._ser and self._ser.is_open:
@@ -45,9 +57,68 @@ class AirMonitoringHAT_PM:
 
     def __del__(self):
         try:
+            self._poller_stop.set()
+        except Exception:
+            pass
+        try:
             self._executor.shutdown(wait=False)
         except Exception:
             pass
+
+    def start_poller(self, interval: float = 1.0) -> None:
+        """Start the background polling thread if it isn't already running.
+
+        The poller calls the blocking read_pm() every `interval` seconds (or
+        as fast as possible if a read takes longer) and stores the latest
+        successful frame in a lock-guarded cache that get_cached_pm() reads.
+        """
+        if self._poller_thread is not None and self._poller_thread.is_alive():
+            return
+        self._poller_stop.clear()
+        self._poller_thread = threading.Thread(
+            target=self._poll_loop,
+            args=(interval,),
+            daemon=True,
+            name="pm_sensor_poller",
+        )
+        self._poller_thread.start()
+
+    def stop_poller(self) -> None:
+        """Signal the poller thread to exit (used from tests/shutdown)."""
+        self._poller_stop.set()
+
+    def _poll_loop(self, interval: float) -> None:
+        # Small initial delay so the first read doesn't collide with the
+        # synchronous probe in init_pm_sensor().
+        if self._poller_stop.wait(interval):
+            return
+        while not self._poller_stop.is_set():
+            try:
+                result = self.read_pm()
+                if result is not None:
+                    with self._cache_lock:
+                        self._cached_result = result
+                        self._cached_monotonic_ts = time.monotonic()
+            except Exception as exc:  # pragma: no cover — defensive
+                log.error("PM sensor poller: unexpected error: %s", exc)
+            # Wait for the next cycle or a stop signal.
+            if self._poller_stop.wait(interval):
+                return
+
+    def get_cached_pm(self, max_age: float | None = None) -> dict | None:
+        """Return the most recent successful PM frame without blocking.
+
+        `max_age` (seconds) — if provided, entries older than this are
+        treated as expired and None is returned. None means no age limit.
+        """
+        with self._cache_lock:
+            if self._cached_result is None:
+                return None
+            if max_age is not None and (
+                time.monotonic() - self._cached_monotonic_ts
+            ) > max_age:
+                return None
+            return dict(self._cached_result)
 
     def _open(self):
         if self._ser is None or not self._ser.is_open:
@@ -219,12 +290,21 @@ def init_pm_sensor(port="/dev/serial0", set_pin=_DEFAULT_SET_PIN):
     try:
         _sensor = AirMonitoringHAT_PM(port=port, set_pin=set_pin)
         _sensor._wake_sensor()
-        # Do a test read to confirm sensor is responding
+        # Do a test read to confirm sensor is responding. This probe is
+        # deliberately blocking — it happens once at startup and its result
+        # seeds the poller's cache so the first read_pm() call has data.
         result = _sensor.read_pm()
         if result is not None:
             log.info("PM sensor initialised: PM2.5=%d ug/m3", result["pm2_5"])
-            return _sensor
-        log.warning("PM sensor connected but no data yet (may need warm-up)")
+            # Seed the cache so get_cached_pm() returns data immediately.
+            with _sensor._cache_lock:
+                _sensor._cached_result = dict(result)
+                _sensor._cached_monotonic_ts = time.monotonic()
+        else:
+            log.warning("PM sensor connected but no data yet (may need warm-up)")
+        # Start the background poller so all subsequent callers get cached,
+        # non-blocking reads via get_cached_pm().
+        _sensor.start_poller(interval=1.0)
         return _sensor
     except Exception as e:
         log.error("Failed to initialise PM sensor: %s", e)
@@ -233,6 +313,12 @@ def init_pm_sensor(port="/dev/serial0", set_pin=_DEFAULT_SET_PIN):
 
 
 def read_pm():
+    """Return the most recent cached PM frame, or None.
+
+    This is non-blocking — the actual serial read happens on a dedicated
+    poller thread inside AirMonitoringHAT_PM. Callers on the 1 Hz sensor
+    loop and the 10 s log loop are never stalled by a failed serial read.
+    """
     if _sensor is None:
         return None
-    return _sensor.read_pm()
+    return _sensor.get_cached_pm()
