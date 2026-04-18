@@ -87,6 +87,41 @@ class AirMonitoringHAT_PM:
         """Signal the poller thread to exit (used from tests/shutdown)."""
         self._poller_stop.set()
 
+    def restart_after_fork(self, interval: float = 1.0) -> None:
+        """Rebuild thread/executor state after os.fork().
+
+        With gunicorn's preload_app=True, __init__ runs in the master — the
+        ThreadPoolExecutor's worker thread and the poller thread both start
+        in the master and are left behind at fork(). The Event/Lock objects
+        themselves are inherited and can be re-used, but the threads backing
+        the executor are gone so any submit() would deadlock.
+
+        Called from gunicorn.conf.py::post_fork. Safe to call multiple times
+        (idempotent); also safe in non-forking contexts (tests) — it just
+        replaces the executor and bounces the poller.
+        """
+        # Drop the stale executor (its worker thread is gone) and create a
+        # new one in this process.
+        try:
+            self._executor.shutdown(wait=False)
+        except Exception:
+            pass
+        self._executor = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="pm_sensor"
+        )
+        # The inherited serial handle, if any, is also tied to the master's
+        # blocking read. Close so the next read reopens in this process.
+        try:
+            self.close()
+        except Exception:
+            pass
+        # Fresh poller lifecycle. The inherited poller_thread object refers
+        # to a dead master thread; is_alive() returns False so start_poller()
+        # would be idempotent, but null it out for clarity.
+        self._poller_thread = None
+        self._poller_stop = threading.Event()
+        self.start_poller(interval=interval)
+
     def _poll_loop(self, interval: float) -> None:
         # Small initial delay so the first read doesn't collide with the
         # synchronous probe in init_pm_sensor().

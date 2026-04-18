@@ -52,9 +52,12 @@ def post_fork(server, worker):
     `run_coroutine_threadsafe` call times out, which is why `get_power` was
     failing with no message).
 
-    This hook rebuilds both in the worker:
+    This hook rebuilds everything in the worker:
     - a fresh `asyncio.new_event_loop()` + its driver thread, so the Kasa
       smart-plug coroutines have a running loop to dispatch to;
+    - the PM sensor's background poller + its ThreadPoolExecutor (both
+      started in the master via init_pm_sensor() at import time — the
+      poller thread dies at fork and the executor's worker deadlocks);
     - the background services (sensor loop, weather loop, detection engine,
       anomaly bootstrap Timer) via `_start_background_services()` after
       clearing the idempotency guard inherited from the master.
@@ -69,12 +72,23 @@ def post_fork(server, worker):
         _app_mod.thread_loop = asyncio.new_event_loop()
         _app_mod.state.thread_loop = _app_mod.thread_loop
         Thread(target=_app_mod._start_thread_event_loop, daemon=True).start()
+        # PM sensor poller was started in the master via init_pm_sensor();
+        # the poller thread + its single-worker ThreadPoolExecutor are both
+        # dead in the worker. Rebuild them so the cache keeps refreshing.
+        if _app_mod.state.pm_sensor is not None:
+            try:
+                _app_mod.state.pm_sensor.restart_after_fork(interval=1.0)
+            except Exception as exc:  # pragma: no cover — best-effort recovery
+                server.log.exception(
+                    "post_fork: failed to restart PM poller: %s", exc
+                )
         # Reset the idempotency Event (set in master via preload) so services
         # actually start here.
         _app_mod._services_started.clear()
         _app_mod._start_background_services()
         server.log.info(
-            "post_fork: thread_loop + background services restarted in worker pid=%d",
+            "post_fork: thread_loop + PM poller + background services "
+            "restarted in worker pid=%d",
             worker.pid,
         )
     except Exception as exc:  # pragma: no cover — best-effort recovery

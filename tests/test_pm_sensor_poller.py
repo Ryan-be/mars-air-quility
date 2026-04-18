@@ -142,6 +142,68 @@ def test_poll_loop_survives_read_exception():
             assert not sensor._poller_thread.is_alive()
 
 
+def test_restart_after_fork_replaces_executor_and_starts_fresh_poller():
+    """Simulates the gunicorn post_fork path.
+
+    In prod, preload_app=True runs __init__ + start_poller in the master;
+    fork() then strands those threads. restart_after_fork() must swap the
+    executor, reset the poller Event, and start a new daemon thread that
+    actually fires read_pm().
+    """
+    sensor = _make_sensor()
+    try:
+        # Set up "master" state: start a poller with a fake read, then
+        # capture identities so we can prove they're replaced.
+        sensor.read_pm = lambda: {"pm1_0": 1, "pm2_5": 2, "pm10": 3}  # type: ignore[assignment]
+        sensor.start_poller(interval=0.05)
+        # Wait briefly so the original poller definitely got going.
+        time.sleep(0.1)
+        original_executor = sensor._executor
+        original_stop_event = sensor._poller_stop
+        original_thread = sensor._poller_thread
+
+        # Now simulate post-fork restart.
+        read_called = threading.Event()
+
+        def fresh_read():
+            read_called.set()
+            return {"pm1_0": 10, "pm2_5": 20, "pm10": 30}
+
+        sensor.read_pm = fresh_read  # type: ignore[assignment]
+        sensor.restart_after_fork(interval=0.05)
+
+        assert sensor._executor is not original_executor, (
+            "executor must be a fresh instance so its worker thread exists"
+        )
+        assert sensor._poller_stop is not original_stop_event, (
+            "stop Event must be replaced to avoid inheriting a set-state"
+        )
+        assert sensor._poller_thread is not original_thread, (
+            "poller thread must be a fresh daemon thread"
+        )
+        assert sensor._poller_thread is not None
+        assert sensor._poller_thread.is_alive()
+
+        # Confirm the new poller actually ticks.
+        assert read_called.wait(timeout=1.5), (
+            "new poller did not invoke read_pm after restart_after_fork"
+        )
+        # And the cache reflects the post-restart frame.
+        deadline = time.monotonic() + 1.0
+        cached = None
+        while time.monotonic() < deadline:
+            cached = sensor.get_cached_pm()
+            if cached == {"pm1_0": 10, "pm2_5": 20, "pm10": 30}:
+                break
+            time.sleep(0.02)
+        assert cached == {"pm1_0": 10, "pm2_5": 20, "pm10": 30}
+    finally:
+        sensor.stop_poller()
+        if sensor._poller_thread is not None:
+            sensor._poller_thread.join(timeout=1.0)
+            assert not sensor._poller_thread.is_alive()
+
+
 def test_module_read_pm_is_nonblocking(monkeypatch):
     """The module-level read_pm() must not call the blocking serial read.
 
@@ -157,9 +219,10 @@ def test_module_read_pm_is_nonblocking(monkeypatch):
             self.read_called = False
 
         def read_pm(self):
+            # time.sleep would block catastrophically IF the module-level
+            # read_pm() were still calling the blocking path. It must not.
             self.read_called = True
-            time.sleep(10.0)  # would block catastrophically
-            return None
+            time.sleep(10.0)
 
         def get_cached_pm(self, max_age=None):
             return dict(self._cached_result)
