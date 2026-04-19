@@ -250,10 +250,13 @@ class TestAutoStatusAPI:
 
     def test_reflects_last_evaluation(self, app_client):
         from mlss_monitor import state as app_state
-        app_state.last_auto_action = "on"
-        app_state.last_auto_evaluation = [
-            {"rule": "temperature", "action": "on", "reason": "too hot"},
-        ]
+        # Go through update_auto_snapshot() so the test mirrors the locked
+        # composite-write path used in production by log_data().
+        app_state.update_auto_snapshot(
+            "on",
+            [{"rule": "temperature", "action": "on", "reason": "too hot"}],
+            "on",
+        )
         client, _ = app_client
         data = client.get("/api/fan/auto-status").get_json()
         assert data["action"] == "on"

@@ -421,8 +421,9 @@ flowchart TB
     end
 
     subgraph ManualControl["Manual Override<br/>(API)"]
-        ManualAPI["POST /api/fan<br/>?state=on|off|auto"]
-        SetManual["Set fan_mode =<br/>manual_on / manual_off"]
+        ModeAPI["POST /api/fan/mode<br/>{mode: auto|manual}"]
+        EffectorAPI["POST /api/effector<br/>{key: fan1, state: on|off}"]
+        SetManual["Set fan_mode =<br/>manual + flip plug"]
         SetAuto["Set fan_mode = auto"]
     end
 
@@ -447,8 +448,9 @@ flowchart TB
     Evaluate -->|Within limits| AutoOff
     AutoOn --> Kasa
     AutoOff --> Kasa
-    ManualAPI --> SetManual
-    ManualAPI --> SetAuto
+    ModeAPI --> SetAuto
+    ModeAPI --> SetManual
+    EffectorAPI --> SetManual
     SetManual --> Kasa
     SetAuto --> Threshold
     Kasa --> Fan
@@ -460,9 +462,9 @@ flowchart TB
 
 | Mode | Trigger | Behaviour |
 |---|---|---|
-| **Auto** | `POST /api/fan?state=auto` | Fan state determined by threshold rules each polling cycle |
-| **Manual On** | `POST /api/fan?state=on` | Fan forced on; auto rules suspended |
-| **Manual Off** | `POST /api/fan?state=off` | Fan forced off; auto rules suspended |
+| **Auto** | `POST /api/fan/mode` body `{"mode": "auto"}` | Fan state determined by threshold rules each polling cycle |
+| **Manual On** | `POST /api/effector` body `{"key": "fan1", "state": "on"}` | Fan forced on; implicitly switches the mode to manual |
+| **Manual Off** | `POST /api/effector` body `{"key": "fan1", "state": "off"}` | Fan forced off; implicitly switches the mode to manual |
 
 ### Auto-mode threshold rules
 
@@ -863,16 +865,22 @@ The `MLSS_ALLOWED_GITHUB_USER` bootstrap account always has the **admin** role r
 
 | Method | Endpoint | Min role | Description |
 |---|---|---|---|
-| `GET` | `/api/data?range=24h` | viewer | Sensor readings. `range`: `15m` `1h` `6h` `12h` `24h` `all` |
-| `GET` | `/api/download?range=24h` | viewer | Download as CSV |
+| `GET` | `/api/data?range=24h&format=json` | viewer | Sensor readings. `range`: `15m` `1h` `6h` `12h` `24h` `all`. `format=csv` streams the same window as a CSV download. |
 | `POST` | `/api/annotate?point=<id>` | controller | Add annotation -- body: `{"annotation": "text"}` |
 | `DELETE` | `/api/annotate?point=<id>` | controller | Remove annotation |
+
+### Effectors (generic)
+
+| Method | Endpoint | Min role | Description |
+|---|---|---|---|
+| `GET` | `/api/effectors` | viewer | Snapshot of every registered effector (state + live power draw) |
+| `POST` | `/api/effector` | controller | Toggle an effector -- body: `{"key": "fan1", "state": "on"\|"off"}` |
 
 ### Fan control
 
 | Method | Endpoint | Min role | Description |
 |---|---|---|---|
-| `POST` | `/api/fan?state=on\|off\|auto` | controller | Manual fan control or switch to auto mode |
+| `POST` | `/api/fan/mode` | controller | Switch between auto and manual -- body: `{"mode": "auto"\|"manual"}`. Use `/api/effector` to flip the plug on or off. |
 | `GET` | `/api/fan/status` | viewer | Current plug state (power_w, today_kwh, mode) |
 | `GET` | `/api/fan/settings` | viewer | Auto fan threshold settings |
 | `POST` | `/api/fan/settings` | admin | Update settings -- body: `{"temp_max": 25.0, "tvoc_max": 600, "enabled": true}` |
@@ -882,8 +890,8 @@ The `MLSS_ALLOWED_GITHUB_USER` bootstrap account always has the **admin** role r
 | Method | Endpoint | Min role | Description |
 |---|---|---|---|
 | `GET` | `/api/weather` | viewer | Current outdoor conditions (90-min DB cache) |
-| `GET` | `/api/weather/forecast` | viewer | 24-hour hourly forecast |
-| `GET` | `/api/weather/forecast/daily` | viewer | 14-day daily forecast |
+| `GET` | `/api/weather/forecast?resolution=hourly` | viewer | 24-hour hourly forecast (default) |
+| `GET` | `/api/weather/forecast?resolution=daily` | viewer | 14-day daily forecast |
 | `GET` | `/api/weather/history` | viewer | Historical weather log |
 | `GET` | `/api/geocode?q=<query>` | viewer | Geocode a place name or UK postcode |
 
@@ -905,8 +913,7 @@ The `MLSS_ALLOWED_GITHUB_USER` bootstrap account always has the **admin** role r
 | `GET` | `/api/inferences?limit=50` | viewer | List inferences. `dismissed=1` includes dismissed. |
 | `GET` | `/api/inferences/categories` | viewer | List category names |
 | `GET` | `/api/inferences/<id>/sparkline` | viewer | Channel data around the event for the slide-in inference panel sparkline (merges downsampled `sensor_data` + 1-sec `hot_tier` rows; X-axis is ISO timestamps, range events get a "Tagged range" rectangle and point events get an "Event" line) |
-| `POST` | `/api/inferences/<id>/notes` | controller | Save user notes -- body: `{"notes": "text"}` |
-| `POST` | `/api/inferences/<id>/dismiss` | controller | Dismiss an inference |
+| `PATCH` | `/api/inferences/<id>` | controller | Partial update -- body: `{"notes": "text"}` and/or `{"dismissed": true}` (at least one required) |
 
 ### User management
 

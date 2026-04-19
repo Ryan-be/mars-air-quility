@@ -459,7 +459,10 @@ def log_data():
         state.event_bus.publish("health_update", _collect_health())
 
     settings = get_fan_settings()
-    if settings["enabled"] and state.fan_mode == "auto":
+    # Read fan_mode via the snapshot helper so this site stays consistent
+    # with the H3 locking protocol; composite-write+read now both go through
+    # the same lock, which keeps the audit honest.
+    if settings["enabled"] and state.get_fan_snapshot()["fan_mode"] == "auto":
         reading = SensorReading(
             temperature=temp, humidity=hum, eco2=eco2, tvoc=tvoc,
             vpd_kpa=vpd, pm2_5=pm2_5,

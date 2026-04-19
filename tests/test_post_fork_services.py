@@ -117,7 +117,7 @@ def test_post_fork_restarts_pm_poller_and_driver(monkeypatch):
     pm_sensor = app_module.state.pm_sensor
     assert pm_sensor is not None
     if isinstance(pm_sensor, MagicMock):
-        pm_sensor.restart_after_fork.assert_called_once()
+        pm_sensor.restart_after_fork.assert_called_once()  # pylint: disable=no-member
     else:
         assert pm_sensor._poller_thread is not None
         assert pm_sensor._poller_thread.is_alive(), "PM poller not restarted"

@@ -15,11 +15,14 @@ last_auto_evaluation: list[dict] | None = None
 last_auto_action: str | None = None
 
 # Lock guarding the four fan_* fields above. The background log loop writes
-# all four together every LOG_INTERVAL and HTTP handlers read/write them
-# concurrently; without this lock a reader can observe a torn
-# last_auto_evaluation list (H3 in threading-audit). Use get_fan_snapshot()
-# or update_auto_snapshot() for composite operations; single-field writes
-# should also take the lock via the helpers below.
+# all four together every LOG_INTERVAL, and HTTP handlers read multiple
+# fields in a single response; without this lock a reader can observe a
+# torn last_auto_evaluation list (H3).  Callers that need a consistent view
+# across multiple fields MUST use get_fan_snapshot(); callers that mutate
+# any field MUST go through update_auto_snapshot() / set_fan_mode() /
+# set_fan_state() so the write is serialised against other readers and
+# writers.  Individual reads of a single string field remain atomic under
+# the GIL, but prefer get_fan_snapshot() for consistency.
 _fan_lock = threading.Lock()
 
 

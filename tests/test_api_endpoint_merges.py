@@ -221,3 +221,67 @@ class TestApiEffectorsGet:
         assert "fan1" in keys
         fan = next(e for e in data if e["key"] == "fan1")
         assert fan["type"] == "smart_plug"
+
+
+# ── Removed endpoint shapes must 404/405 ────────────────────────────────────
+#
+# Regression guards: a future refactor could silently re-register an old
+# blueprint route; these tests fail if any of the retired shapes start
+# answering successfully again.  We accept 404 (route is gone) OR 405 (the
+# path still matches a new route on a different method) — the goal is to
+# prove the old *method + path* no longer succeeds.
+
+class TestOldShapesAreRetired:
+    def _assert_retired(self, response):
+        assert response.status_code in (404, 405), (
+            f"Retired endpoint still answers with {response.status_code}; "
+            "body: " + response.get_data(as_text=True)[:200]
+        )
+
+    def test_post_inferences_notes_is_retired(self, app_client, db):
+        client, _ = app_client
+        inf_id = save_inference(
+            event_type="tvoc_spike", title="t", description="d",
+            action="a", severity="warning", confidence=0.9, evidence={},
+        )
+        self._assert_retired(
+            client.post(
+                f"/api/inferences/{inf_id}/notes",
+                json={"notes": "legacy call"},
+            )
+        )
+
+    def test_post_inferences_dismiss_is_retired(self, app_client, db):
+        client, _ = app_client
+        inf_id = save_inference(
+            event_type="tvoc_spike", title="t", description="d",
+            action="a", severity="warning", confidence=0.9, evidence={},
+        )
+        self._assert_retired(client.post(f"/api/inferences/{inf_id}/dismiss"))
+
+    def test_post_sources_enable_is_retired(self, app_client):
+        client, _ = app_client
+        self._assert_retired(
+            client.post("/api/insights-engine/sources/sgp30/enable")
+        )
+
+    def test_post_sources_disable_is_retired(self, app_client):
+        client, _ = app_client
+        self._assert_retired(
+            client.post("/api/insights-engine/sources/sgp30/disable")
+        )
+
+    def test_get_download_is_retired(self, app_client, db):
+        client, _ = app_client
+        self._assert_retired(client.get("/api/download?range=24h"))
+
+    def test_get_forecast_daily_is_retired(self, app_client):
+        client, _ = app_client
+        self._assert_retired(client.get("/api/weather/forecast/daily"))
+
+    def test_post_fan_state_on_is_retired(self, app_client):
+        """POST /api/fan?state=on|off|auto is gone; /api/effector replaces it."""
+        client, _ = app_client
+        self._assert_retired(client.post("/api/fan?state=on"))
+        self._assert_retired(client.post("/api/fan?state=off"))
+        self._assert_retired(client.post("/api/fan?state=auto"))
