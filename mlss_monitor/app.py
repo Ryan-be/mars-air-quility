@@ -298,6 +298,12 @@ state.detection_engine = _detection_engine
 
 # ── Smart plug & async event loop ────────────────────────────────────────────
 
+# Log the resolved IP at INFO so `journalctl -u mlss-monitor` always shows
+# which address the service is talking to. Without this, a config regression
+# (wrong key in .env, stale hardcoded default, etc.) silently drops us onto
+# an unreachable address and the only symptom is generic 503s from the fan
+# API. One greppable line here turns a day of debugging into a minute.
+log.info("Smart plug configured for IP: %s", FAN_KASA_SMART_PLUG_IP)
 state.fan_smart_plug = KasaSmartPlug(FAN_KASA_SMART_PLUG_IP)
 
 thread_loop = asyncio.new_event_loop()
