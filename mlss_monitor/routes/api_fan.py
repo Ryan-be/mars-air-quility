@@ -54,9 +54,16 @@ def get_fan_status():
             )
             plug_state = state_task.result(timeout=5)
         except Exception as plug_exc:
-            log.error("[get_fan_status] plug read failed: %s", plug_exc)
+            # Include the exception class name — `concurrent.futures.TimeoutError`
+            # (raised by `run_coroutine_threadsafe(...).result(timeout=...)`)
+            # has an empty `str()`, so without the class name the log line
+            # carries no information about the failure mode.
+            log.error(
+                "[get_fan_status] plug read failed: %s: %s",
+                type(plug_exc).__name__, plug_exc,
+            )
             return jsonify({
-                "error": f"Smart plug unavailable: {plug_exc}",
+                "error": f"Smart plug unavailable: {type(plug_exc).__name__}: {plug_exc}",
             }), 503
 
         try:
@@ -65,7 +72,10 @@ def get_fan_status():
             )
             plug_state.update(power_task.result(timeout=5))
         except Exception as exc:
-            log.error("[get_fan_status] get_power failed: %s", exc)
+            log.error(
+                "[get_fan_status] get_power failed: %s: %s",
+                type(exc).__name__, exc,
+            )
             plug_state["power_w"] = None
             plug_state["today_kwh"] = None
 
@@ -73,7 +83,13 @@ def get_fan_status():
         plug_state["unit_rate_pence"] = get_unit_rate()
         return jsonify(plug_state), 200
     except Exception as e:
-        return jsonify({"error": f"Error retrieving fan state: {str(e)}"}), 500
+        log.error(
+            "[get_fan_status] unexpected failure: %s: %s",
+            type(e).__name__, e,
+        )
+        return jsonify({
+            "error": f"Error retrieving fan state: {type(e).__name__}: {e}",
+        }), 500
 
 
 @api_fan_bp.route("/api/fan/settings", methods=["GET"])

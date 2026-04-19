@@ -114,7 +114,20 @@ app = Flask(
 # ── Config ────────────────────────────────────────────────────────────────────
 
 LOG_INTERVAL = int(config.get("LOG_INTERVAL", "10"))
-FAN_KASA_SMART_PLUG_IP = config.get("FAN_KASA_SMART_PLUG_IP", "192.168.1.63")
+
+# Smart plug LAN IP. Required — no default, so a missing
+# `MLSS_FAN_KASA_SMART_PLUG_IP` is caught immediately via the warning below
+# rather than silently falling back to an address that doesn't match the
+# deployment. `KasaSmartPlug(None)` is safe to construct (no network I/O
+# until the first call).
+FAN_KASA_SMART_PLUG_IP = config.get("FAN_KASA_SMART_PLUG_IP")
+if FAN_KASA_SMART_PLUG_IP is None:
+    log.warning(
+        "MLSS_FAN_KASA_SMART_PLUG_IP is not set in .env — the fan smart "
+        "plug will be unreachable. Add MLSS_FAN_KASA_SMART_PLUG_IP=<lan-ip> "
+        "to .env and restart the service."
+    )
+
 SECRET_KEY = config.get("SECRET_KEY", "mlss-dev-key-change-me-in-production")
 app.secret_key = SECRET_KEY
 app.permanent_session_lifetime = timedelta(days=30)
@@ -283,6 +296,10 @@ state.detection_engine = _detection_engine
 
 # ── Smart plug & async event loop ────────────────────────────────────────────
 
+# Log the resolved IP at INFO so the journal records which address the
+# service is configured to reach. Makes config issues greppable in
+# `journalctl -u mlss-monitor`.
+log.info("Smart plug configured for IP: %s", FAN_KASA_SMART_PLUG_IP)
 state.fan_smart_plug = KasaSmartPlug(FAN_KASA_SMART_PLUG_IP)
 
 thread_loop = asyncio.new_event_loop()

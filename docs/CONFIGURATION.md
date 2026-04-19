@@ -2,6 +2,8 @@
 
 All configuration for MLSS Monitor is managed via environment variables, loaded by [Dynaconf](https://www.dynaconf.com) with the prefix `MLSS_`. Copy `.env.example` to `.env` and fill in your values.
 
+> **Every key must use the `MLSS_` prefix.** Dynaconf is wired with `envvar_prefix="MLSS"` in `config.py`, so any entry without the prefix is silently ignored and the code will fall through to its in-source default. Table entries below omit the prefix for readability, but you must include it in `.env` (e.g. `MLSS_DB_FILE=...`, not `DB_FILE=...`).
+
 [Back to main README](../readme.md)
 
 ---
@@ -16,7 +18,7 @@ All configuration for MLSS Monitor is managed via environment variables, loaded 
 | `LOG_INTERVAL` | `10` | Sensor polling interval in seconds |
 | `LOG_FILE` | `data/log.csv` | Legacy CSV log path (not actively used by the web app) |
 | `DB_FILE` | `data/sensor_data.db` | SQLite database file path |
-| `FAN_KASA_SMART_PLUG_IP` | `192.168.1.63` | IP address of the TP-Link Kasa smart plug |
+| `FAN_KASA_SMART_PLUG_IP` | *(required)* | LAN IP of the TP-Link Kasa smart plug. Assign a DHCP reservation so the address does not drift. |
 
 ### Authentication (GitHub OAuth)
 
