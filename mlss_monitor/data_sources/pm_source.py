@@ -22,6 +22,11 @@ class ParticulateSource(DataSource):
         return "pm_sensor"
 
     def get_latest(self) -> NormalisedReading:
+        # read_pm() is non-blocking — it returns a cached frame populated
+        # by a dedicated poller thread in AirMonitoringHAT_PM. The try/except
+        # is retained as a defensive belt-and-braces since the contract is
+        # never supposed to raise, but the warning log below should not
+        # fire in normal operation.
         try:
             data = read_pm()
             if data:

@@ -4,6 +4,7 @@ import math
 import mimetypes
 import os
 import ssl
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -458,22 +459,31 @@ def log_data():
         state.event_bus.publish("health_update", _collect_health())
 
     settings = get_fan_settings()
-    if settings["enabled"] and state.fan_mode == "auto":
+    # Read fan_mode via the snapshot helper so this site stays consistent
+    # with the H3 locking protocol; composite-write+read now both go through
+    # the same lock, which keeps the audit honest.
+    if settings["enabled"] and state.get_fan_snapshot()["fan_mode"] == "auto":
         reading = SensorReading(
             temperature=temp, humidity=hum, eco2=eco2, tvoc=tvoc,
             vpd_kpa=vpd, pm2_5=pm2_5,
         )
         try:
             action, results = fan_controller.evaluate(reading, settings)
-            state.last_auto_action = action
-            state.last_auto_evaluation = [
+            evaluation = [
                 {"rule": r.rule_name, "action": r.action.value, "reason": r.reason}
                 for r in results
             ]
-            state.fan_state = action
-            asyncio.run_coroutine_threadsafe(
+            # Single lock-guarded write so HTTP readers never see torn state (H3).
+            state.update_auto_snapshot(action, evaluation, action)
+            # Wait for the plug-switch coroutine with a hard timeout so a dead
+            # event loop or unreachable plug never silently drops the error (H4).
+            switch_future = asyncio.run_coroutine_threadsafe(
                 state.fan_smart_plug.switch(action == "on"), thread_loop
             )
+            try:
+                switch_future.result(timeout=5)
+            except Exception as switch_exc:
+                log.error("[log_data] smart-plug switch failed: %s", switch_exc)
             # Broadcast fan status change
             if state.event_bus:
                 state.event_bus.publish("fan_status", {
@@ -586,7 +596,14 @@ def _sensor_read_loop() -> None:
             readings = []
             for source in _data_sources:
                 try:
+                    _t0 = time.monotonic()
                     readings.append(source.get_latest())
+                    _elapsed = time.monotonic() - _t0
+                    if _elapsed > 2.0:
+                        log.warning(
+                            "DataSource %s read took %.1fs — potential blocking issue",
+                            source.name, _elapsed,
+                        )
                     source.last_reading_at = datetime.utcnow()
                 except Exception as exc:
                     log.warning(
@@ -655,6 +672,50 @@ def _build_ssl_context():
     return ctx
 
 
+# ── Background services ────────────────────────────────────────────────────────
+
+_services_lock    = threading.Lock()
+_services_started = threading.Event()
+
+
+def _start_background_services():
+    """Start sensor, log, and weather background threads.
+
+    Idempotent — safe to call multiple times (subsequent calls are no-ops).
+    Designed to be called from wsgi.py before gunicorn forks workers, and also
+    from main() so the dev-server path continues to work unchanged.
+
+    Uses a Lock + Event to prevent TOCTOU races if two threads ever call this
+    concurrently (e.g. during testing or if preload_app is ever disabled).
+    """
+    with _services_lock:
+        if _services_started.is_set():
+            return
+        _services_started.set()
+
+    def _startup_analysis():
+        try:
+            from mlss_monitor.inference_engine import run_startup_analysis
+            run_startup_analysis()
+        except Exception as e:
+            log.error("Startup analysis failed: %s", e)
+
+    Thread(target=_startup_analysis, daemon=True).start()
+    Thread(target=_background_log, daemon=True).start()
+    Thread(target=_weather_log_loop, daemon=True).start()
+    Thread(target=_sensor_read_loop, daemon=True).start()
+
+    from threading import Timer
+    def _bootstrap():
+        try:
+            _detection_engine.bootstrap_from_db(str(DB_FILE))
+        except Exception as exc:
+            log.warning("DetectionEngine.bootstrap_from_db failed: %s", exc)
+    # 20-second delay lets Flask/gunicorn finish binding before the CPU-heavy
+    # River learn_one() calls inside bootstrap_from_db() compete for the GIL.
+    Timer(20, _bootstrap).start()
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main():
@@ -699,17 +760,6 @@ def main():
     state.hot_tier = hot_tier
     log.info("STARTUP: HotTier init (%.1fs elapsed)", time.monotonic() - _t0)
 
-    def _bootstrap():
-        try:
-            _detection_engine.bootstrap_from_db(str(DB_FILE))
-        except Exception as exc:
-            log.warning("DetectionEngine.bootstrap_from_db failed: %s", exc)
-    # Delay bootstrap 20s so Flask can fully bind before the CPU-heavy
-    # river learn_one() calls compete for the GIL.
-    from threading import Timer
-    Timer(20, _bootstrap).start()
-    log.info("STARTUP: bootstrap Timer(20s) scheduled (%.1fs elapsed)", time.monotonic() - _t0)
-
     if state.github_oauth:
         log.info("🔒 Auth ENABLED — GitHub OAuth")
         if state.ALLOWED_GITHUB_USER:
@@ -722,22 +772,10 @@ def main():
 
     # Sync fan_mode from persisted settings
     _fan_settings = get_fan_settings()
-    state.fan_mode = "auto" if _fan_settings["enabled"] else "manual"
+    state.set_fan_mode("auto" if _fan_settings["enabled"] else "manual")
     log.info("STARTUP: get_fan_settings (%.1fs elapsed)", time.monotonic() - _t0)
 
-    # Backfill any missing long-term inferences from historical data (background)
-    def _startup_analysis():
-        try:
-            from mlss_monitor.inference_engine import run_startup_analysis
-            run_startup_analysis()
-        except Exception as e:
-            log.error("Startup analysis failed: %s", e)
-    Thread(target=_startup_analysis, daemon=True).start()
-    log.info("STARTUP: _startup_analysis thread started (%.1fs elapsed)", time.monotonic() - _t0)
-
-    Thread(target=_background_log, daemon=True).start()
-    Thread(target=_weather_log_loop, daemon=True).start()
-    Thread(target=_sensor_read_loop, daemon=True).start()
+    _start_background_services()
     log.info("STARTUP: background threads started (%.1fs elapsed)", time.monotonic() - _t0)
 
     ssl_ctx = _build_ssl_context()
@@ -745,7 +783,7 @@ def main():
     protocol = "https" if ssl_ctx else "http"
     log.info("STARTUP: about to call app.run (%.1fs elapsed)", time.monotonic() - _t0)
     log.info("Starting server on %s://0.0.0.0:%d", protocol, port)
-    app.run(host="0.0.0.0", port=port, ssl_context=ssl_ctx)
+    app.run(host="0.0.0.0", port=port, threaded=True, ssl_context=ssl_ctx)
 
 
 if __name__ == "__main__":

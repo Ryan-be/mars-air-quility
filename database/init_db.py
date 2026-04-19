@@ -247,6 +247,11 @@ def create_db():
         "ON login_log (github_username, logged_in_at DESC)"
     )
 
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sensor_data_timestamp "
+        "ON sensor_data (timestamp)"
+    )
+
     cur.execute("SELECT COUNT(*) FROM fan_settings")
     if cur.fetchone()[0] == 0:
         cur.execute("""

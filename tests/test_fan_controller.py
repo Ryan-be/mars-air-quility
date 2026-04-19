@@ -190,7 +190,7 @@ class TestFanSettingsPerRule:
 class TestFanModeSync:
     def test_auto_button_enables_in_db(self, app_client):
         client, _ = app_client
-        res = client.post("/api/fan?state=auto")
+        res = client.post("/api/fan/mode", json={"mode": "auto"})
         assert res.status_code == 200
         # DB should now have enabled=True
         settings_res = client.get("/api/fan/settings")
@@ -201,14 +201,16 @@ class TestFanModeSync:
 
         client, _ = app_client
         # First enable auto
-        client.post("/api/fan?state=auto")
-        # Then switch to manual
+        client.post("/api/fan/mode", json={"mode": "auto"})
+        # Then switch to manual + flip the effector
         mock_future = MagicMock()
         mock_future.result.return_value = None
 
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(asyncio, "run_coroutine_threadsafe", lambda coro, loop: mock_future)
-            res = client.post("/api/fan?state=on")
+            mode_res = client.post("/api/fan/mode", json={"mode": "manual"})
+            res = client.post("/api/effector", json={"key": "fan1", "state": "on"})
+        assert mode_res.status_code == 200
         assert res.status_code == 200
         settings_res = client.get("/api/fan/settings")
         assert settings_res.get_json()["enabled"] is False
@@ -248,10 +250,13 @@ class TestAutoStatusAPI:
 
     def test_reflects_last_evaluation(self, app_client):
         from mlss_monitor import state as app_state
-        app_state.last_auto_action = "on"
-        app_state.last_auto_evaluation = [
-            {"rule": "temperature", "action": "on", "reason": "too hot"},
-        ]
+        # Go through update_auto_snapshot() so the test mirrors the locked
+        # composite-write path used in production by log_data().
+        app_state.update_auto_snapshot(
+            "on",
+            [{"rule": "temperature", "action": "on", "reason": "too hot"}],
+            "on",
+        )
         client, _ = app_client
         data = client.get("/api/fan/auto-status").get_json()
         assert data["action"] == "on"

@@ -2,186 +2,177 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{% block title %}MLSS{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
+  <!-- AstroUXDS Web Components -->
+  <script type="module" src="https://cdn.jsdelivr.net/npm/@astrouxds/astro-web-components/dist/astro-web-components/astro-web-components.esm.js"></script>
   {% block extra_css %}{% endblock %}
-  <style>
-    /* ── CSS custom properties — dark mode defaults ── */
-    :root {
-      --card-bg: #1e1e1e;
-      --bg: #111827;
-      --text: #f9fafb;
-      --text-secondary: #d1d5db;
-      --text-muted: #9ca3af;
-      --border: #374151;
-      --accent: #3b82f6;
-      --chip-bg: rgba(139,92,246,0.15);
-      --drift-bg: rgba(239,68,68,0.15);
-      --drift-border: #ef4444;
-      --source-pill-sm-bg: #374151;
-    }
-    body.light {
-      --card-bg: #ffffff;
-      --bg: #f5f5f5;
-      --text: #111827;
-      --text-secondary: #374151;
-      --text-muted: #6b7280;
-      --border: #e5e7eb;
-      --accent: #3b82f6;
-      --chip-bg: rgba(139,92,246,0.12);
-      --drift-bg: #fef2f2;
-      --drift-border: #ef4444;
-      --source-pill-sm-bg: #e5e7eb;
-    }
-
-    /* ── Detection method chips ── */
-    .chip { display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:999px; font-size:0.72rem; font-weight:600; letter-spacing:0.02em; cursor:default; user-select:none; }
-    .chip--rule        { background:#6b7280; color:#fff; }
-    .chip--statistical { background:#3b82f6; color:#fff; }
-    .chip--ml          { background:#8b5cf6; color:#fff; }
-    .chip-info { font-weight:400; opacity:0.85; }
-    /* ── Channel toggle chips ── */
-    .channel-toggles { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px; align-items:flex-start; }
-    .toggle-group { display:flex; flex-wrap:wrap; gap:4px; align-items:center; border:1px solid var(--border); border-radius:8px; padding:4px 8px; }
-    .toggle-group-label { background:none; border:none; font-weight:600; font-size:0.75rem; cursor:pointer; color:var(--text-muted); padding:2px 4px; min-height:44px; }
-    .channel-chip { display:inline-flex; align-items:center; gap:4px; padding:4px 10px; border-radius:999px; border:1.5px solid var(--border); background:transparent; cursor:pointer; font-size:0.78rem; min-height:44px; transition:all 0.15s; color:var(--text); }
-    .channel-chip.active { border-color:transparent; background:var(--chip-bg); font-weight:600; }
-    .chip-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
-    .toggle-presets { display:flex; gap:4px; }
-    /* ── Attribution pill ── */
-    .source-pill { display:inline-flex; align-items:center; gap:4px; padding:3px 10px; border-radius:999px; font-size:0.8rem; font-weight:600; cursor:default; }
-    .attribution-row { display:flex; align-items:flex-start; flex-wrap:wrap; gap:6px; margin:6px 0; }
-    .attribution-label { font-size:0.8rem; color:var(--text-muted); padding-top:3px; }
-    .runner-up { width:100%; font-size:0.78rem; color:var(--text-muted); margin-left:4px; }
-
-    /* ── Detections & Insights tab ── */
-    .di-card      { background:var(--card-bg); border-radius:10px; padding:16px; margin-bottom:16px; box-shadow:0 1px 4px rgba(0,0,0,0.18); color:var(--text); }
-    .di-loading   { color:var(--text-muted); font-style:italic; }
-    .di-stat      { padding:12px 16px; font-size:0.95rem; color:var(--text-secondary); }
-    .di-sentence  { font-size:0.88rem; color:var(--text-muted); margin-top:8px; }
-    .window-selector { display:flex; gap:6px; margin-bottom:16px; }
-    .window-btn   { padding:6px 16px; border-radius:6px; border:1px solid var(--border); background:var(--card-bg); color:var(--text); cursor:pointer; font-size:0.85rem; min-height:44px; }
-    .window-btn.active { background:var(--accent); color:#fff; border-color:transparent; }
-    .trend-row    { display:flex; flex-wrap:wrap; gap:10px; margin-bottom:16px; }
-    .trend-tile   { flex:1; min-width:130px; border-radius:8px; padding:10px 12px; border:1.5px solid var(--border); background:var(--card-bg); color:var(--text); }
-    .trend-green  { border-color:#22c55e; }
-    .trend-amber  { border-color:#f59e0b; }
-    .trend-red    { border-color:#ef4444; }
-    .trend-label  { font-size:0.72rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; }
-    .trend-value  { font-size:1.1rem; font-weight:700; margin:4px 0; color:var(--text); }
-    .trend-change { font-size:0.82rem; font-weight:600; color:var(--text-secondary); }
-    .trend-sentence { font-size:0.75rem; color:var(--text-muted); margin-top:4px; }
-    .fp-card      { border-left:3px solid var(--border); padding:10px 14px; margin-bottom:10px; border-radius:0 6px 6px 0; background:var(--card-bg); color:var(--text); }
-    .fp-header    { font-size:0.95rem; margin-bottom:4px; }
-    .fp-meta      { display:block; font-size:0.78rem; color:var(--text-muted); }
-    .fp-narrative { font-size:0.85rem; margin:6px 0 0; line-height:1.5; color:var(--text-secondary); }
-    .badge-count  { background:var(--accent); color:#fff; border-radius:999px; padding:1px 8px; font-size:0.72rem; font-weight:600; }
-    .model-card   { padding:10px 14px; margin-bottom:10px; border:1px solid var(--border); border-radius:6px; background:var(--card-bg); color:var(--text); }
-    .model-desc   { font-size:0.8rem; color:var(--text-muted); margin:4px 0; }
-    .model-narrative { font-size:0.85rem; margin:0; line-height:1.5; color:var(--text-secondary); }
-    .drift-card   { padding:8px 12px; margin-bottom:8px; background:var(--drift-bg); border-left:3px solid var(--drift-border); border-radius:0 6px 6px 0; font-size:0.85rem; color:var(--text); }
-    .drift-shift  { font-weight:700; margin-left:8px; }
-    .analysis-panel { background:var(--card-bg); border-radius:10px; padding:14px; margin-top:12px; color:var(--text); }
-    .analysis-section { margin-bottom:14px; }
-    .analysis-section h4 { font-size:0.85rem; margin:0 0 6px; color:var(--text-secondary); }
-    .muted        { color:var(--text-muted); font-size:0.85rem; }
-    .ev-row       { display:flex; align-items:center; gap:6px; margin-bottom:4px; font-size:0.85rem; }
-    .peak-row     { font-size:0.82rem; margin-bottom:4px; }
-    .info-icon    { cursor:help; opacity:0.6; font-size:0.8em; }
-    .overlay-toggle { display:flex; align-items:center; gap:6px; font-size:0.82rem; cursor:pointer; margin-bottom:8px; color:var(--text-secondary); }
-    .sparkline-container { margin:12px 0; padding:10px; background:var(--card-bg); border-radius:8px; border:1px solid var(--border); }
-    .sparkline-header { font-size:0.82rem; color:var(--text-muted); margin-bottom:6px; }
-    .source-pill-sm { display:inline-flex; align-items:center; gap:3px; padding:1px 6px; border-radius:999px; font-size:0.72rem; background:var(--source-pill-sm-bg); color:var(--text-secondary); }
-    .di-subtitle  { font-size:0.78rem; color:var(--text-muted); margin-bottom:6px; font-style:italic; }
-    /* ── Donut chart + side legend ── */
-    .donut-wrapper { display:flex; align-items:center; justify-content:center; gap:16px; flex-wrap:wrap; }
-    .donut-wrapper > #diDonutChart { flex:0 0 390px; height:390px; min-width:0; }
-    .donut-legend { flex:0 1 auto; min-width:140px; display:flex; flex-direction:column; gap:6px; }
-    .donut-legend-item { display:flex; align-items:center; gap:7px; font-size:0.82rem; color:var(--text); }
-    .donut-legend-dot { width:11px; height:11px; border-radius:50%; flex-shrink:0; }
-    .donut-legend-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:0.9rem; }
-    .donut-legend-pct { font-weight:700; font-size:0.95rem; color:var(--text-secondary); white-space:nowrap; }
-    .di-events-link { color:var(--accent); text-decoration:underline; cursor:pointer; }
-    .ev-card      { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:8px 10px; margin-bottom:6px; border:1px solid var(--border); border-radius:6px; background:var(--card-bg); font-size:0.83rem; color:var(--text); }
-    .ev-card:hover { background:var(--hover-bg,rgba(255,255,255,0.04)); }
-    .ev-sev-badge { padding:1px 7px; border-radius:999px; font-size:0.72rem; font-weight:600; text-transform:uppercase; white-space:nowrap; }
-    .ev-method-chip { padding:1px 7px; border-radius:4px; font-size:0.72rem; white-space:nowrap; }
-    .ev-title     { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:500; }
-    .ev-ts        { font-size:0.75rem; color:var(--text-muted); white-space:nowrap; }
-    .ev-conf      { font-size:0.75rem; color:var(--text-muted); white-space:nowrap; }
-  </style>
-  <!-- Apply persisted theme before first paint to avoid flash -->
-  <script>
-    if (localStorage.getItem('mlss_theme') === 'light') {
-      document.documentElement.classList.add('body-light-preload');
-    }
-  </script>
-  <style>
-    html.body-light-preload body { background: #f5f5f5; color: #111; }
-  </style>
 </head>
 <body>
 
-  <div class="top-bar">
-    <h2>🚀 MLSS</h2>
-    {% block topbar_controls %}{% endblock %}
-    <label class="theme-switch" title="Toggle light/dark mode" style="margin-left:auto;">
-      <input type="checkbox" id="themeToggle">
-      <span class="ts-track"></span>
-      <span class="ts-label">Light</span>
-    </label>
-    {% if auth_enabled %}
-      {% if session_user %}
-        <span class="session-user">
-          {{ session_user }}
-          {% if session_role %}
-            <span class="role-badge role-{{ session_role }}">{{ session_role }}</span>
-          {% endif %}
-        </span>
-      {% endif %}
-      <a href="/logout" class="btn btn-logout">Sign out</a>
-    {% endif %}
-  </div>
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       GLOBAL STATUS BAR
+       ══════════════════════════════════════════════════════════════════════ -->
+  <header class="global-status-bar">
 
-  <nav class="main-nav">
-    <a href="/" class="{{ 'nav-active' if request.path == '/' else '' }}">📊 Dashboard</a>
-    <a href="/history" class="{{ 'nav-active' if request.path == '/history' else '' }}">📈 History</a>
-    <a href="/controls" class="{{ 'nav-active' if request.path == '/controls' else '' }}">⚙️ Controls</a>
+    <!-- Left: App mark -->
+    <div class="gsb-app-mark">
+      <!-- Mars SVG: 40x40 planet + dashed orbit arc + terrain + status dot -->
+      <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Mars">
+        <!-- Planet body -->
+        <circle cx="20" cy="20" r="13" fill="#c1440e" opacity="0.85"/>
+        <!-- Surface highlight -->
+        <circle cx="20" cy="20" r="13" fill="url(#marsGrad)" opacity="0.6"/>
+        <!-- Polar cap suggestion -->
+        <path d="M 15 9 Q 20 7 25 9" stroke="#e8d5c4" stroke-width="1.5" fill="none" stroke-linecap="round" opacity="0.7"/>
+        <!-- Orbit ring — clearly visible arc -->
+        <ellipse cx="20" cy="20" rx="18" ry="7"
+                 stroke="#4dacff" stroke-width="1.5" stroke-dasharray="5 3"
+                 fill="none" transform="rotate(-25 20 20)" opacity="0.8"/>
+        <!-- Status dot — top right -->
+        <circle cx="32" cy="8" r="4" fill="#56f000" stroke="#080c11" stroke-width="1.5"/>
+        <defs>
+          <radialGradient id="marsGrad" cx="35%" cy="35%">
+            <stop offset="0%" stop-color="#e8895a"/>
+            <stop offset="100%" stop-color="#6b2200"/>
+          </radialGradient>
+        </defs>
+      </svg>
+
+      <div class="gsb-divider"></div>
+
+      <span class="gsb-app-name">MLSS</span>
+
+      <div class="gsb-status">
+        <span class="gsb-status-dot"></span>
+        Nominal
+      </div>
+    </div>
+
+    <!-- Centre: subsystem monitors -->
+    <div class="gsb-monitors">
+      <div class="gsb-monitor" id="gsb-btn-env" title="Environmental sensors">
+        <span class="status-dot gsb-monitor-dot status-normal"></span>
+        ENV
+        <span class="gsb-monitor-status">NOMINAL</span>
+      </div>
+      <div class="gsb-monitor" id="gsb-btn-air" title="Air quality channels">
+        <span class="status-dot gsb-monitor-dot status-normal"></span>
+        AIR
+        <span class="gsb-monitor-status">NOMINAL</span>
+      </div>
+      <div class="gsb-monitor" id="gsb-btn-sensors" title="Hardware sensors">
+        <span class="status-dot gsb-monitor-dot status-normal"></span>
+        SENSORS
+        <span class="gsb-monitor-status">NOMINAL</span>
+      </div>
+      <div class="gsb-monitor" id="gsb-btn-inference" title="Inference engine">
+        <span class="status-dot gsb-monitor-dot status-normal"></span>
+        INFERENCE
+        <span class="gsb-monitor-status">NOMINAL</span>
+      </div>
+    </div>
+
+    <!-- Right: UTC clock + auth zone -->
+    <div class="gsb-right">
+      <rux-clock class="gsb-clock" hide-date hide-labels id="gsb-header-clock"></rux-clock>
+      <script>
+        (function() {
+          var tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+          document.getElementById('gsb-header-clock').setAttribute('timezone', tz);
+        })();
+      </script>
+      <div class="gsb-user">
+        {% if auth_enabled %}
+          {% if session_user %}
+            <span class="session-user">
+              {{ session_user }}
+              {% if session_role %}
+                <span class="role-badge role-{{ session_role }}">{{ session_role }}</span>
+              {% endif %}
+            </span>
+            <a href="/logout" class="btn btn-logout" style="font-size:12px;padding:4px 10px;">Sign out</a>
+          {% else %}
+            <a href="/login">Sign in</a>
+          {% endif %}
+        {% endif %}
+      </div>
+    </div>
+
+  </header>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       TAB NAV
+       ══════════════════════════════════════════════════════════════════════ -->
+  {% set active = request.endpoint %}
+  <nav class="tab-nav">
+
+    <!-- Dashboard -->
+    <a href="{{ url_for('pages.dashboard') }}"
+       data-tab="dashboard"
+       class="{{ 'active' if active == 'pages.dashboard' else '' }}">
+      <rux-icon icon="apps" size="extra-small"></rux-icon>
+      <span>Dashboard</span>
+    </a>
+
+    <!-- History -->
+    <a href="{{ url_for('pages.history_page') }}"
+       data-tab="history"
+       class="{{ 'active' if active and active.startswith('pages.history') else '' }}">
+      <rux-icon icon="trending-up" size="extra-small"></rux-icon>
+      <span>History</span>
+    </a>
+
+    <!-- Controls -->
+    <a href="{{ url_for('pages.controls_page') }}"
+       data-tab="controls"
+       class="{{ 'active' if active == 'pages.controls_page' else '' }}">
+      <rux-icon icon="tune" size="extra-small"></rux-icon>
+      <span>Controls</span>
+    </a>
+
+    <!-- Settings (admin only) -->
     {% if session_role == 'admin' %}
-      <a href="/admin" class="{{ 'nav-active' if request.path == '/admin' or request.path.startswith('/settings/') else '' }}">🔧 Settings</a>
+    <a href="{{ url_for('pages.admin') }}"
+       data-tab="settings"
+       class="{{ 'active' if active and ('settings' in active or 'admin' in active or 'insights' in active) else '' }}">
+      <rux-icon icon="settings" size="extra-small"></rux-icon>
+      <span>Settings</span>
+    </a>
     {% endif %}
+
   </nav>
 
-  {% block content %}{% endblock %}
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       PAGE CONTENT
+       ══════════════════════════════════════════════════════════════════════ -->
+  <div class="page-controls-bar">{% block topbar_controls %}{% endblock %}</div>
+
+  <main class="page-content">
+    {% block content %}{% endblock %}
+  </main>
+
+  {% block extra_js %}{% endblock %}
+
+  <script>
+    // Wrap .info-icon[title] elements with rux-tooltip web components
+    document.addEventListener('DOMContentLoaded', function() {
+      document.querySelectorAll('.info-icon[title]').forEach(function(el) {
+        var msg = el.getAttribute('title');
+        el.removeAttribute('title');
+        var tooltip = document.createElement('rux-tooltip');
+        tooltip.setAttribute('message', msg);
+        el.parentNode.insertBefore(tooltip, el);
+        tooltip.appendChild(el);
+      });
+    });
+  </script>
 
   {% block scripts %}{% endblock %}
-
-  <!-- Base-level theme bootstrap: syncs body class + checkbox from localStorage.
-       The change handler delegates to window.toggleTheme (set by page JS modules)
-       so chart-heavy pages can also trigger redraws. Pages without a module just
-       get the plain class toggle. -->
-  <script>
-    (function () {
-      var isLight = localStorage.getItem('mlss_theme') === 'light';
-      document.body.classList.toggle('light', isLight);
-      var cb = document.getElementById('themeToggle');
-      if (cb) {
-        cb.checked = isLight;
-        cb.addEventListener('change', function () {
-          // Delegate to the module's toggleTheme if available (handles chart redraws).
-          if (typeof window.toggleTheme === 'function') {
-            window.toggleTheme();
-          } else {
-            isLight = !isLight;
-            document.body.classList.toggle('light', isLight);
-            localStorage.setItem('mlss_theme', isLight ? 'light' : 'dark');
-            cb.checked = isLight;
-          }
-        });
-      }
-    })();
-  </script>
 
 </body>
 </html>

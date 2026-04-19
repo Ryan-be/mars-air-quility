@@ -6,7 +6,7 @@ import { renderCorrelationCharts, updateCorrelationData, getSelectedAnalysisRang
 
 window.toggleTheme = () => toggleTheme(() => { _rendered = {}; renderActiveTab(); });
 window.downloadCSV = () => {
-  window.open(`/api/download?range=${document.getElementById("range").value}`, "_blank");
+  window.open(`/api/data?range=${document.getElementById("range").value}&format=csv`, "_blank");
 };
 
 const TABS = ["climate", "air-quality", "particulate", "environment", "correlation", "detections"];
@@ -16,9 +16,20 @@ let _weatherData = [];
 let _lastFetchRange = null;  // Track range to detect changes, forcing full corr re-render
 
 function _initHistoryTabs() {
+  const ruxTabsEl = document.getElementById("historyTabs");
+  if (ruxTabsEl) {
+    // rux-tabs in Astro v6 does NOT bubble ruxTabSelected to the parent — use click delegation
+    ruxTabsEl.addEventListener("click", (e) => {
+      const tab = e.target.closest("rux-tab");
+      if (!tab) return;
+      const tabKey = tab.id.replace(/^tab-btn-/, "");
+      _switchToTab(tabKey);
+    });
+    return;
+  }
+  // Fallback: legacy .tab-btn buttons (admin page, ie_config page)
   const buttons = document.querySelectorAll(".tab-btn");
   if (!buttons || buttons.length === 0) return;
-
   buttons.forEach(btn => {
     btn.addEventListener("click", () => {
       buttons.forEach(b => b.classList.remove("tab-active"));
@@ -32,12 +43,32 @@ function _initHistoryTabs() {
   });
 }
 
+function _switchToTab(tabKey) {
+  TABS.forEach(t => {
+    const panel = document.getElementById(`tab-${t}`);
+    if (panel) panel.classList.toggle("tab-hidden", t !== tabKey);
+  });
+  renderActiveTab(tabKey);
+  requestAnimationFrame(() => {
+    const panel = document.getElementById(`tab-${tabKey}`);
+    if (panel && window.Plotly) {
+      panel.querySelectorAll('.js-plotly-plot').forEach(el => Plotly.Plots.resize(el));
+    }
+  });
+}
+
 function activeTab() {
+  // With rux-tabs, find the selected rux-tab and derive key from its id
+  const ruxTabsEl = document.getElementById("historyTabs");
+  if (ruxTabsEl) {
+    const selected = ruxTabsEl.querySelector("rux-tab[selected], rux-tab[aria-selected='true']");
+    if (selected) return selected.id.replace(/^tab-btn-/, "");
+  }
   return document.querySelector(".tab-btn.tab-active")?.dataset.tab ?? "climate";
 }
 
-function renderActiveTab() {
-  const tab = activeTab();
+function renderActiveTab(forcedTab) {
+  const tab = forcedTab || activeTab();
   if (_rendered[tab]) return;
   _rendered[tab] = true;
   if (tab === "climate")     renderClimateCharts(_sensorData);
@@ -201,7 +232,7 @@ function renderPmTable(data) {
       const pm1  = pmRows.map(d => d.pm1_0);
       const pm25 = pmRows.map(d => d.pm2_5);
       const pm10 = pmRows.map(d => d.pm10);
-      const titleFont = { color: isLight ? "#111" : "#ccc" };
+      const titleFont = { color: isLight ? "#111" : "#b0bec5" };
 
       const traces = [
         {
@@ -235,7 +266,7 @@ function renderPmTable(data) {
       ];
 
       Plotly.newPlot("pmTimeSeriesPlot", traces, themeLayout({
-        title: { text: "🌫️ Particulate Matter over time", font: titleFont },
+        title: { text: "Particulate Matter over time", font: titleFont },
         xaxis: { type: "date" },
         yaxis: { title: "µg/m³", rangemode: "tozero" },
         legend: { orientation: "h", x: 0.5, xanchor: "center", y: 1.04, bgcolor: "rgba(0,0,0,0)" },
@@ -312,7 +343,7 @@ function renderAirQualityTab(data) {
       const co  = gasRows.map(d => d.gas_co);
       const no2 = gasRows.map(d => d.gas_no2);
       const nh3 = gasRows.map(d => d.gas_nh3);
-      const titleFont = { color: isLight ? "#111" : "#ccc" };
+      const titleFont = { color: isLight ? "#111" : "#b0bec5" };
 
       const traces = [
         {
@@ -333,7 +364,7 @@ function renderAirQualityTab(data) {
       ];
 
       Plotly.newPlot("gasTimeSeriesPlot", traces, themeLayout({
-        title: { text: "🔥 MICS6814 Gas Sensor — resistance over time", font: titleFont },
+        title: { text: "MICS6814 Gas Sensor — resistance over time", font: titleFont },
         xaxis: { type: "date" },
         yaxis: { title: "Resistance (Ω) — lower = higher concentration", rangemode: "tozero" },
         legend: { orientation: "h", x: 0.5, xanchor: "center", y: 1.04, bgcolor: "rgba(0,0,0,0)" },

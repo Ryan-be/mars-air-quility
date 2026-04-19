@@ -164,10 +164,17 @@ sudo ufw status
   ```
 - [ ] **Log rotation** -- ensure journald or a logrotate config is set so logs don't fill the SD card.
 - [ ] **Flask `SESSION_COOKIE_SECURE=True`** -- ensure session cookies are HTTPS-only (set once TLS is in place).
-- [ ] **Use gunicorn** for production instead of the Flask development server:
+- [ ] **Use gunicorn** for production instead of the Flask development server. The repo ships with a `gunicorn.conf.py` and a WSGI entry point (`mlss_monitor/wsgi.py`) -- always invoke gunicorn through them:
   ```bash
-  poetry run gunicorn -w 2 -b 127.0.0.1:5000 "mlss_monitor.app:app"
+  poetry run gunicorn -c gunicorn.conf.py mlss_monitor.wsgi:application
   ```
+  Why the conf file matters:
+  - `worker_class = "gthread"`, `workers = 1`, `threads = 32` -- a single worker process keeps the event bus, hot tier, anomaly detector models, and SSE subscribers in **one** address space. Multiple workers would each run their own background services and clients would only see events from whichever worker happened to handle their `/api/stream` connection. The 32-thread pool gives ample headroom for SSE connections (one per open browser tab, parked for up to 600 s) plus HTTP/1.1 keep-alives plus static-asset fetches running concurrently; the earlier value of 8 could be exhausted by a single user with two open tabs.
+  - `timeout = 0` -- gthread workers must never be killed for being "idle"; SSE connections legitimately stay open for minutes. Per-connection lifetime (default 600 s) is enforced inside `generate()` in `routes/api_stream.py` instead.
+  - `preload_app = True` + `post_fork` hook -- the app module is imported once in the gunicorn master, but the background services (sensor poller, weather loop, inference engine, anomaly bootstrap timer) are started **inside the worker** via the `post_fork` hook. `fork()` only duplicates the calling thread, so threads started in the master would not survive into the worker that actually serves HTTP; `post_fork` avoids that pitfall while still benefiting from preloaded model state via copy-on-write.
+  - `SSL_CERT_FILE` / `SSL_KEY_FILE` are read from the same dynaconf keys the Flask dev server uses, so HTTPS works without any extra gunicorn flags.
+
+  The `mlss-monitor.service` unit invokes gunicorn this way; do **not** revert to `python -m mlss_monitor.app` or a hand-rolled `gunicorn -w N -b ...` command.
 
 ---
 

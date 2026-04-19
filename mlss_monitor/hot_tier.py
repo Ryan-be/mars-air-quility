@@ -10,14 +10,16 @@ When db_file is provided:
 
 A single persistent SQLite connection (check_same_thread=False) is kept open
 for the lifetime of the HotTier so that push() does not pay a connection-open
-overhead on every call (3600×/hour at 1 Hz).  CPython's GIL keeps single-writer
-/ single-pruner access safe in practice; the explicit reconnect-on-error path
-handles the rare case where the connection goes stale.
+overhead on every call (3600×/hour at 1 Hz).  Access to the connection is
+serialised by self._db_lock because push() runs on the sensor-read thread
+while prune_old() runs on the background-log thread; the explicit
+reconnect-on-error path handles the rare case where the connection goes stale.
 """
 from __future__ import annotations
 
 import logging
 import sqlite3
+import threading
 from collections import deque
 from datetime import datetime, timedelta, timezone
 
@@ -53,9 +55,16 @@ class HotTier:
         self._buffer: deque = deque(maxlen=maxlen)
         self._db_file = db_file
         self._conn: sqlite3.Connection | None = None
+        # Serialises access to the shared SQLite connection. push() runs on the
+        # sensor-read thread, prune_old() on the background-log thread, and
+        # _load_from_db() during init — all mutate the same connection/cursor,
+        # so without this lock concurrent execute()/commit() calls can raise
+        # "database is locked" or corrupt cursor state (H2 in threading-audit).
+        self._db_lock = threading.Lock()
         if self._db_file is not None:
-            self._conn = self._open_connection()
-            self._load_from_db()
+            with self._db_lock:
+                self._conn = self._open_connection()
+                self._load_from_db_locked()
 
     # ── Public API (unchanged from original) ─────────────────────────────────
 
@@ -95,13 +104,14 @@ class HotTier:
         if self._db_file is None:
             return
         cutoff = (datetime.now(timezone.utc) - timedelta(minutes=60)).isoformat()
-        try:
-            conn = self._get_connection()
-            conn.execute("DELETE FROM hot_tier WHERE timestamp < ?", (cutoff,))
-            conn.commit()
-        except Exception as exc:
-            log.warning("HotTier.prune_old failed: %s", exc)
-            self._conn = None  # Force reconnect on next call
+        with self._db_lock:
+            try:
+                conn = self._get_connection()
+                conn.execute("DELETE FROM hot_tier WHERE timestamp < ?", (cutoff,))
+                conn.commit()
+            except Exception as exc:
+                log.warning("HotTier.prune_old failed: %s", exc)
+                self._conn = None  # Force reconnect on next call
 
     # ── Private helpers ───────────────────────────────────────────────────────
 
@@ -117,8 +127,11 @@ class HotTier:
             self._conn = self._open_connection()
         return self._conn
 
-    def _load_from_db(self) -> None:
-        """Load the last 60 minutes of rows from DB into the deque on startup."""
+    def _load_from_db_locked(self) -> None:
+        """Load the last 60 minutes of rows from DB into the deque on startup.
+
+        Caller must hold self._db_lock.
+        """
         from mlss_monitor.data_sources.base import NormalisedReading
         cutoff = (datetime.now(timezone.utc) - timedelta(minutes=60)).isoformat()
         try:
@@ -154,13 +167,14 @@ class HotTier:
             reading.source,
             *[getattr(reading, col) for col in _SENSOR_COLS],
         )
-        try:
-            conn = self._get_connection()
-            conn.execute(
-                f"INSERT INTO hot_tier ({', '.join(cols)}) VALUES ({placeholders})",
-                values,
-            )
-            conn.commit()
-        except Exception as exc:
-            log.warning("HotTier._insert_row failed: %s", exc)
-            self._conn = None  # Force reconnect on next call
+        with self._db_lock:
+            try:
+                conn = self._get_connection()
+                conn.execute(
+                    f"INSERT INTO hot_tier ({', '.join(cols)}) VALUES ({placeholders})",
+                    values,
+                )
+                conn.commit()
+            except Exception as exc:
+                log.warning("HotTier._insert_row failed: %s", exc)
+                self._conn = None  # Force reconnect on next call

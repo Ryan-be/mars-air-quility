@@ -200,14 +200,14 @@ class TestLogDataAsyncDispatch:
 
 
 # ---------------------------------------------------------------------------
-# 4. control_fan() — must block on .result()
+# 4. POST /api/effector — must block on .result() for the fan smart plug
 # ---------------------------------------------------------------------------
 
 class TestControlFanAsyncDispatch:
-    """The POST /api/fan endpoint must wait for the plug before responding."""
+    """The POST /api/effector endpoint must wait for the plug before responding."""
 
     def _mock_threadsafe(self, monkeypatch, return_value=None, raise_exc=None):
-        import mlss_monitor.routes.api_fan as fan_module
+        import mlss_monitor.effectors as eff_module
         mock_future = _make_future(return_value=return_value, raise_exc=raise_exc)
         calls = []
 
@@ -215,51 +215,60 @@ class TestControlFanAsyncDispatch:
             calls.append({"coro": coro, "loop": loop})
             return mock_future
 
-        monkeypatch.setattr(fan_module.asyncio, "run_coroutine_threadsafe", fake)
+        monkeypatch.setattr(eff_module.asyncio, "run_coroutine_threadsafe", fake)
         return calls, mock_future
+
+    def _post_fan(self, client, state):
+        return client.post("/api/effector", json={"key": "fan1", "state": state})
 
     def test_result_called_for_manual_on(self, app_client, monkeypatch):
         client, _ = app_client
         _, mock_future = self._mock_threadsafe(monkeypatch)
-        client.post("/api/fan?state=on")
+        self._post_fan(client, "on")
         mock_future.result.assert_called_once()
 
     def test_result_called_for_manual_off(self, app_client, monkeypatch):
         client, _ = app_client
         _, mock_future = self._mock_threadsafe(monkeypatch)
-        client.post("/api/fan?state=off")
+        self._post_fan(client, "off")
         mock_future.result.assert_called_once()
 
     def test_auto_mode_never_calls_plug(self, app_client, monkeypatch):
+        """Switching to auto mode via /api/fan/mode must not touch the plug."""
         client, _ = app_client
         calls, mock_future = self._mock_threadsafe(monkeypatch)
-        client.post("/api/fan?state=auto")
+        client.post("/api/fan/mode", json={"mode": "auto"})
         assert len(calls) == 0
-        mock_future.result.assert_not_called()  # auto mode must not touch the plug
+        mock_future.result.assert_not_called()
 
     def test_dispatches_to_thread_loop(self, app_client, monkeypatch):
         client, _ = app_client
         calls, _ = self._mock_threadsafe(monkeypatch)
-        client.post("/api/fan?state=on")
+        self._post_fan(client, "on")
         assert calls[0]["loop"] is app_state.thread_loop
 
     def test_plug_timeout_returns_500(self, app_client, monkeypatch):
         client, _ = app_client
         self._mock_threadsafe(monkeypatch, raise_exc=TimeoutError("plug timed out"))
-        res = client.post("/api/fan?state=on")
+        res = self._post_fan(client, "on")
         assert res.status_code == 500
         assert "error" in res.get_json()
 
     def test_plug_network_error_returns_500(self, app_client, monkeypatch):
         client, _ = app_client
         self._mock_threadsafe(monkeypatch, raise_exc=Exception("connection refused"))
-        res = client.post("/api/fan?state=on")
+        res = self._post_fan(client, "on")
         assert res.status_code == 500
 
     def test_invalid_state_returns_400(self, app_client):
         client, _ = app_client
-        res = client.post("/api/fan?state=broken")
+        res = self._post_fan(client, "broken")
         assert res.status_code == 400
+
+    def test_unknown_key_returns_404(self, app_client):
+        client, _ = app_client
+        res = client.post("/api/effector", json={"key": "mystery", "state": "on"})
+        assert res.status_code == 404
 
 
 # ---------------------------------------------------------------------------
@@ -320,7 +329,7 @@ class TestGetFanStateAsync:
         assert res.status_code == 200
         assert res.get_json()["state"] is True
 
-    def test_update_failure_returns_500(self, app_client, monkeypatch):
+    def test_update_failure_returns_503(self, app_client, monkeypatch):
         client, _ = app_client
         import mlss_monitor.routes.api_fan as fan_module
 
@@ -329,10 +338,11 @@ class TestGetFanStateAsync:
                             lambda coro, loop: mock_future)
 
         res = client.get("/api/fan/status")
-        assert res.status_code == 500
+        # 503: smart plug read failed (plug.update() raised)
+        assert res.status_code == 503
         assert "error" in res.get_json()
 
-    def test_get_state_failure_returns_500(self, app_client, monkeypatch):
+    def test_get_state_failure_returns_503(self, app_client, monkeypatch):
         client, _ = app_client
         update_fut = _make_future()
         state_fut = _make_future(raise_exc=Exception("state read failed"))
@@ -343,5 +353,6 @@ class TestGetFanStateAsync:
                             lambda coro, loop: next(futures))
 
         res = client.get("/api/fan/status")
-        assert res.status_code == 500
+        # 503: smart plug read failed (get_state() raised)
+        assert res.status_code == 503
         assert "error" in res.get_json()

@@ -1,12 +1,12 @@
 [Unit]
-Description=MLSS Monitor Flask App
+Description=MLSS Monitor (gunicorn)
 After=network.target
 
 [Service]
 # Edit User and WorkingDirectory to match your installation
 User=masadmin
 WorkingDirectory=/home/masadmin/projects/git_versions/mars-air-quility
-ExecStart=/home/masadmin/.local/bin/poetry run python mlss_monitor/app.py
+ExecStart=/home/masadmin/.local/bin/poetry run gunicorn --config gunicorn.conf.py mlss_monitor.wsgi:application
 Restart=on-failure
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1

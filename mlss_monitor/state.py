@@ -3,6 +3,7 @@ Shared mutable state and hardware references.
 
 Initialised once by app.py at startup; imported by route blueprints.
 """
+import threading
 from collections import deque
 
 # Fan control
@@ -12,6 +13,58 @@ fan_state = "off"
 # Last auto-evaluation results (list of RuleResult dicts) for UI display
 last_auto_evaluation: list[dict] | None = None
 last_auto_action: str | None = None
+
+# Lock guarding the four fan_* fields above. The background log loop writes
+# all four together every LOG_INTERVAL, and HTTP handlers read multiple
+# fields in a single response; without this lock a reader can observe a
+# torn last_auto_evaluation list (H3).  Callers that need a consistent view
+# across multiple fields MUST use get_fan_snapshot(); callers that mutate
+# any field MUST go through update_auto_snapshot() / set_fan_mode() /
+# set_fan_state() so the write is serialised against other readers and
+# writers.  Individual reads of a single string field remain atomic under
+# the GIL, but prefer get_fan_snapshot() for consistency.
+_fan_lock = threading.Lock()
+
+
+def update_auto_snapshot(action, evaluation, fan_state_value) -> None:
+    """Atomically update last_auto_action, last_auto_evaluation, fan_state.
+
+    Used by the background log loop after a fan_controller.evaluate() call
+    so that HTTP readers see the three fields change together.
+    """
+    global last_auto_action, last_auto_evaluation, fan_state
+    with _fan_lock:
+        last_auto_action = action
+        last_auto_evaluation = evaluation
+        fan_state = fan_state_value
+
+
+def get_fan_snapshot() -> dict:
+    """Return an atomic copy of fan_mode, fan_state, last_auto_* under the lock."""
+    with _fan_lock:
+        evaluation = (
+            list(last_auto_evaluation) if last_auto_evaluation is not None else None
+        )
+        return {
+            "fan_mode": fan_mode,
+            "fan_state": fan_state,
+            "last_auto_action": last_auto_action,
+            "last_auto_evaluation": evaluation,
+        }
+
+
+def set_fan_mode(mode: str) -> None:
+    """Assign fan_mode under the lock."""
+    global fan_mode
+    with _fan_lock:
+        fan_mode = mode
+
+
+def set_fan_state(value: str) -> None:
+    """Assign fan_state under the lock."""
+    global fan_state
+    with _fan_lock:
+        fan_state = value
 
 # Hardware references (set by app.py after init)
 fan_smart_plug = None

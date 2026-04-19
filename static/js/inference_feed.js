@@ -43,6 +43,7 @@ export function createInferenceFeed({
   filtersId,
   cardDataAttr,
   openDialog,
+  progressId = null,
 }) {
   let _inferences    = [];
   let _activeCategory = 'all';
@@ -52,7 +53,7 @@ export function createInferenceFeed({
     const sevCls = SEVERITY_CLS[inf.severity]  || 'inf-info';
     const sevLbl = SEVERITY_LABEL[inf.severity] || inf.severity;
     const time   = new Date(inf.created_at).toLocaleString(undefined, {
-      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZoneName: 'short'
     });
     const chip   = renderDetectionChip(inf.detection_method || 'rule');
     const catCls = 'inf-cat-' + (inf.category || 'other');
@@ -101,7 +102,7 @@ export function createInferenceFeed({
     }
 
     const active = filtered.filter(i => !i.dismissed);
-    if (countEl) countEl.textContent = active.length ? `(${active.length})` : '';
+    if (countEl) countEl.textContent = active.length ? `${active.length}` : '';
 
     feed.innerHTML = filtered.slice(0, 30).map(_buildCardHtml).join('');
 
@@ -160,7 +161,14 @@ export function createInferenceFeed({
     }
   }
 
+  function _setProgress(visible) {
+    if (!progressId) return;
+    const bar = document.getElementById(progressId);
+    if (bar) bar.style.display = visible ? 'block' : 'none';
+  }
+
   async function load(url = '/api/inferences?limit=50') {
+    _setProgress(true);
     try {
       await _loadCategories();
       const res = await window.fetch(url);
@@ -173,6 +181,8 @@ export function createInferenceFeed({
       _renderFeed();
     } catch (err) {
       console.error('[inference_feed] load() failed:', err);
+    } finally {
+      _setProgress(false);
     }
   }
 

@@ -1,6 +1,25 @@
 export async function setFanControl(state) {
   try {
-    const res = await fetch(`/api/fan?state=${state}`, { method: "POST" });
+    let res;
+    if (state === "auto" || state === "manual") {
+      res = await fetch("/api/fan/mode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: state }),
+      });
+    } else {
+      // Manual mode is implied by flipping the effector directly.
+      await fetch("/api/fan/mode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "manual" }),
+      });
+      res = await fetch("/api/effector", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: "fan1", state }),
+      });
+    }
     const result = await res.json();
     if (res.ok) {
       document.getElementById("fan-status").textContent = result.message;

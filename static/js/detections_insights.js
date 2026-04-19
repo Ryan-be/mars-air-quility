@@ -78,6 +78,14 @@ const DI = (function () {
     if (_initialised) return;
     _initialised = true;
     _createFeed();
+    // Init timeline
+    if (typeof window.createInferenceTimeline === 'function') {
+      window._diTimeline = window.createInferenceTimeline({
+        timelineContainerId: 'diTimeline',
+        openDialog: openInferenceDialog,
+        getRange: _range,
+      });
+    }
     load();
     _subscribeSSE();
     const rangeEl = document.getElementById('range');
@@ -99,17 +107,53 @@ const DI = (function () {
     _skel('diDriftFlags');
   }
 
+  function _setProgress(visible) {
+    const bar = document.getElementById('diProgressBar');
+    if (bar) bar.style.display = visible ? 'block' : 'none';
+  }
+
+  // Fetch with retry + exponential backoff. Previously a single network
+  // hiccup (e.g. a gunicorn restart caught mid-reload) would leave the
+  // detections cards stuck on "Loading…" forever because there was no retry.
+  async function _fetchJSONWithRetry(url, { retries = 3, baseDelayMs = 600 } = {}) {
+    let lastErr;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        const ctrl = new AbortController();
+        const to = setTimeout(() => ctrl.abort(), 20000);
+        const resp = await fetch(url, { signal: ctrl.signal, credentials: 'same-origin' });
+        clearTimeout(to);
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        return await resp.json();
+      } catch (e) {
+        lastErr = e;
+        if (attempt === retries) break;
+        const delay = baseDelayMs * Math.pow(2, attempt);
+        await new Promise(r => setTimeout(r, delay));
+      }
+    }
+    throw lastErr;
+  }
+
   async function load() {
     const { start, end } = _range();
     _showLoadingSkeletons();
+    _setProgress(true);
     try {
-      const [nResp, bResp] = await Promise.all([
-        fetch(`/api/history/narratives?start=${start}&end=${end}`),
-        fetch('/api/history/baselines'),
+      [_narratives, _baselines] = await Promise.all([
+        _fetchJSONWithRetry(`/api/history/narratives?start=${start}&end=${end}`),
+        _fetchJSONWithRetry('/api/history/baselines'),
       ]);
-      [_narratives, _baselines] = await Promise.all([nResp.json(), bResp.json()]);
       _render();
-    } catch (e) { console.error('DI load error', e); }
+    } catch (e) {
+      console.error('DI load error (after retries)', e);
+      const msg = '<p class="di-loading" style="color:var(--rux-color-status-critical,#d32f2f)">Failed to load — <a href="#" onclick="DI.load();return false;">retry</a></p>';
+      ['diPeriodSummary','diTrendIndicators','diLongestClean','diFingerprintCards','diModelCards','diDriftFlags'].forEach(function (id) {
+        const el = document.getElementById(id);
+        if (el) el.innerHTML = msg;
+      });
+    }
+    finally { _setProgress(false); }
   }
 
   function _render() {
@@ -276,18 +320,42 @@ const DI = (function () {
       }).join('');
     }
   }
-    function _renderFingerprintNarratives() {
+    function _fpStatus(fp) {
+    const pct = fp.avg_confidence != null ? Math.round(fp.avg_confidence * 100) : 0;
+    if (pct >= 80) return 'critical';
+    if (pct >= 60) return 'serious';
+    if (pct >= 40) return 'caution';
+    return 'normal';
+  }
+
+  function _stripEmoji(name) {
+    return (name || '').replace(/^\p{Emoji_Presentation}\s*/u, '').trim();
+  }
+
+  function _renderFingerprintNarratives() {
     const el = document.getElementById('diFingerprintCards');
     if (!el) return;
     const fps = (_narratives.fingerprint_narratives || []).slice().sort((a,b) => b.event_count - a.event_count);
     el.innerHTML = fps.map(function (fp) {
       const colour = _SOURCE_COLOURS[fp.source_id] || '#6b7280';
-      const badge = fp.event_count > 0 ? `<span class="badge-count">${fp.event_count} event${fp.event_count !== 1 ? 's' : ''}</span>` : '';
-      const conf  = fp.event_count > 0 ? `<span class="fp-meta">Avg. confidence: ${Math.round(fp.avg_confidence*100)}%</span>` : '';
-      return `<div class="fp-card" style="border-left:3px solid ${colour}">
-        <div class="fp-header">${fp.emoji} <strong>${fp.label}</strong> ${badge}</div>
-        ${conf}
-        <p class="fp-narrative">${fp.narrative}</p>
+      const cleanName = _stripEmoji(fp.label || fp.source_id || '');
+      if (!fp.event_count) {
+        return `<div class="fp-card fp-card--inactive">
+          <span class="fp-card-name fp-card-name--dim">${cleanName}</span>
+          <span class="fp-card-none">No events detected</span>
+        </div>`;
+      }
+      const n = fp.event_count;
+      const conf = Math.round((fp.avg_confidence || 0) * 100);
+      const status = _fpStatus(fp);
+      return `<div class="fp-card fp-card--active" style="border-left:3px solid ${colour}">
+        <div class="fp-card-header">
+          <rux-status status="${status}"></rux-status>
+          <span class="fp-card-name">${cleanName}</span>
+          <span class="fp-card-count">${n} event${n !== 1 ? 's' : ''}</span>
+          <span class="fp-card-conf">avg ${conf}% confidence</span>
+        </div>
+        <div class="fp-card-narrative">${fp.narrative}</div>
       </div>`;
     }).join('');
   }
@@ -380,6 +448,7 @@ const DI = (function () {
       const rows = await res.json();
       console.log('[DI] /api/inferences returned', rows.length, 'rows');
       _feed.setInferences(rows);
+      if (window._diTimeline) window._diTimeline.render(rows);
     } catch (e) {
       console.error('[DI] _renderInferenceTable error:', e);
       feed.innerHTML = '<div class="inference-empty">Could not load inferences.</div>';
@@ -393,8 +462,11 @@ const DI = (function () {
     if (!flags.length) { el.style.display = 'none'; return; }
     el.style.display = 'block';
     el.innerHTML = `<div class="di-card drift-section">
-      <h3>Sensor Drift Flags <span class="info-icon" title="Baseline shift vs 7 days ago.">ⓘ</span></h3>
-      ${flags.map(f => `<div class="drift-card">⚠ <strong>${f.channel}</strong> — ${f.message} <span class="drift-shift">${f.direction==='up'?'↑':'↓'} ${f.shift_pct}%</span></div>`).join('')}
+      <h3>Sensor Drift Flags <rux-tooltip message="Baseline shift vs 7 days ago."><span class="info-icon">ⓘ</span></rux-tooltip></h3>
+      ${flags.map(f => {
+        const _ea = s => String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+        return `<rux-notification status="caution" message="${_ea(f.channel)} — ${_ea(f.message)} ${f.direction==='up'?'↑':'↓'} ${_ea(f.shift_pct)}%" open></rux-notification>`;
+      }).join('')}
     </div>`;
   }
 
@@ -413,11 +485,28 @@ window.diToggleChip = diToggleChip;
 // ── Global inference dialog opener (used by DI tab cards) ────────────────────
 // On the dashboard page dashboard.js defines its own _openInferenceDialog.
 // On the history page this function is the sole dialog opener.
+// Use `||` guard so dashboard.js (which also defines this) isn't silently
+// overwritten when both scripts are present on the same page.
+window.closeInferencePanel = window.closeInferencePanel || function() {
+  var panel = document.getElementById('inferencePanel');
+  var backdrop = document.getElementById('infSlideBackdrop');
+  if (panel) panel.classList.remove('open');
+  if (backdrop) backdrop.classList.remove('visible');
+  document.body.style.overflow = '';
+};
+
+function _bindEscClose() {
+  var onKey = function(e) {
+    if (e.key === 'Escape') { window.closeInferencePanel(); document.removeEventListener('keydown', onKey); }
+  };
+  document.addEventListener('keydown', onKey);
+}
+
 function openInferenceDialog(id) {
   const inf = (DI.getFeed() && DI.getFeed().getInferences().find(function (i) { return i.id === id; }));
   if (!inf) return;
-  const dialog = document.getElementById('inferenceDialog');
-  if (!dialog) return;
+  const panel = document.getElementById('inferencePanel');
+  if (!panel) return;
 
   const SEV_CLS   = { info:'inf-info', warning:'inf-warning', critical:'inf-critical' };
   const SEV_LABEL = { info:'Info', warning:'Warning', critical:'Critical' };
@@ -583,11 +672,10 @@ function openInferenceDialog(id) {
       evEl.innerHTML = snapshot.map(function (s) {
         const arrow = TREND_ARROW[s.trend] || '→';
         const cls   = BAND_CLS[s.ratio_band] || '';
-        const ratio = s.ratio != null ? '<span class="ev-ratio">' + s.ratio + '\u00d7 normal</span>' : '';
-        return '<div class="inf-ev-row ' + cls + '">' +
-          '<span class="fd-label">' + s.label + '</span>' +
-          '<span class="fd-value">' + s.value + ' ' + s.unit + ' <span class="ev-trend">' + arrow + '</span></span>' +
-          ratio + '</div>';
+        const ratioTxt = s.ratio != null ? ' <span class="ev-ratio">' + s.ratio + '\u00d7</span>' : '';
+        return '<span class="inf-ev-key">' + s.label + '</span>' +
+          '<span class="inf-ev-val ' + cls + '">' + s.value + ' ' + s.unit +
+          ' <span class="ev-trend">' + arrow + '</span>' + ratioTxt + '</span>';
       }).join('');
     } else if (inf.evidence.readings && Array.isArray(inf.evidence.readings) && inf.evidence.readings.length > 0) {
       evEl.innerHTML = _renderRangeReadingsEvidence(inf.evidence);
@@ -599,11 +687,24 @@ function openInferenceDialog(id) {
       evEl.innerHTML = featureHtml || 'No detailed evidence available.';
     } else {
       const entries = Object.entries(inf.evidence).filter(function ([k]) {
-        return k !== '_thresholds' && k !== 'sensor_snapshot' && k !== 'model_id';
+        return k !== '_thresholds' && k !== 'sensor_snapshot' && k !== 'model_id' &&
+               k !== 'feature_vector' && k !== 'readings';
       });
-      evEl.innerHTML = entries.map(function ([k, v]) {
-        return '<div class="inf-ev-row"><span class="fd-label">' + k.replace(/_/g, ' ') + '</span><span class="fd-value">' + v + '</span></div>';
-      }).join('') || 'No detailed evidence available.';
+      var html = entries.map(function ([k, v]) {
+        if (typeof v === 'object' || Array.isArray(v)) return null;
+        return '<span class="inf-ev-key">' + k.replace(/_/g, ' ') + '</span>' +
+               '<span class="inf-ev-val">' + v + '</span>';
+      }).filter(Boolean).join('');
+      // Always show range info for user-tagged events
+      if (inf.evidence.range_start && inf.evidence.range_end) {
+        html = '<span class="inf-ev-key">Tagged range</span>' +
+               '<span class="inf-ev-val">' +
+               new Date(inf.evidence.range_start).toLocaleString() + ' \u2192 ' +
+               new Date(inf.evidence.range_end).toLocaleString() +
+               '</span>' + html;
+      }
+      evEl.innerHTML = html ||
+        '<span class="inf-ev-key" style="grid-column:1/-1;color:var(--color-text-placeholder)">No detailed evidence available.</span>';
     }
     if (thresholds && typeof thresholds === 'object' && Object.keys(thresholds).length) {
       thSec.style.display = '';
@@ -644,8 +745,8 @@ function openInferenceDialog(id) {
   document.getElementById('infSaveNote').onclick = async function () {
     const notes = document.getElementById('infNotes').value;
     try {
-      await fetch('/api/inferences/' + id + '/notes', {
-        method: 'POST',
+      await fetch('/api/inferences/' + id, {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ notes }),
       });
@@ -653,13 +754,19 @@ function openInferenceDialog(id) {
     } catch (e) { /* ignore */ }
   };
 
-  // Tags
-  const tagsList = document.getElementById('infTagsList');
-  if (tagsList && inf.tags) {
-    tagsList.innerHTML = inf.tags.map(t => `<span class="tag-chip">${t.tag}</span>`).join(' ');
-  } else if (tagsList) {
-    tagsList.innerHTML = '';
+  // Tags — use textContent (not innerHTML) to prevent stored XSS from user-entered tag text.
+  function _renderTags(tags, container) {
+    if (!container) return;
+    container.innerHTML = '';
+    (tags || []).forEach(function(t) {
+      const chip = document.createElement('span');
+      chip.className = 'tag-chip';
+      chip.textContent = t.tag;
+      container.appendChild(chip);
+    });
   }
+  const tagsList = document.getElementById('infTagsList');
+  _renderTags(inf.tags, tagsList);
   document.getElementById('infAddTag').onclick = async function () {
     const select = document.getElementById('infTagSelect');
     const tag = select.value;
@@ -673,34 +780,28 @@ function openInferenceDialog(id) {
       // Refresh tags
       const res = await fetch('/api/inferences/' + id + '/tags');
       const newTags = await res.json();
-      if (tagsList) {
-        tagsList.innerHTML = newTags.map(t => `<span class="tag-chip">${t.tag}</span>`).join(' ');
-      }
+      _renderTags(newTags, tagsList);
       inf.tags = newTags;
       select.value = '';
     } catch (e) { /* ignore */ }
   };
 
-  // Sparkline (suppress if loadSparkline not available on this page)
+  // Sparkline (suppress if loadSparkline not available, or no triggering channels)
   const sparkline = document.getElementById('infSparkline');
   if (sparkline) sparkline.style.display = 'none';
-  if (typeof loadSparkline === 'function') {
-    loadSparkline(inf.id, inf.created_at);
-  }
 
-  dialog.showModal();
-  // Resize the sparkline chart after the dialog is visible so Plotly measures
-  // the correct dimensions (it renders before the dialog is fully painted).
-  setTimeout(function () {
-    var chartDiv = document.getElementById('infSparklineChart');
-    if (chartDiv && window.Plotly) Plotly.Plots.resize(chartDiv);
-  }, 50);
-  dialog.onclick = function (e) { if (e.target === dialog) dialog.close(); };
-  dialog.addEventListener('close', function _onClose() {
-    document.getElementById('infFvBody').innerHTML = '';
-    document.getElementById('infFvSection').style.display = 'none';
-    dialog.removeEventListener('close', _onClose);
-  });
+  panel.classList.add('open');
+  var backdrop = document.getElementById('infSlideBackdrop');
+  if (backdrop) backdrop.classList.add('visible');
+  document.body.style.overflow = 'hidden';
+  _bindEscClose();
+
+  // Load sparkline after panel is open so Plotly gets the correct panel width.
+  // 100ms lets the CSS transition start and the browser measure the container.
+  if (typeof loadSparkline === 'function') {
+    setTimeout(function() { loadSparkline(inf.id, inf.created_at); }, 100);
+  }
+  // Remove the old resize setTimeout — sparkline.js handles its own resize now.
 }
 
 function diToggleChip(btn) {

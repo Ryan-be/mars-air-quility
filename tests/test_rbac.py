@@ -164,25 +164,25 @@ class TestLoginLog:
 # ---------------------------------------------------------------------------
 
 class TestFanControlRBAC:
-    """POST /api/fan requires controller or admin."""
+    """POST /api/effector and POST /api/fan/mode require controller or admin."""
 
     def test_viewer_gets_403(self, app_client, db):
         client, _ = app_client
         _session_for(client, "viewer")
-        resp = client.post("/api/fan?state=on")
+        resp = client.post("/api/effector", json={"key": "fan1", "state": "on"})
         assert resp.status_code == 403
 
     def test_controller_allowed(self, app_client, db):
         client, _ = app_client
         _session_for(client, "controller")
         # Role check passes; plug call may fail (no real hardware) → 200 or 500, never 403
-        resp = client.post("/api/fan?state=auto")
+        resp = client.post("/api/fan/mode", json={"mode": "auto"})
         assert resp.status_code != 403
 
     def test_admin_allowed(self, app_client, db):
         client, _ = app_client
         _session_for(client, "admin")
-        resp = client.post("/api/fan?state=auto")
+        resp = client.post("/api/fan/mode", json={"mode": "auto"})
         assert resp.status_code != 403
 
 

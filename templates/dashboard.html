@@ -15,23 +15,23 @@
   <!-- Sensor stat cards (click for detail) -->
   <div class="section-heading">🏠 Indoor Sensors</div>
   <div class="stat-grid">
-    <button class="stat-card temp" data-sensor="temp">
+    <button class="stat-card astro-card temp" data-sensor="temp">
       <div class="label">🌡️ Temperature</div>
       <div class="current" id="tempValue">--</div>
     </button>
-    <button class="stat-card hum" data-sensor="hum">
+    <button class="stat-card astro-card hum" data-sensor="hum">
       <div class="label">💧 Humidity</div>
       <div class="current" id="humValue">--</div>
     </button>
-    <button class="stat-card eco2" data-sensor="eco2">
+    <button class="stat-card astro-card eco2" data-sensor="eco2">
       <div class="label" title="Estimated from TVOC via SGP30 algorithm — not a direct CO₂ measurement.">🫁 eCO₂</div>
       <div class="current" id="eco2Value">--</div>
     </button>
-    <button class="stat-card tvoc" data-sensor="tvoc">
+    <button class="stat-card astro-card tvoc" data-sensor="tvoc">
       <div class="label">🧪 TVOC</div>
       <div class="current" id="tvocValue">--</div>
     </button>
-    <button class="stat-card gas" data-sensor="gas">
+    <button class="stat-card astro-card gas" data-sensor="gas">
       <div class="label">🔥 Gas (MICS6814)</div>
       <div class="current" id="gasCoValue">--</div>
       <div class="gas-trend" id="gasTrend">--</div>
@@ -40,7 +40,7 @@
         <span class="pm-sub">NH₃: <span id="gasNh3SubValue">--</span></span>
       </div>
     </button>
-    <button class="stat-card pm" data-sensor="pm">
+    <button class="stat-card astro-card pm" data-sensor="pm">
       <div class="label">🌫️ Particulate</div>
       <div class="current" id="pm25Value">--</div>
       <div class="pm-sub-row">
@@ -69,32 +69,32 @@
   <!-- Insight cards -->
   <div class="section-heading">🧠 Derived Insights</div>
   <div class="insight-grid">
-    <button class="insight-card" id="aqCard" data-insight="aq">
+    <button class="insight-card astro-card" id="aqCard" data-insight="aq">
       <div class="label">🌿 Air Quality</div>
       <div class="value" id="aqValue">--</div>
       <div class="sub" id="aqSub">--</div>
     </button>
-    <button class="insight-card" data-insight="dew">
+    <button class="insight-card astro-card" data-insight="dew">
       <div class="label">💦 Dew Point</div>
       <div class="value neutral" id="dewValue">--</div>
       <div class="sub" id="dewSub">--</div>
     </button>
-    <button class="insight-card" data-insight="feels">
+    <button class="insight-card astro-card" data-insight="feels">
       <div class="label">🌡️ Feels Like</div>
       <div class="value neutral" id="hiValue">--</div>
       <div class="sub">Apparent temperature (no wind)</div>
     </button>
-    <button class="insight-card" id="co2Card" data-insight="co2">
+    <button class="insight-card astro-card" id="co2Card" data-insight="co2">
       <div class="label">🧠 eCO₂ Alert</div>
       <div class="value" id="co2AlertValue">--</div>
       <div class="sub" id="co2AlertSub">--</div>
     </button>
-    <button class="insight-card" data-insight="vpd">
+    <button class="insight-card astro-card" data-insight="vpd">
       <div class="label">🌱 Vapour Pressure Deficit</div>
       <div class="value neutral" id="vpdValue">--</div>
       <div class="sub" id="vpdSub">--</div>
     </button>
-    <button class="insight-card" data-insight="ttt">
+    <button class="insight-card astro-card" data-insight="ttt">
       <div class="label">⏱️ Time to eCO₂ Threshold</div>
       <div class="value neutral" id="tttValue">--</div>
       <div class="sub">At current rate of change</div>
@@ -108,27 +108,27 @@
       <span class="weather-updated" id="weatherUpdated"></span>
     </div>
     <div class="weather-grid">
-      <button class="insight-card" data-insight="outTemp">
+      <button class="insight-card astro-card" data-insight="outTemp">
         <div class="label">🌡️ Outdoor Temp</div>
         <div class="value neutral" id="outTemp">--</div>
         <div class="sub" id="outTempDelta">--</div>
       </button>
-      <button class="insight-card" data-insight="outHum">
+      <button class="insight-card astro-card" data-insight="outHum">
         <div class="label">💧 Outdoor Humidity</div>
         <div class="value neutral" id="outHum">--</div>
         <div class="sub" id="outHumDelta">--</div>
       </button>
-      <button class="insight-card" data-insight="uv">
+      <button class="insight-card astro-card" data-insight="uv">
         <div class="label">☀️ UV Index</div>
         <div class="value neutral" id="uvIdx">--</div>
         <div class="sub" id="uvSub">--</div>
       </button>
-      <button class="insight-card" data-insight="wind">
+      <button class="insight-card astro-card" data-insight="wind">
         <div class="label">💨 Wind Speed</div>
         <div class="value neutral" id="windSpd">--</div>
         <div class="sub" id="weatherCond">--</div>
       </button>
-      <button class="insight-card" id="ventCard" data-insight="vent">
+      <button class="insight-card astro-card" id="ventCard" data-insight="vent">
         <div class="label">🔄 Ventilation</div>
         <div class="value neutral" id="ventVal">--</div>
         <div class="sub" id="ventSub">--</div>
@@ -205,8 +205,9 @@
 
   <!-- Environment inference feed -->
   <div class="section-heading">🔬 Environment Insights
-    <span class="inference-count" id="inferenceCount"></span>
+    <rux-badge id="inferenceCount"></rux-badge>
   </div>
+  <div id="dashTimeline" class="tl-container" style="margin-bottom:0.75rem;"></div>
   <div class="inference-filters" id="inferenceFilters">
     <button class="inf-filter active" data-category="all">All</button>
     <button class="inf-filter" data-category="alert">Alerts</button>
@@ -216,21 +217,28 @@
     <button class="inf-filter" data-category="attribution">Attribution</button>
     <button class="inf-filter" data-category="summary">Summaries</button>
   </div>
+  <rux-progress id="dashProgressBar" hide-label value="-1" style="display:none;margin-bottom:0.5rem;"></rux-progress>
   <div class="inference-feed" id="inferenceFeed">
     <div class="inference-empty">Analysing environment data…</div>
   </div>
 
-  <!-- Inference detail dialog -->
-  <dialog id="inferenceDialog" aria-modal="true" aria-labelledby="infTitle">
-    <div class="fd-header">
-      <div><h3 id="infTitle"></h3></div>
-      <button class="fd-close btn" aria-label="Close"
-              onclick="document.getElementById('inferenceDialog').close()">✕</button>
+  <!-- Inference detail slide panel -->
+  <div class="inf-slide-panel" id="inferencePanel" role="complementary" aria-label="Event detail">
+    <div class="inf-slide-header">
+      <div class="inf-slide-title-row">
+        <h3 id="infTitle" class="inf-slide-title"></h3>
+      </div>
+      <button class="inf-slide-close" id="infCloseBtn" aria-label="Close detail panel"
+              onclick="closeInferencePanel()">
+        <rux-icon icon="close" size="extra-small"></rux-icon>
+      </button>
     </div>
-    <div class="inf-body">
+    <div class="inf-body" id="infBody">
       <div class="inf-meta" id="infMeta">
-        <span class="inf-badge" id="infSeverity"></span>
-        <span class="inf-detection-chip"></span>
+        <div class="inf-meta-badges">
+          <span class="inf-badge" id="infSeverity"></span>
+          <span class="inf-detection-chip"></span>
+        </div>
         <span class="inf-time" id="infTime"></span>
         <span class="inf-confidence" id="infConfidence"></span>
       </div>
@@ -242,24 +250,28 @@
       <div id="infSparkline" class="sparkline-container" style="display:none;">
         <div class="sparkline-header">
           Sensor activity around this event
-          <span class="info-icon" title="Shows how sensor values moved in the 30 minutes around this event.">ⓘ</span>
+          <rux-tooltip message="Shows how sensor values moved in the 30 minutes around this event."><span class="info-icon">ⓘ</span></rux-tooltip>
         </div>
         <div id="infSparklineChart" style="height:180px;"></div>
         <div id="infSparklineLoading" style="display:none; text-align:center; padding:20px;">Loading…</div>
         <div id="infSparklineError" style="display:none; color:var(--text-muted,#6b7280); font-size:0.8rem; padding:8px 0;">Sparkline unavailable.</div>
       </div>
-      <div class="inf-section">
-        <div class="inf-section-title">Evidence</div>
-        <div class="inf-evidence" id="infEvidence"></div>
-      </div>
+      <rux-accordion>
+        <rux-accordion-item open>
+          <span slot="label">Evidence</span>
+          <div class="inf-evidence" id="infEvidence"></div>
+        </rux-accordion-item>
+      </rux-accordion>
       <div class="inf-section">
         <div class="inf-section-title">Recommended action</div>
         <div id="infAction"></div>
       </div>
-      <details class="inf-thresholds-section" id="infThresholdsSection" style="display:none">
-        <summary class="inf-section-title">Thresholds used</summary>
-        <div class="inf-thresholds-grid" id="infThresholds"></div>
-      </details>
+      <rux-accordion id="infThresholdsSection" style="display:none">
+        <rux-accordion-item open>
+          <span slot="label">Thresholds used</span>
+          <div class="inf-thresholds-grid" id="infThresholds"></div>
+        </rux-accordion-item>
+      </rux-accordion>
       <div class="inf-section" id="infAnnotationSection" style="display:none">
         <div class="inf-section-title">Your annotation</div>
         <div id="infAnnotationText"></div>
@@ -270,10 +282,12 @@
         <button class="btn inf-save-note" id="infSaveNote">Save note</button>
       </div>
     </div>
-  </dialog>
+  </div>
+  <!-- Backdrop for closing on outside click -->
+  <div class="inf-slide-backdrop" id="infSlideBackdrop" onclick="closeInferencePanel()"></div>
 
   <!-- System health -->
-  <div class="health-card">
+  <div class="health-card astro-card">
     <h3>🔧 System Health</h3>
     <div class="health-grid">
       <button class="health-item" data-health="aht20">
@@ -328,5 +342,6 @@
 {% block scripts %}
   <script src="https://cdn.plot.ly/plotly-basic-2.35.2.min.js" charset="utf-8"></script>
   <script src="{{ url_for('static', filename='js/sparkline.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/inference_timeline.js') }}"></script>
   <script type="module" src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
 {% endblock %}

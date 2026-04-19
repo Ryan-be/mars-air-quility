@@ -118,29 +118,6 @@ def get_fingerprints():
     return jsonify(fps)
 
 
-@api_insights_bp.route("/api/insights-engine/fingerprints", methods=["POST"])
-@require_role("admin")
-def save_fingerprints():
-    try:
-        eng = _engine()
-    except RuntimeError:
-        return _not_initialised()
-    data = request.get_json()
-    if not isinstance(data, list):
-        return jsonify({"error": "Expected JSON array of fingerprints"}), 400
-    fp_path = eng._fingerprints_path
-    if fp_path is None:
-        return jsonify({"error": "Fingerprints not configured"}), 503
-    try:
-        atomic_write(fp_path, {"sources": data})
-        if eng._attribution_engine is not None:
-            eng._attribution_engine.reload()
-    except Exception as exc:
-        log.error("save_fingerprints: %s", exc)
-        return jsonify({"error": str(exc)}), 500
-    return jsonify({"message": f"{len(data)} fingerprint(s) saved and reloaded"})
-
-
 @api_insights_bp.route("/api/insights-engine/fingerprints/<fp_id>", methods=["PATCH"])
 @require_role("admin")
 def patch_fingerprint(fp_id: str):
@@ -383,22 +360,19 @@ def get_sources():
     return jsonify(result)
 
 
-@api_insights_bp.route("/api/insights-engine/sources/<name>/enable", methods=["POST"])
+@api_insights_bp.route("/api/insights-engine/sources/<name>", methods=["PATCH"])
 @require_role("admin")
-def enable_source(name: str):
+def patch_source(name: str):
+    """Enable or disable a data source via ``{"enabled": bool}`` body."""
     if name not in state.data_source_enabled:
         return jsonify({"error": f"Source {name!r} not found"}), 404
-    state.data_source_enabled[name] = True
-    return jsonify({"message": f"Source {name!r} enabled"})
-
-
-@api_insights_bp.route("/api/insights-engine/sources/<name>/disable", methods=["POST"])
-@require_role("admin")
-def disable_source(name: str):
-    if name not in state.data_source_enabled:
-        return jsonify({"error": f"Source {name!r} not found"}), 404
-    state.data_source_enabled[name] = False
-    return jsonify({"message": f"Source {name!r} disabled"})
+    data = request.get_json(force=True, silent=True) or {}
+    if "enabled" not in data:
+        return jsonify({"error": "'enabled' is required in the request body."}), 400
+    enabled = bool(data["enabled"])
+    state.data_source_enabled[name] = enabled
+    verb = "enabled" if enabled else "disabled"
+    return jsonify({"message": f"Source {name!r} {verb}"})
 
 
 @api_insights_bp.route("/api/classifier/stats")

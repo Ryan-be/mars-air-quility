@@ -1,6 +1,8 @@
 import { isLight, themeLayout } from './theme.js';
 import { attachAnnotationHandler } from './annotations.js';
 
+const titleFont = () => ({ color: isLight ? "#111" : "#b0bec5", size: 12 });
+
 export function renderClimateCharts(data) {
   if (!data || data.length === 0) return;
   const timestamps   = data.map(d => new Date(d.timestamp));
@@ -13,7 +15,7 @@ export function renderClimateCharts(data) {
     mode: "lines+markers", name: "Temperature",
     line: { color: "deeppink" }, customdata: ids
   }], themeLayout({
-    title: { text: "🌡️ Temperature (°C)", font: { color: isLight ? "#111" : "#ccc" } },
+    title: { text: "Temperature (°C)", font: titleFont() },
   }), { responsive: true }).then(() => attachAnnotationHandler("tempPlot"));
 
   Plotly.newPlot("humPlot", [{
@@ -21,7 +23,7 @@ export function renderClimateCharts(data) {
     mode: "lines+markers", name: "Humidity",
     line: { color: "dodgerblue" }, customdata: ids
   }], themeLayout({
-    title: { text: "💧 Humidity (%)", font: { color: isLight ? "#111" : "#ccc" } },
+    title: { text: "Humidity (%)", font: titleFont() },
   }), { responsive: true }).then(() => attachAnnotationHandler("humPlot"));
 }
 
@@ -38,7 +40,7 @@ export function renderGasCharts(data) {
     mode: "lines+markers", name: "eCO₂ (ppm)",
     line: { color: "yellowgreen" }, customdata: ids
   }], themeLayout({
-    title: { text: "🫁 eCO₂ (ppm)", font: { color: isLight ? "#111" : "#ccc" } },
+    title: { text: "eCO₂ (ppm)", font: titleFont() },
   }), { responsive: true }).then(() => attachAnnotationHandler("eco2Plot"));
 
   const rollingTVOC = tvoc.map((_, i, arr) => {
@@ -49,31 +51,31 @@ export function renderGasCharts(data) {
   const eventAnnotations = annotations.map((note, i) => note && note.trim() ? {
     x: timestamps[i], y: tvoc[i], text: note,
     showarrow: true, arrowhead: 2, ax: 0, ay: -40,
-    bgcolor: "#444", font: { color: "#fff" }
+    bgcolor: "#1b2d3e", font: { color: "#b0bec5" }
   } : null).filter(Boolean);
 
   Plotly.newPlot("tvocPlot", [
     {
       x: timestamps, y: tvoc, mode: "markers", name: "TVOC",
-      marker: { color: tvoc.map(v => v <= 250 ? "#2d8a2d" : v <= 500 ? "#c87800" : "#b03030"), size: 6 },
+      marker: { color: tvoc.map(v => v <= 250 ? "#56f000" : v <= 500 ? "#fce83a" : "#ff3838"), size: 6 },
       customdata: ids, text: annotations, hoverinfo: "x+y+text"
     },
     {
       x: timestamps, y: rollingTVOC, mode: "lines", name: "Rolling avg",
-      line: { dash: "dash", color: "#888", width: 2 }
+      line: { dash: "dash", color: "#52667a", width: 2 }
     },
     {
       x: timestamps, y: rateOfChange, mode: "lines", name: "Rate of change",
-      yaxis: "y2", line: { color: "cyan", width: 2 }
+      yaxis: "y2", line: { color: "#4dacff", width: 2 }
     }
   ], themeLayout({
-    title: { text: "🧪 TVOC (ppb)", font: { color: isLight ? "#111" : "#ccc" } },
+    title: { text: "TVOC (ppb)", font: titleFont() },
     yaxis2: {
       title: "Δppb", overlaying: "y", side: "right",
-      showgrid: false, gridcolor: "#2a2a2a", zerolinecolor: "#333", color: "#ccc",
-      automargin: true,
+      showgrid: false, gridcolor: "#1b2d3e", zerolinecolor: "#2b659b",
+      color: "#b0bec5", automargin: true, tickfont: { color: "#b0bec5", size: 10 },
     },
-    legend: { x: 0.5, y: 1.3, bgcolor: "rgba(0,0,0,0)", orientation: "h", xanchor: "center" },
+    legend: { x: 0.5, y: 1.3, bgcolor: "rgba(0,0,0,0)", orientation: "h", xanchor: "center", font: { color: "#b0bec5" } },
     margin: { t: 75 },
     annotations: eventAnnotations,
   }), { responsive: true }).then(() => attachAnnotationHandler("tvocPlot"));

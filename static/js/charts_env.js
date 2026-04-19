@@ -20,7 +20,7 @@ export function renderEnvCharts(sensorData, weatherData) {
   const wTs  = weatherData.map(d => new Date(d.timestamp));
   const wTemp = weatherData.map(d => d.temp);
   const wHum  = weatherData.map(d => d.humidity);
-  const titleFont = { color: isLight ? "#111" : "#ccc" };
+  const titleFont = { color: isLight ? "#111" : "#b0bec5" };
 
   Plotly.newPlot("tempOverlayPlot", [
     { x: ts, y: temp, mode: "lines+markers", name: "Indoor",
@@ -28,7 +28,7 @@ export function renderEnvCharts(sensorData, weatherData) {
     { x: wTs, y: wTemp, mode: "lines+markers", name: "Outdoor",
       line: { color: "#f59e0b", dash: "dash" } },
   ], themeLayout({
-    title: { text: "🌡️ Indoor vs Outdoor Temperature (°C)", font: titleFont },
+    title: { text: "Indoor vs Outdoor Temperature (°C)", font: titleFont },
     legend: { orientation: "h", x: 0.5, xanchor: "center", y: 1.3, bgcolor: "rgba(0,0,0,0)" },
     margin: { t: 75 },
   }), { responsive: true });
@@ -39,7 +39,7 @@ export function renderEnvCharts(sensorData, weatherData) {
     { x: wTs, y: wHum, mode: "lines+markers", name: "Outdoor",
       line: { color: "#38bdf8", dash: "dash" } },
   ], themeLayout({
-    title: { text: "💧 Indoor vs Outdoor Humidity (%)", font: titleFont },
+    title: { text: "Indoor vs Outdoor Humidity (%)", font: titleFont },
     legend: { orientation: "h", x: 0.5, xanchor: "center", y: 1.3, bgcolor: "rgba(0,0,0,0)" },
     margin: { t: 75 },
   }), { responsive: true });
@@ -52,7 +52,7 @@ export function renderEnvCharts(sensorData, weatherData) {
     x: ts, y: ahValues, mode: "lines+markers", name: "Abs. Humidity",
     line: { color: "#818cf8" }, connectgaps: false,
   }], themeLayout({
-    title: { text: "💧 Absolute Humidity (g/m³)", font: titleFont },
+    title: { text: "Absolute Humidity (g/m³)", font: titleFont },
   }), { responsive: true });
 
   const dpValues = sensorData.map(d =>
@@ -65,7 +65,7 @@ export function renderEnvCharts(sensorData, weatherData) {
     { x: ts, y: dpValues, mode: "lines+markers", name: "Dew Point",
       line: { color: "#34d399", dash: "dot" }, connectgaps: false },
   ], themeLayout({
-    title: { text: "🌡️ Dew Point vs Air Temperature (°C)", font: titleFont },
+    title: { text: "Dew Point vs Air Temperature (°C)", font: titleFont },
     legend: { orientation: "h", x: 0.5, xanchor: "center", y: 1.3, bgcolor: "rgba(0,0,0,0)" },
     margin: { t: 75 },
   }), { responsive: true });
@@ -77,7 +77,7 @@ export function renderEnvCharts(sensorData, weatherData) {
     connectgaps: false,
     fill: "tozeroy", fillcolor: "rgba(167,139,250,0.15)",
   }], themeLayout({
-    title: { text: "🌀 Fan State", font: titleFont },
+    title: { text: "Fan State", font: titleFont },
     yaxis: { tickvals: [0, 1], ticktext: ["Off", "On"], range: [-0.1, 1.3] },
   }), { responsive: true });
 
@@ -127,7 +127,7 @@ export function renderEnvCharts(sensorData, weatherData) {
       },
       connectgaps: false,
     }], themeLayout({
-      title: { text: "🌱 Vapour Pressure Deficit (kPa)", font: titleFont },
+      title: { text: "Vapour Pressure Deficit (kPa)", font: titleFont },
       yaxis: { rangemode: "tozero" },
       shapes: vpdShapes,
       annotations: zoneAnnotations,

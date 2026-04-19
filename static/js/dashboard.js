@@ -179,7 +179,7 @@ async function fetchWeather() {
 
 async function fetchForecast() {
   try {
-    const res = await fetch("/api/weather/forecast");
+    const res = await fetch("/api/weather/forecast?resolution=hourly");
     if (!res.ok) return;
     updateForecast((await res.json()).hours);
   } catch { /* location not set */ }
@@ -187,7 +187,7 @@ async function fetchForecast() {
 
 async function fetchDailyForecast() {
   try {
-    const res = await fetch("/api/weather/forecast/daily");
+    const res = await fetch("/api/weather/forecast?resolution=daily");
     if (!res.ok) return;
     updateDailyForecast((await res.json()).days);
   } catch { /* location not set */ }
@@ -400,10 +400,27 @@ const _infFeed = createInferenceFeed({
   filtersId:    'inferenceFilters',
   cardDataAttr: 'data-inf-id',
   openDialog:   _openInferenceDialog,
+  progressId:   'dashProgressBar',
 });
 
-function fetchInferences() {
-  _infFeed.load('/api/inferences?limit=50');
+// Init dashboard timeline + detail panel
+if (typeof window.createInferenceTimeline === 'function') {
+  window._dashTimeline = window.createInferenceTimeline({
+    timelineContainerId: 'dashTimeline',
+    openDialog: _openInferenceDialog,
+    getRange: () => {
+      const end = new Date();
+      const start = new Date(end.getTime() - 24 * 3600000);
+      return { start: start.toISOString(), end: end.toISOString() };
+    },
+  });
+}
+async function fetchInferences() {
+  const end = new Date();
+  const start = new Date(end.getTime() - 24 * 3600000);
+  const url = `/api/inferences?limit=500&start=${start.toISOString()}&end=${end.toISOString()}`;
+  await _infFeed.load(url);
+  if (window._dashTimeline) window._dashTimeline.render(_infFeed.getInferences());
 }
 
 function _parseNum(v) {
@@ -479,7 +496,7 @@ function _evidenceColor(key, val) {
 function _openInferenceDialog(id) {
   const inf = _infFeed.getInferences().find(i => i.id === id);
   if (!inf) return;
-  const dialog = document.getElementById("inferenceDialog");
+  const panel = document.getElementById("inferencePanel");
 
   document.getElementById("infTitle").textContent = inf.title;
 
@@ -701,12 +718,19 @@ function _openInferenceDialog(id) {
     } else {
       // Fallback: generic key-value pairs (existing behaviour for older inferences)
       const entries = Object.entries(inf.evidence).filter(
-        ([k]) => k !== "_thresholds" && k !== "sensor_snapshot" && k !== "model_id"
+        ([k]) => k !== "_thresholds" && k !== "sensor_snapshot" && k !== "model_id" &&
+                 k !== "feature_vector" && k !== "readings"
       );
-      evEl.innerHTML = entries.map(([k, v]) => {
-        const cls = _evidenceColor(k, v);
+      let html = entries.map(([k, v]) => {
+        if (typeof v === 'object' || Array.isArray(v)) return null;
+        const cls = _evidenceColor(k, String(v));
         return `<div class="inf-ev-row ${cls}"><span class="fd-label">${k.replace(/_/g, " ")}</span><span class="fd-value">${v}</span></div>`;
-      }).join("") || "No detailed evidence available.";
+      }).filter(Boolean).join("");
+      // Always show range info for user-tagged events
+      if (inf.evidence.range_start && inf.evidence.range_end) {
+        html = `<div class="inf-ev-row"><span class="fd-label">Tagged range</span><span class="fd-value">${new Date(inf.evidence.range_start).toLocaleString()} \u2192 ${new Date(inf.evidence.range_end).toLocaleString()}</span></div>` + html;
+      }
+      evEl.innerHTML = html || "No detailed evidence available.";
     }
 
     // Thresholds section (unchanged)
@@ -744,8 +768,8 @@ function _openInferenceDialog(id) {
   document.getElementById("infSaveNote").onclick = async () => {
     const notes = document.getElementById("infNotes").value;
     try {
-      await fetch(`/api/inferences/${id}/notes`, {
-        method: "POST",
+      await fetch(`/api/inferences/${id}`, {
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ notes }),
       });
@@ -756,19 +780,35 @@ function _openInferenceDialog(id) {
   // Sparkline — guard in case sparkline.js failed to load
   const sparkline = document.getElementById('infSparkline');
   if (sparkline) sparkline.style.display = 'none';
-  if (typeof loadSparkline === 'function') {
-    loadSparkline(inf.id, inf.created_at);
-  }
 
-  dialog.showModal();
-  // Resize the sparkline chart after the dialog is visible so Plotly measures
-  // the correct dimensions (it renders before the dialog is fully painted).
-  setTimeout(() => {
-    const chartDiv = document.getElementById('infSparklineChart');
-    if (chartDiv && window.Plotly) Plotly.Plots.resize(chartDiv);
-  }, 50);
-  dialog.onclick = (e) => { if (e.target === dialog) dialog.close(); };
+  if (!panel) return;
+  panel.classList.add('open');
+  const backdrop = document.getElementById('infSlideBackdrop');
+  if (backdrop) backdrop.classList.add('visible');
+  document.body.style.overflow = 'hidden';
+  // Bind Escape key close
+  const onKey = (e) => { if (e.key === 'Escape') { closeInferencePanel(); document.removeEventListener('keydown', onKey); } };
+  document.addEventListener('keydown', onKey);
+
+  // Load sparkline after panel is open so Plotly gets the correct panel width.
+  // 100ms lets the CSS transition start and the browser measure the container.
+  // (Matches detections_insights.js: sparkline.js itself fetches
+  // /api/inferences/<id>/sparkline and decides whether to render — no need to
+  // pre-filter on inf.triggering_channels, which isn't always populated on the
+  // feed object even when the server has data.)
+  if (typeof loadSparkline === 'function') {
+    setTimeout(() => { loadSparkline(inf.id, inf.created_at); }, 100);
+  }
+  // Remove the old resize setTimeout — sparkline.js handles its own resize now.
 }
+
+window.closeInferencePanel = window.closeInferencePanel || function() {
+  const panel = document.getElementById('inferencePanel');
+  const backdrop = document.getElementById('infSlideBackdrop');
+  if (panel) panel.classList.remove('open');
+  if (backdrop) backdrop.classList.remove('visible');
+  document.body.style.overflow = '';
+};
 
 // ── Server-Sent Events (real-time push) ─────────────────────────────────────
 
@@ -781,6 +821,7 @@ function connectSSE() {
 
   _evtSource.addEventListener("sensor_update", (e) => {
     const d = JSON.parse(e.data);
+    window._sseLatest = d;
     const t = d.temperature;
     const h = d.humidity;
     document.getElementById("tempValue").textContent =
@@ -848,3 +889,111 @@ fetchForecast();
 fetchDailyForecast();
 fetchInferences();
 connectSSE();
+
+// ── Status bar button popovers ──────────────────────────────────────────────
+(function() {
+  const _POPOVER_GROUPS = {
+    'gsb-btn-env':      { title: 'Environment', keys: ['temperature','humidity','vpd','dew_point'] },
+    'gsb-btn-air':      { title: 'Air Quality',  keys: ['tvoc','eco2','air_quality'] },
+    'gsb-btn-sensors':  { title: 'Sensors',      keys: ['pm1','pm25','pm10','co','no2','nh3'] },
+    'gsb-btn-inference':{ title: 'Inference',    keys: ['inference_count','last_inference'] },
+  };
+
+  function _removePopover() {
+    const el = document.getElementById('gsb-popover');
+    if (el) el.remove();
+  }
+
+  function _showPopover(btn, groupId) {
+    _removePopover();
+    const group = _POPOVER_GROUPS[groupId];
+    if (!group) return;
+
+    const pop = document.createElement('div');
+    pop.id = 'gsb-popover';
+    pop.style.cssText = [
+      'position:fixed',
+      'z-index:10000',
+      'background:var(--color-background-surface-default,#1b2d3e)',
+      'border:1px solid var(--color-border-interactive-muted,#2b659b)',
+      'border-radius:4px',
+      'padding:0.75rem 1rem',
+      'box-shadow:0 4px 24px rgba(0,0,0,0.5)',
+      'min-width:180px',
+      'font-size:0.8rem',
+    ].join(';');
+
+    const rect = btn.getBoundingClientRect();
+    pop.style.top  = (rect.bottom + 6) + 'px';
+    pop.style.left = Math.max(4, rect.left - 20) + 'px';
+
+    // Title
+    const title = document.createElement('div');
+    title.style.cssText = 'font-size:0.7em;text-transform:uppercase;letter-spacing:0.1em;color:var(--color-text-placeholder,#52667a);margin-bottom:0.5rem';
+    title.textContent = group.title;
+    pop.appendChild(title);
+
+    // Pull current readings from the latest SSE data state
+    const latest = (window._sseLatest) || {};
+    const _inferences = _infFeed ? _infFeed.getInferences() : [];
+    const _lastInf = _inferences[0];
+    const rows = {
+      temperature:     ['Temperature', latest.temperature != null ? latest.temperature.toFixed(1) + ' °C' : '—'],
+      humidity:        ['Humidity',    latest.humidity    != null ? latest.humidity.toFixed(1)    + ' %'  : '—'],
+      vpd:             ['VPD',         latest.vpd_kpa     != null ? latest.vpd_kpa.toFixed(2)     + ' kPa': '—'],
+      dew_point:       ['Dew point',   latest.dew_point   != null ? latest.dew_point.toFixed(1)   + ' °C' : '—'],
+      tvoc:            ['TVOC',        latest.tvoc        != null ? latest.tvoc                   + ' ppb': '—'],
+      eco2:            ['eCO₂',        latest.eco2        != null ? latest.eco2                   + ' ppm': '—'],
+      air_quality:     ['Air quality', (document.getElementById('airQualityStatus') || {}).textContent || '—'],
+      pm1:             ['PM1',         latest.pm1_0       != null ? latest.pm1_0                  + ' µg/m³': '—'],
+      pm25:            ['PM2.5',       latest.pm2_5       != null ? latest.pm2_5                  + ' µg/m³': '—'],
+      pm10:            ['PM10',        latest.pm10        != null ? latest.pm10                   + ' µg/m³': '—'],
+      co:              ['CO',          latest.co          != null ? latest.co                     + ' Ω'  : '—'],
+      no2:             ['NO₂',         latest.no2         != null ? latest.no2                    + ' Ω'  : '—'],
+      nh3:             ['NH₃',         latest.nh3         != null ? latest.nh3                    + ' Ω'  : '—'],
+      inference_count: ['Events (24h)', _inferences.length ? String(_inferences.length) : '0'],
+      last_inference:  ['Last event',   _lastInf ? new Date(_lastInf.created_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '—'],
+    };
+
+    group.keys.forEach(function(key) {
+      const row = rows[key];
+      if (!row) return;
+      const line = document.createElement('div');
+      line.style.cssText = 'display:flex;justify-content:space-between;gap:1rem;padding:0.15rem 0;color:var(--color-text-primary,#fff)';
+      line.innerHTML = '<span style="color:var(--color-text-placeholder,#52667a)">' + row[0] + '</span><span>' + row[1] + '</span>';
+      pop.appendChild(line);
+    });
+
+    document.body.appendChild(pop);
+
+    setTimeout(function() {
+      document.addEventListener('click', function _close(e) {
+        if (!pop.contains(e.target) && e.target !== btn) {
+          _removePopover();
+          document.removeEventListener('click', _close, true);
+        }
+      }, true);
+    }, 0);
+  }
+
+  function _bindPopovers() {
+    Object.keys(_POPOVER_GROUPS).forEach(function(id) {
+      const btn = document.getElementById(id);
+      if (!btn) return;
+      btn.style.cursor = 'pointer';
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        const existing = document.getElementById('gsb-popover');
+        if (existing) { _removePopover(); return; }
+        _showPopover(btn, id);
+      });
+    });
+  }
+  // type="module" scripts run after the DOM is parsed (deferred semantics), so
+  // DOMContentLoaded may already have fired.  Call directly if the DOM is ready.
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _bindPopovers);
+  } else {
+    _bindPopovers();
+  }
+})();
