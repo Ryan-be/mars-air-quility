@@ -109,12 +109,12 @@ if [ ! -f .env ]; then
     info "Creating default .env..."
     cat > .env <<'EOF'
 ENV_FOR_DYNACONF=production
-LOG_INTERVAL=10
-LOG_FILE=data/log.csv
-DB_FILE=data/sensor_data.db
-FAN_KASA_SMART_PLUG_IP=192.168.1.63
+MLSS_LOG_INTERVAL=10
+MLSS_LOG_FILE=data/log.csv
+MLSS_DB_FILE=data/sensor_data.db
+MLSS_FAN_KASA_SMART_PLUG_IP=192.168.1.63
 EOF
-    warn "Edit .env and set FAN_KASA_SMART_PLUG_IP to your smart plug's IP address"
+    warn "Edit .env and set MLSS_FAN_KASA_SMART_PLUG_IP to your smart plug's IP address"
 else
     success ".env already exists"
 fi
@@ -126,7 +126,7 @@ success "Setup complete!"
 echo "=============================="
 echo ""
 echo "Next steps:"
-echo "  1. Edit .env and set FAN_KASA_SMART_PLUG_IP"
+echo "  1. Edit .env and set MLSS_FAN_KASA_SMART_PLUG_IP"
 if grep -q "Enabling I2C" <<< "$(cat /boot/firmware/config.txt 2>/dev/null || cat /boot/config.txt 2>/dev/null)" 2>/dev/null; then
     echo "  2. Reboot to enable I2C: sudo reboot"
     echo "  3. Run: poetry run python mlss_monitor/app.py"

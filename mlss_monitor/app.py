@@ -114,7 +114,22 @@ app = Flask(
 # ── Config ────────────────────────────────────────────────────────────────────
 
 LOG_INTERVAL = int(config.get("LOG_INTERVAL", "10"))
-FAN_KASA_SMART_PLUG_IP = config.get("FAN_KASA_SMART_PLUG_IP", "192.168.1.63")
+
+# Smart plug LAN IP. No default: a stale default silently masked a broken
+# config in the past (the operator changed networks, but app.py's hardcoded
+# "192.168.1.63" kept being returned because dynaconf's envvar_prefix rule
+# meant the raw `FAN_KASA_SMART_PLUG_IP=` in .env was never read). Require
+# the caller to set `MLSS_FAN_KASA_SMART_PLUG_IP` in .env; warn loudly if
+# not — the KasaSmartPlug constructor is non-blocking, so None is safe at
+# import time but will fail on first network call with an obvious error.
+FAN_KASA_SMART_PLUG_IP = config.get("FAN_KASA_SMART_PLUG_IP")
+if FAN_KASA_SMART_PLUG_IP is None:
+    log.warning(
+        "MLSS_FAN_KASA_SMART_PLUG_IP is not set in .env — the fan smart "
+        "plug will be unreachable. Add MLSS_FAN_KASA_SMART_PLUG_IP=<lan-ip> "
+        "to .env and restart the service."
+    )
+
 SECRET_KEY = config.get("SECRET_KEY", "mlss-dev-key-change-me-in-production")
 app.secret_key = SECRET_KEY
 app.permanent_session_lifetime = timedelta(days=30)
