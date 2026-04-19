@@ -54,11 +54,10 @@ def get_fan_status():
             )
             plug_state = state_task.result(timeout=5)
         except Exception as plug_exc:
-            # Include the exception class name — some exceptions have an
-            # empty `str()` (notably `concurrent.futures.TimeoutError`, which
-            # is what `run_coroutine_threadsafe(...).result(timeout=...)`
-            # raises), which would otherwise log as just "plug read failed:"
-            # with nothing after the colon and hide the real failure mode.
+            # Include the exception class name — `concurrent.futures.TimeoutError`
+            # (raised by `run_coroutine_threadsafe(...).result(timeout=...)`)
+            # has an empty `str()`, so without the class name the log line
+            # carries no information about the failure mode.
             log.error(
                 "[get_fan_status] plug read failed: %s: %s",
                 type(plug_exc).__name__, plug_exc,

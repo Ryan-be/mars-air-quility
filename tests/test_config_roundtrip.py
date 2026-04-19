@@ -1,23 +1,9 @@
-"""Regression tests for dynaconf's `envvar_prefix="MLSS"` rule.
+"""Contract tests for the dynaconf `envvar_prefix="MLSS"` rule.
 
-The incident these guard against: `.env.example` shipped with raw-named
-keys (`LOG_INTERVAL=`, `FAN_KASA_SMART_PLUG_IP=`, ...). Dynaconf, wired
-with `envvar_prefix="MLSS"` in `config.py`, silently ignores any key that
-doesn't start with `MLSS_` — so `config.get("FAN_KASA_SMART_PLUG_IP")`
-returned its in-source default even when the operator had set the key in
-.env. The regression surfaces only after the hardcoded default drifts out
-of sync with the deployment environment (e.g. the LAN IP changes).
-
-These tests encode the contract:
-
-1. Prefixed keys round-trip. Setting `MLSS_FOO=bar` in the environment
-   must make `config.get("FOO")` return "bar".
-2. Unprefixed keys DO NOT round-trip. Setting `FOO=bar` alone must NOT
-   make `config.get("FOO")` return "bar" — dynaconf is required to ignore
-   it. If this test starts failing, either someone widened the prefix in
-   `config.py` (in which case update `.env.example` docs) or dynaconf's
-   behaviour changed and the rest of this codebase needs re-auditing.
-3. `.env.example` itself must not ship unprefixed keys — automated check.
+Dynaconf is wired in config.py with envvar_prefix="MLSS", meaning only
+environment variables starting with `MLSS_` are loaded (the prefix is
+stripped on read, so `MLSS_FOO=bar` is read back as `config.get("FOO")`).
+These tests enforce that contract and assert `.env.example` conforms.
 """
 from __future__ import annotations
 
@@ -49,12 +35,11 @@ def test_prefixed_key_roundtrips(monkeypatch, fresh_config):
 
 
 def test_unprefixed_key_is_ignored(monkeypatch, fresh_config):
-    """`FOO=bar` without the `MLSS_` prefix must NOT be readable.
+    """An env var without the `MLSS_` prefix must not be readable via `config.get`.
 
-    This is the exact failure mode that caused the production smart-plug
-    outage: a raw-named key in .env was silently dropped, and the hardcoded
-    default won. If dynaconf ever starts reading unprefixed keys (version
-    bump, config change, etc.) this test fires and we re-audit.
+    If dynaconf ever starts returning a value for an unprefixed key, the
+    `envvar_prefix="MLSS"` contract in config.py has changed and every
+    `config.get()` call site plus `.env.example` need re-auditing.
     """
     monkeypatch.setenv("UNPREFIXED_ROUNDTRIP_TEST", "should-be-ignored")
     cfg = fresh_config()
@@ -68,9 +53,9 @@ def test_unprefixed_key_is_ignored(monkeypatch, fresh_config):
 def test_env_example_only_ships_prefixed_keys():
     """Every `KEY=value` line in .env.example must use the `MLSS_` prefix.
 
-    Catches the exact mistake that caused the original bug: a contributor
-    added a new config key to .env.example without the prefix, and the
-    corresponding `config.get("NEW_KEY")` call silently used its default.
+    Enforces that contributors cannot add a new key to .env.example that
+    dynaconf would ignore at runtime. Commented example lines are checked
+    too, because a future contributor will uncomment them verbatim.
 
     Exceptions: `ENV_FOR_DYNACONF` is dynaconf's own bootstrapping variable
     (it tells dynaconf which environment to load) and doesn't follow the

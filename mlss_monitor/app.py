@@ -115,13 +115,11 @@ app = Flask(
 
 LOG_INTERVAL = int(config.get("LOG_INTERVAL", "10"))
 
-# Smart plug LAN IP. No default: a stale default silently masked a broken
-# config in the past (the operator changed networks, but app.py's hardcoded
-# "192.168.1.63" kept being returned because dynaconf's envvar_prefix rule
-# meant the raw `FAN_KASA_SMART_PLUG_IP=` in .env was never read). Require
-# the caller to set `MLSS_FAN_KASA_SMART_PLUG_IP` in .env; warn loudly if
-# not — the KasaSmartPlug constructor is non-blocking, so None is safe at
-# import time but will fail on first network call with an obvious error.
+# Smart plug LAN IP. Required — no default, so a missing
+# `MLSS_FAN_KASA_SMART_PLUG_IP` is caught immediately via the warning below
+# rather than silently falling back to an address that doesn't match the
+# deployment. `KasaSmartPlug(None)` is safe to construct (no network I/O
+# until the first call).
 FAN_KASA_SMART_PLUG_IP = config.get("FAN_KASA_SMART_PLUG_IP")
 if FAN_KASA_SMART_PLUG_IP is None:
     log.warning(
@@ -298,11 +296,9 @@ state.detection_engine = _detection_engine
 
 # ── Smart plug & async event loop ────────────────────────────────────────────
 
-# Log the resolved IP at INFO so `journalctl -u mlss-monitor` always shows
-# which address the service is talking to. Without this, a config regression
-# (wrong key in .env, stale hardcoded default, etc.) silently drops us onto
-# an unreachable address and the only symptom is generic 503s from the fan
-# API. One greppable line here turns a day of debugging into a minute.
+# Log the resolved IP at INFO so the journal records which address the
+# service is configured to reach. Makes config issues greppable in
+# `journalctl -u mlss-monitor`.
 log.info("Smart plug configured for IP: %s", FAN_KASA_SMART_PLUG_IP)
 state.fan_smart_plug = KasaSmartPlug(FAN_KASA_SMART_PLUG_IP)
 
