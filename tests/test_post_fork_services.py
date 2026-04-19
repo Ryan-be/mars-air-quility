@@ -13,6 +13,8 @@ rebuilt thread is alive and functional.
 from __future__ import annotations
 
 import asyncio
+import importlib.util
+import pathlib
 import threading
 from unittest.mock import MagicMock
 
@@ -22,6 +24,20 @@ import pytest
 # Skip the whole module if it isn't importable — the post_fork regression is
 # still covered in CI where gunicorn is available.
 pytest.importorskip("gunicorn")
+
+
+def _load_gunicorn_conf():
+    """Load the repo-root `gunicorn.conf.py` as a module.
+
+    We can't `import gunicorn.conf` — Python resolves the `gunicorn` package
+    (installed from PyPI) first, which shadows our repo-root config file. Load
+    it explicitly by path so the test exercises the real post_fork hook.
+    """
+    conf_path = pathlib.Path(__file__).resolve().parent.parent / "gunicorn.conf.py"
+    spec = importlib.util.spec_from_file_location("mlss_gunicorn_conf", conf_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _simulate_dead_fork(app_module):
@@ -60,7 +76,7 @@ def test_post_fork_restarts_pm_poller_and_driver(monkeypatch):
     65d3336.
     """
     import mlss_monitor.app as app_module
-    import gunicorn.conf as gconf
+    gconf = _load_gunicorn_conf()
 
     # Stub out `_start_background_services` so the test doesn't start the
     # real sensor / log / weather threads (they would race with other tests

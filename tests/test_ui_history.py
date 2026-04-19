@@ -9,11 +9,17 @@ def test_history_page_loads(app_client):
 
 
 def test_tab_bar_has_six_tabs(app_client):
+    """The history page's astrouxds tab-bar must expose exactly six tabs.
+
+    Post migration the template uses the `<rux-tab>` web component instead of
+    `<button class="tab-btn">`; BeautifulSoup's HTML parser lowercases custom
+    element names, so we look for the raw tag here.
+    """
     client, _ = app_client
     resp = client.get("/history")
     soup = BeautifulSoup(resp.data, "html.parser")
-    tabs = soup.find_all(class_="tab-btn")
-    assert len(tabs) == 6, f"Expected 6 tab buttons, got {len(tabs)}"
+    tabs = soup.find_all("rux-tab")
+    assert len(tabs) == 6, f"Expected 6 rux-tab elements, got {len(tabs)}"
 
 
 def test_tab_panels_all_present(app_client):
@@ -93,16 +99,19 @@ def test_detection_tab_di_ids_preserved(app_client):
         assert soup.find(id=el_id) is not None, f"DI element #{el_id} missing"
 
 
-def test_tab_buttons_have_astro_pill_class(app_client):
-    """Fails until history.html gets the astro-tab class added."""
+def test_tab_buttons_have_expected_ids(app_client):
+    """Post astrouxds migration: verify every `<rux-tab>` keeps its
+    `tab-btn-<panel>` id so the JS tab controller can find it."""
     client, _ = app_client
     resp = client.get("/history")
     soup = BeautifulSoup(resp.data, "html.parser")
-    tabs = soup.find_all(class_="tab-btn")
-    for tab in tabs:
-        assert "astro-tab" in tab.get("class", []), (
-            f"tab-btn missing 'astro-tab' class: {tab.get('class')}"
-        )
+    expected_ids = {
+        "tab-btn-climate", "tab-btn-air-quality", "tab-btn-particulate",
+        "tab-btn-environment", "tab-btn-correlation", "tab-btn-detections",
+    }
+    tab_ids = {t.get("id") for t in soup.find_all("rux-tab")}
+    missing = expected_ids - tab_ids
+    assert not missing, f"rux-tab elements missing expected ids: {missing}"
 
 
 def test_channel_chips_present(app_client):

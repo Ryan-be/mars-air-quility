@@ -7,7 +7,7 @@ import math
 import time
 from datetime import datetime, timezone
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, current_app, jsonify, request
 
 import database.db_logger as _dbl
 from database.db_logger import (
@@ -534,12 +534,18 @@ def narratives():
     if not start or not end:
         return jsonify({"error": "start and end are required"}), 400
 
+    # Skip the in-memory TTL cache in testing: tests share a single Flask app
+    # instance (so the module-level cache persists across tests) but each test
+    # resets the SQLite DB via the `db` fixture, which would otherwise cause
+    # stale cached payloads from a previous test's DB to be served.
+    _use_cache = not current_app.config.get("TESTING", False)
     cache_key = _round_to_minute(start) + "|" + _round_to_minute(end)
-    cached = _narratives_cache.get(cache_key)
-    if cached is not None:
-        payload, stored_at = cached
-        if time.monotonic() - stored_at < _narratives_cache_ttl:
-            return jsonify(payload)
+    if _use_cache:
+        cached = _narratives_cache.get(cache_key)
+        if cached is not None:
+            payload, stored_at = cached
+            if time.monotonic() - stored_at < _narratives_cache_ttl:
+                return jsonify(payload)
 
     from mlss_monitor.inference_evidence import _CHANNEL_META
     from mlss_monitor.narrative_engine import _parse_utc
@@ -642,5 +648,6 @@ def narratives():
         "detection_method_breakdown": method_breakdown, "total_events": len(window),
         "inferences": window_infs_slim,
     }
-    _narratives_cache[cache_key] = (result_payload, time.monotonic())
+    if _use_cache:
+        _narratives_cache[cache_key] = (result_payload, time.monotonic())
     return jsonify(result_payload)
