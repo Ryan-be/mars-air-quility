@@ -15,6 +15,8 @@ from config import config
 from mlss_monitor.incident_grouper import (
     cosine_similarity,
     detection_method,
+    edge_probability,
+    EDGE_STRONG_R_THRESHOLD,
     explain_similarity,
     is_cross_incident,
 )
@@ -263,6 +265,32 @@ def get_incident(incident_id: str):
     narrative = build_narrative(incident, alerts)
     similar = _find_similar(conn, incident_id, signature)
 
+    # ── Compute causal edges between primary alerts for the UI ────────────
+    primary_alerts = [a for a in alerts if a.get("is_primary")]
+    # Sort chronologically so edges are always src(earlier) -> dst(later).
+    primary_alerts.sort(key=lambda a: a.get("created_at", ""))
+    edges_out: list[dict] = []
+    for i, a1 in enumerate(primary_alerts):
+        for a2 in primary_alerts[i + 1:]:
+            p = edge_probability(a1, a2)
+            if p <= 0.0:
+                continue
+            # Describe WHICH sensors drove the link, for the hover tooltip.
+            strong_a = {
+                d["sensor"] for d in (a1.get("signal_deps") or [])
+                if d["r"] is not None and abs(d["r"]) >= EDGE_STRONG_R_THRESHOLD
+            }
+            strong_b = {
+                d["sensor"] for d in (a2.get("signal_deps") or [])
+                if d["r"] is not None and abs(d["r"]) >= EDGE_STRONG_R_THRESHOLD
+            }
+            edges_out.append({
+                "from": a1["id"],
+                "to": a2["id"],
+                "p": round(p, 3),
+                "shared_sensors": sorted(strong_a & strong_b),
+            })
+
     incident.pop("signature", None)
     conn.close()
 
@@ -272,4 +300,5 @@ def get_incident(incident_id: str):
         "causal_sequence": causal_sequence,
         "narrative": narrative,
         "similar": similar,
+        "edges": edges_out,
     })

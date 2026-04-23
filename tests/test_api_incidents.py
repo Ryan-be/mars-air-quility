@@ -215,3 +215,41 @@ def test_list_incidents_alert_counts_single_query(client, seed_three_incidents, 
     assert by_id.get("INC-A") == 2
     assert by_id.get("INC-B") == 1
     assert by_id.get("INC-C") == 0
+
+
+def test_get_incident_detail_includes_edges(client, db):
+    """Detail response includes an 'edges' array, one entry per edge in
+    the component, each with {from, to, p, shared_sensors}."""
+    # Seed two alerts sharing eco2 within the edge window + link them
+    # into an incident via regroup.
+    from mlss_monitor.incident_grouper import regroup_all
+    import sqlite3
+    conn = sqlite3.connect(db)
+    for ts in ("2026-04-23 09:00:00", "2026-04-23 09:10:00"):
+        cur = conn.execute(
+            "INSERT INTO inferences (created_at, event_type, severity, title, confidence) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (ts, "tvoc_spike", "info", f"t-{ts}", 0.9),
+        )
+        conn.execute(
+            "INSERT INTO alert_signal_deps (alert_id, sensor, r, lag_seconds) "
+            "VALUES (?, ?, ?, ?)",
+            (cur.lastrowid, "eco2_ppm", 0.8, 0),
+        )
+    conn.commit()
+    conn.close()
+    regroup_all(db)
+
+    # Get the single incident that was created.
+    resp = client.get("/api/incidents?window=30d")
+    inc_id = resp.get_json()["incidents"][0]["id"]
+
+    resp = client.get(f"/api/incidents/{inc_id}")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert "edges" in data
+    assert len(data["edges"]) == 1
+    edge = data["edges"][0]
+    assert {"from", "to", "p", "shared_sensors"} <= set(edge.keys())
+    assert edge["p"] == 1.0
+    assert "eco2_ppm" in edge["shared_sensors"]
