@@ -299,14 +299,6 @@
   color: var(--text);
 }
 
-.inc-node-view-btn {
-  font-size: 0.75rem;
-  color: var(--accent);
-  text-decoration: none;
-}
-
-.inc-node-view-btn:hover { text-decoration: underline; }
-
 #inc-node-body {
   font-size: 0.78rem;
   color: var(--text-secondary);

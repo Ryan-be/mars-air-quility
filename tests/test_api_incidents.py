@@ -136,12 +136,6 @@ def test_get_incident_detail_returns_fields(client, db):
     assert "causal_sequence" in data
 
 
-def test_get_incident_alert_not_found(client, db):
-    _seed_incident(db)
-    rv = client.get("/api/incidents/INC-20260419-1200/alert/9999")
-    assert rv.status_code == 404
-
-
 @pytest.fixture
 def seed_three_incidents(db):
     """Insert 1 critical, 1 warning, 1 info incident within the last 24h."""

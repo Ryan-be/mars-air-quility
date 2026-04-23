@@ -2,7 +2,6 @@
 
 GET /api/incidents            — paginated list with optional filters
 GET /api/incidents/<id>       — full incident detail with narrative + similar
-GET /api/incidents/<id>/alert/<alert_id>  — raw inference JSON
 """
 from __future__ import annotations
 
@@ -237,31 +236,3 @@ def get_incident(incident_id: str):
     })
 
 
-@api_incidents_bp.route("/api/incidents/<incident_id>/alert/<int:alert_id>")
-def get_incident_alert(incident_id: str, alert_id: int):
-    """Return full inference row JSON for a given alert within an incident."""
-    conn = _get_conn()
-
-    link = conn.execute(
-        "SELECT 1 FROM incident_alerts WHERE incident_id = ? AND alert_id = ?",
-        (incident_id, alert_id)
-    ).fetchone()
-    if link is None:
-        conn.close()
-        return jsonify({"error": "Alert not found in incident"}), 404
-
-    row = conn.execute(
-        "SELECT * FROM inferences WHERE id = ?", (alert_id,)
-    ).fetchone()
-    conn.close()
-
-    if row is None:
-        return jsonify({"error": "Inference not found"}), 404
-
-    alert = dict(row)
-    try:
-        alert["evidence"] = json.loads(alert.get("evidence") or "{}")
-    except Exception:  # pylint: disable=broad-except
-        pass
-    alert["detection_method"] = detection_method(alert["event_type"])
-    return jsonify(alert)
