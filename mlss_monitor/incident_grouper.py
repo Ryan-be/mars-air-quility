@@ -171,6 +171,51 @@ def build_edges(
     return edges
 
 
+def connected_components(
+    alerts: list[dict[str, Any]],
+    edges: list[tuple[int, int, float]],
+) -> list[list[dict[str, Any]]]:
+    """Group alerts into connected components of the undirected edge graph.
+
+    Isolated alerts become singleton components.  Component order is
+    deterministic: sorted by the minimum alert id within each component,
+    ascending.  Alerts within each component are returned in their input
+    order (the caller typically passes alerts sorted by created_at).
+    """
+    if not alerts:
+        return []
+
+    # Union-find over alert ids.
+    parent: dict[int, int] = {a["id"]: a["id"] for a in alerts}
+
+    def find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]  # path compression
+            x = parent[x]
+        return x
+
+    def union(x: int, y: int) -> None:
+        rx, ry = find(x), find(y)
+        if rx != ry:
+            parent[rx] = ry
+
+    for src, dst, _p in edges:
+        if src in parent and dst in parent:
+            union(src, dst)
+
+    # Collect alerts into their component buckets (keyed by root id).
+    buckets: dict[int, list[dict[str, Any]]] = {}
+    for a in alerts:
+        root = find(a["id"])
+        buckets.setdefault(root, []).append(a)
+
+    # Deterministic order: sort by the min alert id inside each bucket.
+    return sorted(
+        buckets.values(),
+        key=lambda comp: min(a["id"] for a in comp),
+    )
+
+
 def is_cross_incident(event_type: str) -> bool:
     """Return True for alert types that span / summarise multiple incidents."""
     return (event_type in CROSS_INCIDENT_TYPES

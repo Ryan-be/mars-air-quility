@@ -20,6 +20,7 @@ from mlss_monitor.incident_grouper import (
     cosine_similarity,
     generate_incident_title,
     merge_similar_adjacent,
+    connected_components,
 )
 
 
@@ -707,3 +708,67 @@ def test_build_edges_all_pairs():
 
 def test_min_edge_p_server_is_0_05():
     assert MIN_EDGE_P_SERVER == 0.05
+
+
+# ── connected_components ─────────────────────────────────────────────────────
+
+def _ids(components):
+    """Return components as sorted lists of ids, for order-independent assertions."""
+    return sorted([sorted([a["id"] for a in c]) for c in components])
+
+
+def test_connected_components_empty():
+    assert connected_components([], []) == []
+
+
+def test_connected_components_single_alert_singleton():
+    alerts = [_make_alert(1, "2026-04-23 09:00:00")]
+    components = connected_components(alerts, edges=[])
+    assert _ids(components) == [[1]]
+
+
+def test_connected_components_no_edges_all_singletons():
+    alerts = [_make_alert(i, f"2026-04-23 09:{i:02d}:00") for i in range(3)]
+    components = connected_components(alerts, edges=[])
+    assert _ids(components) == [[0], [1], [2]]
+
+
+def test_connected_components_one_edge_one_component():
+    alerts = [
+        _make_alert(1, "2026-04-23 09:00:00"),
+        _make_alert(2, "2026-04-23 09:10:00"),
+    ]
+    components = connected_components(alerts, edges=[(1, 2, 0.9)])
+    assert _ids(components) == [[1, 2]]
+
+
+def test_connected_components_transitive_chain():
+    """A→B and B→C but no A↔C edge. All three should be one component."""
+    alerts = [
+        _make_alert(1, "2026-04-23 09:00:00"),
+        _make_alert(2, "2026-04-23 09:15:00"),
+        _make_alert(3, "2026-04-23 09:30:00"),
+    ]
+    edges = [(1, 2, 0.8), (2, 3, 0.7)]
+    components = connected_components(alerts, edges)
+    assert _ids(components) == [[1, 2, 3]]
+
+
+def test_connected_components_two_disjoint_subgraphs():
+    alerts = [_make_alert(i, f"2026-04-23 09:{i:02d}:00") for i in range(1, 5)]
+    # Edges {1-2} and {3-4}; 1 and 3 never connect.
+    edges = [(1, 2, 0.9), (3, 4, 0.9)]
+    components = connected_components(alerts, edges)
+    assert _ids(components) == [[1, 2], [3, 4]]
+
+
+def test_connected_components_returns_alert_dicts_not_ids():
+    """Components are lists of the original alert dicts (not just ids),
+    so downstream code can read created_at, severity, etc. without
+    re-looking-up."""
+    a1 = _make_alert(1, "2026-04-23 09:00:00")
+    a2 = _make_alert(2, "2026-04-23 09:10:00")
+    components = connected_components([a1, a2], edges=[(1, 2, 0.9)])
+    assert len(components) == 1
+    # Same object identity — we pass through the dicts.
+    assert set(id(a) for a in components[0]) == {id(a1), id(a2)}
