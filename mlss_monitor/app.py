@@ -722,6 +722,9 @@ def _start_background_services():
     Thread(target=_weather_log_loop, daemon=True).start()
     Thread(target=_sensor_read_loop, daemon=True).start()
 
+    from mlss_monitor.incident_grouper import start_grouper
+    state.incident_grouper = start_grouper(DB_FILE, event_bus=state.event_bus)
+
     from threading import Timer
     def _bootstrap():
         try:

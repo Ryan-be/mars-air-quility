@@ -18,6 +18,11 @@ def history_page():
     return render_template("history.html")
 
 
+@pages_bp.route("/incidents")
+def incidents_page():
+    return render_template("incidents.html")
+
+
 @pages_bp.route("/controls")
 def controls_page():
     return render_template("controls.html")
