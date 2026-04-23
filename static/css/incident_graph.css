@@ -470,3 +470,11 @@
   min-height: 1px;
   border-radius: 1px;
 }
+
+.inc-similar-main { flex: 1; min-width: 0; }
+.inc-similar-why {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  font-style: italic;
+  margin-top: 2px;
+}

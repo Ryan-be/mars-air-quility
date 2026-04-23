@@ -311,9 +311,10 @@ function renderDetail(detail) {
   if (similar.length > 0 && elSimilar) {
     elSimilarItems.innerHTML = similar.map(s => `
       <div class="inc-similar-item" data-similar-id="${escHtml(s.id)}">
-        <div>
+        <div class="inc-similar-main">
           <div style="font-size:0.75rem;font-weight:700;color:var(--text-muted)">${escHtml(s.id)}</div>
           <div style="font-size:0.8rem">${escHtml(s.title || '')}</div>
+          <div class="inc-similar-why">${escHtml(s.why || '')}</div>
         </div>
         <div style="text-align:right">
           <div class="inc-similar-score">${(s.similarity * 100).toFixed(0)}% similar</div>

@@ -16,6 +16,7 @@ from config import config
 from mlss_monitor.incident_grouper import (
     cosine_similarity,
     detection_method,
+    explain_similarity,
     is_cross_incident,
 )
 from mlss_monitor.incidents_narrative import build_narrative
@@ -81,6 +82,7 @@ def _find_similar(
                     "max_severity": row["max_severity"],
                     "confidence": row["confidence"],
                     "similarity": round(score, 3),
+                    "why": explain_similarity(signature, other_sig),
                 })
         except Exception:  # pylint: disable=broad-except
             continue

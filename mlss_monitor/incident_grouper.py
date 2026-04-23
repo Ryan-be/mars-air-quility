@@ -448,3 +448,38 @@ def start_grouper(db_file: str, event_bus=None) -> IncidentGrouper:
     grouper = IncidentGrouper(db_file=db_file, event_bus=event_bus)
     grouper.start()
     return grouper
+
+
+# Human-readable labels for the similarity vector axes.
+_VECTOR_AXIS_LABELS: dict[int, str] = {
+    10: "TVOC", 11: "eCO2", 12: "temperature", 13: "humidity",
+    14: "PM1", 15: "PM2.5", 16: "PM10",
+    17: "CO", 18: "NO2", 19: "NH3",
+    20: "method:threshold", 21: "method:ml", 22: "method:fingerprint",
+    23: "method:summary", 24: "method:statistical",
+    26: "severity:info", 27: "severity:warning", 28: "severity:critical",
+    29: "duration", 30: "confidence", 31: "time-of-day",
+}
+
+
+def explain_similarity(a: list[float], b: list[float], top_n: int = 3) -> str:
+    """Human-readable explanation of which axes dominate the similarity.
+
+    Returns a short comma-separated phrase naming the top ``top_n`` matching
+    labelled axes where both vectors have nonzero values.  Used by the API to
+    tell the UI *why* two incidents are considered similar.
+    """
+    if not a or not b or len(a) != len(b):
+        return "No comparable signal."
+    matches: list[tuple[int, float]] = []
+    for i, label in _VECTOR_AXIS_LABELS.items():
+        if i >= len(a):
+            continue
+        contribution = a[i] * b[i]
+        if contribution > 0:
+            matches.append((i, contribution))
+    if not matches:
+        return "Low-level similarity."
+    matches.sort(key=lambda x: -x[1])
+    labels = [_VECTOR_AXIS_LABELS[i] for i, _ in matches[:top_n]]
+    return "Matches on: " + ", ".join(labels) + "."
