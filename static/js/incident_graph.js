@@ -760,6 +760,30 @@ function initCytoscape() {
     const key = `${POS_KEY_PREFIX}${incId}::${node.id()}`;
     try { localStorage.setItem(key, JSON.stringify(pos)); } catch (_) {}
   });
+
+  // Hover tooltip on edges — "14 min apart · eco2_ppm · P = 0.82"
+  cy.on('mouseover', 'edge.chrono-edge', evt => {
+    const e = evt.target;
+    const p = Number(e.data('p') || 0);
+    const shared = String(e.data('shared_sensors') || '').split(',').filter(Boolean);
+    const src = cy.$id(e.data('source'));
+    const tgt = cy.$id(e.data('target'));
+    const srcT = String(src.data('created_at') || '').replace('T', ' ');
+    const tgtT = String(tgt.data('created_at') || '').replace('T', ' ');
+    let gapStr = '';
+    try {
+      const mins = Math.round((new Date(tgtT) - new Date(srcT)) / 60000);
+      gapStr = `${mins} min apart`;
+    } catch (_) { gapStr = ''; }
+    const sensorsStr = shared.length ? shared.join(', ') : '(no shared sensor)';
+    e.data('tooltip', `${gapStr} · ${sensorsStr} · P = ${p.toFixed(2)}`);
+    const el = document.getElementById('cy-graph');
+    if (el) el.title = e.data('tooltip');
+  });
+  cy.on('mouseout', 'edge.chrono-edge', () => {
+    const el = document.getElementById('cy-graph');
+    if (el) el.title = '';
+  });
 }
 
 // ── Graph element builder ─────────────────────────────────────────────────────
@@ -839,6 +863,44 @@ async function renderGraph(detail, incidents) {
     restorePositions();
     applySelectionOpacity(currentIncidentId);
     applyZoomClasses(cy.zoom());
+    applyEdgePStyling();
+  });
+
+  applyEdgePStyling();
+}
+
+// ── Edge styling by P ─────────────────────────────────────────────────────────
+
+/**
+ * Apply per-edge visual treatment based on P and the current slider threshold.
+ *
+ *   P >= 0.7  : opacity 1.0  width 2.0  solid
+ *   0.4–0.7   : opacity 0.7  width 1.5  solid
+ *   0.2–0.4   : opacity 0.5  width 1.0  dashed
+ *   floor–0.2 : opacity 0.3  width 0.8  dotted
+ *   < floor   : hidden
+ *
+ * Edges are expected to carry .data('p') from renderGraph.
+ */
+function applyEdgePStyling() {
+  if (!cy) return;
+  cy.edges('.chrono-edge').forEach(e => {
+    const p = Number(e.data('p') || 0);
+    if (p < edgePFloor) {
+      e.style({ display: 'none' });
+      return;
+    }
+    let opacity, width, lineStyle;
+    if      (p >= 0.7) { opacity = 1.0; width = 2.0; lineStyle = 'solid'; }
+    else if (p >= 0.4) { opacity = 0.7; width = 1.5; lineStyle = 'solid'; }
+    else if (p >= 0.2) { opacity = 0.5; width = 1.0; lineStyle = 'dashed'; }
+    else               { opacity = 0.3; width = 0.8; lineStyle = 'dotted'; }
+    e.style({
+      display: 'element',
+      'opacity': opacity,
+      'width': width,
+      'line-style': lineStyle,
+    });
   });
 }
 
@@ -1008,21 +1070,24 @@ function buildIncidentElements(detail, centroids, isGhost = false) {
     });
   });
 
-  // Chronological arrows between consecutive primary alerts (by created_at).
-  // Only on non-ghost incidents to keep ghost clusters uncluttered.
+  // Chronological arrows between primary alerts, styled by edge-probability
+  // P from the API response. P drives opacity/width/style via
+  // applyEdgePStyling(); shared_sensors feeds the hover tooltip.
   if (!isGhost) {
-    const chronological = [...primaryAlerts].sort(
-      (a, b) => (a.created_at || '').localeCompare(b.created_at || '')
-    );
-    for (let j = 0; j < chronological.length - 1; j++) {
-      const src = chronological[j];
-      const tgt = chronological[j + 1];
+    (detail.edges || []).forEach(edge => {
       elements.push({
         group: 'edges',
-        data: { id: `chrono-${src.id}-${tgt.id}`, source: `alert-${src.id}`, target: `alert-${tgt.id}` },
+        data: {
+          id: `edge-${incId}-${edge.from}-${edge.to}`,
+          source: `alert-${edge.from}`,
+          target: `alert-${edge.to}`,
+          incidentId: incId,
+          p: edge.p,
+          shared_sensors: (edge.shared_sensors || []).join(','),
+        },
         classes: 'chrono-edge',
       });
-    }
+    });
   }
 
   crossAlerts.forEach(alert => {
