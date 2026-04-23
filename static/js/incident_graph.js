@@ -340,6 +340,12 @@ function incidentCardTemplate(inc) {
   const sev   = inc.max_severity || 'info';
   const sel   = inc.id === currentIncidentId ? 'selected' : '';
   const count = inc.alert_count ?? 0;
+  const conf  = Number(inc.confidence || 0);
+  const confPct = Math.round(conf * 100);
+  const confClass =
+    conf >= 0.5 ? 'conf-high' :
+    conf >= 0.3 ? 'conf-med'  :
+                  'conf-low';
   // Role="button" + tabindex make the div focusable and discoverable to screen
   // readers; aria-pressed reflects the selected state. The click listener in
   // renderList() also handles keyboard activation via the `click` synthetic
@@ -360,6 +366,9 @@ function incidentCardTemplate(inc) {
         <span class="inc-sev-dot ${sev}"></span>
         <span>${sev}</span><span>·</span>
         <span>${count} alert${count === 1 ? '' : 's'}</span>
+      </div>
+      <div class="inc-card-conf ${confClass}" title="Causal confidence ${confPct}%">
+        <div class="inc-card-conf-fill" style="width:${confPct}%"></div>
       </div>
     </div>
   `;

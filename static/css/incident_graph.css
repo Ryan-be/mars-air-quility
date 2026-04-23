@@ -616,3 +616,31 @@
   min-width: 54px;
   text-align: right;
 }
+
+/* ── Incident confidence bar on cards ──────────────────────────────────── */
+
+.inc-card-conf {
+  position: relative;
+  height: 4px;
+  margin-top: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.inc-card-conf-fill {
+  height: 100%;
+  background: currentColor;  /* coloured by the .conf-* class */
+  transition: width 0.15s ease-out;
+}
+.inc-card-conf.conf-high { color: #4dacff; }
+.inc-card-conf.conf-med  { color: #fc8c2f; }
+.inc-card-conf.conf-low  {
+  /* Red hatching overlay for low-confidence cards. */
+  color: #ff8a8a;
+  background-image:
+    linear-gradient(135deg,
+      rgba(255,56,56,0.12) 0px,
+      rgba(255,56,56,0.12) 3px,
+      transparent 3px,
+      transparent 6px);
+}
