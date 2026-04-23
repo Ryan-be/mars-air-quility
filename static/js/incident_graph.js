@@ -134,37 +134,55 @@ function initViewControls() {
     renderGraph(currentDetail, allIncidents);
   });
 
-  // Layout buttons
-  let activeLayout = 'preset';
-  document.querySelectorAll('.inc-layout-btn').forEach(btn => {
-    if (btn.dataset.layout === activeLayout) btn.classList.add('active');
-    btn.addEventListener('click', () => {
-      const name = btn.dataset.layout;
-      activeLayout = name;
-      document.querySelectorAll('.inc-layout-btn').forEach(b => b.classList.toggle('active', b.dataset.layout === name));
-      if (!cy || name === 'preset') return;
-      const common = { animate: true, animationDuration: 500, fit: false, padding: 40 };
-      const layoutOpts = {
-        cose:         { ...common, name: 'cose' },
-        breadthfirst: { ...common, name: 'breadthfirst', directed: false },
-        circle:       { ...common, name: 'circle' },
-        grid:         { ...common, name: 'grid', avoidOverlap: true, condense: false },
-        concentric:   {
-          ...common,
-          name: 'concentric',
-          // Critical in the centre, info on the outside. Works on the hull
-          // nodes — alerts inherit their parent's position.
-          concentric: n => {
-            const sev = (n.classes().find(c => c.startsWith('severity-')) || '').replace('severity-', '');
-            return sev === 'critical' ? 3 : sev === 'warning' ? 2 : 1;
-          },
-          levelWidth: () => 1,
-          minNodeSpacing: 40,
+  // ── Layout controls ────────────────────────────────────────────────
+  // Manual (the useful default) is a prominent button. The rarely-used
+  // Cytoscape alternates live in a dropdown so they don't dominate.
+  const manualBtn = document.querySelector('.inc-layout-btn[data-layout="preset"]');
+  const altSelect = document.getElementById('inc-layout-alt');
+
+  function runLayout(name) {
+    if (!cy) return;
+    if (name === 'preset' || !name) {
+      // "Manual" means re-render from the saved timeline positions.
+      if (currentDetail) renderGraph(currentDetail, allIncidents);
+      return;
+    }
+    const common = { animate: true, animationDuration: 500, fit: false, padding: 40 };
+    const opts = {
+      cose:         { ...common, name: 'cose' },
+      breadthfirst: { ...common, name: 'breadthfirst', directed: false },
+      circle:       { ...common, name: 'circle' },
+      grid:         { ...common, name: 'grid', avoidOverlap: true, condense: false },
+      concentric:   {
+        ...common,
+        name: 'concentric',
+        // Critical in the centre, info on the outside.
+        concentric: n => {
+          const sev = (n.classes().find(c => c.startsWith('severity-')) || '').replace('severity-', '');
+          return sev === 'critical' ? 3 : sev === 'warning' ? 2 : 1;
         },
-      };
-      cy.layout(layoutOpts[name] || { name }).run();
+        levelWidth: () => 1,
+        minNodeSpacing: 40,
+      },
+    };
+    cy.layout(opts[name] || { name }).run();
+  }
+
+  if (manualBtn) {
+    manualBtn.addEventListener('click', () => {
+      if (altSelect) altSelect.value = '';
+      manualBtn.classList.add('active');
+      runLayout('preset');
     });
-  });
+  }
+  if (altSelect) {
+    altSelect.addEventListener('change', e => {
+      const name = e.target.value;
+      if (!name) return;
+      if (manualBtn) manualBtn.classList.remove('active');
+      runLayout(name);
+    });
+  }
 }
 
 function applyClientFilter(incidents) {
@@ -279,6 +297,13 @@ function renderList(incidents) {
   elList.innerHTML = html`${incidents.map(incidentCardTemplate)}`;
   elList.querySelectorAll('.inc-card').forEach(card => {
     card.addEventListener('click', () => selectIncident(card.dataset.id));
+    // Enter/Space keyboard activation for role="button" cards.
+    card.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        selectIncident(card.dataset.id);
+      }
+    });
   });
 }
 
@@ -290,8 +315,15 @@ function incidentCardTemplate(inc) {
   const sev   = inc.max_severity || 'info';
   const sel   = inc.id === currentIncidentId ? 'selected' : '';
   const count = inc.alert_count ?? 0;
+  // Role="button" + tabindex make the div focusable and discoverable to screen
+  // readers; aria-pressed reflects the selected state. The click listener in
+  // renderList() also handles keyboard activation via the `click` synthetic
+  // event that fires on Space/Enter for role="button" elements.
   return html`
-    <div class="inc-card ${sel}" data-id="${inc.id}">
+    <div class="inc-card ${sel}" data-id="${inc.id}"
+         role="button" tabindex="0"
+         aria-pressed="${sel ? 'true' : 'false'}"
+         aria-label="${inc.id}: ${inc.title || ''}">
       <div class="inc-card-id">${inc.id}</div>
       <div class="inc-card-title" title="${inc.title || ''}">${inc.title || ''}</div>
       <div class="inc-card-time">
@@ -557,6 +589,16 @@ function buildCytoscapeStyle() {
 
     // ── Node size / shape variants ────────────────────────────────────
     { selector: 'node.alert-node',  style: { 'width': 20, 'height': 20, 'border-width': 1.5 } },
+
+    // Headline: the first primary alert chronologically — the "entry point"
+    // of the incident that the narrative panel leads with. Slightly larger
+    // and with a thicker, brighter border so the eye lands on it first.
+    { selector: 'node.alert-node.headline', style: {
+        'width': 26,
+        'height': 26,
+        'border-width': 2.5,
+        'font-weight': 700,
+    } },
     {
       selector: 'node.cross-node',
       style: {
@@ -886,7 +928,13 @@ function buildIncidentElements(detail, centroids, isGhost = false) {
   // can detect which slots are actually taken.
   const placed = [];
 
-  primaryAlerts.forEach((alert) => {
+  // primaryAlerts come from the API in chronological order (SELECT ... ORDER BY
+  // created_at). Index 0 is therefore the "headline" alert — the same event
+  // the narrative leads with ("Anomaly: TVOC at 13:41."). Tagging it with a
+  // `headline` class lets the stylesheet make it visually dominant so the
+  // reader's eye lands on the incident's entry point without reading text.
+  primaryAlerts.forEach((alert, idx) => {
+    const isHeadline = idx === 0;
     const alertMs = new Date((alert.created_at || '').replace(' ', 'T')).getTime();
     const t = (validSpan && Number.isFinite(alertMs))
       ? Math.max(0, Math.min(1, (alertMs - startMs) / spanMs))
@@ -931,7 +979,7 @@ function buildIncidentElements(detail, centroids, isGhost = false) {
         label_time: (alert.created_at || '').slice(11, 16),
       },
       position: loadSavedPosition(`${POS_KEY_PREFIX}${incId}::alert-${alert.id}`) || alertPos,
-      classes: `alert-node${isGhost ? ' ghost' : ''} severity-${alert.severity || 'info'} method-${alert.detection_method || 'threshold'}`,
+      classes: `alert-node${isGhost ? ' ghost' : ''}${isHeadline ? ' headline' : ''} severity-${alert.severity || 'info'} method-${alert.detection_method || 'threshold'}`,
     });
   });
 

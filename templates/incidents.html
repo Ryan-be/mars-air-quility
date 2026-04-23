@@ -62,12 +62,19 @@
         <button class="inc-ctrl-btn" id="ctrl-fit-sel" title="Fit selected incident">Selected</button>
         <button class="inc-ctrl-btn" id="ctrl-reset-pos" title="Reset manual positions">Reset</button>
         <span class="inc-ctrl-sep"></span>
-        <button class="inc-ctrl-btn inc-layout-btn" data-layout="preset" title="Manual layout — timeline inside each cluster, drag to arrange">Manual</button>
-        <button class="inc-ctrl-btn inc-layout-btn" data-layout="cose" title="Physics — force-directed, good for exploring relationships">Physics</button>
-        <button class="inc-ctrl-btn inc-layout-btn" data-layout="breadthfirst" title="Tree — hierarchical by incident">Tree</button>
-        <button class="inc-ctrl-btn inc-layout-btn" data-layout="circle" title="Circle — radial">Circle</button>
-        <button class="inc-ctrl-btn inc-layout-btn" data-layout="grid" title="Grid — regular rows and columns">Grid</button>
-        <button class="inc-ctrl-btn inc-layout-btn" data-layout="concentric" title="Concentric — severity-weighted rings (critical in the middle)">Rings</button>
+        <!-- Manual (the useful default) stays as a button; the rarely-used
+             alternatives are tucked into a dropdown so they don't dominate
+             the toolbar. Selecting an alt layout also bumps the dropdown so
+             the user can see which layout is currently active. -->
+        <button class="inc-ctrl-btn inc-layout-btn active" data-layout="preset" title="Manual — timeline within each cluster, drag to arrange">Manual</button>
+        <select class="inc-ctrl-select" id="inc-layout-alt" title="Alternate Cytoscape layouts (experimental)">
+          <option value="">Alternate layout…</option>
+          <option value="cose">Physics — force-directed</option>
+          <option value="breadthfirst">Tree — hierarchical</option>
+          <option value="circle">Circle — radial</option>
+          <option value="grid">Grid — regular rows/cols</option>
+          <option value="concentric">Rings — severity-weighted</option>
+        </select>
       </div>
       <div class="inc-graph-summary" id="inc-graph-summary">
         <div class="inc-summary-section">
@@ -81,8 +88,9 @@
       </div>
       <div id="cy-graph"></div>
 
-      <!-- Minimap (cytoscape-navigator plugin populates this div) -->
-      <div id="cy-minimap" class="inc-graph-minimap" title="Drag the viewport box to pan the main graph"></div>
+      <!-- Minimap: custom canvas minimap (see initMinimap() in incident_graph.js).
+           Click or click-drag anywhere on the minimap to pan the main view. -->
+      <div id="cy-minimap" class="inc-graph-minimap" title="Click or drag to pan the main graph"></div>
 
       <!-- Symbol key -->
       <div class="inc-graph-key">
@@ -90,14 +98,14 @@
         <span class="key-item key-critical">● Critical</span>
         <span class="key-item key-warning">● Warning</span>
         <span class="key-item key-info">● Info</span>
-        <span style="width:1px;height:16px;background:rgba(255,255,255,0.1);margin:0 4px;"></span>
+        <span class="key-divider"></span>
         <span class="key-section">Shape = Method</span>
         <span class="key-item">○ Threshold</span>
         <span class="key-item">◇ ML</span>
         <span class="key-item">⬡ Statistical</span>
         <span class="key-item">⬠ Fingerprint</span>
         <span class="key-item">▭ Summary</span>
-        <span style="width:1px;height:16px;background:rgba(255,255,255,0.1);margin:0 4px;"></span>
+        <span class="key-divider"></span>
         <span class="key-item key-cross">- - Cross-incident</span>
       </div>
     </div>

@@ -66,6 +66,10 @@
 .inc-card.selected {
   background: var(--chip-bg);
 }
+.inc-card:focus-visible {
+  outline: 2px solid rgba(77, 172, 255, 0.7);
+  outline-offset: -2px;
+}
 
 .inc-card-id {
   font-size: 0.72rem;
@@ -164,6 +168,13 @@
 }
 
 .key-item { opacity: 1; }
+.key-divider {
+  display: inline-block;
+  width: 1px;
+  height: 16px;
+  background: rgba(255, 255, 255, 0.1);
+  margin: 0 4px;
+}
 .key-critical { color: #ff3838; }
 .key-warning  { color: #fc8c2f; }
 .key-info     { color: #2dccff; }
@@ -404,6 +415,19 @@
   margin: 0 2px;
   flex-shrink: 0;
 }
+
+.inc-ctrl-select {
+  background: transparent;
+  border: 1px solid var(--color-border-interactive-muted, rgba(90,120,170,0.55));
+  color: var(--color-text-secondary, #c9d1d9);
+  font-size: 0.72rem;
+  font-family: inherit;
+  padding: 3px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.inc-ctrl-select:hover { border-color: rgba(77,172,255,0.7); }
+.inc-ctrl-select:focus { outline: none; border-color: rgba(77,172,255,0.9); }
 .inc-node-close-btn {
   background: transparent;
   border: none;

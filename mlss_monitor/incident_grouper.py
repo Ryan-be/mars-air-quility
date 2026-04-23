@@ -88,6 +88,91 @@ def make_incident_id(ts: datetime) -> str:
     return f"INC-{ts.strftime('%Y%m%d-%H%M')}"
 
 
+# ── Similarity-aware merging ──────────────────────────────────────────────────
+#
+# `sessionise` splits the alert stream whenever the silence gap exceeds
+# GAP_MINUTES.  That's good at catching "clearly separate" events but misses
+# a common real-world pattern: a long-running event (e.g. a 3-hour CO₂
+# buildup with a quiet lull in the middle) that temporarily goes quiet for
+# 31 minutes, causing a single semantic event to split into two rows.
+#
+# `merge_similar_adjacent` is a refinement pass applied AFTER sessionise.
+# It walks adjacent groups and merges them when:
+#   1. The time gap between the end of the first and the start of the next
+#      is within MAX_MERGE_GAP_MINUTES (4 h by default — prevents linking
+#      across distant times), AND
+#   2. Their event-type sets overlap above JACCARD_THRESHOLD (0.3 — ~1/3
+#      of the union must be shared).
+#
+# The pass is a no-op on 0 or 1 groups and is idempotent: running it twice
+# produces the same output. It can only merge, never split, so it's safe to
+# layer on top of any future sessionisation algorithm.
+
+MAX_MERGE_GAP_MINUTES = 240   # 4 hours — upper bound on "how far apart can
+                              # two sessions be and still be the same event"
+JACCARD_THRESHOLD = 0.3       # 30% event-type overlap to count as similar
+
+
+def _group_event_types(group: list[dict[str, Any]]) -> set[str]:
+    """Set of event_type values for every alert in the group (non-empty only)."""
+    return {a.get("event_type", "") for a in group if a.get("event_type")}
+
+
+def _jaccard(a: set[str], b: set[str]) -> float:
+    """Jaccard index |A∩B| / |A∪B|. Empty-empty returns 0."""
+    if not a and not b:
+        return 0.0
+    return len(a & b) / len(a | b)
+
+
+def _group_gap_minutes(prev: list[dict[str, Any]], nxt: list[dict[str, Any]]) -> float | None:
+    """Minutes between the last alert of ``prev`` and the first of ``nxt``.
+
+    Returns ``None`` if either group is empty or timestamps can't be parsed.
+    """
+    if not prev or not nxt:
+        return None
+    try:
+        prev_end = max(datetime.fromisoformat(a["created_at"]) for a in prev)
+        nxt_start = min(datetime.fromisoformat(a["created_at"]) for a in nxt)
+    except (KeyError, ValueError):
+        return None
+    return (nxt_start - prev_end).total_seconds() / 60.0
+
+
+def merge_similar_adjacent(
+    groups: list[list[dict[str, Any]]],
+    max_merge_gap_minutes: int = MAX_MERGE_GAP_MINUTES,
+    jaccard_threshold: float = JACCARD_THRESHOLD,
+) -> list[list[dict[str, Any]]]:
+    """Merge adjacent sessions that share event types and aren't too far apart.
+
+    Refinement pass on top of :func:`sessionise`. Can only merge groups,
+    never split them.  Idempotent: running twice yields the same output.
+
+    :param groups: list of alert-groups produced by :func:`sessionise`
+    :param max_merge_gap_minutes: upper bound on time gap for merging
+    :param jaccard_threshold: minimum event-type set overlap for merging
+    :returns: new list of groups with qualifying adjacents merged
+    """
+    if len(groups) < 2:
+        return [list(g) for g in groups]  # shallow copy
+
+    out: list[list[dict[str, Any]]] = [list(groups[0])]
+    for nxt in groups[1:]:
+        prev = out[-1]
+        gap = _group_gap_minutes(prev, nxt)
+        if gap is not None and 0 <= gap <= max_merge_gap_minutes:
+            sim = _jaccard(_group_event_types(prev), _group_event_types(nxt))
+            if sim >= jaccard_threshold:
+                # Merge by sorted concatenation on created_at
+                merged = sorted(prev + nxt, key=lambda a: a.get("created_at", ""))
+                out[-1] = merged
+                continue
+        out.append(list(nxt))
+    return out
+
+
 def sessionise(
     alerts: list[dict[str, Any]],
     gap_minutes: int = GAP_MINUTES,
@@ -347,6 +432,10 @@ def regroup_all(db_file: str) -> None:
     """
     alerts = _load_all_inferences(db_file)
     groups = sessionise(alerts)
+    # Refinement: merge adjacent time-sessions that share event types.
+    # Handles the 31-minute-gap-within-a-long-event case without changing
+    # the safe temporal fallback for clearly-separate events.
+    groups = merge_similar_adjacent(groups)
 
     conn = sqlite3.connect(db_file, timeout=15)
     cur = conn.cursor()

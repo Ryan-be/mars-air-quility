@@ -19,6 +19,7 @@ from mlss_monitor.incident_grouper import (
     build_incident_similarity_vector,
     cosine_similarity,
     generate_incident_title,
+    merge_similar_adjacent,
 )
 
 
@@ -314,13 +315,13 @@ import sqlite3
 import database.init_db as dbi
 import database.db_logger as dbl
 import database.user_db as udb
+import mlss_monitor.hot_tier as ht
 from mlss_monitor.incident_grouper import regroup_all
 
 
 @pytest.fixture
 def tmp_db(tmp_path):
     db_path = str(tmp_path / "test.db")
-    import mlss_monitor.hot_tier as ht
     dbi.DB_FILE = db_path
     dbl.DB_FILE = db_path
     udb.DB_FILE = db_path
@@ -330,8 +331,7 @@ def tmp_db(tmp_path):
     dbi.DB_FILE = "data/sensor_data.db"
     dbl.DB_FILE = "data/sensor_data.db"
     udb.DB_FILE = "data/sensor_data.db"
-    import mlss_monitor.hot_tier as ht2
-    ht2.DB_FILE = "data/sensor_data.db"
+    ht.DB_FILE = "data/sensor_data.db"
 
 
 def _seed_inference(db_path, created_at, event_type="tvoc_spike",
@@ -377,13 +377,27 @@ def test_regroup_all_cross_incident_alert_not_primary(tmp_db):
 
 
 def test_regroup_all_two_groups_two_incidents(tmp_db):
-    _seed_inference(tmp_db, "2026-04-19 12:00:00")
-    _seed_inference(tmp_db, "2026-04-19 13:00:00")  # 60 min gap
+    """Two sessions with NO event-type overlap stay as two incidents even
+    when they're within the merge_similar_adjacent max gap (4 h)."""
+    _seed_inference(tmp_db, "2026-04-19 12:00:00", event_type="tvoc_spike")
+    _seed_inference(tmp_db, "2026-04-19 13:00:00", event_type="pm25_elevated")
     regroup_all(tmp_db)
     conn = sqlite3.connect(tmp_db)
     count = conn.execute("SELECT COUNT(*) FROM incidents").fetchone()[0]
     conn.close()
     assert count == 2
+
+
+def test_regroup_all_merges_similar_sessions(tmp_db):
+    """Two sessions with identical event types within the merge window
+    collapse into ONE incident (the similarity-aware-grouping case)."""
+    _seed_inference(tmp_db, "2026-04-19 12:00:00", event_type="tvoc_spike")
+    _seed_inference(tmp_db, "2026-04-19 13:00:00", event_type="tvoc_spike")
+    regroup_all(tmp_db)
+    conn = sqlite3.connect(tmp_db)
+    count = conn.execute("SELECT COUNT(*) FROM incidents").fetchone()[0]
+    conn.close()
+    assert count == 1
 
 
 def test_regroup_all_idempotent(tmp_db):
@@ -422,3 +436,85 @@ def test_regroup_all_empty_db_no_crash(tmp_db):
     count = conn.execute("SELECT COUNT(*) FROM incidents").fetchone()[0]
     conn.close()
     assert count == 0
+
+
+# ── Similarity-aware adjacent-group merging ──────────────────────────────
+
+
+def _alert_with_type(ts, et, sev="warning"):
+    return {"id": hash((ts, et)) & 0xffff, "created_at": ts,
+            "event_type": et, "severity": sev}
+
+
+def test_merge_similar_merges_same_event_type():
+    """Two sessions 1h apart with identical event types → one merged session."""
+    g1 = [_alert_with_type("2026-04-23 09:00:00", "eco2_elevated")]
+    g2 = [_alert_with_type("2026-04-23 10:00:00", "eco2_elevated")]
+    result = merge_similar_adjacent([g1, g2])
+    assert len(result) == 1
+    assert len(result[0]) == 2
+    assert result[0][0]["created_at"] < result[0][1]["created_at"]
+
+
+def test_merge_similar_keeps_dissimilar():
+    """Different event types → stay separate even if adjacent in time."""
+    g1 = [_alert_with_type("2026-04-23 09:00:00", "eco2_elevated")]
+    g2 = [_alert_with_type("2026-04-23 10:00:00", "pm25_spike")]
+    result = merge_similar_adjacent([g1, g2])
+    assert len(result) == 2
+
+
+def test_merge_similar_respects_max_gap():
+    """Groups >4h apart stay separate even if event types match."""
+    g1 = [_alert_with_type("2026-04-23 09:00:00", "eco2_elevated")]
+    g2 = [_alert_with_type("2026-04-23 20:00:00", "eco2_elevated")]  # 11 h later
+    result = merge_similar_adjacent([g1, g2])
+    assert len(result) == 2
+
+
+def test_merge_similar_transitive_chain():
+    """A~B~C collapses into one group via chained adjacency."""
+    g1 = [_alert_with_type("2026-04-23 09:00:00", "eco2_elevated")]
+    g2 = [_alert_with_type("2026-04-23 10:00:00", "eco2_elevated")]
+    g3 = [_alert_with_type("2026-04-23 11:00:00", "eco2_elevated")]
+    result = merge_similar_adjacent([g1, g2, g3])
+    assert len(result) == 1
+    assert len(result[0]) == 3
+
+
+def test_merge_similar_idempotent():
+    """Running the merge twice produces the same output (monotonic)."""
+    g1 = [_alert_with_type("2026-04-23 09:00:00", "eco2_elevated")]
+    g2 = [_alert_with_type("2026-04-23 10:00:00", "eco2_elevated")]
+    once = merge_similar_adjacent([g1, g2])
+    twice = merge_similar_adjacent(once)
+    assert once == twice
+
+
+def test_merge_similar_empty_and_single():
+    """Edge cases: empty input, single group — no-op."""
+    assert merge_similar_adjacent([]) == []
+    single = [[_alert_with_type("2026-04-23 09:00:00", "eco2_elevated")]]
+    assert merge_similar_adjacent(single) == single
+
+
+def test_merge_similar_partial_overlap_above_threshold():
+    """Jaccard ≥ 0.3: 2 shared event types out of 4 unique = 0.5 → merged."""
+    g1 = [_alert_with_type("2026-04-23 09:00:00", "eco2_elevated"),
+          _alert_with_type("2026-04-23 09:05:00", "tvoc_elevated")]
+    g2 = [_alert_with_type("2026-04-23 10:00:00", "eco2_elevated"),
+          _alert_with_type("2026-04-23 10:05:00", "tvoc_elevated"),
+          _alert_with_type("2026-04-23 10:10:00", "vpd_high")]
+    result = merge_similar_adjacent([g1, g2])
+    assert len(result) == 1
+
+
+def test_merge_similar_low_overlap_stays_split():
+    """Jaccard < 0.3: 1 shared out of 5 unique = 0.2 → stays split."""
+    g1 = [_alert_with_type("2026-04-23 09:00:00", "eco2_elevated"),
+          _alert_with_type("2026-04-23 09:05:00", "tvoc_elevated")]
+    g2 = [_alert_with_type("2026-04-23 10:00:00", "pm25_spike"),
+          _alert_with_type("2026-04-23 10:05:00", "co_elevated"),
+          _alert_with_type("2026-04-23 10:10:00", "no2_elevated")]
+    result = merge_similar_adjacent([g1, g2])
+    assert len(result) == 2
