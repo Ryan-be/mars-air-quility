@@ -151,6 +151,12 @@ async function loadIncidents() {
       const data = await resp.json();
       allIncidents = data.incidents || [];
 
+      const counts = data.counts || { critical: 0, warning: 0, info: 0 };
+      const set = (id, n) => { const el = document.getElementById(id); if (el) el.textContent = n; };
+      set('pill-critical-count', counts.critical || 0);
+      set('pill-warning-count',  counts.warning  || 0);
+      set('pill-info-count',     counts.info     || 0);
+
       if (allIncidents.length > 0 || win === windows[windows.length - 1]) {
         // Found results, or exhausted all fallback windows
         if (win !== activeWindow) {

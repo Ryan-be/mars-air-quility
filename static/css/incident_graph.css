@@ -390,3 +390,28 @@
   font-variant-numeric: tabular-nums;
 }
 .dep-row span:first-child { color: var(--text-muted); }
+/* ── Severity pills in toolbar ─────────────────────────────────────────── */
+
+.inc-sev-pills {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;  /* push to the right of the toolbar */
+}
+
+.inc-sev-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 11px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  border: 1px solid;
+}
+
+.inc-sev-pill-count { font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.pill-critical { color: #ff8a8a; background: rgba(255,56,56,0.12);  border-color: rgba(255,56,56,0.35); }
+.pill-warning  { color: #fc8c2f; background: rgba(252,140,47,0.12); border-color: rgba(252,140,47,0.35); }
+.pill-info     { color: #2dccff; background: rgba(45,204,255,0.1);  border-color: rgba(45,204,255,0.3); }
