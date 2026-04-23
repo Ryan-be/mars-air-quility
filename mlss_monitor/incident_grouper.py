@@ -131,8 +131,12 @@ def compute_pearson_r(
         return None
 
 
-def build_signature(alerts: list[dict[str, Any]]) -> list[float]:
-    """Build a 32-float signature vector for cosine similarity search.
+def build_incident_similarity_vector(alerts: list[dict[str, Any]]) -> list[float]:
+    """Build a 32-float incident-level vector for cosine similarity search.
+
+    Unlike the live FeatureVector (per-reading sensor physics used by the
+    detection engine), this summarises a *completed incident* at a high level
+    so that past incidents can be compared against each other.
 
     Vector layout:
       0-9   : peak delta placeholders (0.0)
