@@ -127,20 +127,20 @@
       <span>History</span>
     </a>
 
+    <!-- Incidents -->
+    <a href="/incidents"
+       data-tab="incidents"
+       class="{{ 'active' if request.path == '/incidents' else '' }}">
+      <rux-icon icon="notifications" size="extra-small"></rux-icon>
+      <span>Incidents</span>
+    </a>
+
     <!-- Controls -->
     <a href="{{ url_for('pages.controls_page') }}"
        data-tab="controls"
        class="{{ 'active' if active == 'pages.controls_page' else '' }}">
       <rux-icon icon="tune" size="extra-small"></rux-icon>
       <span>Controls</span>
-    </a>
-
-    <!-- Incidents -->
-    <a href="/incidents"
-       data-tab="incidents"
-       class="{{ 'active' if request.path == '/incidents' else '' }}">
-      <rux-icon icon="alert" size="extra-small"></rux-icon>
-      <span>Incidents</span>
     </a>
 
     <!-- Settings (admin only) -->

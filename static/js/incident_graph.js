@@ -87,23 +87,53 @@ function applyClientFilter(incidents) {
 
 // ── Fetch incident list ───────────────────────────────────────────────────────
 
+// Fallback windows tried in order when the current window returns 0 results.
+// On first page load with no recent activity, this auto-widens so the graph
+// is never blank just because inferences are older than 24 h.
+const _FALLBACK_WINDOWS = ['7d', '30d'];
+
 async function loadIncidents() {
   if (elList) elList.innerHTML = '<div class="inc-loading">Loading…</div>';
 
-  const params = new URLSearchParams({ window: activeWindow, limit: 100 });
-  try {
-    const resp = await fetch('/api/incidents?' + params);
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const data = await resp.json();
-    allIncidents = data.incidents || [];
-    renderList(applyClientFilter(allIncidents));
+  const windows = [activeWindow, ..._FALLBACK_WINDOWS.filter(w => w !== activeWindow)];
 
-    if (allIncidents.length > 0 && !currentIncidentId) {
-      selectIncident(allIncidents[0].id);
+  for (const win of windows) {
+    try {
+      const params = new URLSearchParams({ window: win, limit: 100 });
+      const resp = await fetch('/api/incidents?' + params);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+      allIncidents = data.incidents || [];
+
+      if (allIncidents.length > 0 || win === windows[windows.length - 1]) {
+        // Found results, or exhausted all fallback windows
+        if (win !== activeWindow) {
+          // Silently update the toolbar to reflect the wider window used
+          activeWindow = win;
+          _syncWindowButton(win);
+        }
+        renderList(applyClientFilter(allIncidents));
+        if (allIncidents.length > 0 && !currentIncidentId) {
+          selectIncident(allIncidents[0].id);
+        }
+        return;
+      }
+      // Zero results — try the next wider window
+    } catch (err) {
+      if (elList) elList.innerHTML = `<div class="inc-loading">Error: ${err.message}</div>`;
+      return;
     }
-  } catch (err) {
-    if (elList) elList.innerHTML = `<div class="inc-loading">Error: ${err.message}</div>`;
   }
+}
+
+/** Update the rux-segmented-button to reflect the auto-widened window. */
+function _syncWindowButton(win) {
+  if (!elWindow) return;
+  try {
+    const labels = ['1h', '6h', '24h', '7d', '30d'];
+    const updated = labels.map(l => ({ label: l, selected: l === win }));
+    elWindow.data = JSON.stringify(updated);
+  } catch (_) {}
 }
 
 // ── Render incident list ──────────────────────────────────────────────────────
