@@ -163,6 +163,9 @@
   text-align: center;
 }
 
+/* Ensure the `hidden` attribute wins over `display: flex` above (same specificity tie). */
+.inc-detail-empty[hidden] { display: none; }
+
 .inc-detail-scroll {
   flex: 1;
   overflow-y: auto;

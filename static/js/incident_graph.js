@@ -343,20 +343,26 @@ function buildCytoscapeStyle() {
     },
 
     // ── Compound hull (selected incident) ─────────────────────────────
+    // NOTE: Cytoscape.js strips alpha from rgba() colours — it ignores the
+    // alpha channel and treats *-opacity as 1.  Use explicit *-opacity props.
     {
       selector: 'node.hull',
       style: {
-        'background-color': 'rgba(45,100,255,0.04)',
+        'background-color': '#2d64ff',
+        'background-opacity': 0.05,
         'border-width': 1,
         'border-style': 'solid',
-        'border-color': 'rgba(80,120,200,0.22)',
+        'border-color': '#5078c8',
+        'border-opacity': 0.35,
         'shape': 'round-rectangle',
         'padding': '22px',
         'label': 'data(label)',
-        'font-size': 8,
-        'color': '#374151',
+        'font-size': 9,
+        'font-weight': 600,
+        'color': '#8a9abf',
         'text-valign': 'top',
         'text-halign': 'center',
+        'text-margin-y': -4,
         'width': 'label',
         'height': 'label',
       },
@@ -366,9 +372,11 @@ function buildCytoscapeStyle() {
     {
       selector: 'node.hull.ghost',
       style: {
-        'background-color': 'rgba(20,30,50,0.06)',
-        'border-color': 'rgba(50,70,110,0.18)',
-        'color': '#1f2937',
+        'background-color': '#141e32',
+        'background-opacity': 0.35,
+        'border-color': '#324670',
+        'border-opacity': 0.3,
+        'color': '#4b5b78',
         'cursor': 'pointer',
       },
     },
@@ -385,7 +393,8 @@ function buildCytoscapeStyle() {
         'width': 16,
         'height': 16,
         'border-style': 'dashed',
-        'border-color': 'rgba(100,180,130,0.45)',
+        'border-color': '#64b482',
+        'border-opacity': 0.6,
         'background-color': '#101c14',
       },
     },
@@ -414,10 +423,13 @@ function buildCytoscapeStyle() {
       selector: 'edge.dep-edge',
       style: { 'width': 'mapData(r, 0.3, 1.0, 0.5, 2.0)', 'line-color': '#2563eb', 'opacity': 0.45 },
     },
-    { selector: 'edge.cross-edge', style: { 'line-color': 'rgba(80,150,100,0.4)', 'line-style': 'dashed', 'width': 0.8, 'opacity': 0.45 } },
+    { selector: 'edge.cross-edge', style: { 'line-color': '#5a9668', 'line-style': 'dashed', 'width': 0.8, 'opacity': 0.45 } },
 
     // ── Selection highlight ───────────────────────────────────────────
-    { selector: 'node:selected', style: { 'border-width': 2, 'border-color': '#4dacff', 'background-color': '#0f2040' } },
+    // Hulls get no fill change when selected (avoid opaque box covering children);
+    // only the border glows brighter.
+    { selector: 'node.hull:selected', style: { 'border-width': 2, 'border-color': '#4dacff', 'border-opacity': 0.9, 'background-opacity': 0.08 } },
+    { selector: 'node:selected:not(.hull)', style: { 'border-width': 2.5, 'border-color': '#4dacff', 'background-color': '#0f2040' } },
   ];
 }
 
