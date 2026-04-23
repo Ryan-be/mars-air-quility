@@ -18,6 +18,12 @@ let allIncidents = [];          // full list from /api/incidents
 let currentDetail = null;       // detail response for selected incident
 let allIncidentDetails = {};    // incidentId → detail object (persistent cache)
 
+// localStorage key prefix for saved node drag positions.
+// Bumped to 'tl1::' when the timeline layout landed so stale positions from
+// the previous radial/hub-and-spoke layouts are ignored automatically rather
+// than bypassing the new collision-stacking logic via loadSavedPosition.
+const POS_KEY_PREFIX = 'tl1::';
+
 // ── DOM refs ─────────────────────────────────────────────────────────────────
 
 const elSearch      = document.getElementById('inc-search');
@@ -93,8 +99,10 @@ function initViewControls() {
 
   document.getElementById('ctrl-reset-pos').addEventListener('click', () => {
     if (!currentIncidentId || !currentDetail) return;
-    // Clear all saved positions for every incident
+    // Clear saved positions — both current tl1 keys AND any legacy keys so
+    // the reset button has the effect users expect (no stale layout ghosts).
     const toRemove = Object.keys(localStorage).filter(k =>
+      k.startsWith(POS_KEY_PREFIX) ||
       allIncidents.some(i => k.startsWith(i.id + '::'))
     );
     toRemove.forEach(k => localStorage.removeItem(k));
@@ -568,7 +576,10 @@ function initCytoscape() {
   cy.on('dragfree', 'node', evt => {
     const node = evt.target;
     const pos = node.position();
-    const key = `${currentIncidentId}::${node.id()}`;
+    // Key by the node's OWN incident, not the selected incident, so ghost
+    // cluster drags persist correctly across selection changes.
+    const incId = node.data('incidentId') || currentIncidentId;
+    const key = `${POS_KEY_PREFIX}${incId}::${node.id()}`;
     try { localStorage.setItem(key, JSON.stringify(pos)); } catch (_) {}
   });
 }
@@ -745,7 +756,7 @@ function buildIncidentElements(detail, centroids, isGhost = false) {
         title: alert.title || '',
         created_at: (alert.created_at || '').slice(0, 16),
       },
-      position: loadSavedPosition(`${incId}::alert-${alert.id}`) || alertPos,
+      position: loadSavedPosition(`${POS_KEY_PREFIX}${incId}::alert-${alert.id}`) || alertPos,
       classes: `alert-node${isGhost ? ' ghost' : ''} severity-${alert.severity || 'info'} method-${alert.detection_method || 'threshold'}`,
     });
   });
@@ -781,7 +792,7 @@ function buildIncidentElements(detail, centroids, isGhost = false) {
         method: alert.detection_method,
         title: alert.title || '',
       },
-      position: loadSavedPosition(`${incId}::cross-${alert.id}`) || pos,
+      position: loadSavedPosition(`${POS_KEY_PREFIX}${incId}::cross-${alert.id}`) || pos,
       classes: `cross-node${isGhost ? ' ghost' : ''} severity-${alert.severity || 'info'} method-${alert.detection_method || 'summary'}`,
     });
 
@@ -832,9 +843,13 @@ async function fetchIncidentDetail(id) {
 
 function restorePositions() {
   if (!cy) return;
+  // Key each node by its OWN incident, not the currently selected one.
+  // The previous implementation used currentIncidentId for every node, which
+  // meant ghost nodes looked up positions under the wrong namespace.
   cy.nodes().forEach(node => {
-    const key = `${currentIncidentId}::${node.id()}`;
-    const saved = loadSavedPosition(key);
+    const incId = node.data('incidentId');
+    if (!incId) return;
+    const saved = loadSavedPosition(`${POS_KEY_PREFIX}${incId}::${node.id()}`);
     if (saved) node.position(saved);
   });
 }
