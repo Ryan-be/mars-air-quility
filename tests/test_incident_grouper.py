@@ -631,3 +631,79 @@ def test_incident_splits_columns(tmp_db):
     }
     conn.close()
     assert cols == {"alert_id", "created_by", "created_at"}
+
+
+# ── build_edges ──────────────────────────────────────────────────────────────
+
+from mlss_monitor.incident_grouper import build_edges, MIN_EDGE_P_SERVER
+
+
+def test_build_edges_empty_input():
+    assert build_edges([], split_marker_ids=set()) == []
+
+
+def test_build_edges_single_alert_no_edges():
+    a = _make_alert(1, "2026-04-23 09:00:00", [("eco2_ppm", 0.8)])
+    assert build_edges([a], split_marker_ids=set()) == []
+
+
+def test_build_edges_basic_pair():
+    a = _make_alert(1, "2026-04-23 09:00:00", [("eco2_ppm", 0.8)])
+    b = _make_alert(2, "2026-04-23 09:10:00", [("eco2_ppm", 0.7)])
+    edges = build_edges([a, b], split_marker_ids=set())
+    assert len(edges) == 1
+    src, dst, p = edges[0]
+    assert src == 1 and dst == 2
+    assert p == 1.0
+
+
+def test_build_edges_drops_below_server_floor():
+    """Edges with P < MIN_EDGE_P_SERVER are not returned."""
+    a = _make_alert(1, "2026-04-23 09:00:00", [("eco2_ppm", 0.8)])
+    # Gap of 235 minutes => P = (240-235)/210 ≈ 0.024 < 0.05 floor
+    b = _make_alert(2, "2026-04-23 12:55:00", [("eco2_ppm", 0.8)])
+    edges = build_edges([a, b], split_marker_ids=set())
+    assert edges == []
+
+
+def test_build_edges_directed_by_created_at():
+    """src has the earlier created_at, dst has the later."""
+    a = _make_alert(1, "2026-04-23 09:10:00", [("eco2_ppm", 0.8)])
+    b = _make_alert(2, "2026-04-23 09:00:00", [("eco2_ppm", 0.8)])
+    edges = build_edges([a, b], split_marker_ids=set())
+    assert len(edges) == 1
+    src, dst, _ = edges[0]
+    assert src == 2 and dst == 1
+
+
+def test_build_edges_respects_split_marker():
+    """A split-marker on B means any edge A→B where A is earlier than B
+    is suppressed."""
+    a = _make_alert(1, "2026-04-23 09:00:00", [("eco2_ppm", 0.8)])
+    b = _make_alert(2, "2026-04-23 09:10:00", [("eco2_ppm", 0.7)])
+    edges = build_edges([a, b], split_marker_ids={2})
+    assert edges == []
+
+
+def test_build_edges_split_marker_is_later_alert_only():
+    """A split-marker on the EARLIER alert doesn't suppress the edge —
+    only markers on the LATER alert do (the marker means 'break
+    chain BEFORE this alert')."""
+    a = _make_alert(1, "2026-04-23 09:00:00", [("eco2_ppm", 0.8)])
+    b = _make_alert(2, "2026-04-23 09:10:00", [("eco2_ppm", 0.7)])
+    edges = build_edges([a, b], split_marker_ids={1})
+    assert len(edges) == 1  # marker on a (earlier) does not affect A→B
+
+
+def test_build_edges_all_pairs():
+    """N(N-1)/2 edges for N fully-connected alerts."""
+    alerts = [
+        _make_alert(i, f"2026-04-23 09:{i:02d}:00", [("eco2_ppm", 0.8)])
+        for i in range(4)
+    ]
+    edges = build_edges(alerts, split_marker_ids=set())
+    assert len(edges) == 6  # 4C2
+
+
+def test_min_edge_p_server_is_0_05():
+    assert MIN_EDGE_P_SERVER == 0.05

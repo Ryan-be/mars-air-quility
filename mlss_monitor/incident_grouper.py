@@ -132,6 +132,45 @@ def edge_probability(a: dict[str, Any], b: dict[str, Any]) -> float:
     return (EDGE_ZERO_P_WINDOW_MINUTES - gap_min) / span
 
 
+# Edges below this floor are dropped — prevents near-zero chains from
+# being persisted.  Operators can still see them by lowering the view-
+# side slider, but they don't form incidents server-side.
+MIN_EDGE_P_SERVER = 0.05
+
+
+def build_edges(
+    alerts: list[dict[str, Any]],
+    split_marker_ids: set[int],
+) -> list[tuple[int, int, float]]:
+    """Build the directed edge list for an alert set.
+
+    For each unordered pair, compute P and emit an ordered tuple
+    (src_id, dst_id, p) where src has the earlier created_at.
+    Edges with P < MIN_EDGE_P_SERVER are dropped.  Edges where the
+    later alert is a split marker are suppressed.
+    """
+    edges: list[tuple[int, int, float]] = []
+    n = len(alerts)
+    for i in range(n):
+        for j in range(i + 1, n):
+            a, b = alerts[i], alerts[j]
+            # Order by created_at so src is always the earlier alert.
+            ta = str(a.get("created_at", ""))
+            tb = str(b.get("created_at", ""))
+            if ta <= tb:
+                earlier, later = a, b
+            else:
+                earlier, later = b, a
+            # Suppress edges into a split marker (the later alert).
+            if later["id"] in split_marker_ids:
+                continue
+            p = edge_probability(earlier, later)
+            if p < MIN_EDGE_P_SERVER:
+                continue
+            edges.append((earlier["id"], later["id"], p))
+    return edges
+
+
 def is_cross_incident(event_type: str) -> bool:
     """Return True for alert types that span / summarise multiple incidents."""
     return (event_type in CROSS_INCIDENT_TYPES
