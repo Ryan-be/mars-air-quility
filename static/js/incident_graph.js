@@ -785,6 +785,16 @@ function buildCentroids(incidents) {
   // tight next to their neighbours. Much denser than the old square-grid
   // approach that sized every cell to the widest incident in the set.
   //
+  // INTENTIONAL CONSERVATISM: this function sizes hulls using `alert_count`
+  // (primary + cross) because that's what the list endpoint returns, while
+  // `buildIncidentElements` sizes the TIMELINE using `primaryAlerts.length`
+  // only (cross alerts live on a separate band below the grid). So for
+  // incidents with many cross alerts we over-reserve horizontal space —
+  // producing a small gap between hulls rather than overlap. The
+  // alternative (pass detail objects through) would leak the grouping
+  // detail into a pure coordinate function. Under-reserving causes visible
+  // bugs; over-reserving is invisible — we prefer the safe side.
+  //
   // Constants mirror buildIncidentElements — keep in sync.
   const MIN_WIDTH_PX    = 360;
   const PX_PER_ALERT    = 32;

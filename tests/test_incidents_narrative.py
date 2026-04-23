@@ -146,7 +146,8 @@ def test_correlation_fallback_when_no_signal_deps():
     inc = {"id": "INC-1", "started_at": "2026-04-23 09:28:00", "ended_at": "2026-04-23 10:00:00"}
     alerts = [
         _alert(id=1, signal_deps=[]),
-        _alert(id=2, created_at="2026-04-23 09:36:00", signal_deps=[{"sensor": "eco2_ppm", "r": None, "lag_seconds": 0}]),
+        _alert(id=2, created_at="2026-04-23 09:36:00",
+               signal_deps=[{"sensor": "eco2_ppm", "r": None, "lag_seconds": 0}]),
     ]
     out = build_narrative(inc, alerts)
     assert out["correlation"] != ""

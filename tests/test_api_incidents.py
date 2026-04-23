@@ -28,8 +28,7 @@ def db(tmp_path):
     dbi.DB_FILE = "data/sensor_data.db"
     dbl.DB_FILE = "data/sensor_data.db"
     udb.DB_FILE = "data/sensor_data.db"
-    import mlss_monitor.hot_tier as ht2
-    ht2.DB_FILE = "data/sensor_data.db"
+    ht.DB_FILE = "data/sensor_data.db"
 
 
 @pytest.fixture
@@ -179,3 +178,40 @@ def test_list_incidents_includes_summary(client, seed_three_incidents):
     assert "top_sensors" in s and isinstance(s["top_sensors"], list)
     assert "hour_histogram" in s and isinstance(s["hour_histogram"], list)
     assert len(s["hour_histogram"]) == 24  # one bucket per hour of day
+
+
+def test_list_incidents_rejects_unknown_window(client, db):
+    """Unknown window values should 400 rather than silently ignore the filter."""
+    rv = client.get("/api/incidents?window=forever")
+    assert rv.status_code == 400
+    body = rv.get_json()
+    assert "error" in body
+    assert "forever" in body["error"]
+
+
+def test_list_incidents_alert_counts_single_query(client, seed_three_incidents, db):
+    """Response alert_counts match the grouped query, not the old N+1 loop."""
+    conn = sqlite3.connect(db)
+    # Seed alerts: 2 for INC-A, 1 for INC-B, 0 for INC-C
+    for inc_id, n in [("INC-A", 2), ("INC-B", 1)]:
+        for i in range(n):
+            cur = conn.execute(
+                "INSERT INTO inferences (created_at, event_type, severity, title, "
+                "description, confidence) VALUES (?, ?, ?, ?, ?, ?)",
+                ("2026-04-23 09:00:00", "eco2_elevated", "warning", f"{inc_id}-a{i}",
+                 "", 0.9),
+            )
+            conn.execute(
+                "INSERT INTO incident_alerts (incident_id, alert_id, is_primary) "
+                "VALUES (?, ?, 1)",
+                (inc_id, cur.lastrowid),
+            )
+    conn.commit()
+    conn.close()
+
+    resp = client.get("/api/incidents?window=30d")
+    data = resp.get_json()
+    by_id = {inc["id"]: inc["alert_count"] for inc in data["incidents"]}
+    assert by_id.get("INC-A") == 2
+    assert by_id.get("INC-B") == 1
+    assert by_id.get("INC-C") == 0

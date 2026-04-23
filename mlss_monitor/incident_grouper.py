@@ -472,7 +472,7 @@ def explain_similarity(a: list[float], b: list[float], top_n: int = 3) -> str:
     if not a or not b or len(a) != len(b):
         return "No comparable signal."
     matches: list[tuple[int, float]] = []
-    for i, label in _VECTOR_AXIS_LABELS.items():
+    for i in _VECTOR_AXIS_LABELS:
         if i >= len(a):
             continue
         contribution = a[i] * b[i]

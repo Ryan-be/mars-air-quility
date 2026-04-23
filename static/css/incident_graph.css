@@ -125,7 +125,11 @@
   flex: 1;
   position: relative;
   overflow: hidden;
-  background: #141c2a; /* slightly lighter than base dark — reduces glare in bright rooms */
+  /* Match the app-wide dark background (base.css / dashboard / history) so
+     the canvas doesn't show a seam at its edge. Light-room contrast is now
+     carried by brighter labels/edges inside the graph rather than a
+     differently-coloured canvas. */
+  background: #0d1117;
 }
 
 #cy-graph {
@@ -368,9 +372,12 @@
 }
 
 .inc-ctrl-btn {
-  background: rgba(30,42,64,0.85);
-  border: 1px solid rgba(90,120,170,0.55);
-  color: #c9d1d9;
+  /* Aligned with .range-btn from base.css: transparent, muted border, same
+     hover/active palette. Kept compact (22px tall, no uppercase) because the
+     graph controls row is denser than the toolbar's range-btn-group. */
+  background: transparent;
+  border: 1px solid var(--color-border-interactive-muted, rgba(90,120,170,0.55));
+  color: var(--color-text-secondary, #c9d1d9);
   font-size: 0.72rem;
   font-family: inherit;
   padding: 3px 9px;
@@ -520,7 +527,7 @@
   height: 150px;
   background: rgba(10, 16, 28, 0.92);
   border: 1px solid rgba(80, 120, 200, 0.4);
-  border-radius: 4px;
+  border-radius: 3px;
   overflow: hidden;
   z-index: 5;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.5);

@@ -51,18 +51,29 @@ def _get_conn():
 
 
 def _parse_window(window: str) -> datetime | None:
+    """Return the earliest datetime included by ``window``, or ``None`` if the
+    key is not a known window. The caller decides whether ``None`` means
+    "reject with 400" or "no time filter" — see ``list_incidents``.
+    """
     hours = _WINDOW_MAP.get(window)
     if hours is None:
         return None
     return datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=hours)
 
 
-def _incident_alert_count(conn, incident_id: str) -> int:
-    row = conn.execute(
-        "SELECT COUNT(*) FROM incident_alerts WHERE incident_id = ?",
-        (incident_id,)
-    ).fetchone()
-    return row[0] if row else 0
+def _alert_counts_by_incident(conn, incident_ids: list[str]) -> dict[str, int]:
+    """Single GROUP BY query returning ``{incident_id: alert_count}``.
+    Replaces the previous N-query loop (one SELECT COUNT per incident).
+    """
+    if not incident_ids:
+        return {}
+    placeholders = ",".join("?" * len(incident_ids))
+    rows = conn.execute(
+        f"SELECT incident_id, COUNT(*) AS n FROM incident_alerts "
+        f"WHERE incident_id IN ({placeholders}) GROUP BY incident_id",
+        incident_ids,
+    ).fetchall()
+    return {r["incident_id"]: r["n"] for r in rows}
 
 
 def _find_similar(
@@ -109,6 +120,14 @@ def list_incidents():
     q = request.args.get("q", "").strip().lower()
     limit = request.args.get("limit", 50, type=int)
 
+    # Reject unknown windows with 400 rather than silently returning all rows.
+    # Caller may pass any key that's in _WINDOW_MAP (incl. back-compat 7d/30d).
+    if window not in _WINDOW_MAP:
+        return jsonify({
+            "error": f"Unknown window: {window!r}. "
+                     f"Valid: {', '.join(sorted(_WINDOW_MAP.keys()))}"
+        }), 400
+
     conn = _get_conn()
     since = _parse_window(window)
 
@@ -129,14 +148,20 @@ def list_incidents():
     params.append(limit)
 
     rows = conn.execute(query, params).fetchall()
-    incidents = []
+    # Apply the free-text filter first, THEN fetch alert counts so we don't
+    # pay the GROUP BY cost for incidents we're about to drop.
+    incidents: list[dict] = []
     for row in rows:
         d = dict(row)
-        d["alert_count"] = _incident_alert_count(conn, d["id"])
         d.pop("signature", None)  # don't expose raw vector over the wire
         if q and q not in d.get("title", "").lower() and q not in d["id"].lower():
             continue
         incidents.append(d)
+
+    # Single grouped query for alert counts — replaces per-incident SELECT.
+    count_by_id = _alert_counts_by_incident(conn, [i["id"] for i in incidents])
+    for inc in incidents:
+        inc["alert_count"] = count_by_id.get(inc["id"], 0)
 
     counts = {"critical": 0, "warning": 0, "info": 0}
     for inc in incidents:
@@ -160,6 +185,10 @@ def list_incidents():
         ).fetchall()
         top_sensors = [{"sensor": r["sensor"], "n": r["n"]} for r in sensor_rows]
 
+        # NOTE: started_at is stored in UTC (datetime.now(timezone.utc) at
+        # insert time) so the extracted hour here is the UTC hour. The UI
+        # label on the histogram says "(UTC)" explicitly so operators know
+        # not to read it as local time.
         for inc in incidents:
             started = inc.get("started_at", "")
             if len(started) >= 13:
@@ -244,5 +273,3 @@ def get_incident(incident_id: str):
         "narrative": narrative,
         "similar": similar,
     })
-
-
