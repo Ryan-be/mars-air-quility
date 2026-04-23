@@ -140,3 +140,37 @@ def test_get_incident_alert_not_found(client, db):
     _seed_incident(db)
     rv = client.get("/api/incidents/INC-20260419-1200/alert/9999")
     assert rv.status_code == 404
+
+
+@pytest.fixture
+def seed_three_incidents(db):
+    """Insert 1 critical, 1 warning, 1 info incident within the last 24h."""
+    from datetime import datetime, timedelta
+    conn = sqlite3.connect(db)
+    now = datetime.utcnow()
+    rows = [
+        ("INC-A", "critical"),
+        ("INC-B", "warning"),
+        ("INC-C", "info"),
+    ]
+    for inc_id, sev in rows:
+        conn.execute(
+            "INSERT INTO incidents (id, started_at, ended_at, max_severity, "
+            "confidence, title, signature) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (inc_id, (now - timedelta(hours=1)).isoformat(sep=" "),
+             now.isoformat(sep=" "), sev, 0.9, f"Test {inc_id}", json.dumps([0.0] * 32)),
+        )
+    conn.commit()
+    conn.close()
+    return rows
+
+
+def test_list_incidents_includes_severity_counts(client, seed_three_incidents):
+    """GET /api/incidents returns a counts dict alongside the incidents array."""
+    resp = client.get("/api/incidents?window=30d")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert "counts" in data
+    counts = data["counts"]
+    assert set(counts.keys()) >= {"critical", "warning", "info"}
+    assert counts["critical"] + counts["warning"] + counts["info"] == data["total"]

@@ -127,8 +127,18 @@ def list_incidents():
             continue
         incidents.append(d)
 
+    counts = {"critical": 0, "warning": 0, "info": 0}
+    for inc in incidents:
+        sev = inc.get("max_severity", "info")
+        if sev in counts:
+            counts[sev] += 1
+
     conn.close()
-    return jsonify({"incidents": incidents, "total": len(incidents)})
+    return jsonify({
+        "incidents": incidents,
+        "total": len(incidents),
+        "counts": counts,
+    })
 
 
 @api_incidents_bp.route("/api/incidents/<incident_id>")
