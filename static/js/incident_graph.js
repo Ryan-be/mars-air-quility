@@ -35,7 +35,7 @@ const elSimilar     = document.getElementById('inc-similar');
 const elSimilarItems = document.getElementById('inc-similar-items');
 const elNodeOverlay = document.getElementById('inc-node-overlay');
 const elNodeTitle   = document.getElementById('inc-node-title');
-const elNodeLink    = document.getElementById('inc-node-view-link');
+const elNodeClose   = document.getElementById('inc-node-close');
 const elNodeBody    = document.getElementById('inc-node-body');
 
 // ── Toolbar state ─────────────────────────────────────────────────────────────
@@ -51,6 +51,11 @@ document.addEventListener('DOMContentLoaded', () => {
   initToolbar();
   initViewControls();
   loadIncidents();
+  if (elNodeClose) {
+    elNodeClose.addEventListener('click', () => {
+      if (elNodeOverlay) elNodeOverlay.hidden = true;
+    });
+  }
 });
 
 // ── Toolbar ───────────────────────────────────────────────────────────────────
@@ -283,32 +288,45 @@ async function showNodeOverlay(nodeData) {
   if (elNodeTitle) elNodeTitle.textContent = nodeData.title || nodeData.id;
   elNodeOverlay.hidden = false;
 
-  if (nodeData.type === 'alert' && nodeData.alertId && currentIncidentId) {
-    try {
-      const resp = await fetch(
-        `/api/incidents/${encodeURIComponent(currentIncidentId)}/alert/${nodeData.alertId}`
-      );
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const alert = await resp.json();
-      if (elNodeLink) elNodeLink.href = `/inferences?id=${alert.id}`;
-      if (elNodeBody) elNodeBody.innerHTML = renderAlertTable(alert);
-    } catch (err) {
-      if (elNodeBody) elNodeBody.textContent = 'Could not load alert detail.';
-    }
+  if (!(nodeData.type === 'alert' && nodeData.alertId && currentDetail)) {
+    if (elNodeBody) elNodeBody.innerHTML = '';
+    return;
   }
+
+  const alert = (currentDetail.alerts || []).find(a => a.id === nodeData.alertId);
+  if (!alert) {
+    if (elNodeBody) elNodeBody.textContent = 'Alert not found in current incident.';
+    return;
+  }
+  if (elNodeBody) elNodeBody.innerHTML = renderAlertTable(alert);
 }
 
 function renderAlertTable(alert) {
+  const pct = (x) => `${((x || 0) * 100).toFixed(0)}%`;
+  const ts  = (s) => (s || '').replace('T', ' ').slice(0, 19);
   const rows = [
+    ['ID',         `#${alert.id}`],
+    ['Time',       escHtml(ts(alert.created_at))],
     ['Type',       escHtml(alert.event_type || '')],
     ['Severity',   escHtml(alert.severity || '')],
     ['Method',     escHtml(alert.detection_method || '')],
-    ['Confidence', `${((alert.confidence || 0) * 100).toFixed(0)}%`],
-    ['Time',       escHtml((alert.created_at || '').slice(0, 16))],
+    ['Confidence', pct(alert.confidence)],
   ];
   if (alert.description) {
-    const desc = alert.description;
-    rows.push(['Detail', escHtml(desc.slice(0, 120) + (desc.length > 120 ? '…' : ''))]);
+    rows.push(['Detail', escHtml(alert.description)]);
+  }
+  // Signal correlations (Pearson r per sensor) — only show |r| >= 0.3
+  const strongDeps = (alert.signal_deps || [])
+    .filter(d => d.r !== null && Math.abs(d.r) >= 0.3)
+    .sort((a, b) => Math.abs(b.r) - Math.abs(a.r))
+    .slice(0, 6);
+  if (strongDeps.length) {
+    const depsHtml = strongDeps.map(d => {
+      const sign = d.r >= 0 ? '+' : '';
+      const colour = d.r >= 0 ? '#4dacff' : '#ff8a8a';
+      return `<div class="dep-row"><span>${escHtml(d.sensor)}</span><span style="color:${colour}">r = ${sign}${d.r.toFixed(2)}</span></div>`;
+    }).join('');
+    rows.push(['Correlates', `<div class="evidence-block">${depsHtml}</div>`]);
   }
   return '<table>' + rows.map(([k, v]) =>
     `<tr><td>${k}</td><td>${v}</td></tr>`

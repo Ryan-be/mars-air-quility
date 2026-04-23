@@ -345,3 +345,33 @@
   margin: 0 2px;
   flex-shrink: 0;
 }
+.inc-node-close-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+.inc-node-close-btn:hover { color: var(--text); }
+
+.evidence-block {
+  max-height: 140px;
+  overflow-y: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.7rem;
+  background: rgba(13,17,23,0.5);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 4px 6px;
+}
+
+.dep-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 1px 0;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.dep-row span:first-child { color: var(--text-muted); }
