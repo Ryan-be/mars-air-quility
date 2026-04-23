@@ -16,6 +16,7 @@ let cy = null;                  // Cytoscape instance
 let currentIncidentId = null;   // selected incident ID
 let allIncidents = [];          // full list from /api/incidents
 let currentDetail = null;       // detail response for selected incident
+let allIncidentDetails = {};    // incidentId → detail object (persistent cache)
 
 // ── DOM refs ─────────────────────────────────────────────────────────────────
 
@@ -48,6 +49,7 @@ let searchTimer    = null;
 
 document.addEventListener('DOMContentLoaded', () => {
   initToolbar();
+  initViewControls();
   loadIncidents();
 });
 
@@ -71,6 +73,45 @@ function initToolbar() {
       searchQuery = (e.target.value || '').toLowerCase().trim();
       renderList(applyClientFilter(allIncidents));
     }, 300);
+  });
+}
+
+function initViewControls() {
+  document.getElementById('ctrl-fit-all').addEventListener('click', () => {
+    if (cy) cy.fit(cy.elements(), 40);
+  });
+
+  document.getElementById('ctrl-fit-sel').addEventListener('click', () => {
+    if (!cy || !currentIncidentId) return;
+    fitToSelected(currentIncidentId);
+  });
+
+  document.getElementById('ctrl-reset-pos').addEventListener('click', () => {
+    if (!currentIncidentId || !currentDetail) return;
+    // Clear all saved positions for every incident
+    const toRemove = Object.keys(localStorage).filter(k =>
+      allIncidents.some(i => k.startsWith(i.id + '::'))
+    );
+    toRemove.forEach(k => localStorage.removeItem(k));
+    renderGraph(currentDetail, allIncidents);
+  });
+
+  // Layout buttons
+  let activeLayout = 'preset';
+  document.querySelectorAll('.inc-layout-btn').forEach(btn => {
+    if (btn.dataset.layout === activeLayout) btn.classList.add('active');
+    btn.addEventListener('click', () => {
+      const name = btn.dataset.layout;
+      activeLayout = name;
+      document.querySelectorAll('.inc-layout-btn').forEach(b => b.classList.toggle('active', b.dataset.layout === name));
+      if (!cy || name === 'preset') return;
+      const layoutOpts = {
+        cose:          { name: 'cose', animate: true, animationDuration: 500, fit: false, padding: 40 },
+        breadthfirst:  { name: 'breadthfirst', animate: true, animationDuration: 500, fit: false, padding: 40, directed: false },
+        circle:        { name: 'circle', animate: true, animationDuration: 500, fit: false, padding: 40 },
+      };
+      cy.layout(layoutOpts[name] || { name }).run();
+    });
   });
 }
 
@@ -201,7 +242,7 @@ function renderDetail(detail) {
     elCausalItems.innerHTML = '<div class="inc-causal-ribbon">'
       + causal.map((a, i) =>
           (i > 0 ? '<span class="inc-causal-arrow">→</span>' : '')
-          + `<rux-tag status="${escHtml(severityToStatus(a.severity))}">${escHtml(a.title || a.event_type)}</rux-tag>`
+          + `<span class="inc-causal-chip sev-chip-${escHtml(a.severity || 'info')}" title="${escHtml(a.title || a.event_type)}">${escHtml(a.title || a.event_type)}</span>`
         ).join('')
       + '</div>';
     elCausal.hidden = false;
@@ -332,6 +373,9 @@ function buildCytoscapeStyle() {
       },
     },
 
+    // Ghost alert/root nodes (unselected incidents)
+    { selector: 'node.ghost:not(.hull)', style: { 'cursor': 'pointer' } },
+
     // ── Node size / shape variants ────────────────────────────────────
     { selector: 'node.root-signal', style: { 'width': 12, 'height': 12, 'border-width': 1.5, 'background-color': '#0e1626' } },
     { selector: 'node.alert-node',  style: { 'width': 20, 'height': 20, 'border-width': 1.5 } },
@@ -417,7 +461,7 @@ function initCytoscape() {
 
   cy.on('zoom', () => applyZoomClasses(cy.zoom()));
 
-  cy.on('tap', 'node[type="alert"]', evt => {
+  cy.on('tap', 'node[type="alert"]:not(.ghost)', evt => {
     showNodeOverlay(evt.target.data());
   });
 
@@ -436,35 +480,63 @@ function initCytoscape() {
 
 // ── Graph element builder ─────────────────────────────────────────────────────
 
-function renderGraph(detail, incidents) {
+function fitToSelected(incidentId) {
+  if (!cy) return;
+  const selected = incidentId ? cy.$(`[incidentId="${incidentId}"]`) : null;
+  if (selected && selected.length > 0) {
+    cy.fit(selected, 60);
+  } else {
+    cy.fit(cy.elements(), 40);
+  }
+}
+
+async function renderGraph(detail, incidents) {
   initCytoscape();
   if (!cy) return;
 
   cy.elements().remove();
-  const elements = [];
   const centroids = buildCentroids(incidents);
 
-  if (detail && detail.alerts) {
-    elements.push(...buildIncidentElements(detail, centroids));
+  // Render selected incident immediately from already-fetched detail
+  if (detail) {
+    allIncidentDetails[detail.id] = detail;
+    cy.add(buildIncidentElements(detail, centroids, false));
   }
 
-  incidents.forEach(inc => {
-    if (inc.id === (detail && detail.id)) return;
-    elements.push(...buildGhostCluster(inc, centroids));
+  // Render ghosts: use cached detail if available, else placeholder hull
+  const ghostIncs = incidents.filter(i => i.id !== (detail && detail.id));
+  ghostIncs.forEach(inc => {
+    const cached = allIncidentDetails[inc.id];
+    if (cached) {
+      cy.add(buildIncidentElements(cached, centroids, true));
+    } else {
+      // Placeholder hull only until fetch completes
+      cy.add([{
+        group: 'nodes',
+        data: { id: `hull-${inc.id}`, label: inc.id, type: 'hull', incidentId: inc.id },
+        position: centroids[inc.id] || { x: 0, y: 0 },
+        classes: `hull ghost severity-${inc.max_severity || 'info'}`,
+      }]);
+    }
   });
 
-  cy.add(elements);
   restorePositions();
-
-  const selectedNodes = cy.$(`[incidentId="${detail && detail.id}"]`);
-  if (selectedNodes.length > 0) {
-    cy.fit(selectedNodes, 60);
-  } else {
-    cy.fit(cy.elements(), 40);
-  }
-
+  fitToSelected(detail && detail.id);
   applyZoomClasses(cy.zoom());
   applySelectionOpacity(detail && detail.id);
+
+  // Progressively fetch ghost details and expand in background
+  ghostIncs.forEach(async inc => {
+    if (allIncidentDetails[inc.id]) return; // already cached
+    const d = await fetchIncidentDetail(inc.id);
+    if (!d || !cy) return;
+    // Replace placeholder hull with full nodes
+    cy.$(`[incidentId="${inc.id}"]`).remove();
+    cy.add(buildIncidentElements(d, centroids, true));
+    restorePositions();
+    applySelectionOpacity(currentIncidentId);
+    applyZoomClasses(cy.zoom());
+  });
 }
 
 // ── Centroid placement ────────────────────────────────────────────────────────
@@ -484,7 +556,7 @@ function buildCentroids(incidents) {
 
 // ── Build elements for the selected incident ──────────────────────────────────
 
-function buildIncidentElements(detail, centroids) {
+function buildIncidentElements(detail, centroids, isGhost = false) {
   const elements = [];
   const incId = detail.id;
   const centre = centroids[incId] || { x: 0, y: 0 };
@@ -493,7 +565,7 @@ function buildIncidentElements(detail, centroids) {
   elements.push({
     group: 'nodes',
     data: { id: `hull-${incId}`, label: incId, type: 'hull', incidentId: incId },
-    classes: `hull severity-${detail.max_severity || 'info'}`,
+    classes: `hull${isGhost ? ' ghost' : ''} severity-${detail.max_severity || 'info'}`,
   });
 
   const primaryAlerts = (detail.alerts || []).filter(a => a.is_primary);
@@ -525,7 +597,7 @@ function buildIncidentElements(detail, centroids) {
         title: alert.title || '',
       },
       position: loadSavedPosition(`${incId}::root-${alert.id}`) || rootPos,
-      classes: `root-signal severity-${alert.severity || 'info'} method-${alert.detection_method || 'threshold'}`,
+      classes: `root-signal${isGhost ? ' ghost' : ''} severity-${alert.severity || 'info'} method-${alert.detection_method || 'threshold'}`,
     });
 
     elements.push({
@@ -543,7 +615,7 @@ function buildIncidentElements(detail, centroids) {
         created_at: (alert.created_at || '').slice(0, 16),
       },
       position: loadSavedPosition(`${incId}::alert-${alert.id}`) || alertPos,
-      classes: `alert-node severity-${alert.severity || 'info'} method-${alert.detection_method || 'threshold'}`,
+      classes: `alert-node${isGhost ? ' ghost' : ''} severity-${alert.severity || 'info'} method-${alert.detection_method || 'threshold'}`,
     });
 
     elements.push({
@@ -578,7 +650,7 @@ function buildIncidentElements(detail, centroids) {
         title: alert.title || '',
       },
       position: loadSavedPosition(`${incId}::cross-${alert.id}`) || pos,
-      classes: `cross-node severity-${alert.severity || 'info'} method-${alert.detection_method || 'summary'}`,
+      classes: `cross-node${isGhost ? ' ghost' : ''} severity-${alert.severity || 'info'} method-${alert.detection_method || 'summary'}`,
     });
 
     elements.push({
@@ -589,18 +661,6 @@ function buildIncidentElements(detail, centroids) {
   });
 
   return elements;
-}
-
-// ── Ghost cluster for unselected incidents ────────────────────────────────────
-
-function buildGhostCluster(inc, centroids) {
-  const centre = centroids[inc.id] || { x: 0, y: 0 };
-  return [{
-    group: 'nodes',
-    data: { id: `hull-${inc.id}`, label: inc.id, type: 'hull', incidentId: inc.id, alertCount: inc.alert_count || 0 },
-    position: centre,
-    classes: `hull ghost severity-${inc.max_severity || 'info'}`,
-  }];
 }
 
 // ── Cross-incident node placement ─────────────────────────────────────────────
@@ -622,6 +682,17 @@ function loadSavedPosition(key) {
   try {
     const raw = localStorage.getItem(key);
     return raw ? JSON.parse(raw) : null;
+  } catch (_) { return null; }
+}
+
+async function fetchIncidentDetail(id) {
+  if (allIncidentDetails[id]) return allIncidentDetails[id];
+  try {
+    const resp = await fetch(`/api/incidents/${encodeURIComponent(id)}`);
+    if (!resp.ok) return null;
+    const d = await resp.json();
+    allIncidentDetails[id] = d;
+    return d;
   } catch (_) { return null; }
 }
 

@@ -51,6 +51,17 @@
 
     <!-- Centre: graph canvas -->
     <div class="inc-graph-panel">
+      <!-- Graph controls -->
+      <div class="inc-graph-controls">
+        <button class="inc-ctrl-btn" id="ctrl-fit-all" title="Fit all incidents in view">All</button>
+        <button class="inc-ctrl-btn" id="ctrl-fit-sel" title="Fit selected incident">Selected</button>
+        <button class="inc-ctrl-btn" id="ctrl-reset-pos" title="Reset manual positions">Reset</button>
+        <span class="inc-ctrl-sep"></span>
+        <button class="inc-ctrl-btn inc-layout-btn" data-layout="preset" title="Manual layout (drag to arrange)">Manual</button>
+        <button class="inc-ctrl-btn inc-layout-btn" data-layout="cose" title="Physics layout">Physics</button>
+        <button class="inc-ctrl-btn inc-layout-btn" data-layout="breadthfirst" title="Tree layout">Tree</button>
+        <button class="inc-ctrl-btn inc-layout-btn" data-layout="circle" title="Circle layout">Circle</button>
+      </div>
       <div id="cy-graph"></div>
 
       <!-- Symbol key -->

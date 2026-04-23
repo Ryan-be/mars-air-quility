@@ -104,7 +104,7 @@
 
 #cy-graph {
   width: 100%;
-  height: calc(100% - 36px); /* leave room for key */
+  height: calc(100% - 72px); /* controls bar + key */
 }
 
 /* ── Symbol key ─────────────────────────────────────────────────────────── */
@@ -209,6 +209,25 @@
   color: var(--text-muted);
 }
 
+.inc-causal-chip {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 3px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+  cursor: default;
+  flex-shrink: 0;
+}
+
+.sev-chip-critical { background: rgba(255,56,56,0.15);  border: 1px solid rgba(255,56,56,0.4);  color: #ff8a8a; }
+.sev-chip-warning  { background: rgba(252,140,47,0.15); border: 1px solid rgba(252,140,47,0.4); color: #fc8c2f; }
+.sev-chip-info     { background: rgba(45,204,255,0.1);  border: 1px solid rgba(45,204,255,0.3); color: #2dccff; }
+
 /* Similar incidents */
 .inc-similar-item {
   display: flex;
@@ -279,4 +298,47 @@
   color: var(--text-muted);
   white-space: nowrap;
   padding-right: 8px;
+}
+
+/* ── Graph viewing controls ───────────────────────────────────────────────── */
+
+.inc-graph-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  background: rgba(13,17,23,0.9);
+  border-bottom: 1px solid rgba(45,60,90,0.4);
+  flex-shrink: 0;
+}
+
+.inc-ctrl-btn {
+  background: rgba(30,42,64,0.7);
+  border: 1px solid rgba(60,80,120,0.3);
+  color: #6b7280;
+  font-size: 0.68rem;
+  font-family: inherit;
+  padding: 3px 9px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: border-color 0.1s, color 0.1s;
+}
+
+.inc-ctrl-btn:hover {
+  border-color: rgba(77,172,255,0.5);
+  color: #c9d1d9;
+}
+
+.inc-ctrl-btn.active {
+  border-color: rgba(77,172,255,0.6);
+  color: #4dacff;
+  background: rgba(30,63,120,0.4);
+}
+
+.inc-ctrl-sep {
+  width: 1px;
+  height: 14px;
+  background: rgba(255,255,255,0.1);
+  margin: 0 2px;
+  flex-shrink: 0;
 }
