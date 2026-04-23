@@ -67,6 +67,16 @@
   text-overflow: ellipsis;
 }
 
+.inc-card-time {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  margin: 2px 0 3px;
+  font-variant-numeric: tabular-nums;
+}
+
 .inc-card-meta {
   font-size: 0.72rem;
   color: var(--text-muted);

@@ -197,19 +197,38 @@ function renderList(incidents) {
     return;
   }
 
-  elList.innerHTML = incidents.map(inc => `
-    <div class="inc-card${inc.id === currentIncidentId ? ' selected' : ''}"
-         data-id="${escHtml(inc.id)}">
-      <div class="inc-card-id">${escHtml(inc.id)}</div>
-      <div class="inc-card-title" title="${escHtml(inc.title || '')}">${escHtml(inc.title || '')}</div>
-      <div class="inc-card-meta">
-        <span class="inc-sev-dot ${escHtml(inc.max_severity || 'info')}"></span>
-        <span>${escHtml(inc.max_severity || 'info')}</span>
-        <span>·</span>
-        <span>${inc.alert_count ?? 0} alert${inc.alert_count === 1 ? '' : 's'}</span>
+  elList.innerHTML = incidents.map(inc => {
+    const start = (inc.started_at || '').replace('T', ' ').slice(11, 16);
+    const end   = (inc.ended_at   || '').replace('T', ' ').slice(11, 16);
+    const date  = (inc.started_at || '').slice(0, 10);
+    const durMin = (() => {
+      if (!inc.started_at || !inc.ended_at) return '';
+      const a = new Date(inc.started_at.replace(' ', 'T'));
+      const b = new Date(inc.ended_at.replace(' ', 'T'));
+      const m = Math.round((b - a) / 60000);
+      return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`;
+    })();
+    return `
+      <div class="inc-card${inc.id === currentIncidentId ? ' selected' : ''}"
+           data-id="${escHtml(inc.id)}">
+        <div class="inc-card-id">${escHtml(inc.id)}</div>
+        <div class="inc-card-title" title="${escHtml(inc.title || '')}">${escHtml(inc.title || '')}</div>
+        <div class="inc-card-time">
+          <span>${escHtml(date)}</span>
+          <span>·</span>
+          <span>${escHtml(start)}–${escHtml(end)}</span>
+          <span>·</span>
+          <span>${escHtml(durMin)}</span>
+        </div>
+        <div class="inc-card-meta">
+          <span class="inc-sev-dot ${escHtml(inc.max_severity || 'info')}"></span>
+          <span>${escHtml(inc.max_severity || 'info')}</span>
+          <span>·</span>
+          <span>${inc.alert_count ?? 0} alert${inc.alert_count === 1 ? '' : 's'}</span>
+        </div>
       </div>
-    </div>
-  `).join('');
+    `;
+  }).join('');
 
   elList.querySelectorAll('.inc-card').forEach(card => {
     card.addEventListener('click', () => selectIncident(card.dataset.id));
