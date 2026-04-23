@@ -13,6 +13,7 @@ A list of know issues and feature improvements including recomended fixes can be
 - [Database design](#database-design)
 - [Effector control system](#effector-control-system)
 - [Inference engine](#inference-engine)
+- [Incident correlation graph](#incident-correlation-graph)
 - [FeatureVector](#featurevector)
 - [Data flow](#data-flow)
 - [Installation](#installation)
@@ -107,6 +108,7 @@ The Pimoroni MICS6814 breakout uses I2C and can be daisy-chained with the AHT20 
 - User management UI under Settings -> Users -- admins can add/remove GitHub users and change roles
 - Login audit log -- per-user login history visible to admins
 - Environment inference engine -- continuously analyses sensor data to detect pollution events, threshold breaches, and trends
+- **Incident correlation graph** -- inferences are sessionised into incidents (30-minute silence gaps delimit them) and visualised as a [Cytoscape.js](https://js.cytoscape.org) graph with a timeline layout inside each cluster (x = minutes from incident start, y = severity lane), plus a narrative panel, timestamped causal sequence, and cosine-similarity match to past incidents with a plain-English "why similar" explanation
 - Interactive dashboard card popups -- tap any card for detailed information about the metric, sensor, or calculation
 - Real-time Server-Sent Events (SSE) -- sensor readings, fan status, inference alerts, and weather updates are pushed to the browser instantly via an in-process event bus, replacing most polling
 - **AstroUXDS** web-component design system -- dashboard, history, controls, admin, login, and inference-engine config pages all use NASA / Lockheed Martin's [Astro UXDS](https://astrouxds.com) for a consistent dark space-mission look (deep navy / charcoal background, cyan accents, Roboto typography)
@@ -274,7 +276,7 @@ The browser frontend is built on **[AstroUXDS](https://astrouxds.com)** -- NASA 
 
 ## Database design
 
-MLSS uses a single SQLite file (`data/sensor_data.db`) with eight tables. Schema creation is idempotent -- `create_db()` uses `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE` migrations, making it safe to call on every startup.
+MLSS uses a single SQLite file (`data/sensor_data.db`) with eleven tables. Schema creation is idempotent -- `create_db()` uses `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE` migrations, making it safe to call on every startup.
 
 ```mermaid
 erDiagram
@@ -370,8 +372,34 @@ erDiagram
         DATETIME logged_in_at
     }
 
+    incidents {
+        TEXT id PK "INC-YYYYMMDD-HHMM"
+        DATETIME started_at
+        DATETIME ended_at
+        TEXT max_severity "CHECK enum"
+        REAL confidence
+        TEXT title
+        TEXT signature "32-float JSON"
+    }
+
+    incident_alerts {
+        TEXT incident_id PK_FK
+        INTEGER alert_id PK_FK
+        INTEGER is_primary "0=cross, 1=primary"
+    }
+
+    alert_signal_deps {
+        INTEGER alert_id PK_FK
+        TEXT sensor PK
+        REAL r "NULL if <10 points"
+        INTEGER lag_seconds
+    }
+
     sensor_data ||--o{ inferences : "linked via start/end IDs"
     users ||--o{ login_log : "github_username"
+    incidents ||--o{ incident_alerts : "groups"
+    inferences ||--o{ incident_alerts : "linked to incidents"
+    inferences ||--o{ alert_signal_deps : "sensor correlations"
 ```
 
 ### Table summary
@@ -386,6 +414,9 @@ erDiagram
 | `inference_thresholds` | Configurable analysis thresholds with defaults and optional user overrides. | Permanent config. |
 | `users` | Authorised GitHub users and their roles. Soft-deleted via `is_active = 0`. | Permanent -- admin-managed. |
 | `login_log` | Append-only audit log of every successful login. | Indefinite. |
+| `incidents` | Sessionised groupings of inferences, separated by a 30-minute silence gap. Columns: `id` (format `INC-YYYYMMDD-HHMM`), `started_at`, `ended_at`, `max_severity`, `confidence`, `title`, `signature` (32-float JSON vector for similarity search). Rebuilt idempotently via `INSERT OR REPLACE` whenever a new inference arrives. | Follows `inferences` -- no separate purge. |
+| `incident_alerts` | Many-to-many link between `incidents` and `inferences` with `is_primary` flag (0 = cross-incident context like hourly summaries, 1 = primary alert). | Rebuilt on each regroup. |
+| `alert_signal_deps` | Pearson r correlation between an alert and each of the 10 sensor channels within the incident window, plus `lag_seconds`. `r` is `NULL` (not 0.0) when there were fewer than 10 clean data points. | Rebuilt on each regroup. |
 
 ### Key design decisions
 
@@ -394,6 +425,8 @@ erDiagram
 - **`weather_log` rolling window** -- capping at 7 days keeps the database small (~168 rows max) while providing enough history for trend analysis.
 - **`inferences` evidence as JSON TEXT** -- stores event-specific data in a JSON object, keeping the schema stable while remaining queryable via `json_extract()` in SQLite 3.38+.
 - **`inference_thresholds` with user overrides** -- `user_value` column allows per-threshold customisation without touching defaults; `NULL` means use `default_value`.
+- **`incidents` rebuilt idempotently via `INSERT OR REPLACE`** -- the grouper can run on every new inference without duplicating rows. Incident IDs are deterministic (`INC-YYYYMMDD-HHMM` from the earliest alert), so re-running on the same data produces the same table state.
+- **`alert_signal_deps.r` nullable on purpose** -- `NULL` signals "fewer than 10 clean data points", distinct from `0.0` (which would mean no correlation despite sufficient data). This distinction matters when rendering per-sensor Pearson r in the node overlay.
 
 ---
 
@@ -625,9 +658,39 @@ All inference thresholds are stored in the `inference_thresholds` table and can 
 
 ---
 
+## Incident correlation graph
+
+Individual inferences are noisy in isolation. When the room gets warm at noon, CO₂, TVOC and humidity all move together and the inference engine fires three or four alerts within a minute. MLSS groups those into a single *incident* — a cluster of correlated alerts — and surfaces them on the `/incidents` page as a [Cytoscape.js](https://js.cytoscape.org) graph that reads left-to-right across time.
+
+### Grouping
+
+`mlss_monitor/incident_grouper.py` owns the logic. A daemon thread subscribes to `new_inference` events on the in-process event bus and re-sessionises all non-dismissed inferences whenever one arrives, with a 60-second safety-net pass in case events are missed.
+
+- **Silence-gap sessionisation** (`sessionise`) — alerts more than 30 minutes apart start a new incident. Uses `total_seconds()` (not `.seconds`, which only returns 0-59).
+- **Deterministic IDs** — `make_incident_id(ts)` returns `INC-YYYYMMDD-HHMM` from the earliest alert's timestamp, so re-running the grouper produces the same IDs.
+- **Pearson r per sensor** — for every primary alert, the grouper correlates each of the 10 sensor channels against an ordinal time index across the incident window and stores the result in `alert_signal_deps`. `r` is `NULL` (not `0.0`) when fewer than 10 clean data points exist.
+- **32-dim similarity signature** (`build_incident_similarity_vector`) — an incident-level vector used for cosine similarity against past incidents. Layout: 0-9 peak-delta placeholders, 10-19 sensor presence flags, 20-24 detection-method one-hot, 25 reserved, 26-28 severity one-hot, 29 duration, 30 mean confidence, 31 time-of-day bucket.
+- **Idempotent persistence** — `regroup_all(db_file)` rebuilds `incidents`, `incident_alerts`, and `alert_signal_deps` via `INSERT OR REPLACE` / `DELETE + INSERT`. Safe to call on every startup.
+
+### The incidents page (`/incidents`)
+
+A 3-column layout:
+
+- **Left** — incident list with date · time range · duration · severity · alert count per card. Toolbar filters by window (`1h`/`6h`/`24h`/`7d`/`30d`), severity, and free text, plus severity-count pills ("5 Critical · 12 Warning · 8 Info") and a summary strip showing the top-3 firing sensors and a 24-bucket hour-of-day histogram of when incidents typically start.
+- **Centre** — Cytoscape canvas with a timeline layout inside each cluster: x = minutes from incident start (normalised over the span), y = severity lane (critical/warning/info). Alerts firing at the same time in the same lane are stacked vertically via a slot-finding algorithm so nothing overlaps. Node shape encodes detection method (ellipse/diamond/hexagon/pentagon/round-rectangle = threshold/ml/statistical/fingerprint/summary). Node border encodes severity (AstroUXDS palette: critical `#ff3838`, warning `#fc8c2f`, info `#2dccff`). Chronological arrows connect primary alerts in temporal order. Cross-incident alerts (`hourly_summary`, `daily_summary`, `annotation_context_*`) are pinned to a band below the cluster grid with deterministic hash-based x-spread. Graph controls: **All**, **Selected**, **Reset** positions, plus layout toggle (Manual / Physics / Tree / Circle).
+- **Right** — narrative panel (`{observed, inferred, impact}` English prose with timestamps from `mlss_monitor/incidents_narrative.py`), a timestamped causal ribbon of primary alerts with `+Nm` delta labels, and a similar-past-incidents list. Each similar entry includes a `why` string from `explain_similarity` naming the top matching signature axes (e.g. `"Matches on: severity:critical, method:ml, eCO2."`). Clicking an alert node opens an inline overlay with full details including per-sensor Pearson r correlations coloured by sign.
+
+Ghost clusters (unselected incidents) are rendered at reduced opacity but their nodes are visible; clicking any node in a ghost cluster navigates to that incident. Details are fetched progressively in the background and cached per session to keep navigation snappy.
+
+See `docs/superpowers/plans/2026-04-23-incident-correlation-graph.md` for the original design and `docs/superpowers/plans/2026-04-23-incidents-tab-improvements.md` for the narrative + timeline + explain-similarity follow-up work.
+
+---
+
 ## FeatureVector
 
 A `FeatureVector` is a structured snapshot of 143 derived sensor metrics computed from a window of raw readings, used as input to all statistical and ML detectors.
+
+> Not to be confused with the 32-float *incident similarity signature* described in [Incident correlation graph](#incident-correlation-graph). The FeatureVector here is a **live per-reading** object fed into the detectors; the incident signature is a **post-hoc per-incident** summary used for cosine-similarity matching against past incidents.
 
 ### Fields
 
@@ -833,6 +896,7 @@ The shipped `mlss-monitor.service` invokes gunicorn with the conf file above. Do
 |---|---|---|
 | `/` | Live sensor dashboard | viewer |
 | `/history` | Historical charts | viewer |
+| `/incidents` | Incident correlation graph — Cytoscape timeline + narrative + similar-past panel | viewer |
 | `/controls` | Fan manual control | viewer (write: controller) |
 | `/admin` | Settings & user management | admin |
 | `/login` | Sign-in via GitHub OAuth | -- |
@@ -915,6 +979,15 @@ The `MLSS_ALLOWED_GITHUB_USER` bootstrap account always has the **admin** role r
 | `GET` | `/api/inferences/<id>/sparkline` | viewer | Channel data around the event for the slide-in inference panel sparkline (merges downsampled `sensor_data` + 1-sec `hot_tier` rows; X-axis is ISO timestamps, range events get a "Tagged range" rectangle and point events get an "Event" line) |
 | `PATCH` | `/api/inferences/<id>` | controller | Partial update -- body: `{"notes": "text"}` and/or `{"dismissed": true}` (at least one required) |
 
+### Incidents
+
+| Method | Endpoint | Min role | Description |
+|---|---|---|---|
+| `GET` | `/api/incidents?window=24h&severity=all&q=&limit=50` | viewer | List incidents within `window` (`1h`/`6h`/`24h`/`7d`/`30d`). Returns `{incidents, total, counts: {critical, warning, info}, summary: {top_sensors, hour_histogram}}`. `q` is a free-text filter over id + title. |
+| `GET` | `/api/incidents/<id>` | viewer | Full incident detail: alerts (with `signal_deps` Pearson r per sensor), `causal_sequence` (primary alerts, chronological), `narrative` (`{observed, inferred, impact}` prose with timestamps, built by `mlss_monitor/incidents_narrative.py`), `similar` (top 3 past incidents by 32-dim cosine similarity, each with a `why` string naming the matching axes via `explain_similarity`). |
+
+Incidents are sessionised by a 30-minute silence gap and persisted in three tables (see [Database design](#database-design)). The grouping is handled by a background daemon (`mlss_monitor/incident_grouper.py`) that subscribes to `new_inference` events on the in-process event bus and re-groups on a 60-second safety-net interval. See `docs/superpowers/plans/2026-04-23-incident-correlation-graph.md` and `docs/superpowers/plans/2026-04-23-incidents-tab-improvements.md` for the full architecture.
+
 ### User management
 
 | Method | Endpoint | Min role | Description |
@@ -993,15 +1066,24 @@ mlss_monitor/
   event_bus.py                In-process pub/sub for SSE -- thread-safe, rolling history
   rbac.py                     Role-Based Access Control -- require_role() decorator
   inference_engine.py         Environment analysis -- 9 detectors, pollution event flagging
+  incident_grouper.py         Background daemon + pure logic that sessionises inferences
+                              into incidents (30-min silence gap), computes Pearson r
+                              per-sensor signal deps, builds 32-dim similarity signatures,
+                              and offers explain_similarity() for why-similar explanations
+  incidents_narrative.py      Pure functions that turn an incident + its alerts into
+                              {observed, inferred, impact} English prose with timestamps
+                              (no DB, no Flask -- unit-testable)
   routes/
-    __init__.py               Blueprint registration (10 blueprints)
+    __init__.py               Blueprint registration
     auth.py                   GitHub OAuth login/logout, DB role lookup
-    pages.py                  Page routes (dashboard, history, controls, admin)
+    pages.py                  Page routes (dashboard, history, incidents, controls, admin)
     api_data.py               Sensor data API (fetch, CSV download, annotations)
     api_fan.py                Fan control API (toggle, status, settings)
     api_weather.py            Weather API (current, hourly/daily forecast, history, geocode)
     api_settings.py           Settings API (location, energy rate, thresholds)
     api_inferences.py         Inference API (list, notes, dismiss)
+    api_incidents.py          Incidents API (list with counts + summary, full detail
+                              with narrative + causal_sequence + similar)
     api_users.py              User management API (list, add, role change, login log, deactivate)
     api_stream.py             SSE streaming endpoint + event history API
     system.py                 System health endpoint
@@ -1025,6 +1107,7 @@ templates/
   base.html                   Shared layout (nav bar, auth controls); loads AstroUXDS web components from CDN
   dashboard.html              Live sensor dashboard with forecasts
   history.html                Tabbed historical charts (sensors, particulate, environment, correlation, patterns)
+  incidents.html              Incident correlation page -- 3-column layout (list / Cytoscape graph / detail panel)
   controls.html               Device control hub (fan, future devices)
   admin.html                  Settings (tabbed) -- fan, energy, location, user management
   login.html                  Sign-in page (GitHub OAuth)
@@ -1033,6 +1116,8 @@ static/
     base.css                  Shared reset, nav, cards, light/dark toggle, mobile fixes
     dashboard.css             Dashboard-specific layout and components
     history.css               Tab bar, chart info popups, correlation styles
+    incident_graph.css        3-column incidents page -- toolbar, graph canvas, detail panel,
+                              graph controls, summary strip, severity pills, causal chips
     controls.css              Device grid and control card styles
     admin.css                 Settings page styles
   js/
@@ -1047,6 +1132,10 @@ static/
                               Zoom is preserved across data polling cycles (only destroyed
                               by Reset button, page navigation, or browser refresh).
     charts_patterns.js        Pattern analysis (hour-of-day heatmap, daily temp range)
+    incident_graph.js         Incidents page orchestration -- toolbar filters, progressive
+                              ghost-cluster fetch, Cytoscape.js timeline layout with per-lane
+                              collision stacking, layout controls (Manual/Physics/Tree/Circle),
+                              node overlay with correlation table
     controls.js               Device control page (SSE fan status, status dot)
     fan.js                    Fan control API calls
     health.js                 System health polling
@@ -1065,6 +1154,10 @@ tests/
   test_rbac.py                RBAC -- user DB, login log, role enforcement on all write endpoints
   test_event_bus.py           EventBus pub/sub, history, thread safety tests
   test_sse.py                 SSE endpoint, wire format, auth, history API tests
+  test_incident_grouper.py    Sessionisation, Pearson r, similarity vector, DB persistence (59 tests)
+  test_api_incidents.py       /api/incidents list + detail endpoints, severity counts, summary
+  test_incidents_narrative.py Pure narrative builder -- timestamps, event-specific prose
+  test_similarity_explain.py  explain_similarity() axis-labelling logic
 docs/
   CONFIGURATION.md            Full configuration reference
   PRODUCTION.md               Production deployment guide
