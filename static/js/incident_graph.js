@@ -621,6 +621,12 @@ function buildCytoscapeStyle() {
     // Ghost alert/root nodes (unselected incidents)
     { selector: 'node.ghost:not(.hull)', style: { 'cursor': 'pointer' } },
 
+    // ── Hull border dash-pattern ramp by confidence tier ────────────
+    // Severity border colour is unchanged; this is an orthogonal visual channel.
+    { selector: 'node.hull.conf-high', style: { 'border-style': 'solid' } },
+    { selector: 'node.hull.conf-med',  style: { 'border-style': 'dashed' } },
+    { selector: 'node.hull.conf-low',  style: { 'border-style': 'dashed', 'border-width': 2.5 } },
+
     // ── Node size / shape variants ────────────────────────────────────
     { selector: 'node.alert-node',  style: { 'width': 20, 'height': 20, 'border-width': 1.5 } },
 
@@ -981,10 +987,15 @@ function buildIncidentElements(detail, centroids, isGhost = false) {
   const hullLabel = isGhost
     ? ghostSummaryLabel(incId, detail.alerts || [], (detail.alerts || []).length)
     : incId;
+  const hullConf = Number(detail.confidence || 1.0);
+  const hullConfClass =
+    hullConf >= 0.5 ? 'conf-high' :
+    hullConf >= 0.3 ? 'conf-med'  :
+                      'conf-low';
   elements.push({
     group: 'nodes',
     data: { id: `hull-${incId}`, label: hullLabel, type: 'hull', incidentId: incId },
-    classes: `hull${isGhost ? ' ghost' : ''} severity-${detail.max_severity || 'info'}`,
+    classes: `hull${isGhost ? ' ghost' : ''} severity-${detail.max_severity || 'info'} ${hullConfClass}`,
   });
 
   const primaryAlerts = (detail.alerts || []).filter(a => a.is_primary);
