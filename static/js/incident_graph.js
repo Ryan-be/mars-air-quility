@@ -552,6 +552,20 @@ function initCytoscape() {
 
 // ── Graph element builder ─────────────────────────────────────────────────────
 
+/** Build a short one-line summary ("INC-...-0928 · 7 alerts · CO₂") used as
+ *  the ghost hull label. Falls back gracefully if alerts are missing. */
+function ghostSummaryLabel(incId, alerts, alertCount) {
+  const count = (alerts && alerts.length) || alertCount || 0;
+  const primary = (alerts || []).filter(a => a.is_primary);
+  const topEvent = primary[0]
+    ? (primary[0].title || primary[0].event_type || '').split(' ').slice(0, 3).join(' ')
+    : '';
+  const parts = [incId];
+  if (count) parts.push(`${count} alert${count === 1 ? '' : 's'}`);
+  if (topEvent) parts.push(topEvent);
+  return parts.join(' · ');
+}
+
 function fitToSelected(incidentId) {
   if (!cy) return;
   const selected = incidentId ? cy.$(`[incidentId="${incidentId}"]`) : null;
@@ -585,7 +599,12 @@ async function renderGraph(detail, incidents) {
       // Placeholder hull only until fetch completes
       cy.add([{
         group: 'nodes',
-        data: { id: `hull-${inc.id}`, label: inc.id, type: 'hull', incidentId: inc.id },
+        data: {
+          id: `hull-${inc.id}`,
+          label: ghostSummaryLabel(inc.id, null, inc.alert_count),
+          type: 'hull',
+          incidentId: inc.id,
+        },
         position: centroids[inc.id] || { x: 0, y: 0 },
         classes: `hull ghost severity-${inc.max_severity || 'info'}`,
       }]);
@@ -634,9 +653,12 @@ function buildIncidentElements(detail, centroids, isGhost = false) {
   const centre = centroids[incId] || { x: 0, y: 0 };
 
   // Compound hull
+  const hullLabel = isGhost
+    ? ghostSummaryLabel(incId, detail.alerts || [], (detail.alerts || []).length)
+    : incId;
   elements.push({
     group: 'nodes',
-    data: { id: `hull-${incId}`, label: incId, type: 'hull', incidentId: incId },
+    data: { id: `hull-${incId}`, label: hullLabel, type: 'hull', incidentId: incId },
     classes: `hull${isGhost ? ' ghost' : ''} severity-${detail.max_severity || 'info'}`,
   });
 
