@@ -361,3 +361,89 @@ def regroup_all(db_file: str) -> None:
 
     conn.commit()
     conn.close()
+
+
+# ── Background thread ──────────────────────────────────────────────────────────
+
+_grouper_lock = threading.Lock()
+_SAFETY_NET_INTERVAL = 60  # seconds — regroup even if no events arrive
+
+
+def _safe_regroup(db_file: str) -> None:
+    """Run regroup_all with a lock and swallow all exceptions."""
+    with _grouper_lock:
+        try:
+            regroup_all(db_file)
+            log.debug("Incident regroup complete")
+        except Exception:  # pylint: disable=broad-except
+            log.exception("Incident regroup failed")
+
+
+class IncidentGrouper:
+    """Manages the background grouper thread lifecycle.
+
+    Subscribes to the EventBus and regrouping on every ``new_inference``
+    event.  Also runs a 60-second safety-net regroup in case events are
+    missed.  The thread is a daemon so it does not prevent app shutdown.
+    """
+
+    def __init__(self, db_file: str, event_bus=None):
+        self.db_file = db_file
+        self._event_bus = event_bus
+        self._thread: threading.Thread | None = None
+        self._stop = threading.Event()
+        self._sub_queue: queue.Queue | None = None
+
+    def start(self) -> None:
+        """Start the daemon grouper thread. Safe to call multiple times."""
+        if self._thread and self._thread.is_alive():
+            return
+        self._stop.clear()
+        self._thread = threading.Thread(
+            target=self._loop,
+            name="incident-grouper",
+            daemon=True,
+        )
+        self._thread.start()
+        log.info("IncidentGrouper started")
+
+    def stop(self) -> None:
+        """Signal the thread to exit (used in tests / graceful shutdown)."""
+        self._stop.set()
+
+    def _loop(self) -> None:
+        if self._event_bus is not None:
+            self._sub_queue = self._event_bus.subscribe()
+
+        # Initial regroup on startup
+        _safe_regroup(self.db_file)
+
+        while not self._stop.is_set():
+            if self._sub_queue is not None:
+                try:
+                    msg = self._sub_queue.get(timeout=_SAFETY_NET_INTERVAL)
+                    if msg.get("event") == "new_inference":
+                        _safe_regroup(self.db_file)
+                except queue.Empty:
+                    # Safety net: regroup even if no events arrived
+                    _safe_regroup(self.db_file)
+            else:
+                # No event bus — just run on the safety-net interval
+                self._stop.wait(_SAFETY_NET_INTERVAL)
+                if not self._stop.is_set():
+                    _safe_regroup(self.db_file)
+
+        if self._sub_queue is not None and self._event_bus is not None:
+            self._event_bus.unsubscribe(self._sub_queue)
+        log.info("IncidentGrouper stopped")
+
+
+def start_grouper(db_file: str, event_bus=None) -> IncidentGrouper:
+    """Create, start, and return an IncidentGrouper.
+
+    Called once at app startup. The returned instance should be stored
+    in ``mlss_monitor.state.incident_grouper``.
+    """
+    grouper = IncidentGrouper(db_file=db_file, event_bus=event_bus)
+    grouper.start()
+    return grouper
