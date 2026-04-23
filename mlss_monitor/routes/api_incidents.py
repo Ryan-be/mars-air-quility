@@ -18,6 +18,7 @@ from mlss_monitor.incident_grouper import (
     detection_method,
     is_cross_incident,
 )
+from mlss_monitor.incidents_narrative import build_narrative
 
 log = logging.getLogger(__name__)
 api_incidents_bp = Blueprint("api_incidents", __name__)
@@ -52,29 +53,6 @@ def _incident_alert_count(conn, incident_id: str) -> int:
         (incident_id,)
     ).fetchone()
     return row[0] if row else 0
-
-
-def _build_narrative(incident: dict, alerts: list[dict]) -> dict:
-    """Template-based narrative — no LLM. Returns {observed, inferred, impact}."""
-    severities = [a.get("severity", "info") for a in alerts]
-    max_sev = max(severities, key=lambda s: _SEVERITY_ORDER.get(s, 0), default="info")
-    unique_types = list({a["event_type"] for a in alerts})
-
-    observed = (
-        f"{len(alerts)} event(s) detected between "
-        f"{str(incident.get('started_at', ''))[:16]} and {str(incident.get('ended_at', ''))[:16]}."
-    )
-    inferred = f"Dominant detection type(s): {', '.join(unique_types[:3])}."
-    impact_map = {
-        "critical": "Immediate attention required — critical air quality event.",
-        "warning": "Elevated readings detected — monitor conditions closely.",
-        "info": "Informational event — conditions within acceptable range.",
-    }
-    return {
-        "observed": observed,
-        "inferred": inferred,
-        "impact": impact_map.get(max_sev, ""),
-    }
 
 
 def _find_similar(
@@ -203,7 +181,7 @@ def get_incident(incident_id: str):
         for a in alerts if a["is_primary"]
     ]
 
-    narrative = _build_narrative(incident, alerts)
+    narrative = build_narrative(incident, alerts)
     similar = _find_similar(conn, incident_id, signature)
 
     incident.pop("signature", None)
