@@ -316,6 +316,14 @@ def create_db():
     );
     """)
 
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS incident_splits (
+        alert_id    INTEGER PRIMARY KEY REFERENCES inferences(id) ON DELETE CASCADE,
+        created_by  TEXT,
+        created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+
     conn.commit()
     conn.close()
 

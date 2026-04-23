@@ -518,3 +518,26 @@ def test_merge_similar_low_overlap_stays_split():
           _alert_with_type("2026-04-23 10:10:00", "no2_elevated")]
     result = merge_similar_adjacent([g1, g2])
     assert len(result) == 2
+
+
+# ── incident_splits table schema ────────────────────────────────────────
+
+def test_incident_splits_table_created(tmp_db):
+    """init_db.create_db() should create the incident_splits table."""
+    conn = sqlite3.connect(tmp_db)
+    row = conn.execute(
+        "SELECT name FROM sqlite_master "
+        "WHERE type='table' AND name='incident_splits'"
+    ).fetchone()
+    conn.close()
+    assert row is not None, "incident_splits table should exist after create_db()"
+
+
+def test_incident_splits_columns(tmp_db):
+    """incident_splits has alert_id PK, created_by, created_at columns."""
+    conn = sqlite3.connect(tmp_db)
+    cols = {
+        r[1] for r in conn.execute("PRAGMA table_info(incident_splits)").fetchall()
+    }
+    conn.close()
+    assert cols == {"alert_id", "created_by", "created_at"}
