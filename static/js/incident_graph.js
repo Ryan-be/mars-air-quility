@@ -408,6 +408,49 @@ async function selectIncident(id) {
 function renderDetail(detail) {
   if (elEmpty) elEmpty.hidden = true;
 
+  const confEl = document.getElementById('inc-narrative-conf');
+  const advEl  = document.getElementById('inc-narrative-advisory');
+  const splitBtn = document.getElementById('inc-btn-split');
+  const unsplitBtn = document.getElementById('inc-btn-unsplit');
+  const conf = Number(detail.confidence || 1.0);
+  const confPct = Math.round(conf * 100);
+  if (confEl) confEl.textContent = `${detail.id} · confidence ${confPct}%`;
+
+  // Advisory: weakest edge gap (if any edges).
+  if (advEl) {
+    if (conf < 0.5 && detail.edges && detail.edges.length) {
+      const weakest = detail.edges.reduce(
+        (a, b) => (a.p < b.p ? a : b), detail.edges[0]);
+      const fromA = (detail.alerts || []).find(a => a.id === weakest.from);
+      const toA   = (detail.alerts || []).find(a => a.id === weakest.to);
+      let gapLabel = '';
+      if (fromA && toA) {
+        const mins = Math.round(
+          (new Date(toA.created_at.replace(' ', 'T')) -
+           new Date(fromA.created_at.replace(' ', 'T'))) / 60000);
+        if (mins >= 60) gapLabel = `${Math.floor(mins / 60)}h ${mins % 60}m`;
+        else gapLabel = `${mins}m`;
+      }
+      advEl.textContent = `⚠ Weakest causal link in this chain is ${gapLabel} wide — consider whether this is really one event.`;
+      advEl.hidden = false;
+    } else {
+      advEl.hidden = true;
+    }
+  }
+
+  // Split button appears when confidence < 0.5.
+  if (splitBtn) {
+    const hasEdges = detail.edges && detail.edges.length > 0;
+    splitBtn.hidden = !(conf < 0.5 && hasEdges);
+    splitBtn.onclick = () => { splitAtWeakestLink(detail); };
+  }
+
+  // Unsplit button appears when the earliest alert is a known split marker.
+  // Task 17 adds detail.operator_split + split_alert_id to the API response —
+  // until then we just check the (currently-undefined) field. Hide when
+  // unavailable.
+  if (unsplitBtn) unsplitBtn.hidden = !detail.operator_split;
+
   if (detail.narrative && elNarrative) {
     if (elNarrObs) elNarrObs.textContent = detail.narrative.observed || '';
     if (elNarrInf) elNarrInf.textContent = detail.narrative.inferred || '';
@@ -445,6 +488,29 @@ function renderDetail(detail) {
   }
 
   if (elNodeOverlay) elNodeOverlay.hidden = true;
+}
+
+/**
+ * Find the incident's weakest edge and mark the later endpoint as a
+ * split marker via POST /api/incidents/<id>/split. Refreshes on success.
+ */
+async function splitAtWeakestLink(detail) {
+  if (!detail.edges || !detail.edges.length) return;
+  const weakest = detail.edges.reduce(
+    (a, b) => (a.p < b.p ? a : b), detail.edges[0]);
+  try {
+    const resp = await fetch(`/api/incidents/${encodeURIComponent(detail.id)}/split`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ alert_id: weakest.to }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      console.error('Split failed:', err);
+      return;
+    }
+    await loadIncidents();
+  } catch (e) { console.error('Split network error:', e); }
 }
 
 function causalChipTemplate(a, i, startTs) {

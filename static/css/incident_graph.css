@@ -644,3 +644,42 @@
       transparent 3px,
       transparent 6px);
 }
+
+/* ── Detail panel: confidence line + advisory banner + action buttons ───── */
+
+.inc-narrative-conf {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary, #c9d1d9);
+  margin-bottom: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.inc-narrative-advisory {
+  background: rgba(252, 140, 47, 0.09);
+  border-left: 3px solid rgba(252, 140, 47, 0.6);
+  padding: 6px 9px;
+  margin: 8px 0;
+  font-size: 0.75rem;
+  color: #ffcf8f;
+  border-radius: 0 3px 3px 0;
+}
+
+.inc-narrative-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.inc-btn-split, .inc-btn-unsplit, .inc-btn-commit {
+  background: rgba(77, 172, 255, 0.10);
+  border: 1px solid rgba(77, 172, 255, 0.45);
+  color: #4dacff;
+  font-size: 0.72rem;
+  font-family: inherit;
+  padding: 4px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.inc-btn-split:hover, .inc-btn-unsplit:hover, .inc-btn-commit:hover {
+  background: rgba(77, 172, 255, 0.20);
+}
