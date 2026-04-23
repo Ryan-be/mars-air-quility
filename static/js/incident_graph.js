@@ -414,7 +414,7 @@ function buildCytoscapeStyle() {
         'border-color': '#6a92e0',
         'border-opacity': 0.55,
         'shape': 'round-rectangle',
-        'padding': '22px',
+        'padding': '30px 40px 30px 40px',
         'label': 'data(label)',
         'font-size': 11,
         'font-weight': 700,
@@ -673,13 +673,23 @@ function buildIncidentElements(detail, centroids, isGhost = false) {
   const crossAlerts   = (detail.alerts || []).filter(a => !a.is_primary);
   const rootCount = Math.max(primaryAlerts.length, 1);
 
-  primaryAlerts.forEach((alert, i) => {
-    const angle = (2 * Math.PI * i) / rootCount - Math.PI / 2;
-    const alertPos = {
-      x: centre.x + 110 * Math.cos(angle),
-      y: centre.y + 110 * Math.sin(angle),
-    };
+  // ── Timeline layout: x = minutes from incident start, y = severity lane ──
+  const TIMELINE_WIDTH_PX = 360;   // px allocated to the time axis per cluster
+  const LANE_HEIGHT_PX    = 40;
+  const LANE_BY_SEVERITY  = { critical: 0, warning: 1, info: 2 };
 
+  const startMs = new Date((detail.started_at || '').replace(' ', 'T')).getTime();
+  const endMs   = new Date((detail.ended_at   || '').replace(' ', 'T')).getTime();
+  const spanMs  = Math.max(endMs - startMs, 60_000);  // min 1 min to avoid /0
+
+  primaryAlerts.forEach((alert) => {
+    const alertMs = new Date((alert.created_at || '').replace(' ', 'T')).getTime();
+    const t = Math.max(0, Math.min(1, (alertMs - startMs) / spanMs));
+    const lane = LANE_BY_SEVERITY[alert.severity] ?? 2;
+    const alertPos = {
+      x: centre.x - TIMELINE_WIDTH_PX / 2 + t * TIMELINE_WIDTH_PX,
+      y: centre.y - LANE_HEIGHT_PX + lane * LANE_HEIGHT_PX,
+    };
     elements.push({
       group: 'nodes',
       data: {
