@@ -144,7 +144,7 @@ function applyClientFilter(incidents) {
 // Fallback windows tried in order when the current window returns 0 results.
 // On first page load with no recent activity, this auto-widens so the graph
 // is never blank just because inferences are older than 24 h.
-const _FALLBACK_WINDOWS = ['7d', '30d'];
+const _FALLBACK_WINDOWS = ['24h', '14d'];
 
 async function loadIncidents() {
   if (elList) elList.innerHTML = '<div class="inc-loading">Loading…</div>';
@@ -205,7 +205,7 @@ async function loadIncidents() {
 function _syncWindowButton(win) {
   if (!elWindow) return;
   try {
-    const labels = ['1h', '6h', '24h', '7d', '30d'];
+    const labels = ['15m', '1h', '6h', '12h', '24h', '14d'];
     const updated = labels.map(l => ({ label: l, selected: l === win }));
     elWindow.data = JSON.stringify(updated);
   } catch (_) {}
@@ -559,10 +559,18 @@ function applyZoomClasses(zoom) {
 
 // ── Cytoscape init ────────────────────────────────────────────────────────────
 
+// Navigator (minimap) instance — kept at module scope so we can tear it down
+// when Cytoscape is re-initialised, to avoid leaking canvases.
+let _navigator = null;
+
 function initCytoscape() {
   if (typeof cytoscape === 'undefined') {
     console.error('Cytoscape.js not loaded — graph unavailable. Check CDN connectivity.');
     return;
+  }
+  if (_navigator && typeof _navigator.destroy === 'function') {
+    try { _navigator.destroy(); } catch (_) {}
+    _navigator = null;
   }
   if (cy) { cy.destroy(); cy = null; }
 
@@ -577,6 +585,25 @@ function initCytoscape() {
     elements: [],
     layout: { name: 'preset' },
   });
+
+  // Minimap: cytoscape-navigator plugin attaches itself as cy.navigator().
+  // Gated on feature-detection so the page still works if the plugin CDN fails.
+  const miniEl = document.getElementById('cy-minimap');
+  if (miniEl && typeof cy.navigator === 'function') {
+    try {
+      _navigator = cy.navigator({
+        container: miniEl,
+        viewLiveFramerate: 0,        // re-render on pan/zoom end
+        thumbnailEventFramerate: 30,
+        thumbnailLiveFramerate: false,
+        dblClickDelay: 200,
+        removeCustomContainer: false,
+        rerenderDelay: 100,
+      });
+    } catch (err) {
+      console.warn('Minimap (cytoscape-navigator) init failed:', err);
+    }
+  }
 
   cy.on('zoom', () => applyZoomClasses(cy.zoom()));
 
@@ -683,34 +710,46 @@ async function renderGraph(detail, incidents) {
 // ── Centroid placement ────────────────────────────────────────────────────────
 
 function buildCentroids(incidents) {
-  // Timeline hulls are wide (adaptive: `max(360, alertCount * 24)` + 2 * hull
-  // padding ≈ 80) but shallow (3 severity lanes × 44 + padding ≈ 140).  The
-  // grid spacing is driven by the WIDEST incident so no two hulls overlap,
-  // even if that wastes some horizontal space when clusters are mostly small.
+  // Per-cluster row packing: each incident gets its own width from its
+  // alert_count (matching the adaptive TIMELINE_WIDTH_PX in buildIncidentElements).
+  // Within a row we walk a cursor left-to-right, advancing by each cluster's
+  // actual width + a gap. Big clusters take their real space; small ones pack
+  // tight next to their neighbours. Much denser than the old square-grid
+  // approach that sized every cell to the widest incident in the set.
   //
-  // These constants mirror `PX_PER_ALERT` and the minimum timeline width in
-  // `buildIncidentElements`.  If that pair changes, update the formula here.
-  const MIN_WIDTH_PX = 360;
-  const PX_PER_ALERT = 24;
-  const HULL_PADDING_PX = 80; // 40 each side from the node.hull style rule
-  const INTER_CLUSTER_GAP = 100;
-  const maxAlerts = incidents.reduce(
-    (m, i) => Math.max(m, i.alert_count || 0), 0
-  );
-  const widestTimeline = Math.max(MIN_WIDTH_PX, maxAlerts * PX_PER_ALERT);
-  const GRID_SPACING_X = widestTimeline + 2 * HULL_PADDING_PX + INTER_CLUSTER_GAP;
-  const GRID_SPACING_Y = 220;
+  // Constants mirror buildIncidentElements — keep in sync.
+  const MIN_WIDTH_PX    = 360;
+  const PX_PER_ALERT    = 24;
+  const HULL_PADDING_PX = 80;  // 40 each side (from the node.hull style rule)
+  const INTER_CLUSTER_GAP = 70;
+  const GRID_SPACING_Y  = 220;
 
-  const cols = Math.ceil(Math.sqrt(Math.max(incidents.length, 1)));
+  const n = incidents.length;
+  const cols = Math.ceil(Math.sqrt(Math.max(n, 1)));
   const centroids = {};
-  incidents.forEach((inc, i) => {
-    centroids[inc.id] = {
-      x: (i % cols) * GRID_SPACING_X,
-      y: Math.floor(i / cols) * GRID_SPACING_Y,
-    };
+
+  // Precompute each cluster's full width (timeline + both padding edges).
+  const widths = incidents.map(i => {
+    const count = Math.max(1, i.alert_count || 0);
+    return Math.max(MIN_WIDTH_PX, count * PX_PER_ALERT) + 2 * HULL_PADDING_PX;
   });
-  // Expose the band Y position below the grid for cross-incident nodes.
-  const rows = Math.ceil(incidents.length / cols);
+
+  for (let r = 0; r * cols < n; r++) {
+    let cursor = 0;
+    for (let c = 0; c < cols && r * cols + c < n; c++) {
+      const idx = r * cols + c;
+      const w = widths[idx];
+      // centroid.x = centre of this cluster in world coords.
+      centroids[incidents[idx].id] = {
+        x: cursor + w / 2,
+        y: r * GRID_SPACING_Y,
+      };
+      cursor += w + INTER_CLUSTER_GAP;
+    }
+  }
+
+  // Cross-incident band lives below the last row.
+  const rows = Math.ceil(n / cols);
   centroids.__crossBandY = rows * GRID_SPACING_Y + 140;
   return centroids;
 }

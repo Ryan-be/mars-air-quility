@@ -27,7 +27,17 @@ DB_FILE = config.get("DB_FILE", "data/sensor_data.db")
 
 _SEVERITY_ORDER = {"info": 0, "warning": 1, "critical": 2}
 _WINDOW_MAP = {
-    "1h": 1, "6h": 6, "24h": 24, "7d": 168, "30d": 720,
+    # Range keys mirror the history/dashboard segmented-buttons.
+    # 7d / 30d kept for backwards-compat with any external callers that
+    # might still pass them; the UI only exposes the six below.
+    "15m": 0.25,
+    "1h": 1,
+    "6h": 6,
+    "12h": 12,
+    "24h": 24,
+    "14d": 336,
+    "7d": 168,
+    "30d": 720,
 }
 
 

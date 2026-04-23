@@ -2,6 +2,7 @@
 {% block title %}MLSS – Incidents{% endblock %}
 
 {% block extra_css %}
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cytoscape-navigator@2.0.1/cytoscape.js-navigator.css">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/incident_graph.css') }}">
 {% endblock %}
 
@@ -20,11 +21,12 @@
     <rux-segmented-button
       id="inc-window"
       data="[
+        {&quot;label&quot;:&quot;15m&quot;,&quot;selected&quot;:false},
         {&quot;label&quot;:&quot;1h&quot;,&quot;selected&quot;:false},
         {&quot;label&quot;:&quot;6h&quot;,&quot;selected&quot;:false},
+        {&quot;label&quot;:&quot;12h&quot;,&quot;selected&quot;:false},
         {&quot;label&quot;:&quot;24h&quot;,&quot;selected&quot;:true},
-        {&quot;label&quot;:&quot;7d&quot;,&quot;selected&quot;:false},
-        {&quot;label&quot;:&quot;30d&quot;,&quot;selected&quot;:false}
+        {&quot;label&quot;:&quot;14d&quot;,&quot;selected&quot;:false}
       ]"
     ></rux-segmented-button>
 
@@ -79,6 +81,9 @@
         </div>
       </div>
       <div id="cy-graph"></div>
+
+      <!-- Minimap (cytoscape-navigator plugin populates this div) -->
+      <div id="cy-minimap" class="inc-graph-minimap" title="Drag the viewport box to pan the main graph"></div>
 
       <!-- Symbol key -->
       <div class="inc-graph-key">
@@ -140,5 +145,7 @@
 {% block scripts %}
   <!-- Cytoscape.js — MIT licence, cdnjs CDN -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.30.2/cytoscape.min.js"></script>
+  <!-- cytoscape-navigator — MIT licence, jsDelivr CDN (provides cy.navigator()) -->
+  <script src="https://cdn.jsdelivr.net/npm/cytoscape-navigator@2.0.1/cytoscape.js-navigator.js"></script>
   <script type="module" src="{{ url_for('static', filename='js/incident_graph.js') }}"></script>
 {% endblock %}
