@@ -157,7 +157,7 @@ A slim slider in the graph-controls row:
 Hide weak links: ━━━●━━━━  P ≥ 0.20
 ```
 
-Persisted in `localStorage` under key `inc.edge_p_floor`. Default `0.20`. Range `0` – `1`, step `0.05`. Triggers a re-render of Cytoscape edges only — incident hulls and lists don't move.
+Persisted in `localStorage` under key `inc.edge_p_floor`. Default `0.20`. Range `0` – `1`, step `0.05`. Changes both edge rendering *and* the client-side subdivision preview (see next section).
 
 ### Edge styling (Cytoscape)
 
@@ -174,6 +174,38 @@ Opacity + width + style all ramp with P. Edges below the slider floor get `displ
 ### Edge hover tooltip
 
 On edge hover: `"14 min apart · eco2_ppm (+0.82, +0.74) · P = 0.82"`.
+
+### Client-side subdivision preview
+
+The slider is not *only* a display filter. It also previews the grouping that *would* result at the current threshold, so an operator can drag the slider up and feel the effect of their choice before committing.
+
+**How it works:**
+
+1. On every slider change, the client runs a small `connected_components` pass on each incident's edge set, using `P ≥ slider_floor` as the predicate. This is the same graph algorithm the server runs (for parity of semantics), but scoped to a single incident's alert list — typically 5–40 alerts — so the cost is a few microseconds.
+2. If the result is **1 component**: no visual change — the incident hull stays intact (unchanged from the current spec).
+3. If the result is **2+ components**: each subcomponent is outlined with a thin dashed rectangle drawn inside the existing incident hull. Severity colour of the outline matches the subcomponent's max severity.
+4. A badge on the hull label reads **"Would split into 3 at P ≥ 0.80"** (number adjusts as the slider moves).
+5. The confidence bar on the incident card gains a faint secondary marker showing the min-P of the weakest subcomponent at the current threshold — so the operator can see "at this threshold my weakest sub-cluster is confidence 0.65".
+6. **No API calls, no server state changes, no list mutations.** The slider preview is purely a client-side visualisation.
+
+**Committing the subdivision:**
+
+When 2+ subcomponents are previewed, a `[Commit these splits]` button appears in the detail panel (sibling to the existing `[Split at weakest link]` button). Clicking it:
+
+1. Identifies the split points: for each subcomponent after the chronologically-earliest, the first alert of that subcomponent is a split marker.
+2. Fires one `POST /api/incidents/<id>/split` per split point (sequentially, stopping on first error). Reuses the existing split endpoint — no new endpoint needed.
+3. Triggers a regroup + graph refresh.
+
+The existing `[Split at weakest link]` action remains — it's the one-click version for operators who just want to break the single worst link without dragging the slider.
+
+**Why this scope:**
+
+This gives operators a concrete tool for "I think the grouping is too aggressive" without requiring them to pick split points by eye. The visual preview IS the explanation for the commit action, so the learning curve is a single drag.
+
+**What we do NOT do:**
+
+- No client-side narrative re-computation. Narratives live on the server, and a subdivision preview shows only the graph subdivision — no sub-narratives. The narrative panel continues to reflect the committed (server-side) incident. An operator who drags the slider and sees "would split into 3" does not see three separate narratives — they commit the split first, then the server generates narratives for the three new incidents on the next regroup.
+- No new "ghost incidents" in the incident list. The left panel still shows server-committed incidents only. Previews are in-place visual overlays on the graph canvas.
 
 ### Incident card (left panel)
 
@@ -255,7 +287,7 @@ CREATE TABLE IF NOT EXISTS incident_splits (
 - **`mlss_monitor/routes/api_incidents.py`** — augment detail response with `edges`; add `split` and `unsplit` endpoints; register new blueprint route `require_role("controller")`.
 - **`database/init_db.py`** — add the `incident_splits` table.
 - **`templates/incidents.html`** — slider + confidence bar + split button markup.
-- **`static/js/incident_graph.js`** — edge styling by P, hover tooltip, slider wiring, confidence bar rendering, hull dash-by-confidence, split/unsplit fetch calls.
+- **`static/js/incident_graph.js`** — edge styling by P, hover tooltip, slider wiring, confidence bar rendering, hull dash-by-confidence, split/unsplit fetch calls, client-side subdivision preview (`previewSubdivisions(incidentEdges, threshold)` pure helper reused from a shared `connectedComponents` routine — aim to share the same algorithm shape as the server for parity).
 - **`static/css/incident_graph.css`** — slider styles, confidence bar styles, hull dash variants, advisory banner.
 - **`readme.md`** — rewrite the Incident correlation graph section to describe the new grouping algorithm.
 - **Tests:**
@@ -290,6 +322,11 @@ Frontend behaviour to verify manually after deploy:
 - Confidence bar updates live with slider.
 - `[Split at weakest link]` button appears and works.
 - Undo action appears on operator-split incidents.
+- Raising the slider above a cluster's internal edge probabilities draws dashed sub-outlines and shows "Would split into N" badge.
+- `[Commit these splits]` button converts the preview into real splits via the existing `/split` endpoint and the graph refreshes to reflect them.
+
+Client-side unit tests (small JSDOM or plain-node harness for the pure graph helper):
+- `connectedComponents(alerts, edges, threshold)` produces identical output to the server-side Python implementation on the same input — property-based if practical, otherwise a small fixture suite covering singletons, chains, disconnected subgraphs, and threshold-induced splits.
 
 ## Migration
 
@@ -324,5 +361,5 @@ We considered attribution-first grouping (every incident has one `attribution_so
 ## Open items / future work
 
 - **Sensor-weighted confidence.** Currently `incident.confidence = min(edge P)`. Alternative: weight each edge by how many sensors it shares, so edges backed by multiple sensor correlations count for more. Not in scope for this cut — revisit if "min edge" produces unintuitive results.
-- **Client-side regrouping on slider change.** The slider currently hides edges; changing it doesn't dissolve incidents. Future refinement: on a high-enough slider value, show "this incident would split into N under your threshold" hint, with a one-click action. Adds UI complexity — defer.
 - **Attribution as a secondary tie-breaker.** If two plausibly-distinct incidents could be merged by a weak edge, and their dominant attributions disagree, we could automatically suppress the merge. Interesting but opinionated — park for real-data observation.
+- **Extending the slider to the similar-past match.** Right now similar-past uses the full incident signature. A future refinement could re-compute similar-past against the sub-incident an operator has previewed (but not yet committed) to answer "if I split this incident, what does each half match?". Potentially useful for operators debating a split — defer for now.
