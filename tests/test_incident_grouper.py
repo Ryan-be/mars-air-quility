@@ -306,3 +306,119 @@ def test_generate_incident_title_missing_title_key_no_crash():
 
 def test_generate_incident_title_empty_list():
     assert generate_incident_title([]) == "Unknown Incident"
+
+
+# ── DB persistence (regroup_all) ─────────────────────────────────────────────
+
+import sqlite3
+import database.init_db as dbi
+import database.db_logger as dbl
+import database.user_db as udb
+from mlss_monitor.incident_grouper import regroup_all
+
+
+@pytest.fixture
+def tmp_db(tmp_path):
+    db_path = str(tmp_path / "test.db")
+    import mlss_monitor.hot_tier as ht
+    dbi.DB_FILE = db_path
+    dbl.DB_FILE = db_path
+    udb.DB_FILE = db_path
+    ht.DB_FILE = db_path
+    dbi.create_db()
+    yield db_path
+    dbi.DB_FILE = "data/sensor_data.db"
+    dbl.DB_FILE = "data/sensor_data.db"
+    udb.DB_FILE = "data/sensor_data.db"
+    import mlss_monitor.hot_tier as ht2
+    ht2.DB_FILE = "data/sensor_data.db"
+
+
+def _seed_inference(db_path, created_at, event_type="tvoc_spike",
+                    severity="info", confidence=0.8):
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "INSERT INTO inferences (created_at, event_type, severity, title, confidence) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (created_at, event_type, severity, f"Alert {event_type}", confidence)
+    )
+    conn.commit()
+    row_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    conn.close()
+    return row_id
+
+
+def test_regroup_all_creates_incident(tmp_db):
+    _seed_inference(tmp_db, "2026-04-19 12:00:00")
+    regroup_all(tmp_db)
+    conn = sqlite3.connect(tmp_db)
+    rows = conn.execute("SELECT id FROM incidents").fetchall()
+    conn.close()
+    assert len(rows) == 1
+    assert rows[0][0].startswith("INC-")
+
+
+def test_regroup_all_links_alert_to_incident(tmp_db):
+    _seed_inference(tmp_db, "2026-04-19 12:00:00")
+    regroup_all(tmp_db)
+    conn = sqlite3.connect(tmp_db)
+    links = conn.execute("SELECT incident_id, alert_id FROM incident_alerts").fetchall()
+    conn.close()
+    assert len(links) == 1
+
+
+def test_regroup_all_cross_incident_alert_not_primary(tmp_db):
+    _seed_inference(tmp_db, "2026-04-19 12:00:00", event_type="hourly_summary")
+    regroup_all(tmp_db)
+    conn = sqlite3.connect(tmp_db)
+    row = conn.execute("SELECT is_primary FROM incident_alerts").fetchone()
+    conn.close()
+    assert row[0] == 0
+
+
+def test_regroup_all_two_groups_two_incidents(tmp_db):
+    _seed_inference(tmp_db, "2026-04-19 12:00:00")
+    _seed_inference(tmp_db, "2026-04-19 13:00:00")  # 60 min gap
+    regroup_all(tmp_db)
+    conn = sqlite3.connect(tmp_db)
+    count = conn.execute("SELECT COUNT(*) FROM incidents").fetchone()[0]
+    conn.close()
+    assert count == 2
+
+
+def test_regroup_all_idempotent(tmp_db):
+    _seed_inference(tmp_db, "2026-04-19 12:00:00")
+    regroup_all(tmp_db)
+    regroup_all(tmp_db)
+    conn = sqlite3.connect(tmp_db)
+    count = conn.execute("SELECT COUNT(*) FROM incidents").fetchone()[0]
+    conn.close()
+    assert count == 1
+
+
+def test_regroup_all_max_severity_critical(tmp_db):
+    _seed_inference(tmp_db, "2026-04-19 12:00:00", severity="info")
+    _seed_inference(tmp_db, "2026-04-19 12:05:00", severity="critical")
+    regroup_all(tmp_db)
+    conn = sqlite3.connect(tmp_db)
+    sev = conn.execute("SELECT max_severity FROM incidents").fetchone()[0]
+    conn.close()
+    assert sev == "critical"
+
+
+def test_regroup_all_incident_id_format(tmp_db):
+    _seed_inference(tmp_db, "2026-04-19 12:55:00")
+    regroup_all(tmp_db)
+    conn = sqlite3.connect(tmp_db)
+    inc_id = conn.execute("SELECT id FROM incidents").fetchone()[0]
+    conn.close()
+    assert inc_id == "INC-20260419-1255"
+
+
+def test_regroup_all_empty_db_no_crash(tmp_db):
+    """regroup_all on empty inferences table should not crash."""
+    regroup_all(tmp_db)
+    conn = sqlite3.connect(tmp_db)
+    count = conn.execute("SELECT COUNT(*) FROM incidents").fetchone()[0]
+    conn.close()
+    assert count == 0
