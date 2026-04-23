@@ -380,17 +380,21 @@ function buildCytoscapeStyle() {
     {
       selector: 'node',
       style: {
-        'background-color': '#131b2e',
+        'background-color': '#1a2540',
         'border-width': 1.5,
-        'border-color': '#2e3a50',
+        'border-color': '#5a6a85',
         'label': '',
-        'color': '#6b7280',
-        'font-size': 9,
+        'color': '#c9d1d9',
+        'font-size': 10,
+        'font-weight': 500,
         'font-family': 'Roboto, sans-serif',
         'text-valign': 'bottom',
         'text-margin-y': 4,
         'text-wrap': 'ellipsis',
         'text-max-width': 80,
+        'text-outline-color': '#0d1117',
+        'text-outline-width': 2,
+        'text-outline-opacity': 0.8,
         'width': 20,
         'height': 20,
         'shape': 'ellipse',
@@ -404,20 +408,23 @@ function buildCytoscapeStyle() {
       selector: 'node.hull',
       style: {
         'background-color': '#2d64ff',
-        'background-opacity': 0.05,
-        'border-width': 1,
+        'background-opacity': 0.08,
+        'border-width': 1.5,
         'border-style': 'solid',
-        'border-color': '#5078c8',
-        'border-opacity': 0.35,
+        'border-color': '#6a92e0',
+        'border-opacity': 0.55,
         'shape': 'round-rectangle',
         'padding': '22px',
         'label': 'data(label)',
-        'font-size': 9,
-        'font-weight': 600,
-        'color': '#8a9abf',
+        'font-size': 11,
+        'font-weight': 700,
+        'color': '#d0dbf0',
         'text-valign': 'top',
         'text-halign': 'center',
         'text-margin-y': -4,
+        'text-outline-color': '#0d1117',
+        'text-outline-width': 2,
+        'text-outline-opacity': 0.8,
         'width': 'label',
         'height': 'label',
       },
@@ -427,11 +434,11 @@ function buildCytoscapeStyle() {
     {
       selector: 'node.hull.ghost',
       style: {
-        'background-color': '#141e32',
-        'background-opacity': 0.35,
-        'border-color': '#324670',
-        'border-opacity': 0.3,
-        'color': '#4b5b78',
+        'background-color': '#1a2540',
+        'background-opacity': 0.45,
+        'border-color': '#5a7eb8',
+        'border-opacity': 0.5,
+        'color': '#a8b5d0',
         'cursor': 'pointer',
       },
     },
@@ -470,20 +477,20 @@ function buildCytoscapeStyle() {
     { selector: 'node.alert-node.labels-full',  style: { 'label': 'data(label)' } },
 
     // ── Edges ─────────────────────────────────────────────────────────
-    { selector: 'edge',            style: { 'width': 0.8, 'line-color': '#1e2b40', 'curve-style': 'bezier', 'opacity': 0.55 } },
+    { selector: 'edge',            style: { 'width': 1.2, 'line-color': '#4a5e85', 'curve-style': 'bezier', 'opacity': 0.75 } },
     {
       selector: 'edge.chrono-edge',
       style: {
-        'width': 1.2,
+        'width': 1.6,
         'line-color': '#4dacff',
-        'opacity': 0.55,
+        'opacity': 0.8,
         'curve-style': 'bezier',
         'target-arrow-shape': 'triangle',
         'target-arrow-color': '#4dacff',
-        'arrow-scale': 0.8,
+        'arrow-scale': 0.9,
       },
     },
-    { selector: 'edge.cross-edge', style: { 'line-color': '#5a9668', 'line-style': 'dashed', 'width': 0.8, 'opacity': 0.45 } },
+    { selector: 'edge.cross-edge', style: { 'line-color': '#7ec090', 'line-style': 'dashed', 'width': 1, 'opacity': 0.65 } },
 
     // ── Selection highlight ───────────────────────────────────────────
     // Hulls get no fill change when selected (avoid opaque box covering children);
@@ -783,14 +790,16 @@ function restorePositions() {
 
 function applySelectionOpacity(selectedId) {
   if (!cy) return;
+  // Ghost dim raised from 0.3 → 0.55 so unselected clusters stay readable in
+  // light-room / high-ambient conditions.
   cy.nodes().forEach(n => {
-    n.style('opacity', n.data('incidentId') === selectedId ? 1 : 0.3);
+    n.style('opacity', n.data('incidentId') === selectedId ? 1 : 0.55);
   });
   cy.edges().forEach(e => {
     const src = cy.$id(e.data('source'));
     const tgt = cy.$id(e.data('target'));
     const sel = src.data('incidentId') === selectedId || tgt.data('incidentId') === selectedId;
-    e.style('opacity', sel ? 1 : 0.2);
+    e.style('opacity', sel ? 1 : 0.4);
   });
 }
 
