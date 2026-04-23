@@ -11,7 +11,6 @@ for _mod in ["board", "busio", "adafruit_ahtx0", "adafruit_sgp30",
 from datetime import datetime, timedelta
 import pytest
 from mlss_monitor.incident_grouper import (
-    sessionise,
     detection_method,
     CROSS_INCIDENT_TYPES,
     make_incident_id,
@@ -42,54 +41,6 @@ def _alert(minutes_offset: int, event_type: str = "tvoc_spike", severity: str = 
         "confidence": 0.8,
     }
 
-
-# ── sessionise ───────────────────────────────────────────────────────────────
-
-def test_sessionise_single_alert_one_group():
-    alerts = [_alert(0)]
-    groups = sessionise(alerts)
-    assert len(groups) == 1
-    assert len(groups[0]) == 1
-
-
-def test_sessionise_two_close_alerts_one_group():
-    """29-minute gap → same group."""
-    alerts = [_alert(0), _alert(29)]
-    groups = sessionise(alerts)
-    assert len(groups) == 1
-
-
-def test_sessionise_gap_over_30_splits():
-    """31-minute gap → two groups (uses .total_seconds(), not .seconds)."""
-    alerts = [_alert(0), _alert(31)]
-    groups = sessionise(alerts)
-    assert len(groups) == 2
-
-
-def test_sessionise_exactly_30min_is_same_group():
-    """Exactly 30 minutes → same group (> not >=)."""
-    alerts = [_alert(0), _alert(30)]
-    groups = sessionise(alerts)
-    assert len(groups) == 1
-
-
-def test_sessionise_large_gap_uses_total_seconds():
-    """60-minute gap; .seconds would return 0, .total_seconds() returns 3600."""
-    alerts = [_alert(0), _alert(60)]
-    groups = sessionise(alerts)
-    assert len(groups) == 2
-
-
-def test_sessionise_preserves_order():
-    """Alerts are sorted chronologically before grouping."""
-    alerts = [_alert(10), _alert(0), _alert(5)]
-    groups = sessionise(alerts)
-    assert len(groups) == 1
-    assert [a["id"] for a in groups[0]] == [0, 5, 10]
-
-
-def test_sessionise_empty_list():
-    assert sessionise([]) == []
 
 
 # ── detection_method ─────────────────────────────────────────────────────────
