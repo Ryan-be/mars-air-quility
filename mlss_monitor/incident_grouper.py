@@ -504,6 +504,14 @@ def _load_all_inferences(db_file: str) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
+def _load_split_markers(db_file: str) -> set[int]:
+    """Load operator split marker alert ids from incident_splits."""
+    conn = sqlite3.connect(db_file, timeout=15)
+    rows = conn.execute("SELECT alert_id FROM incident_splits").fetchall()
+    conn.close()
+    return {r[0] for r in rows}
+
+
 def _fetch_hot_tier_column(
     db_file: str,
     t_start: datetime,

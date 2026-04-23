@@ -22,6 +22,7 @@ from mlss_monitor.incident_grouper import (
     merge_similar_adjacent,
     connected_components,
     incident_confidence,
+    _load_split_markers,
 )
 
 
@@ -795,3 +796,27 @@ def test_incident_confidence_min_over_edges():
 def test_incident_confidence_ignores_edges_order():
     edges = [(3, 4, 0.65), (1, 2, 0.9), (2, 3, 0.31)]
     assert incident_confidence(edges) == 0.31
+
+
+def test_load_split_markers_empty(tmp_db):
+    assert _load_split_markers(tmp_db) == set()
+
+
+def test_load_split_markers_returns_ids(tmp_db):
+    conn = sqlite3.connect(tmp_db)
+    for alert_id in (101, 202, 303):
+        # Parent inference row so FK is valid.
+        conn.execute(
+            "INSERT INTO inferences (id, created_at, event_type, severity, "
+            "title, confidence) VALUES (?, ?, ?, ?, ?, ?)",
+            (alert_id, "2026-04-23 09:00:00", "tvoc_spike",
+             "info", "t", 0.9),
+        )
+        conn.execute(
+            "INSERT INTO incident_splits (alert_id, created_by) VALUES (?, ?)",
+            (alert_id, "test-user"),
+        )
+    conn.commit()
+    conn.close()
+
+    assert _load_split_markers(tmp_db) == {101, 202, 303}
