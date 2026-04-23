@@ -253,3 +253,83 @@ def test_get_incident_detail_includes_edges(client, db):
     assert {"from", "to", "p", "shared_sensors"} <= set(edge.keys())
     assert edge["p"] == 1.0
     assert "eco2_ppm" in edge["shared_sensors"]
+
+
+def test_split_endpoint_creates_marker_and_regroups(client, db):
+    """POST /api/incidents/<id>/split creates an incident_splits row and
+    triggers a regroup so the incident actually splits."""
+    from mlss_monitor.incident_grouper import regroup_all
+    conn = sqlite3.connect(db)
+    alert_ids = []
+    # Alert A (09:00): eco2_ppm only
+    cur = conn.execute(
+        "INSERT INTO inferences (created_at, event_type, severity, title, confidence) "
+        "VALUES (?, ?, ?, ?, ?)",
+        ("2026-04-23 09:00:00", "tvoc_spike", "info", "t-09:00", 0.9),
+    )
+    alert_ids.append(cur.lastrowid)
+    conn.execute(
+        "INSERT INTO alert_signal_deps (alert_id, sensor, r, lag_seconds) "
+        "VALUES (?, ?, ?, ?)",
+        (cur.lastrowid, "eco2_ppm", 0.8, 0),
+    )
+    # Alert B (09:10): both eco2_ppm and tvoc_ppb
+    cur = conn.execute(
+        "INSERT INTO inferences (created_at, event_type, severity, title, confidence) "
+        "VALUES (?, ?, ?, ?, ?)",
+        ("2026-04-23 09:10:00", "tvoc_spike", "info", "t-09:10", 0.9),
+    )
+    alert_ids.append(cur.lastrowid)
+    conn.execute(
+        "INSERT INTO alert_signal_deps (alert_id, sensor, r, lag_seconds) "
+        "VALUES (?, ?, ?, ?)",
+        (cur.lastrowid, "eco2_ppm", 0.8, 0),
+    )
+    conn.execute(
+        "INSERT INTO alert_signal_deps (alert_id, sensor, r, lag_seconds) "
+        "VALUES (?, ?, ?, ?)",
+        (cur.lastrowid, "tvoc_ppb", 0.8, 0),
+    )
+    # Alert C (09:20): tvoc_ppb only
+    cur = conn.execute(
+        "INSERT INTO inferences (created_at, event_type, severity, title, confidence) "
+        "VALUES (?, ?, ?, ?, ?)",
+        ("2026-04-23 09:20:00", "tvoc_spike", "info", "t-09:20", 0.9),
+    )
+    alert_ids.append(cur.lastrowid)
+    conn.execute(
+        "INSERT INTO alert_signal_deps (alert_id, sensor, r, lag_seconds) "
+        "VALUES (?, ?, ?, ?)",
+        (cur.lastrowid, "tvoc_ppb", 0.8, 0),
+    )
+    conn.commit()
+    conn.close()
+    regroup_all(db)
+
+    # Starts as one incident.
+    listing = client.get("/api/incidents?window=30d").get_json()
+    assert listing["total"] == 1
+    inc_id = listing["incidents"][0]["id"]
+
+    # Split at the middle alert.
+    resp = client.post(
+        f"/api/incidents/{inc_id}/split",
+        json={"alert_id": alert_ids[1]},
+    )
+    assert resp.status_code == 200
+
+    # Incident splits now contains the marker.
+    conn = sqlite3.connect(db)
+    markers = conn.execute("SELECT alert_id FROM incident_splits").fetchall()
+    conn.close()
+    assert (alert_ids[1],) in markers
+
+    # Now there are two incidents.
+    listing2 = client.get("/api/incidents?window=30d").get_json()
+    assert listing2["total"] == 2
+
+
+def test_split_endpoint_requires_alert_id(client, db):
+    """Missing alert_id in body => 400."""
+    resp = client.post("/api/incidents/INC-X/split", json={})
+    assert resp.status_code == 400

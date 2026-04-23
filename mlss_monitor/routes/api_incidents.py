@@ -302,3 +302,35 @@ def get_incident(incident_id: str):
         "similar": similar,
         "edges": edges_out,
     })
+
+
+@api_incidents_bp.route("/api/incidents/<incident_id>/split", methods=["POST"])
+def split_incident(incident_id: str):
+    """Mark an alert as 'starts a new incident'. Persists a row in
+    incident_splits and re-runs the grouper so the split takes effect
+    immediately.
+    """
+    body = request.get_json(silent=True) or {}
+    alert_id = body.get("alert_id")
+    if not isinstance(alert_id, int):
+        return jsonify({"error": "alert_id (int) is required in body"}), 400
+
+    conn = _get_conn()
+    # session_user is set by the auth layer; may be None in unauth tests.
+    user = None
+    try:
+        from flask import session
+        user = session.get("user")
+    except RuntimeError:
+        pass
+    conn.execute(
+        "INSERT OR REPLACE INTO incident_splits (alert_id, created_by) VALUES (?, ?)",
+        (alert_id, user),
+    )
+    conn.commit()
+    conn.close()
+
+    from mlss_monitor.incident_grouper import regroup_all
+    regroup_all(DB_FILE)
+
+    return jsonify({"ok": True, "split_alert_id": alert_id})
