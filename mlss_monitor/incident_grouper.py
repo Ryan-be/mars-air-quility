@@ -44,8 +44,21 @@ _SENSOR_COLS: list[str] = [
 _SEVERITY_ORDER = {"info": 0, "warning": 1, "critical": 2}
 _SEVERITY_LABEL = {"info": "Info", "warning": "Warning", "critical": "Critical"}
 
-# Detection method one-hot order (indices 20-25)
-_METHOD_ORDER = ["threshold", "ml", "fingerprint", "summary", "statistical", "unknown"]
+# Detection method one-hot order (indices 20-24)
+_METHOD_ORDER = ["threshold", "ml", "fingerprint", "summary", "statistical"]
+
+_SENSOR_KEYWORDS: dict[int, tuple[str, ...]] = {
+    10: ("tvoc",),
+    11: ("eco2", "co2"),
+    12: ("temp",),
+    13: ("humid", "hum"),
+    14: ("pm1",),
+    15: ("pm25", "pm2"),
+    16: ("pm10",),
+    17: ("co_",),
+    18: ("no2",),
+    19: ("nh3",),
+}
 
 
 # ── Pure logic ─────────────────────────────────────────────────────────────────
@@ -141,7 +154,7 @@ def build_incident_similarity_vector(alerts: list[dict[str, Any]]) -> list[float
     Vector layout:
       0-9   : peak delta placeholders (0.0)
       10-19 : sensor presence flags (1.0 if event_type implies that sensor)
-      20-25 : detection method one-hot (threshold/ml/fingerprint/summary/statistical/unknown)
+      20-24 : detection method one-hot (threshold/ml/fingerprint/summary/statistical)
       26-28 : severity one-hot (info=26, warning=27, critical=28)
       29    : incident duration in minutes
       30    : mean confidence
@@ -175,13 +188,13 @@ def build_incident_similarity_vector(alerts: list[dict[str, Any]]) -> list[float
     else:
         vec[31] = 3.0
 
-    # 20-25: detection method one-hot (majority vote)
+    # 20-24: detection method one-hot (majority vote)
     method_counts: dict[str, int] = {}
     for a in alerts:
         m = detection_method(a.get("event_type", ""))
         method_counts[m] = method_counts.get(m, 0) + 1
     dominant = max(method_counts, key=method_counts.get)
-    idx = _METHOD_ORDER.index(dominant) if dominant in _METHOD_ORDER else 5
+    idx = _METHOD_ORDER.index(dominant) if dominant in _METHOD_ORDER else 0
     vec[20 + idx] = 1.0
 
     # 26-28: severity one-hot (info → index 26, warning → 27, critical → 28)
@@ -194,18 +207,6 @@ def build_incident_similarity_vector(alerts: list[dict[str, Any]]) -> list[float
         vec[26] = 1.0
 
     # 10-19: sensor presence flags (naive heuristic from event_type keywords)
-    _SENSOR_KEYWORDS = {
-        10: ("tvoc",),
-        11: ("eco2", "co2"),
-        12: ("temp",),
-        13: ("humid", "hum"),
-        14: ("pm1",),
-        15: ("pm25", "pm2"),
-        16: ("pm10",),
-        17: ("co_",),
-        18: ("no2",),
-        19: ("nh3",),
-    }
     for a in alerts:
         et = a.get("event_type", "").lower()
         for vec_idx, keywords in _SENSOR_KEYWORDS.items():
@@ -234,11 +235,16 @@ def generate_incident_title(alerts: list[dict[str, Any]]) -> str:
         ),
     )[0]
 
-    return f"{sev_label}: {top['title']}"
+    return f"{sev_label}: {top.get('title', 'Unknown event')}"
 
 
 def cosine_similarity(a: list[float], b: list[float]) -> float:
-    """Cosine similarity between two equal-length float vectors."""
+    """Cosine similarity between two equal-length float vectors.
+
+    Returns 0.0 if vectors have different lengths or are zero-length.
+    """
+    if len(a) != len(b) or not a:
+        return 0.0
     dot = sum(x * y for x, y in zip(a, b))
     norm_a = sum(x * x for x in a) ** 0.5
     norm_b = sum(x * x for x in b) ** 0.5
