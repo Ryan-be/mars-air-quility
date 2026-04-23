@@ -667,18 +667,22 @@ async function renderGraph(detail, incidents) {
 // ── Centroid placement ────────────────────────────────────────────────────────
 
 function buildCentroids(incidents) {
-  const GRID_SPACING = 400;
+  // Timeline hulls are wide (TIMELINE_WIDTH_PX + 2 * hull padding ≈ 440px) but
+  // shallow (3 severity lanes × LANE_HEIGHT_PX + padding ≈ 140px).  Use a
+  // landscape-shaped grid so neighbouring hulls don't overlap.
+  const GRID_SPACING_X = 540;
+  const GRID_SPACING_Y = 220;
   const cols = Math.ceil(Math.sqrt(Math.max(incidents.length, 1)));
   const centroids = {};
   incidents.forEach((inc, i) => {
     centroids[inc.id] = {
-      x: (i % cols) * GRID_SPACING,
-      y: Math.floor(i / cols) * GRID_SPACING,
+      x: (i % cols) * GRID_SPACING_X,
+      y: Math.floor(i / cols) * GRID_SPACING_Y,
     };
   });
   // Expose the band Y position below the grid for cross-incident nodes.
   const rows = Math.ceil(incidents.length / cols);
-  centroids.__crossBandY = rows * GRID_SPACING + 120;
+  centroids.__crossBandY = rows * GRID_SPACING_Y + 140;
   return centroids;
 }
 
@@ -704,23 +708,28 @@ function buildIncidentElements(detail, centroids, isGhost = false) {
   const rootCount = Math.max(primaryAlerts.length, 1);
 
   // ── Timeline layout: x = minutes from incident start, y = severity lane ──
-  // Many incidents have multiple alerts firing on the same sensor-tick (same
-  // created_at). Without collision handling they stack on top of each other
-  // at a single (x, y). We detect near-colliding alerts in the same lane and
-  // offset them vertically using a small sub-stack, alternating up/down so
-  // the stack stays near the lane centre and doesn't leak into neighbours.
-  const TIMELINE_WIDTH_PX = 360;   // px allocated to the time axis per cluster
-  const LANE_HEIGHT_PX    = 44;    // distance between lanes (critical/warn/info)
+  // Each alert is placed at (baseX, baseY) computed from its timestamp and
+  // severity.  When two alerts share time + severity they'd sit at the same
+  // point, so we walk a sequence of y-offsets from the lane centre and take
+  // the first slot that is free (no already-placed alert in the same x-band
+  // with the same y).  This is strictly better than counting neighbours: a
+  // dense cluster of many close-in-time alerts gets spread correctly instead
+  // of pairs colliding at the same computed stackDir.
+  const TIMELINE_WIDTH_PX = 360;
+  const LANE_HEIGHT_PX    = 44;
   const LANE_BY_SEVERITY  = { critical: 0, warning: 1, info: 2 };
-  const COLLISION_X_PX    = 26;    // nodes closer than this on x collide
-  const STACK_DY_PX       = 13;    // vertical step per stack level
+  const COLLISION_X_PX    = 26;   // alerts closer than this on x share a slot
+  const STACK_DY_PX       = 13;   // vertical step between stack slots
+  // Order: centre first, then alternating out so the stack stays balanced.
+  const STACK_STEPS = [0, 1, -1, 2, -2, 3, -3, 4, -4, 5, -5];
 
   const startMs = new Date((detail.started_at || '').replace(' ', 'T')).getTime();
   const endMs   = new Date((detail.ended_at   || '').replace(' ', 'T')).getTime();
   const validSpan = Number.isFinite(startMs) && Number.isFinite(endMs);
   const spanMs  = validSpan ? Math.max(endMs - startMs, 60_000) : 60_000;
 
-  // Track placed {x, lane, stackLevel} so later alerts can avoid collisions.
+  // Placed alerts: {x, y, lane}. y is the FINAL post-stack y, so later alerts
+  // can detect which slots are actually taken.
   const placed = [];
 
   primaryAlerts.forEach((alert) => {
@@ -732,15 +741,20 @@ function buildIncidentElements(detail, centroids, isGhost = false) {
     const baseX = centre.x - TIMELINE_WIDTH_PX / 2 + t * TIMELINE_WIDTH_PX;
     const baseY = centre.y - LANE_HEIGHT_PX + lane * LANE_HEIGHT_PX;
 
-    // How many already-placed alerts in this lane are within COLLISION_X_PX?
-    const collisions = placed.filter(p =>
-      p.lane === lane && Math.abs(p.x - baseX) < COLLISION_X_PX
-    ).length;
-    // Stack alternates: 0→centre, 1→down, 2→up, 3→down2, 4→up2, …
-    const stackDir = collisions === 0 ? 0
-      : (collisions % 2 === 1 ? 1 : -1) * Math.ceil(collisions / 2);
-    const alertPos = { x: baseX, y: baseY + stackDir * STACK_DY_PX };
-    placed.push({ x: baseX, lane });
+    // Walk STACK_STEPS to find the first y that no near-x placement occupies.
+    let finalY = baseY;
+    for (const step of STACK_STEPS) {
+      const candidate = baseY + step * STACK_DY_PX;
+      const taken = placed.some(p =>
+        p.lane === lane &&
+        Math.abs(p.x - baseX) < COLLISION_X_PX &&
+        Math.abs(p.y - candidate) < STACK_DY_PX  // half-overlap counts as taken
+      );
+      if (!taken) { finalY = candidate; break; }
+    }
+
+    const alertPos = { x: baseX, y: finalY };
+    placed.push({ x: baseX, y: finalY, lane });
 
     elements.push({
       group: 'nodes',
