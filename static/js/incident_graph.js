@@ -157,6 +157,21 @@ async function loadIncidents() {
       set('pill-warning-count',  counts.warning  || 0);
       set('pill-info-count',     counts.info     || 0);
 
+      const summary = data.summary || { top_sensors: [], hour_histogram: [] };
+      const sensorsEl = document.getElementById('inc-summary-sensors');
+      if (sensorsEl) {
+        sensorsEl.textContent = summary.top_sensors.length
+          ? summary.top_sensors.map(s => `${s.sensor} (${s.n})`).join(' · ')
+          : '—';
+      }
+      const histEl = document.getElementById('inc-summary-hist-bars');
+      if (histEl) {
+        const max = Math.max(1, ...summary.hour_histogram);
+        histEl.innerHTML = summary.hour_histogram
+          .map(n => `<span class="bar" style="height:${(n / max * 100).toFixed(0)}%" title="${n}"></span>`)
+          .join('');
+      }
+
       if (allIncidents.length > 0 || win === windows[windows.length - 1]) {
         // Found results, or exhausted all fallback windows
         if (win !== activeWindow) {

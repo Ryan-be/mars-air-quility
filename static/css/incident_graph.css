@@ -114,7 +114,7 @@
 
 #cy-graph {
   width: 100%;
-  height: calc(100% - 72px); /* controls bar + key */
+  height: calc(100% - 108px); /* controls (36) + summary (36) + key (36) */
 }
 
 /* ── Symbol key ─────────────────────────────────────────────────────────── */
@@ -425,3 +425,48 @@
 .pill-critical { color: #ff8a8a; background: rgba(255,56,56,0.12);  border-color: rgba(255,56,56,0.35); }
 .pill-warning  { color: #fc8c2f; background: rgba(252,140,47,0.12); border-color: rgba(252,140,47,0.35); }
 .pill-info     { color: #2dccff; background: rgba(45,204,255,0.1);  border-color: rgba(45,204,255,0.3); }
+
+/* ── Summary strip above canvas ─────────────────────────────────────────── */
+
+.inc-graph-summary {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 5px 12px;
+  background: rgba(13,17,23,0.85);
+  border-bottom: 1px solid rgba(45,60,90,0.4);
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  height: 36px;
+  flex-shrink: 0;
+}
+
+.inc-summary-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.inc-summary-label {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+  font-size: 0.63rem;
+  color: var(--text-muted);
+}
+
+.inc-summary-sensors { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+
+.inc-summary-hist-bars {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 1px;
+  height: 20px;
+}
+
+.inc-summary-hist-bars .bar {
+  width: 4px;
+  background: #2a5fa5;
+  min-height: 1px;
+  border-radius: 1px;
+}

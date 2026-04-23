@@ -174,3 +174,14 @@ def test_list_incidents_includes_severity_counts(client, seed_three_incidents):
     counts = data["counts"]
     assert set(counts.keys()) >= {"critical", "warning", "info"}
     assert counts["critical"] + counts["warning"] + counts["info"] == data["total"]
+
+
+def test_list_incidents_includes_summary(client, seed_three_incidents):
+    """List response includes top_sensors and hour_histogram summaries."""
+    resp = client.get("/api/incidents?window=30d")
+    data = resp.get_json()
+    assert "summary" in data
+    s = data["summary"]
+    assert "top_sensors" in s and isinstance(s["top_sensors"], list)
+    assert "hour_histogram" in s and isinstance(s["hour_histogram"], list)
+    assert len(s["hour_histogram"]) == 24  # one bucket per hour of day

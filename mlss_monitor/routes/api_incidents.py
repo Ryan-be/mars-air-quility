@@ -133,11 +133,40 @@ def list_incidents():
         if sev in counts:
             counts[sev] += 1
 
+    # Top 3 sensors + 24-bucket hour-of-day histogram across this window.
+    inc_ids = [i["id"] for i in incidents]
+    top_sensors: list[dict] = []
+    hour_histogram: list[int] = [0] * 24
+
+    if inc_ids:
+        placeholders = ",".join("?" * len(inc_ids))
+        sensor_rows = conn.execute(
+            f"SELECT d.sensor, COUNT(*) AS n FROM alert_signal_deps d "
+            f"JOIN incident_alerts ia ON ia.alert_id = d.alert_id "
+            f"WHERE ia.incident_id IN ({placeholders}) "
+            f"GROUP BY d.sensor ORDER BY n DESC LIMIT 3",
+            inc_ids,
+        ).fetchall()
+        top_sensors = [{"sensor": r["sensor"], "n": r["n"]} for r in sensor_rows]
+
+        for inc in incidents:
+            started = inc.get("started_at", "")
+            if len(started) >= 13:
+                try:
+                    hour = int(started[11:13])
+                    hour_histogram[hour] += 1
+                except ValueError:
+                    pass
+
     conn.close()
     return jsonify({
         "incidents": incidents,
         "total": len(incidents),
         "counts": counts,
+        "summary": {
+            "top_sensors": top_sensors,
+            "hour_histogram": hour_histogram,
+        },
     })
 
 
