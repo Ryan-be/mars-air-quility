@@ -538,10 +538,16 @@ function buildCytoscapeStyle() {
 
 function applyZoomClasses(zoom) {
   if (!cy) return;
+  // Thresholds:
+  //   < 0.9  : no labels (overview)
+  //   0.9–2.4: HH:MM only (data-label_time) — fits under a 20px node
+  //   ≥ 2.4  : full event title (data-label) — only at close inspection
+  // The full-title threshold is deliberately high because titles are ~80px
+  // wide and overlap neighbours badly in dense clusters otherwise.
   cy.nodes('.alert-node').forEach(n => {
     if (zoom < 0.9) {
       n.removeClass('labels-ts labels-full');
-    } else if (zoom < 1.6) {
+    } else if (zoom < 2.4) {
       n.addClass('labels-ts');
       n.removeClass('labels-full');
     } else {
@@ -677,11 +683,24 @@ async function renderGraph(detail, incidents) {
 // ── Centroid placement ────────────────────────────────────────────────────────
 
 function buildCentroids(incidents) {
-  // Timeline hulls are wide (TIMELINE_WIDTH_PX + 2 * hull padding ≈ 440px) but
-  // shallow (3 severity lanes × LANE_HEIGHT_PX + padding ≈ 140px).  Use a
-  // landscape-shaped grid so neighbouring hulls don't overlap.
-  const GRID_SPACING_X = 540;
+  // Timeline hulls are wide (adaptive: `max(360, alertCount * 24)` + 2 * hull
+  // padding ≈ 80) but shallow (3 severity lanes × 44 + padding ≈ 140).  The
+  // grid spacing is driven by the WIDEST incident so no two hulls overlap,
+  // even if that wastes some horizontal space when clusters are mostly small.
+  //
+  // These constants mirror `PX_PER_ALERT` and the minimum timeline width in
+  // `buildIncidentElements`.  If that pair changes, update the formula here.
+  const MIN_WIDTH_PX = 360;
+  const PX_PER_ALERT = 24;
+  const HULL_PADDING_PX = 80; // 40 each side from the node.hull style rule
+  const INTER_CLUSTER_GAP = 100;
+  const maxAlerts = incidents.reduce(
+    (m, i) => Math.max(m, i.alert_count || 0), 0
+  );
+  const widestTimeline = Math.max(MIN_WIDTH_PX, maxAlerts * PX_PER_ALERT);
+  const GRID_SPACING_X = widestTimeline + 2 * HULL_PADDING_PX + INTER_CLUSTER_GAP;
   const GRID_SPACING_Y = 220;
+
   const cols = Math.ceil(Math.sqrt(Math.max(incidents.length, 1)));
   const centroids = {};
   incidents.forEach((inc, i) => {
@@ -725,7 +744,13 @@ function buildIncidentElements(detail, centroids, isGhost = false) {
   // with the same y).  This is strictly better than counting neighbours: a
   // dense cluster of many close-in-time alerts gets spread correctly instead
   // of pairs colliding at the same computed stackDir.
-  const TIMELINE_WIDTH_PX = 360;
+  //
+  // TIMELINE_WIDTH_PX is adaptive: 360px minimum, but grows with alert count
+  // so that a 40-alert incident doesn't jam everything into the same narrow
+  // window.  ~24px per alert gives a node-width of 20 + ~4 gap on average,
+  // enough for labels to read once the zoom-full threshold triggers.
+  const PX_PER_ALERT      = 24;
+  const TIMELINE_WIDTH_PX = Math.max(360, primaryAlerts.length * PX_PER_ALERT);
   const LANE_HEIGHT_PX    = 44;
   const LANE_BY_SEVERITY  = { critical: 0, warning: 1, info: 2 };
   const COLLISION_X_PX    = 26;   // alerts closer than this on x share a slot
