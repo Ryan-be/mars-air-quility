@@ -649,6 +649,9 @@ function buildCentroids(incidents) {
       y: Math.floor(i / cols) * GRID_SPACING,
     };
   });
+  // Expose the band Y position below the grid for cross-incident nodes.
+  const rows = Math.ceil(incidents.length / cols);
+  centroids.__crossBandY = rows * GRID_SPACING + 120;
   return centroids;
 }
 
@@ -727,7 +730,7 @@ function buildIncidentElements(detail, centroids, isGhost = false) {
   }
 
   crossAlerts.forEach(alert => {
-    const pos = computeCrossIncidentPosition(incId, allIncidents, centroids);
+    const pos = computeCrossIncidentPosition(incId, alert.id, centroids);
     elements.push({
       group: 'nodes',
       data: {
@@ -756,15 +759,17 @@ function buildIncidentElements(detail, centroids, isGhost = false) {
 
 // ── Cross-incident node placement ─────────────────────────────────────────────
 
-function computeCrossIncidentPosition(incId, incidents, centroids) {
-  const others = incidents.filter(i => i.id !== incId);
-  if (others.length === 0) {
-    const c = centroids[incId] || { x: 0, y: 0 };
-    return { x: c.x + 200, y: c.y };
-  }
-  const sumX = others.reduce((s, i) => s + ((centroids[i.id] || {}).x || 0), 0);
-  const sumY = others.reduce((s, i) => s + ((centroids[i.id] || {}).y || 0), 0);
-  return { x: sumX / others.length, y: sumY / others.length };
+/** Place cross-incident nodes on a horizontal band below the cluster grid.
+ *  Each ID gets a deterministic x based on a hash of (incId, alertId) so
+ *  nodes don't overlap. */
+function computeCrossIncidentPosition(incId, alertId, centroids) {
+  const bandY = centroids.__crossBandY || 800;
+  // Simple deterministic hash → x spread across the band
+  const key = `${incId}-${alertId}`;
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) | 0;
+  const x = (Math.abs(h) % 1400) - 700;
+  return { x, y: bandY };
 }
 
 // ── localStorage position persistence ────────────────────────────────────────
