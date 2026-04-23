@@ -10,18 +10,32 @@
 
   <!-- ── Toolbar ─────────────────────────────────────────────────────── -->
   <div class="inc-toolbar">
-    <rux-input
+    <input
+      type="search"
       id="inc-search"
+      class="inc-search-input"
       placeholder="Search incidents…"
-      size="small"
-      style="--input-width:220px"
-    ></rux-input>
+      autocomplete="off"
+    />
 
-    <!-- Data set programmatically in incident_graph.js initToolbar() —
-         the data="…" HTML attribute with multi-line + &quot;-encoded JSON
-         fails to parse reliably on the current AstroUXDS build. -->
-    <rux-segmented-button id="inc-window"></rux-segmented-button>
-    <rux-segmented-button id="inc-severity"></rux-segmented-button>
+    <!-- Plain range-buttons (shared .range-btn style from base.css).  The
+         AstroUXDS rux-segmented-button didn't populate its shadow DOM on
+         this build, so match the history page's working pattern. -->
+    <div class="range-btn-group" id="inc-window-group" role="group" aria-label="Time window">
+      <button class="range-btn" data-window="15m">15m</button>
+      <button class="range-btn" data-window="1h">1h</button>
+      <button class="range-btn" data-window="6h">6h</button>
+      <button class="range-btn" data-window="12h">12h</button>
+      <button class="range-btn active" data-window="24h">24h</button>
+      <button class="range-btn" data-window="14d">14d</button>
+    </div>
+
+    <div class="range-btn-group" id="inc-severity-group" role="group" aria-label="Severity filter">
+      <button class="range-btn active" data-sev="all">All</button>
+      <button class="range-btn" data-sev="critical">Critical</button>
+      <button class="range-btn" data-sev="warning">Warning</button>
+      <button class="range-btn" data-sev="info">Info</button>
+    </div>
 
     <div class="inc-sev-pills" id="inc-sev-pills">
       <span class="inc-sev-pill pill-critical"><span class="inc-sev-pill-count" id="pill-critical-count">0</span> Critical</span>

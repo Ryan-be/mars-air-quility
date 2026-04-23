@@ -20,6 +20,22 @@
   flex-shrink: 0;
 }
 
+.inc-search-input {
+  width: 220px;
+  padding: 5px 10px;
+  font-size: 0.82rem;
+  font-family: inherit;
+  background: rgba(30, 42, 64, 0.7);
+  border: 1px solid rgba(90, 120, 170, 0.45);
+  border-radius: 3px;
+  color: var(--text);
+}
+.inc-search-input::placeholder { color: var(--text-muted); }
+.inc-search-input:focus {
+  outline: none;
+  border-color: rgba(77, 172, 255, 0.7);
+}
+
 /* ── Main layout (3 columns) ─────────────────────────────────────────────── */
 
 .inc-layout {

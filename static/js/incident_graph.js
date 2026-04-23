@@ -27,8 +27,8 @@ const POS_KEY_PREFIX = 'tl1::';
 // ── DOM refs ─────────────────────────────────────────────────────────────────
 
 const elSearch      = document.getElementById('inc-search');
-const elWindow      = document.getElementById('inc-window');
-const elSeverity    = document.getElementById('inc-severity');
+const elWindow      = document.getElementById('inc-window-group');
+const elSeverity    = document.getElementById('inc-severity-group');
 const elList        = document.getElementById('inc-list-items');
 const elEmpty       = document.querySelector('.inc-detail-empty');
 const elNarrative   = document.getElementById('inc-narrative');
@@ -67,46 +67,48 @@ document.addEventListener('DOMContentLoaded', () => {
 // ── Toolbar ───────────────────────────────────────────────────────────────────
 
 function initToolbar() {
-  // Populate the segmented-button data programmatically. The data="…" HTML
-  // attribute with multi-line + &quot;-encoded JSON fails to parse on some
-  // AstroUXDS builds, leaving the component empty with no rendered buttons.
   if (elWindow) {
-    elWindow.data = JSON.stringify([
-      { label: '15m', selected: false },
-      { label: '1h',  selected: false },
-      { label: '6h',  selected: false },
-      { label: '12h', selected: false },
-      { label: '24h', selected: true  },
-      { label: '14d', selected: false },
-    ]);
+    elWindow.addEventListener('click', e => {
+      const btn = e.target.closest('.range-btn');
+      if (!btn) return;
+      elWindow.querySelectorAll('.range-btn').forEach(b =>
+        b.classList.toggle('active', b === btn)
+      );
+      activeWindow = (btn.dataset.window || '24h').toLowerCase();
+      loadIncidents();
+    });
   }
+
   if (elSeverity) {
-    elSeverity.data = JSON.stringify([
-      { label: 'All',      selected: true  },
-      { label: 'Critical', selected: false },
-      { label: 'Warning',  selected: false },
-      { label: 'Info',     selected: false },
-    ]);
+    elSeverity.addEventListener('click', e => {
+      const btn = e.target.closest('.range-btn');
+      if (!btn) return;
+      elSeverity.querySelectorAll('.range-btn').forEach(b =>
+        b.classList.toggle('active', b === btn)
+      );
+      activeSeverity = (btn.dataset.sev || 'all').toLowerCase();
+      renderList(applyClientFilter(allIncidents));
+    });
   }
 
-  elWindow.addEventListener('ruxchange', e => {
-    activeWindow = (e.detail || '24h').toLowerCase();
-    loadIncidents();
-  });
-
-  elSeverity.addEventListener('ruxchange', e => {
-    const val = (e.detail || 'All').toLowerCase();
-    activeSeverity = val === 'all' ? 'all' : val;
-    renderList(applyClientFilter(allIncidents));
-  });
-
-  elSearch.addEventListener('ruxinput', e => {
-    clearTimeout(searchTimer);
-    searchTimer = setTimeout(() => {
-      searchQuery = (e.target.value || '').toLowerCase().trim();
-      renderList(applyClientFilter(allIncidents));
-    }, 300);
-  });
+  if (elSearch) {
+    elSearch.addEventListener('input', e => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => {
+        searchQuery = (e.target.value || '').toLowerCase().trim();
+        renderList(applyClientFilter(allIncidents));
+      }, 300);
+    });
+    // Also listen to AstroUXDS's custom event in case rux-input eventually
+    // hydrates — harmless if it never fires.
+    elSearch.addEventListener('ruxinput', e => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => {
+        searchQuery = (e.target.value || '').toLowerCase().trim();
+        renderList(applyClientFilter(allIncidents));
+      }, 300);
+    });
+  }
 }
 
 function initViewControls() {
@@ -237,14 +239,12 @@ async function loadIncidents() {
   }
 }
 
-/** Update the rux-segmented-button to reflect the auto-widened window. */
+/** Toggle the .active class on the .range-btn group to reflect the window. */
 function _syncWindowButton(win) {
   if (!elWindow) return;
-  try {
-    const labels = ['15m', '1h', '6h', '12h', '24h', '14d'];
-    const updated = labels.map(l => ({ label: l, selected: l === win }));
-    elWindow.data = JSON.stringify(updated);
-  } catch (_) {}
+  elWindow.querySelectorAll('.range-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.window === win)
+  );
 }
 
 // ── Render incident list ──────────────────────────────────────────────────────
@@ -738,7 +738,7 @@ function buildCentroids(incidents) {
   //
   // Constants mirror buildIncidentElements — keep in sync.
   const MIN_WIDTH_PX    = 360;
-  const PX_PER_ALERT    = 24;
+  const PX_PER_ALERT    = 32;
   const HULL_PADDING_PX = 80;  // 40 each side (from the node.hull style rule)
   const INTER_CLUSTER_GAP = 70;
   const GRID_SPACING_Y  = 220;
@@ -805,14 +805,16 @@ function buildIncidentElements(detail, centroids, isGhost = false) {
   //
   // TIMELINE_WIDTH_PX is adaptive: 360px minimum, but grows with alert count
   // so that a 40-alert incident doesn't jam everything into the same narrow
-  // window.  ~24px per alert gives a node-width of 20 + ~4 gap on average,
-  // enough for labels to read once the zoom-full threshold triggers.
-  const PX_PER_ALERT      = 24;
+  // window.  ~32px per alert gives a node-width of 20 + ~12 gap on average,
+  // enough for HH:MM labels not to overlap at default zoom.
+  const PX_PER_ALERT      = 32;
   const TIMELINE_WIDTH_PX = Math.max(360, primaryAlerts.length * PX_PER_ALERT);
   const LANE_HEIGHT_PX    = 44;
   const LANE_BY_SEVERITY  = { critical: 0, warning: 1, info: 2 };
-  const COLLISION_X_PX    = 26;   // alerts closer than this on x share a slot
-  const STACK_DY_PX       = 13;   // vertical step between stack slots
+  const COLLISION_X_PX    = 30;   // alerts closer than this share a slot
+  const STACK_DY_PX       = 16;   // vertical step between stack slots
+  const STACK_DX_PX       = 16;   // horizontal step — fans stacked alerts
+                                  // diagonally so HH:MM labels don't collide
   // Order: centre first, then alternating out so the stack stays balanced.
   const STACK_STEPS = [0, 1, -1, 2, -2, 3, -3, 4, -4, 5, -5];
 
@@ -834,24 +836,24 @@ function buildIncidentElements(detail, centroids, isGhost = false) {
     const baseX = centre.x - TIMELINE_WIDTH_PX / 2 + t * TIMELINE_WIDTH_PX;
     const baseY = centre.y - LANE_HEIGHT_PX + lane * LANE_HEIGHT_PX;
 
-    // Walk STACK_STEPS to find the first y that no near-x placement occupies.
-    // Collision check is cross-lane on purpose: a critical alert stacked down
-    // into the warning lane's y-range must still block a later warning alert
-    // at the same x. (Earlier same-lane-only check allowed exactly that
-    // overlap.) STACK_STEPS has 11 slots; if all are taken we fall through
-    // to baseY — a tiny pile-on for genuinely saturated clusters.
-    let finalY = baseY;
+    // Walk STACK_STEPS to find the first (x, y) slot not occupied by another
+    // placement. Each step fans diagonally: step k => (baseX + k*DX, baseY +
+    // k*DY). Diagonal placement keeps HH:MM labels from colliding when many
+    // alerts share an exact timestamp (all those alerts have identical baseX,
+    // so pure vertical stacking would collide their labels at the same x).
+    let finalX = baseX, finalY = baseY;
     for (const step of STACK_STEPS) {
-      const candidate = baseY + step * STACK_DY_PX;
+      const candidateX = baseX + step * STACK_DX_PX;
+      const candidateY = baseY + step * STACK_DY_PX;
       const taken = placed.some(p =>
-        Math.abs(p.x - baseX) < COLLISION_X_PX &&
-        Math.abs(p.y - candidate) < STACK_DY_PX  // neighbouring slot counts as taken
+        Math.abs(p.x - candidateX) < COLLISION_X_PX &&
+        Math.abs(p.y - candidateY) < STACK_DY_PX
       );
-      if (!taken) { finalY = candidate; break; }
+      if (!taken) { finalX = candidateX; finalY = candidateY; break; }
     }
 
-    const alertPos = { x: baseX, y: finalY };
-    placed.push({ x: baseX, y: finalY });
+    const alertPos = { x: finalX, y: finalY };
+    placed.push({ x: finalX, y: finalY });
 
     elements.push({
       group: 'nodes',
