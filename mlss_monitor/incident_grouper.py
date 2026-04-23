@@ -598,22 +598,30 @@ def regroup_all(db_file: str) -> None:
     raw_alerts = _load_all_inferences(db_file)
 
     # Attach signal_deps to each alert so the pure functions can read them.
+    # Single bulk fetch — avoids N+1 SELECTs when there are many alerts.
     conn = sqlite3.connect(db_file, timeout=15)
     conn.row_factory = sqlite3.Row
-    for a in raw_alerts:
-        dep_rows = conn.execute(
-            "SELECT sensor, r, lag_seconds FROM alert_signal_deps WHERE alert_id = ?",
-            (a["id"],),
+    if raw_alerts:
+        ids = tuple(a["id"] for a in raw_alerts)
+        placeholders = ",".join("?" * len(ids))
+        all_deps = conn.execute(
+            f"SELECT alert_id, sensor, r, lag_seconds FROM alert_signal_deps "
+            f"WHERE alert_id IN ({placeholders})",
+            ids,
         ).fetchall()
-        a["signal_deps"] = [dict(d) for d in dep_rows]
+        dep_map: dict[int, list[dict]] = {}
+        for row in all_deps:
+            dep_map.setdefault(row["alert_id"], []).append({
+                "sensor": row["sensor"],
+                "r": row["r"],
+                "lag_seconds": row["lag_seconds"],
+            })
+        for a in raw_alerts:
+            a["signal_deps"] = dep_map.get(a["id"], [])
     conn.close()
 
     primary = [a for a in raw_alerts if not is_cross_incident(a.get("event_type", ""))]
     cross = [a for a in raw_alerts if is_cross_incident(a.get("event_type", ""))]
-
-    # Attach detection_method so downstream (narrative) has it.
-    for a in raw_alerts:
-        a["detection_method"] = detection_method(a.get("event_type", ""))
 
     split_markers = _load_split_markers(db_file)
     edges = build_edges(primary, split_markers)
