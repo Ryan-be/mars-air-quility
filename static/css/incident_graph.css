@@ -224,6 +224,16 @@
   margin: 4px 0;
 }
 
+/* Correlation line — visually distinct "why linked" footer */
+.inc-narrative-correlation {
+  margin-top: 8px !important;
+  padding-top: 8px;
+  border-top: 1px solid rgba(77, 172, 255, 0.18);
+  color: var(--text) !important;
+  font-style: italic;
+  line-height: 1.45;
+}
+
 /* Causal sequence ── horizontal ribbon */
 .inc-causal-ribbon {
   display: flex;

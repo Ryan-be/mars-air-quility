@@ -35,6 +35,7 @@ const elNarrative   = document.getElementById('inc-narrative');
 const elNarrObs     = document.getElementById('inc-narrative-observed');
 const elNarrInf     = document.getElementById('inc-narrative-inferred');
 const elNarrImp     = document.getElementById('inc-narrative-impact');
+const elNarrCorr    = document.getElementById('inc-narrative-correlation');
 const elCausal      = document.getElementById('inc-causal');
 const elCausalItems = document.getElementById('inc-causal-items');
 const elSimilar     = document.getElementById('inc-similar');
@@ -226,7 +227,27 @@ async function loadIncidents() {
           _syncWindowButton(win);
         }
         renderList(applyClientFilter(allIncidents));
-        if (allIncidents.length > 0 && !currentIncidentId) {
+
+        // After a window change, the previously-selected incident may no
+        // longer be in the filtered list. Reset and pick the newest. If it
+        // IS still present, re-render the graph anyway so ghost clusters
+        // reflect the new list instead of showing stale incidents from the
+        // previous window.
+        const stillValid = currentIncidentId &&
+          allIncidents.some(i => i.id === currentIncidentId);
+
+        if (allIncidents.length === 0) {
+          currentIncidentId = null;
+          currentDetail = null;
+          if (cy) cy.elements().remove();
+          if (elEmpty) elEmpty.hidden = false;
+          if (elNarrative) elNarrative.hidden = true;
+          if (elCausal) elCausal.hidden = true;
+          if (elSimilar) elSimilar.hidden = true;
+          if (elNodeOverlay) elNodeOverlay.hidden = true;
+        } else if (stillValid && currentDetail) {
+          renderGraph(currentDetail, allIncidents);
+        } else {
           selectIncident(allIncidents[0].id);
         }
         return;
@@ -323,6 +344,11 @@ function renderDetail(detail) {
     if (elNarrObs) elNarrObs.textContent = detail.narrative.observed || '';
     if (elNarrInf) elNarrInf.textContent = detail.narrative.inferred || '';
     if (elNarrImp) elNarrImp.textContent = detail.narrative.impact || '';
+    if (elNarrCorr) {
+      const corr = detail.narrative.correlation || '';
+      elNarrCorr.textContent = corr;
+      elNarrCorr.hidden = !corr;
+    }
     elNarrative.hidden = false;
   }
 

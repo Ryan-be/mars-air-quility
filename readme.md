@@ -986,7 +986,7 @@ The `MLSS_ALLOWED_GITHUB_USER` bootstrap account always has the **admin** role r
 | Method | Endpoint | Min role | Description |
 |---|---|---|---|
 | `GET` | `/api/incidents?window=24h&severity=all&q=&limit=50` | viewer | List incidents within `window` (`1h`/`6h`/`24h`/`7d`/`30d`). Returns `{incidents, total, counts: {critical, warning, info}, summary: {top_sensors, hour_histogram}}`. `q` is a free-text filter over id + title. |
-| `GET` | `/api/incidents/<id>` | viewer | Full incident detail: alerts (with `signal_deps` Pearson r per sensor), `causal_sequence` (primary alerts, chronological), `narrative` (`{observed, inferred, impact}` prose with timestamps, built by `mlss_monitor/incidents_narrative.py`), `similar` (top 3 past incidents by 32-dim cosine similarity, each with a `why` string naming the matching axes via `explain_similarity`). |
+| `GET` | `/api/incidents/<id>` | viewer | Full incident detail: alerts (with `signal_deps` Pearson r per sensor), `causal_sequence` (primary alerts, chronological), `narrative` (`{observed, inferred, impact, correlation}` English prose with timestamps, built by `mlss_monitor/incidents_narrative.py`; the `correlation` field explains *why* the alerts appear linked — dominant sensor, cross-sensor co-movement, and/or severity trajectory), `similar` (top 3 past incidents by 32-dim cosine similarity, each with a `why` string naming the matching axes via `explain_similarity`). |
 
 Incidents are sessionised by a 30-minute silence gap and persisted in three tables (see [Database design](#database-design)). The grouping is handled by a background daemon (`mlss_monitor/incident_grouper.py`) that subscribes to `new_inference` events on the in-process event bus and re-groups on a 60-second safety-net interval. See `docs/superpowers/plans/2026-04-23-incident-correlation-graph.md` and `docs/superpowers/plans/2026-04-23-incidents-tab-improvements.md` for the full architecture.
 
@@ -1073,7 +1073,10 @@ mlss_monitor/
                               per-sensor signal deps, builds 32-dim similarity signatures,
                               and offers explain_similarity() for why-similar explanations
   incidents_narrative.py      Pure functions that turn an incident + its alerts into
-                              {observed, inferred, impact} English prose with timestamps
+                              {observed, inferred, impact, correlation} English prose
+                              with timestamps — correlation explains *why* the alerts
+                              are linked (dominant sensor, cross-sensor co-movement,
+                              and/or severity trajectory)
                               (no DB, no Flask -- unit-testable)
   routes/
     __init__.py               Blueprint registration

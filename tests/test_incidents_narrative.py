@@ -80,3 +80,88 @@ def test_primary_alerts_only_in_prose():
     out = build_narrative(inc, alerts)
     assert "CO" in out["inferred"] or "994" in out["inferred"]
     assert "hourly" not in out["inferred"].lower()
+
+
+# ── Correlation explanation ──────────────────────────────────────────────
+
+def test_correlation_field_is_present():
+    inc = {"id": "INC-1", "started_at": "2026-04-23 09:28:00", "ended_at": "2026-04-23 10:00:00"}
+    out = build_narrative(inc, [_alert()])
+    assert "correlation" in out
+    assert isinstance(out["correlation"], str)
+
+
+def test_correlation_names_dominant_sensor():
+    """If every primary alert strongly correlates with eCO2, say so."""
+    inc = {"id": "INC-1", "started_at": "2026-04-23 09:28:00", "ended_at": "2026-04-23 10:00:00"}
+    deps_eco2 = [{"sensor": "eco2_ppm", "r": 0.85, "lag_seconds": 0}]
+    alerts = [
+        _alert(id=1, title="CO\u2082 elevated", signal_deps=deps_eco2),
+        _alert(id=2, created_at="2026-04-23 09:36:00", title="CO\u2082 dangerously high",
+               signal_deps=deps_eco2),
+        _alert(id=3, created_at="2026-04-23 09:42:00", title="CO\u2082 elevated",
+               signal_deps=deps_eco2),
+    ]
+    out = build_narrative(inc, alerts)
+    low = out["correlation"].lower()
+    # Should name eCO2 (or its sensor key) as the link
+    assert "eco2" in low or "co" in low
+
+
+def test_correlation_mentions_cross_sensor_co_movement():
+    """Two distinct strong sensors => mention both as a linked pair."""
+    inc = {"id": "INC-1", "started_at": "2026-04-23 09:28:00", "ended_at": "2026-04-23 10:00:00"}
+    deps_both = [
+        {"sensor": "tvoc_ppb", "r": 0.78, "lag_seconds": 0},
+        {"sensor": "eco2_ppm", "r": 0.82, "lag_seconds": 0},
+    ]
+    alerts = [
+        _alert(id=1, title="TVOC spike", signal_deps=deps_both),
+        _alert(id=2, created_at="2026-04-23 09:36:00", title="CO\u2082 elevated",
+               signal_deps=deps_both),
+        _alert(id=3, created_at="2026-04-23 09:42:00", title="CO\u2082 dangerously high",
+               signal_deps=deps_both),
+    ]
+    out = build_narrative(inc, alerts)
+    low = out["correlation"].lower()
+    # Both sensors named
+    assert "tvoc" in low
+    assert "eco2" in low or "co" in low
+
+
+def test_correlation_mentions_severity_escalation():
+    """Narrative notes when severity escalates info -> warning -> critical."""
+    inc = {"id": "INC-1", "started_at": "2026-04-23 09:28:00", "ended_at": "2026-04-23 10:00:00"}
+    alerts = [
+        _alert(id=1, severity="info",    created_at="2026-04-23 09:28:00"),
+        _alert(id=2, severity="warning", created_at="2026-04-23 09:36:00"),
+        _alert(id=3, severity="critical", created_at="2026-04-23 09:50:00"),
+    ]
+    out = build_narrative(inc, alerts)
+    assert "escalat" in out["correlation"].lower()
+
+
+def test_correlation_fallback_when_no_signal_deps():
+    """When no signal_deps exist (empty or all None/weak), still return a sane string."""
+    inc = {"id": "INC-1", "started_at": "2026-04-23 09:28:00", "ended_at": "2026-04-23 10:00:00"}
+    alerts = [
+        _alert(id=1, signal_deps=[]),
+        _alert(id=2, created_at="2026-04-23 09:36:00", signal_deps=[{"sensor": "eco2_ppm", "r": None, "lag_seconds": 0}]),
+    ]
+    out = build_narrative(inc, alerts)
+    assert out["correlation"] != ""
+    # Should not contain any sensor name since nothing was strong
+    low = out["correlation"].lower()
+    assert "temporal" in low or "cluster" in low or "no " in low
+
+
+def test_correlation_ignores_weak_r():
+    """|r| < 0.5 should not count as a correlation signal."""
+    inc = {"id": "INC-1", "started_at": "2026-04-23 09:28:00", "ended_at": "2026-04-23 10:00:00"}
+    alerts = [
+        _alert(id=1, signal_deps=[{"sensor": "humidity_pct", "r": 0.2, "lag_seconds": 0}]),
+        _alert(id=2, created_at="2026-04-23 09:36:00",
+               signal_deps=[{"sensor": "humidity_pct", "r": 0.25, "lag_seconds": 0}]),
+    ]
+    out = build_narrative(inc, alerts)
+    assert "humidity" not in out["correlation"].lower()
