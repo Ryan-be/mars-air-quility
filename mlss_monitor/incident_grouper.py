@@ -155,6 +155,7 @@ def build_incident_similarity_vector(alerts: list[dict[str, Any]]) -> list[float
       0-9   : peak delta placeholders (0.0)
       10-19 : sensor presence flags (1.0 if event_type implies that sensor)
       20-24 : detection method one-hot (threshold/ml/fingerprint/summary/statistical)
+      25    : reserved (intentionally unused — do not assign without updating stored signatures)
       26-28 : severity one-hot (info=26, warning=27, critical=28)
       29    : incident duration in minutes
       30    : mean confidence

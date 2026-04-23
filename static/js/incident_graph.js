@@ -346,6 +346,10 @@ function applyZoomClasses(zoom) {
 // ── Cytoscape init ────────────────────────────────────────────────────────────
 
 function initCytoscape() {
+  if (typeof cytoscape === 'undefined') {
+    console.error('Cytoscape.js not loaded — graph unavailable. Check CDN connectivity.');
+    return;
+  }
   if (cy) { cy.destroy(); cy = null; }
 
   cy = cytoscape({
