@@ -280,6 +280,42 @@ def create_db():
         "CREATE INDEX IF NOT EXISTS idx_hot_tier_timestamp ON hot_tier (timestamp);"
     )
 
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS incidents (
+        id           TEXT PRIMARY KEY,
+        started_at   TIMESTAMP NOT NULL,
+        ended_at     TIMESTAMP NOT NULL,
+        max_severity TEXT NOT NULL DEFAULT 'info'
+                         CHECK(max_severity IN ('info', 'warning', 'critical')),
+        confidence   REAL NOT NULL DEFAULT 0,
+        title        TEXT NOT NULL,
+        signature    TEXT NOT NULL DEFAULT '[]'
+    );
+    """)
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_incidents_started "
+        "ON incidents (started_at DESC)"
+    )
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS incident_alerts (
+        incident_id TEXT    NOT NULL REFERENCES incidents(id),
+        alert_id    INTEGER NOT NULL REFERENCES inferences(id),
+        is_primary  INTEGER NOT NULL DEFAULT 1,
+        PRIMARY KEY (incident_id, alert_id)
+    );
+    """)
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS alert_signal_deps (
+        alert_id     INTEGER NOT NULL REFERENCES inferences(id),
+        sensor       TEXT    NOT NULL,
+        r            REAL,
+        lag_seconds  INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY  (alert_id, sensor)
+    );
+    """)
+
     conn.commit()
     conn.close()
 
