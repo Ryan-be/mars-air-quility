@@ -2,7 +2,6 @@
 {% block title %}MLSS – Incidents{% endblock %}
 
 {% block extra_css %}
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cytoscape-navigator@2.0.1/cytoscape.js-navigator.css">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/incident_graph.css') }}">
 {% endblock %}
 
@@ -18,27 +17,11 @@
       style="--input-width:220px"
     ></rux-input>
 
-    <rux-segmented-button
-      id="inc-window"
-      data="[
-        {&quot;label&quot;:&quot;15m&quot;,&quot;selected&quot;:false},
-        {&quot;label&quot;:&quot;1h&quot;,&quot;selected&quot;:false},
-        {&quot;label&quot;:&quot;6h&quot;,&quot;selected&quot;:false},
-        {&quot;label&quot;:&quot;12h&quot;,&quot;selected&quot;:false},
-        {&quot;label&quot;:&quot;24h&quot;,&quot;selected&quot;:true},
-        {&quot;label&quot;:&quot;14d&quot;,&quot;selected&quot;:false}
-      ]"
-    ></rux-segmented-button>
-
-    <rux-segmented-button
-      id="inc-severity"
-      data="[
-        {&quot;label&quot;:&quot;All&quot;,&quot;selected&quot;:true},
-        {&quot;label&quot;:&quot;Critical&quot;,&quot;selected&quot;:false},
-        {&quot;label&quot;:&quot;Warning&quot;,&quot;selected&quot;:false},
-        {&quot;label&quot;:&quot;Info&quot;,&quot;selected&quot;:false}
-      ]"
-    ></rux-segmented-button>
+    <!-- Data set programmatically in incident_graph.js initToolbar() —
+         the data="…" HTML attribute with multi-line + &quot;-encoded JSON
+         fails to parse reliably on the current AstroUXDS build. -->
+    <rux-segmented-button id="inc-window"></rux-segmented-button>
+    <rux-segmented-button id="inc-severity"></rux-segmented-button>
 
     <div class="inc-sev-pills" id="inc-sev-pills">
       <span class="inc-sev-pill pill-critical"><span class="inc-sev-pill-count" id="pill-critical-count">0</span> Critical</span>
@@ -65,10 +48,12 @@
         <button class="inc-ctrl-btn" id="ctrl-fit-sel" title="Fit selected incident">Selected</button>
         <button class="inc-ctrl-btn" id="ctrl-reset-pos" title="Reset manual positions">Reset</button>
         <span class="inc-ctrl-sep"></span>
-        <button class="inc-ctrl-btn inc-layout-btn" data-layout="preset" title="Manual layout (drag to arrange)">Manual</button>
-        <button class="inc-ctrl-btn inc-layout-btn" data-layout="cose" title="Physics layout">Physics</button>
-        <button class="inc-ctrl-btn inc-layout-btn" data-layout="breadthfirst" title="Tree layout">Tree</button>
-        <button class="inc-ctrl-btn inc-layout-btn" data-layout="circle" title="Circle layout">Circle</button>
+        <button class="inc-ctrl-btn inc-layout-btn" data-layout="preset" title="Manual layout — timeline inside each cluster, drag to arrange">Manual</button>
+        <button class="inc-ctrl-btn inc-layout-btn" data-layout="cose" title="Physics — force-directed, good for exploring relationships">Physics</button>
+        <button class="inc-ctrl-btn inc-layout-btn" data-layout="breadthfirst" title="Tree — hierarchical by incident">Tree</button>
+        <button class="inc-ctrl-btn inc-layout-btn" data-layout="circle" title="Circle — radial">Circle</button>
+        <button class="inc-ctrl-btn inc-layout-btn" data-layout="grid" title="Grid — regular rows and columns">Grid</button>
+        <button class="inc-ctrl-btn inc-layout-btn" data-layout="concentric" title="Concentric — severity-weighted rings (critical in the middle)">Rings</button>
       </div>
       <div class="inc-graph-summary" id="inc-graph-summary">
         <div class="inc-summary-section">
@@ -145,7 +130,5 @@
 {% block scripts %}
   <!-- Cytoscape.js — MIT licence, cdnjs CDN -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.30.2/cytoscape.min.js"></script>
-  <!-- cytoscape-navigator — MIT licence, jsDelivr CDN (provides cy.navigator()) -->
-  <script src="https://cdn.jsdelivr.net/npm/cytoscape-navigator@2.0.1/cytoscape.js-navigator.js"></script>
   <script type="module" src="{{ url_for('static', filename='js/incident_graph.js') }}"></script>
 {% endblock %}

@@ -463,11 +463,20 @@
   border-radius: 1px;
 }
 
-/* ── Minimap (cytoscape-navigator) ─────────────────────────────────────── */
+
+.inc-similar-main { flex: 1; min-width: 0; }
+.inc-similar-why {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  font-style: italic;
+  margin-top: 2px;
+}
+
+/* ── Minimap (lightweight custom, no external plugin) ──────────────────── */
 
 .inc-graph-minimap {
   position: absolute;
-  bottom: 48px;   /* sits above the 36px-tall symbol key */
+  bottom: 48px;     /* sits above the 36px symbol key + a 12px cushion */
   right: 12px;
   width: 240px;
   height: 150px;
@@ -477,21 +486,32 @@
   overflow: hidden;
   z-index: 5;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
+  cursor: crosshair;
+  user-select: none;
 }
 
-/* Override the navigator plugin's default viewport box to match AstroUXDS */
-.cytoscape-navigator > canvas { background: transparent; }
-.cytoscape-navigatorView {
-  background: rgba(77, 172, 255, 0.15) !important;
-  border: 1.5px solid rgba(77, 172, 255, 0.85) !important;
+.inc-graph-minimap canvas {
+  position: absolute; top: 0; left: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+}
+
+.inc-graph-minimap .mini-viewport {
+  position: absolute;
+  border: 1.5px solid rgba(77, 172, 255, 0.85);
+  background: rgba(77, 172, 255, 0.12);
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+  box-sizing: border-box;
 }
-.cytoscape-navigatorOverlay { cursor: move; }
 
-.inc-similar-main { flex: 1; min-width: 0; }
-.inc-similar-why {
-  font-size: 0.68rem;
-  color: var(--text-muted);
-  font-style: italic;
-  margin-top: 2px;
+.inc-graph-minimap .mini-label {
+  position: absolute;
+  top: 4px; left: 6px;
+  font-size: 0.6rem;
+  font-weight: 600;
+  color: rgba(200, 210, 230, 0.55);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  pointer-events: none;
 }

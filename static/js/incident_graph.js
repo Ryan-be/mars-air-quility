@@ -67,6 +67,28 @@ document.addEventListener('DOMContentLoaded', () => {
 // ── Toolbar ───────────────────────────────────────────────────────────────────
 
 function initToolbar() {
+  // Populate the segmented-button data programmatically. The data="…" HTML
+  // attribute with multi-line + &quot;-encoded JSON fails to parse on some
+  // AstroUXDS builds, leaving the component empty with no rendered buttons.
+  if (elWindow) {
+    elWindow.data = JSON.stringify([
+      { label: '15m', selected: false },
+      { label: '1h',  selected: false },
+      { label: '6h',  selected: false },
+      { label: '12h', selected: false },
+      { label: '24h', selected: true  },
+      { label: '14d', selected: false },
+    ]);
+  }
+  if (elSeverity) {
+    elSeverity.data = JSON.stringify([
+      { label: 'All',      selected: true  },
+      { label: 'Critical', selected: false },
+      { label: 'Warning',  selected: false },
+      { label: 'Info',     selected: false },
+    ]);
+  }
+
   elWindow.addEventListener('ruxchange', e => {
     activeWindow = (e.detail || '24h').toLowerCase();
     loadIncidents();
@@ -118,10 +140,24 @@ function initViewControls() {
       activeLayout = name;
       document.querySelectorAll('.inc-layout-btn').forEach(b => b.classList.toggle('active', b.dataset.layout === name));
       if (!cy || name === 'preset') return;
+      const common = { animate: true, animationDuration: 500, fit: false, padding: 40 };
       const layoutOpts = {
-        cose:          { name: 'cose', animate: true, animationDuration: 500, fit: false, padding: 40 },
-        breadthfirst:  { name: 'breadthfirst', animate: true, animationDuration: 500, fit: false, padding: 40, directed: false },
-        circle:        { name: 'circle', animate: true, animationDuration: 500, fit: false, padding: 40 },
+        cose:         { ...common, name: 'cose' },
+        breadthfirst: { ...common, name: 'breadthfirst', directed: false },
+        circle:       { ...common, name: 'circle' },
+        grid:         { ...common, name: 'grid', avoidOverlap: true, condense: false },
+        concentric:   {
+          ...common,
+          name: 'concentric',
+          // Critical in the centre, info on the outside. Works on the hull
+          // nodes — alerts inherit their parent's position.
+          concentric: n => {
+            const sev = (n.classes().find(c => c.startsWith('severity-')) || '').replace('severity-', '');
+            return sev === 'critical' ? 3 : sev === 'warning' ? 2 : 1;
+          },
+          levelWidth: () => 1,
+          minNodeSpacing: 40,
+        },
       };
       cy.layout(layoutOpts[name] || { name }).run();
     });
@@ -559,19 +595,16 @@ function applyZoomClasses(zoom) {
 
 // ── Cytoscape init ────────────────────────────────────────────────────────────
 
-// Navigator (minimap) instance — kept at module scope so we can tear it down
-// when Cytoscape is re-initialised, to avoid leaking canvases.
-let _navigator = null;
+// Teardown hook for the custom minimap so we can re-init cleanly when
+// Cytoscape is recreated.
+let _miniTeardown = null;
 
 function initCytoscape() {
   if (typeof cytoscape === 'undefined') {
     console.error('Cytoscape.js not loaded — graph unavailable. Check CDN connectivity.');
     return;
   }
-  if (_navigator && typeof _navigator.destroy === 'function') {
-    try { _navigator.destroy(); } catch (_) {}
-    _navigator = null;
-  }
+  if (_miniTeardown) { try { _miniTeardown(); } catch (_) {} _miniTeardown = null; }
   if (cy) { cy.destroy(); cy = null; }
 
   cy = cytoscape({
@@ -586,24 +619,10 @@ function initCytoscape() {
     layout: { name: 'preset' },
   });
 
-  // Minimap: cytoscape-navigator plugin attaches itself as cy.navigator().
-  // Gated on feature-detection so the page still works if the plugin CDN fails.
-  const miniEl = document.getElementById('cy-minimap');
-  if (miniEl && typeof cy.navigator === 'function') {
-    try {
-      _navigator = cy.navigator({
-        container: miniEl,
-        viewLiveFramerate: 0,        // re-render on pan/zoom end
-        thumbnailEventFramerate: 30,
-        thumbnailLiveFramerate: false,
-        dblClickDelay: 200,
-        removeCustomContainer: false,
-        rerenderDelay: 100,
-      });
-    } catch (err) {
-      console.warn('Minimap (cytoscape-navigator) init failed:', err);
-    }
-  }
+  // Custom lightweight minimap — avoids the jQuery dependency of
+  // cytoscape-navigator. Draws hull rectangles + a draggable viewport
+  // indicator on a 240×150 canvas pinned bottom-right.
+  _miniTeardown = initMinimap();
 
   cy.on('zoom', () => applyZoomClasses(cy.zoom()));
 
@@ -1002,6 +1021,143 @@ function applySelectionOpacity(selectedId) {
     const sel = src.data('incidentId') === selectedId || tgt.data('incidentId') === selectedId;
     e.style('opacity', sel ? 1 : 0.4);
   });
+}
+
+// ── Minimap ───────────────────────────────────────────────────────────────────
+
+/**
+ * Lightweight canvas-based minimap.
+ *
+ * Draws one rectangle per incident hull onto a 240x150 canvas, with a blue
+ * viewport indicator showing the portion of the world Cytoscape is currently
+ * rendering. Click or click-drag the minimap to pan the main view.
+ *
+ * Returns a teardown function that removes listeners + DOM children so it can
+ * be called safely when the Cytoscape instance is recreated.
+ */
+function initMinimap() {
+  const mini = document.getElementById('cy-minimap');
+  if (!mini || !cy) return null;
+
+  const MINI_W = mini.clientWidth || 240;
+  const MINI_H = mini.clientHeight || 150;
+
+  mini.innerHTML = '';
+  const canvas = document.createElement('canvas');
+  canvas.width = MINI_W;
+  canvas.height = MINI_H;
+  const viewport = document.createElement('div');
+  viewport.className = 'mini-viewport';
+  const label = document.createElement('span');
+  label.className = 'mini-label';
+  label.textContent = 'Overview';
+  mini.appendChild(canvas);
+  mini.appendChild(viewport);
+  mini.appendChild(label);
+
+  let scale = 1, offX = 0, offY = 0;
+
+  function computeTransform() {
+    const bb = cy.elements().boundingBox({ includeLabels: false });
+    const worldW = Math.max(bb.w, 1);
+    const worldH = Math.max(bb.h, 1);
+    const pad = 8;
+    scale = Math.min((MINI_W - pad * 2) / worldW, (MINI_H - pad * 2) / worldH);
+    offX = pad - bb.x1 * scale + (MINI_W - pad * 2 - worldW * scale) / 2;
+    offY = pad - bb.y1 * scale + (MINI_H - pad * 2 - worldH * scale) / 2;
+  }
+
+  function render() {
+    if (!cy) return;
+    computeTransform();
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, MINI_W, MINI_H);
+
+    // Hull rectangles — one per incident. Severity-coloured border.
+    cy.nodes('.hull').forEach(n => {
+      const bb = n.boundingBox();
+      const x = bb.x1 * scale + offX;
+      const y = bb.y1 * scale + offY;
+      const w = Math.max(2, bb.w * scale);
+      const h = Math.max(2, bb.h * scale);
+      const sev = (n.classes().find(c => c.startsWith('severity-')) || '').replace('severity-', '');
+      const isGhost = n.hasClass('ghost');
+      const color = sev === 'critical' ? '#ff3838'
+                  : sev === 'warning'  ? '#fc8c2f'
+                  : sev === 'info'     ? '#2dccff'
+                  : '#5a6a85';
+      ctx.fillStyle = isGhost ? 'rgba(30,40,60,0.55)' : 'rgba(45,100,255,0.06)';
+      ctx.fillRect(x, y, w, h);
+      ctx.strokeStyle = color;
+      ctx.globalAlpha = isGhost ? 0.35 : 0.75;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+      ctx.globalAlpha = 1;
+    });
+
+    // Viewport rectangle: convert Cytoscape's pan/zoom into world coords.
+    const vw = cy.width();
+    const vh = cy.height();
+    const z  = cy.zoom();
+    const p  = cy.pan();
+    const vx1 = -p.x / z;
+    const vy1 = -p.y / z;
+    const vx2 = vx1 + vw / z;
+    const vy2 = vy1 + vh / z;
+    const vLeft = vx1 * scale + offX;
+    const vTop  = vy1 * scale + offY;
+    const vWidth  = Math.max(6, (vx2 - vx1) * scale);
+    const vHeight = Math.max(6, (vy2 - vy1) * scale);
+    viewport.style.left   = vLeft + 'px';
+    viewport.style.top    = vTop + 'px';
+    viewport.style.width  = vWidth + 'px';
+    viewport.style.height = vHeight + 'px';
+  }
+
+  // Map a minimap pixel to a world-coord point.
+  function miniToWorld(px, py) {
+    return { x: (px - offX) / scale, y: (py - offY) / scale };
+  }
+
+  // Pan the main view so its centre lands at a given world point.
+  function panTo(world) {
+    const z = cy.zoom();
+    cy.pan({ x: cy.width() / 2 - world.x * z, y: cy.height() / 2 - world.y * z });
+  }
+
+  let dragging = false;
+  function onPointerDown(e) {
+    dragging = true;
+    const rect = mini.getBoundingClientRect();
+    panTo(miniToWorld(e.clientX - rect.left, e.clientY - rect.top));
+  }
+  function onPointerMove(e) {
+    if (!dragging) return;
+    const rect = mini.getBoundingClientRect();
+    panTo(miniToWorld(e.clientX - rect.left, e.clientY - rect.top));
+  }
+  function onPointerUp() { dragging = false; }
+
+  mini.addEventListener('pointerdown', onPointerDown);
+  window.addEventListener('pointermove', onPointerMove);
+  window.addEventListener('pointerup', onPointerUp);
+
+  // Re-render on any viewport change or topology change.
+  const rerender = () => render();
+  cy.on('pan zoom render position', rerender);
+  cy.on('add remove', rerender);
+  render();
+
+  return function teardown() {
+    try {
+      cy.off('pan zoom render position', rerender);
+      cy.off('add remove', rerender);
+    } catch (_) {}
+    mini.removeEventListener('pointerdown', onPointerDown);
+    window.removeEventListener('pointermove', onPointerMove);
+    window.removeEventListener('pointerup', onPointerUp);
+    mini.innerHTML = '';
+  };
 }
 
 // ── Utility ───────────────────────────────────────────────────────────────────
