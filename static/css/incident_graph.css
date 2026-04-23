@@ -584,3 +584,35 @@
   letter-spacing: 0.08em;
   pointer-events: none;
 }
+
+/* ── Edge strength slider ───────────────────────────────────────────────── */
+
+.inc-edge-slider {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 12px;
+  color: var(--color-text-secondary, #c9d1d9);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.inc-edge-slider-label {
+  opacity: 0.8;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.inc-edge-slider input[type="range"] {
+  width: 110px;
+  accent-color: #4dacff;
+}
+
+.inc-edge-slider-value {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-primary, #e6edf3);
+  font-weight: 600;
+  min-width: 54px;
+  text-align: right;
+}

@@ -42,6 +42,15 @@
       <span class="inc-sev-pill pill-warning"><span class="inc-sev-pill-count" id="pill-warning-count">0</span> Warning</span>
       <span class="inc-sev-pill pill-info"><span class="inc-sev-pill-count" id="pill-info-count">0</span> Info</span>
     </div>
+
+    <!-- Edge-strength slider. Filters which edges render in the main graph
+         and drives the client-side subdivision preview. Persisted per-user
+         in localStorage (inc.edge_p_floor). -->
+    <label class="inc-edge-slider" title="Hide edges with probability below this threshold">
+      <span class="inc-edge-slider-label">Hide weak links</span>
+      <input id="inc-edge-slider" type="range" min="0" max="1" step="0.05" value="0.20">
+      <span class="inc-edge-slider-value" id="inc-edge-slider-value">P ≥ 0.20</span>
+    </label>
   </div>
 
   <!-- ── Main layout ────────────────────────────────────────────────── -->

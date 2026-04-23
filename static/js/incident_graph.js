@@ -24,6 +24,15 @@ let allIncidentDetails = {};    // incidentId → detail object (persistent cach
 // than bypassing the new collision-stacking logic via loadSavedPosition.
 const POS_KEY_PREFIX = 'tl1::';
 
+// Client-side threshold for edge rendering + subdivision preview.
+// Persisted in localStorage under inc.edge_p_floor. Default 0.20.
+let edgePFloor = (() => {
+  try {
+    const v = parseFloat(localStorage.getItem('inc.edge_p_floor'));
+    return Number.isFinite(v) ? v : 0.20;
+  } catch (_) { return 0.20; }
+})();
+
 // ── DOM refs ─────────────────────────────────────────────────────────────────
 
 const elSearch      = document.getElementById('inc-search');
@@ -108,6 +117,22 @@ function initToolbar() {
         searchQuery = (e.target.value || '').toLowerCase().trim();
         renderList(applyClientFilter(allIncidents));
       }, 300);
+    });
+  }
+
+  const slider = document.getElementById('inc-edge-slider');
+  const sliderValue = document.getElementById('inc-edge-slider-value');
+  if (slider && sliderValue) {
+    slider.value = String(edgePFloor);
+    sliderValue.textContent = `P ≥ ${edgePFloor.toFixed(2)}`;
+    slider.addEventListener('input', e => {
+      edgePFloor = parseFloat(e.target.value);
+      sliderValue.textContent = `P ≥ ${edgePFloor.toFixed(2)}`;
+      try { localStorage.setItem('inc.edge_p_floor', String(edgePFloor)); }
+      catch (_) {}
+      // Re-apply edge styling + subdivision preview on the current graph.
+      if (typeof applyEdgePStyling === 'function') applyEdgePStyling();
+      if (typeof applySubdivisionPreview === 'function') applySubdivisionPreview();
     });
   }
 }
