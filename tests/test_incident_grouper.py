@@ -19,7 +19,6 @@ from mlss_monitor.incident_grouper import (
     build_incident_similarity_vector,
     cosine_similarity,
     generate_incident_title,
-    merge_similar_adjacent,
     connected_components,
     incident_confidence,
     _load_split_markers,
@@ -461,36 +460,23 @@ def test_regroup_all_links_alert_to_incident(tmp_db):
 
 
 def test_regroup_all_cross_incident_alert_not_primary(tmp_db):
-    _seed_inference(tmp_db, "2026-04-19 12:00:00", event_type="hourly_summary")
+    # Seed two primary alerts spanning a 20-minute window.
+    _seed_inf_with_dep(tmp_db, "2026-04-19 12:00:00", "tvoc_ppb", 0.8,
+                       event_type="tvoc_spike")
+    _seed_inf_with_dep(tmp_db, "2026-04-19 12:20:00", "tvoc_ppb", 0.7,
+                       event_type="tvoc_spike")
+    # Seed a cross-incident (hourly_summary) alert at 12:10, inside the window.
+    _seed_inference(tmp_db, "2026-04-19 12:10:00", event_type="hourly_summary")
     regroup_all(tmp_db)
     conn = sqlite3.connect(tmp_db)
-    row = conn.execute("SELECT is_primary FROM incident_alerts").fetchone()
+    # The cross-incident alert must be linked with is_primary=0.
+    row = conn.execute(
+        "SELECT is_primary FROM incident_alerts WHERE is_primary = 0"
+    ).fetchone()
     conn.close()
+    assert row is not None
     assert row[0] == 0
 
-
-def test_regroup_all_two_groups_two_incidents(tmp_db):
-    """Two sessions with NO event-type overlap stay as two incidents even
-    when they're within the merge_similar_adjacent max gap (4 h)."""
-    _seed_inference(tmp_db, "2026-04-19 12:00:00", event_type="tvoc_spike")
-    _seed_inference(tmp_db, "2026-04-19 13:00:00", event_type="pm25_elevated")
-    regroup_all(tmp_db)
-    conn = sqlite3.connect(tmp_db)
-    count = conn.execute("SELECT COUNT(*) FROM incidents").fetchone()[0]
-    conn.close()
-    assert count == 2
-
-
-def test_regroup_all_merges_similar_sessions(tmp_db):
-    """Two sessions with identical event types within the merge window
-    collapse into ONE incident (the similarity-aware-grouping case)."""
-    _seed_inference(tmp_db, "2026-04-19 12:00:00", event_type="tvoc_spike")
-    _seed_inference(tmp_db, "2026-04-19 13:00:00", event_type="tvoc_spike")
-    regroup_all(tmp_db)
-    conn = sqlite3.connect(tmp_db)
-    count = conn.execute("SELECT COUNT(*) FROM incidents").fetchone()[0]
-    conn.close()
-    assert count == 1
 
 
 def test_regroup_all_idempotent(tmp_db):
@@ -504,8 +490,23 @@ def test_regroup_all_idempotent(tmp_db):
 
 
 def test_regroup_all_max_severity_critical(tmp_db):
-    _seed_inference(tmp_db, "2026-04-19 12:00:00", severity="info")
-    _seed_inference(tmp_db, "2026-04-19 12:05:00", severity="critical")
+    # Use _seed_inf_with_dep so both alerts share a sensor and form one incident.
+    _seed_inf_with_dep(tmp_db, "2026-04-19 12:00:00", "tvoc_ppb", 0.8,
+                       event_type="tvoc_spike")
+    conn = sqlite3.connect(tmp_db)
+    cur = conn.execute(
+        "INSERT INTO inferences (created_at, event_type, severity, title, confidence) "
+        "VALUES (?, ?, ?, ?, ?)",
+        ("2026-04-19 12:05:00", "tvoc_spike", "critical", "alert-crit", 0.9),
+    )
+    critical_id = cur.lastrowid
+    conn.execute(
+        "INSERT INTO alert_signal_deps (alert_id, sensor, r, lag_seconds) "
+        "VALUES (?, ?, ?, ?)",
+        (critical_id, "tvoc_ppb", 0.8, 0),
+    )
+    conn.commit()
+    conn.close()
     regroup_all(tmp_db)
     conn = sqlite3.connect(tmp_db)
     sev = conn.execute("SELECT max_severity FROM incidents").fetchone()[0]
@@ -531,86 +532,134 @@ def test_regroup_all_empty_db_no_crash(tmp_db):
     assert count == 0
 
 
-# ── Similarity-aware adjacent-group merging ──────────────────────────────
+# ── Causal-DAG integration tests (regroup_all) ───────────────────────────────
 
 
-def _alert_with_type(ts, et, sev="warning"):
-    return {"id": hash((ts, et)) & 0xffff, "created_at": ts,
-            "event_type": et, "severity": sev}
+def _seed_inf_with_dep(db_path, ts, sensor, r, event_type="tvoc_spike"):
+    """Seed one inference + its alert_signal_deps row in one call."""
+    conn = sqlite3.connect(db_path)
+    cur = conn.execute(
+        "INSERT INTO inferences (created_at, event_type, severity, title, confidence) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (ts, event_type, "info", f"alert-{ts}", 0.9),
+    )
+    alert_id = cur.lastrowid
+    conn.execute(
+        "INSERT INTO alert_signal_deps (alert_id, sensor, r, lag_seconds) "
+        "VALUES (?, ?, ?, ?)",
+        (alert_id, sensor, r, 0),
+    )
+    conn.commit()
+    conn.close()
+    return alert_id
 
 
-def test_merge_similar_merges_same_event_type():
-    """Two sessions 1h apart with identical event types → one merged session."""
-    g1 = [_alert_with_type("2026-04-23 09:00:00", "eco2_elevated")]
-    g2 = [_alert_with_type("2026-04-23 10:00:00", "eco2_elevated")]
-    result = merge_similar_adjacent([g1, g2])
-    assert len(result) == 1
-    assert len(result[0]) == 2
-    assert result[0][0]["created_at"] < result[0][1]["created_at"]
+def test_regroup_all_causal_groups_shared_sensor(tmp_db):
+    """Two alerts 15 min apart sharing eCO2 with matching sign => one incident."""
+    _seed_inf_with_dep(tmp_db, "2026-04-23 09:00:00", "eco2_ppm", 0.8)
+    _seed_inf_with_dep(tmp_db, "2026-04-23 09:15:00", "eco2_ppm", 0.7)
+    regroup_all(tmp_db)
+    conn = sqlite3.connect(tmp_db)
+    count = conn.execute("SELECT COUNT(*) FROM incidents").fetchone()[0]
+    conn.close()
+    assert count == 1
 
 
-def test_merge_similar_keeps_dissimilar():
-    """Different event types → stay separate even if adjacent in time."""
-    g1 = [_alert_with_type("2026-04-23 09:00:00", "eco2_elevated")]
-    g2 = [_alert_with_type("2026-04-23 10:00:00", "pm25_spike")]
-    result = merge_similar_adjacent([g1, g2])
-    assert len(result) == 2
+def test_regroup_all_causal_splits_disjoint_sensors(tmp_db):
+    """Two alerts 10 min apart with DISJOINT strong sensors => two incidents."""
+    _seed_inf_with_dep(tmp_db, "2026-04-23 09:00:00", "eco2_ppm", 0.8)
+    _seed_inf_with_dep(tmp_db, "2026-04-23 09:10:00", "pm25_ug_m3", 0.8)
+    regroup_all(tmp_db)
+    conn = sqlite3.connect(tmp_db)
+    count = conn.execute("SELECT COUNT(*) FROM incidents").fetchone()[0]
+    conn.close()
+    assert count == 2
 
 
-def test_merge_similar_respects_max_gap():
-    """Groups >4h apart stay separate even if event types match."""
-    g1 = [_alert_with_type("2026-04-23 09:00:00", "eco2_elevated")]
-    g2 = [_alert_with_type("2026-04-23 20:00:00", "eco2_elevated")]  # 11 h later
-    result = merge_similar_adjacent([g1, g2])
-    assert len(result) == 2
+def test_regroup_all_causal_transitive_chain(tmp_db):
+    """A-B and B-C share sensors; A-C don't. All three become one incident."""
+    _seed_inf_with_dep(tmp_db, "2026-04-23 09:00:00", "eco2_ppm",  0.8)  # A
+    a_id = _seed_inf_with_dep(tmp_db, "2026-04-23 09:10:00", "eco2_ppm",  0.7)  # A2 (bridge 1)
+    # For the "bridge" B, give it BOTH eco2 and tvoc so it shares with A on eco2 and with C on tvoc.
+    conn = sqlite3.connect(tmp_db)
+    conn.execute(
+        "INSERT INTO alert_signal_deps (alert_id, sensor, r, lag_seconds) "
+        "VALUES (?, ?, ?, ?)",
+        (a_id, "tvoc_ppb", 0.8, 0),
+    )
+    conn.commit()
+    conn.close()
+    _seed_inf_with_dep(tmp_db, "2026-04-23 09:25:00", "tvoc_ppb", 0.7)  # C
+    regroup_all(tmp_db)
+    conn = sqlite3.connect(tmp_db)
+    count = conn.execute("SELECT COUNT(*) FROM incidents").fetchone()[0]
+    conn.close()
+    assert count == 1
 
 
-def test_merge_similar_transitive_chain():
-    """A~B~C collapses into one group via chained adjacency."""
-    g1 = [_alert_with_type("2026-04-23 09:00:00", "eco2_elevated")]
-    g2 = [_alert_with_type("2026-04-23 10:00:00", "eco2_elevated")]
-    g3 = [_alert_with_type("2026-04-23 11:00:00", "eco2_elevated")]
-    result = merge_similar_adjacent([g1, g2, g3])
-    assert len(result) == 1
-    assert len(result[0]) == 3
+def test_regroup_all_split_marker_breaks_chain(tmp_db):
+    """An incident_splits row on an alert breaks the chain at that alert.
+
+    Setup: A shares eco2_ppm with B (the split alert); B shares tvoc_ppb with C.
+    A and C have disjoint sensors, so the only path A→C goes through B.
+    Without a split, B acts as a bridge: A+B+C = one incident.
+    After putting a split marker on B, edges INTO B are suppressed (A→B
+    is gone), breaking the bridge. A becomes isolated; B+C stay linked.
+    => 2 incidents.
+    """
+    a_id = _seed_inf_with_dep(tmp_db, "2026-04-23 09:00:00", "eco2_ppm", 0.8)
+    # B bridges A (eco2_ppm) and C (tvoc_ppb).
+    conn = sqlite3.connect(tmp_db)
+    cur = conn.execute(
+        "INSERT INTO inferences (created_at, event_type, severity, title, confidence) "
+        "VALUES (?, ?, ?, ?, ?)",
+        ("2026-04-23 09:10:00", "tvoc_spike", "info", "bridge-B", 0.9),
+    )
+    b_id = cur.lastrowid
+    conn.execute(
+        "INSERT INTO alert_signal_deps (alert_id, sensor, r, lag_seconds) VALUES (?, ?, ?, ?)",
+        (b_id, "eco2_ppm", 0.7, 0),
+    )
+    conn.execute(
+        "INSERT INTO alert_signal_deps (alert_id, sensor, r, lag_seconds) VALUES (?, ?, ?, ?)",
+        (b_id, "tvoc_ppb", 0.7, 0),
+    )
+    conn.commit()
+    conn.close()
+    c_id = _seed_inf_with_dep(tmp_db, "2026-04-23 09:20:00", "tvoc_ppb", 0.8)
+
+    # Without a split: A+B+C bridge => one incident.
+    regroup_all(tmp_db)
+    conn = sqlite3.connect(tmp_db)
+    assert conn.execute("SELECT COUNT(*) FROM incidents").fetchone()[0] == 1
+    conn.close()
+
+    # Add a split marker on B ("break chain before B").
+    conn = sqlite3.connect(tmp_db)
+    conn.execute(
+        "INSERT INTO incident_splits (alert_id, created_by) VALUES (?, ?)",
+        (b_id, "test"),
+    )
+    conn.commit()
+    conn.close()
+
+    regroup_all(tmp_db)
+    conn = sqlite3.connect(tmp_db)
+    count = conn.execute("SELECT COUNT(*) FROM incidents").fetchone()[0]
+    conn.close()
+    assert count == 2
 
 
-def test_merge_similar_idempotent():
-    """Running the merge twice produces the same output (monotonic)."""
-    g1 = [_alert_with_type("2026-04-23 09:00:00", "eco2_elevated")]
-    g2 = [_alert_with_type("2026-04-23 10:00:00", "eco2_elevated")]
-    once = merge_similar_adjacent([g1, g2])
-    twice = merge_similar_adjacent(once)
-    assert once == twice
-
-
-def test_merge_similar_empty_and_single():
-    """Edge cases: empty input, single group — no-op."""
-    assert merge_similar_adjacent([]) == []
-    single = [[_alert_with_type("2026-04-23 09:00:00", "eco2_elevated")]]
-    assert merge_similar_adjacent(single) == single
-
-
-def test_merge_similar_partial_overlap_above_threshold():
-    """Jaccard ≥ 0.3: 2 shared event types out of 4 unique = 0.5 → merged."""
-    g1 = [_alert_with_type("2026-04-23 09:00:00", "eco2_elevated"),
-          _alert_with_type("2026-04-23 09:05:00", "tvoc_elevated")]
-    g2 = [_alert_with_type("2026-04-23 10:00:00", "eco2_elevated"),
-          _alert_with_type("2026-04-23 10:05:00", "tvoc_elevated"),
-          _alert_with_type("2026-04-23 10:10:00", "vpd_high")]
-    result = merge_similar_adjacent([g1, g2])
-    assert len(result) == 1
-
-
-def test_merge_similar_low_overlap_stays_split():
-    """Jaccard < 0.3: 1 shared out of 5 unique = 0.2 → stays split."""
-    g1 = [_alert_with_type("2026-04-23 09:00:00", "eco2_elevated"),
-          _alert_with_type("2026-04-23 09:05:00", "tvoc_elevated")]
-    g2 = [_alert_with_type("2026-04-23 10:00:00", "pm25_spike"),
-          _alert_with_type("2026-04-23 10:05:00", "co_elevated"),
-          _alert_with_type("2026-04-23 10:10:00", "no2_elevated")]
-    result = merge_similar_adjacent([g1, g2])
-    assert len(result) == 2
+def test_regroup_all_persists_confidence(tmp_db):
+    """incidents.confidence stores min edge P (or 1.0 for singletons)."""
+    _seed_inf_with_dep(tmp_db, "2026-04-23 09:00:00", "eco2_ppm", 0.8)
+    # Gap of 135 min => P = 0.5
+    _seed_inf_with_dep(tmp_db, "2026-04-23 11:15:00", "eco2_ppm", 0.7)
+    regroup_all(tmp_db)
+    conn = sqlite3.connect(tmp_db)
+    conf = conn.execute("SELECT confidence FROM incidents").fetchone()[0]
+    conn.close()
+    assert abs(conf - 0.5) < 0.001
 
 
 # ── incident_splits table schema ────────────────────────────────────────

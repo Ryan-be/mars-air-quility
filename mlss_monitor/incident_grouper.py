@@ -584,29 +584,99 @@ def _upsert_incident(
 
 
 def regroup_all(db_file: str) -> None:
-    """Re-sessionise all inferences and upsert incidents into the DB.
+    """Re-build every incident from the causal graph.
 
-    Idempotent: safe to call multiple times. Uses INSERT OR REPLACE so
-    existing incidents are overwritten with fresh grouped data.
+    1. Load all non-dismissed inferences + their signal_deps.
+    2. Split primary alerts vs cross-incident (hourly/daily summary) alerts.
+    3. Load operator split markers.
+    4. Build causal edges between primary alerts.
+    5. Find connected components -> each becomes one incident.
+    6. Attach cross-incident alerts to every incident that overlaps them in time.
+    7. INSERT OR REPLACE each incident.
+    Idempotent: safe to call on every restart.
     """
-    alerts = _load_all_inferences(db_file)
-    groups = sessionise(alerts)
-    # Refinement: merge adjacent time-sessions that share event types.
-    # Handles the 31-minute-gap-within-a-long-event case without changing
-    # the safe temporal fallback for clearly-separate events.
-    groups = merge_similar_adjacent(groups)
+    raw_alerts = _load_all_inferences(db_file)
+
+    # Attach signal_deps to each alert so the pure functions can read them.
+    conn = sqlite3.connect(db_file, timeout=15)
+    conn.row_factory = sqlite3.Row
+    for a in raw_alerts:
+        dep_rows = conn.execute(
+            "SELECT sensor, r, lag_seconds FROM alert_signal_deps WHERE alert_id = ?",
+            (a["id"],),
+        ).fetchall()
+        a["signal_deps"] = [dict(d) for d in dep_rows]
+    conn.close()
+
+    primary = [a for a in raw_alerts if not is_cross_incident(a.get("event_type", ""))]
+    cross = [a for a in raw_alerts if is_cross_incident(a.get("event_type", ""))]
+
+    # Attach detection_method so downstream (narrative) has it.
+    for a in raw_alerts:
+        a["detection_method"] = detection_method(a.get("event_type", ""))
+
+    split_markers = _load_split_markers(db_file)
+    edges = build_edges(primary, split_markers)
+    components = connected_components(primary, edges)
 
     conn = sqlite3.connect(db_file, timeout=15)
     cur = conn.cursor()
     cur.execute("PRAGMA journal_mode=WAL")
 
-    for group in groups:
-        if not group:
+    # Fresh rebuild — clear then insert.  Keeps the grouping idempotent.
+    cur.execute("DELETE FROM incident_alerts")
+    cur.execute("DELETE FROM incidents")
+
+    for component in components:
+        if not component:
             continue
-        sorted_g = sorted(group, key=lambda a: a["created_at"])
-        t_start = datetime.fromisoformat(sorted_g[0]["created_at"])
+        sorted_comp = sorted(component, key=lambda a: a["created_at"])
+        t_start = datetime.fromisoformat(sorted_comp[0]["created_at"])
+        t_end = datetime.fromisoformat(sorted_comp[-1]["created_at"])
         incident_id = make_incident_id(t_start)
-        _upsert_incident(cur, incident_id, group, db_file)
+
+        # Confidence: min P over the edges that touch this component.
+        comp_ids = {a["id"] for a in component}
+        comp_edges = [
+            (src, dst, p) for src, dst, p in edges
+            if src in comp_ids and dst in comp_ids
+        ]
+        conf = incident_confidence(comp_edges)
+
+        max_sev = max(
+            (a.get("severity", "info") for a in component),
+            key=lambda s: _SEVERITY_ORDER.get(s, 0),
+        )
+        title = generate_incident_title(component)
+        signature = json.dumps(build_incident_similarity_vector(component))
+
+        cur.execute(
+            "INSERT OR REPLACE INTO incidents "
+            "(id, started_at, ended_at, max_severity, confidence, title, signature) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (incident_id,
+             t_start.isoformat(sep=" "),
+             t_end.isoformat(sep=" "),
+             max_sev, conf, title, signature),
+        )
+
+        # Primary alerts: is_primary=1
+        for alert in component:
+            cur.execute(
+                "INSERT OR IGNORE INTO incident_alerts "
+                "(incident_id, alert_id, is_primary) VALUES (?, ?, ?)",
+                (incident_id, alert["id"], 1),
+            )
+
+        # Cross-incident alerts that fall within this incident's time window.
+        for cross_alert in cross:
+            ct = datetime.fromisoformat(cross_alert["created_at"])
+            if t_start <= ct <= t_end:
+                cur.execute(
+                    "INSERT OR IGNORE INTO incident_alerts "
+                    "(incident_id, alert_id, is_primary) VALUES (?, ?, ?)",
+                    (incident_id, cross_alert["id"], 0),
+                )
 
     conn.commit()
     conn.close()
