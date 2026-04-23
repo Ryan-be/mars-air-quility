@@ -77,6 +77,61 @@ def detection_method(event_type: str) -> str:
     return "threshold"
 
 
+# ── Causal-DAG edge probability ──────────────────────────────────────────────
+#
+# Edge A→B is probabilistic. Two alerts are "linked" (P > 0) if:
+#   1. They share at least one sensor with |r| >= EDGE_STRONG_R_THRESHOLD
+#      AND the sign of r matches on that sensor ("both rose together" or
+#      "both fell together" — not one rose while the other fell).
+#   2. The time gap is inside the decay window:
+#        gap ≤ EDGE_FULL_P_WINDOW_MINUTES      ==> P = 1.0
+#        gap ≥ EDGE_ZERO_P_WINDOW_MINUTES      ==> P = 0.0
+#        otherwise: linear decay between those points.
+
+EDGE_FULL_P_WINDOW_MINUTES = 30
+EDGE_ZERO_P_WINDOW_MINUTES = 240
+EDGE_STRONG_R_THRESHOLD = 0.5
+
+
+def _strong_signed_sensors(alert: dict[str, Any]) -> set[tuple[str, int]]:
+    """Return the set of (sensor, sign) pairs where |r| >= threshold.
+
+    sign is +1 (r >= 0) or -1 (r < 0). None-valued r's are skipped.
+    """
+    out = set()
+    for d in (alert.get("signal_deps") or []):
+        r = d.get("r")
+        sensor = d.get("sensor")
+        if r is None or sensor is None:
+            continue
+        if abs(r) >= EDGE_STRONG_R_THRESHOLD:
+            out.add((sensor, 1 if r >= 0 else -1))
+    return out
+
+
+def edge_probability(a: dict[str, Any], b: dict[str, Any]) -> float:
+    """Probability that alerts A and B belong to the same causal incident.
+
+    See the section comment above for semantics.
+    """
+    # 1. Signed sensor overlap
+    if not (_strong_signed_sensors(a) & _strong_signed_sensors(b)):
+        return 0.0
+    # 2. Time decay
+    try:
+        ta = datetime.fromisoformat(str(a["created_at"]))
+        tb = datetime.fromisoformat(str(b["created_at"]))
+    except (KeyError, ValueError):
+        return 0.0
+    gap_min = abs((tb - ta).total_seconds()) / 60.0
+    if gap_min <= EDGE_FULL_P_WINDOW_MINUTES:
+        return 1.0
+    if gap_min >= EDGE_ZERO_P_WINDOW_MINUTES:
+        return 0.0
+    span = EDGE_ZERO_P_WINDOW_MINUTES - EDGE_FULL_P_WINDOW_MINUTES
+    return (EDGE_ZERO_P_WINDOW_MINUTES - gap_min) / span
+
+
 def is_cross_incident(event_type: str) -> bool:
     """Return True for alert types that span / summarise multiple incidents."""
     return (event_type in CROSS_INCIDENT_TYPES

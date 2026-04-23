@@ -348,6 +348,96 @@ def _seed_inference(db_path, created_at, event_type="tvoc_spike",
     return row_id
 
 
+# ── edge_probability ────────────────────────────────────────────────────────────
+
+from mlss_monitor.incident_grouper import edge_probability
+
+
+def _make_alert(id, ts, deps=()):
+    """Build an alert dict with the signal_deps shape the grouper expects.
+
+    deps: iterable of (sensor, r) pairs.
+    """
+    return {
+        "id": id,
+        "created_at": ts,
+        "signal_deps": [
+            {"sensor": s, "r": r, "lag_seconds": 0} for s, r in deps
+        ],
+    }
+
+
+def test_edge_probability_zero_when_no_shared_sensor():
+    a = _make_alert(1, "2026-04-23 09:00:00", [("eco2_ppm", 0.8)])
+    b = _make_alert(2, "2026-04-23 09:05:00", [("tvoc_ppb", 0.8)])
+    assert edge_probability(a, b) == 0.0
+
+
+def test_edge_probability_zero_when_shared_sensor_signs_differ():
+    """Rising eCO2 alert (positive r) and falling eCO2 alert (negative r)
+    should NOT link — they're physically opposite events."""
+    a = _make_alert(1, "2026-04-23 09:00:00", [("eco2_ppm",  0.8)])
+    b = _make_alert(2, "2026-04-23 09:05:00", [("eco2_ppm", -0.8)])
+    assert edge_probability(a, b) == 0.0
+
+
+def test_edge_probability_zero_when_r_below_threshold():
+    """|r| must be >= 0.5 for a sensor to count as 'strongly involved'."""
+    a = _make_alert(1, "2026-04-23 09:00:00", [("eco2_ppm", 0.45)])
+    b = _make_alert(2, "2026-04-23 09:05:00", [("eco2_ppm", 0.8)])
+    assert edge_probability(a, b) == 0.0
+
+
+def test_edge_probability_full_at_zero_gap():
+    a = _make_alert(1, "2026-04-23 09:00:00", [("eco2_ppm", 0.8)])
+    b = _make_alert(2, "2026-04-23 09:00:00", [("eco2_ppm", 0.9)])
+    assert edge_probability(a, b) == 1.0
+
+
+def test_edge_probability_full_at_30_minute_gap():
+    a = _make_alert(1, "2026-04-23 09:00:00", [("eco2_ppm", 0.8)])
+    b = _make_alert(2, "2026-04-23 09:30:00", [("eco2_ppm", 0.9)])
+    assert edge_probability(a, b) == 1.0
+
+
+def test_edge_probability_decays_linearly_between_30_and_240():
+    a = _make_alert(1, "2026-04-23 09:00:00", [("eco2_ppm", 0.8)])
+    # Gap of 135 minutes => halfway between 30 and 240 => P = 0.5
+    b = _make_alert(2, "2026-04-23 11:15:00", [("eco2_ppm", 0.9)])
+    assert abs(edge_probability(a, b) - 0.5) < 0.001
+
+
+def test_edge_probability_zero_at_and_beyond_240_minutes():
+    a = _make_alert(1, "2026-04-23 09:00:00", [("eco2_ppm", 0.8)])
+    b = _make_alert(2, "2026-04-23 13:00:00", [("eco2_ppm", 0.9)])  # 4h
+    assert edge_probability(a, b) == 0.0
+    c = _make_alert(3, "2026-04-23 14:00:00", [("eco2_ppm", 0.9)])  # 5h
+    assert edge_probability(a, c) == 0.0
+
+
+def test_edge_probability_symmetric_in_order():
+    """Gap is abs — order of arguments doesn't matter."""
+    a = _make_alert(1, "2026-04-23 09:00:00", [("eco2_ppm", 0.8)])
+    b = _make_alert(2, "2026-04-23 10:00:00", [("eco2_ppm", 0.9)])
+    assert edge_probability(a, b) == edge_probability(b, a)
+
+
+def test_edge_probability_handles_negative_r_matching():
+    """Two falling-eCO2 alerts (both negative r) DO link."""
+    a = _make_alert(1, "2026-04-23 09:00:00", [("eco2_ppm", -0.7)])
+    b = _make_alert(2, "2026-04-23 09:10:00", [("eco2_ppm", -0.6)])
+    assert edge_probability(a, b) == 1.0
+
+
+def test_edge_probability_handles_null_r_in_deps():
+    """signal_deps rows with r=None are skipped (pre-Pearson data)."""
+    a = _make_alert(1, "2026-04-23 09:00:00",
+                    [("eco2_ppm", None), ("tvoc_ppb", 0.8)])
+    b = _make_alert(2, "2026-04-23 09:05:00",
+                    [("tvoc_ppb", 0.7)])
+    assert edge_probability(a, b) == 1.0
+
+
 def test_regroup_all_creates_incident(tmp_db):
     _seed_inference(tmp_db, "2026-04-19 12:00:00")
     regroup_all(tmp_db)
