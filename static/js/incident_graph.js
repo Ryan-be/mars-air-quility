@@ -440,7 +440,6 @@ function buildCytoscapeStyle() {
     { selector: 'node.ghost:not(.hull)', style: { 'cursor': 'pointer' } },
 
     // ── Node size / shape variants ────────────────────────────────────
-    { selector: 'node.root-signal', style: { 'width': 12, 'height': 12, 'border-width': 1.5, 'background-color': '#0e1626' } },
     { selector: 'node.alert-node',  style: { 'width': 20, 'height': 20, 'border-width': 1.5 } },
     {
       selector: 'node.cross-node',
@@ -469,14 +468,20 @@ function buildCytoscapeStyle() {
     // ── Progressive labels ────────────────────────────────────────────
     { selector: 'node.alert-node.labels-ts',    style: { 'label': 'data(created_at)' } },
     { selector: 'node.alert-node.labels-full',  style: { 'label': 'data(label)' } },
-    { selector: 'node.root-signal.labels-full', style: { 'label': 'data(label)' } },
 
     // ── Edges ─────────────────────────────────────────────────────────
     { selector: 'edge',            style: { 'width': 0.8, 'line-color': '#1e2b40', 'curve-style': 'bezier', 'opacity': 0.55 } },
-    { selector: 'edge.intra-edge', style: { 'line-color': '#2a3850', 'width': 0.8 } },
     {
-      selector: 'edge.dep-edge',
-      style: { 'width': 'mapData(r, 0.3, 1.0, 0.5, 2.0)', 'line-color': '#2563eb', 'opacity': 0.45 },
+      selector: 'edge.chrono-edge',
+      style: {
+        'width': 1.2,
+        'line-color': '#4dacff',
+        'opacity': 0.55,
+        'curve-style': 'bezier',
+        'target-arrow-shape': 'triangle',
+        'target-arrow-color': '#4dacff',
+        'arrow-scale': 0.8,
+      },
     },
     { selector: 'edge.cross-edge', style: { 'line-color': '#5a9668', 'line-style': 'dashed', 'width': 0.8, 'opacity': 0.45 } },
 
@@ -492,7 +497,7 @@ function buildCytoscapeStyle() {
 
 function applyZoomClasses(zoom) {
   if (!cy) return;
-  cy.nodes('.alert-node, .root-signal').forEach(n => {
+  cy.nodes('.alert-node').forEach(n => {
     if (zoom < 0.9) {
       n.removeClass('labels-ts labels-full');
     } else if (zoom < 1.6) {
@@ -641,31 +646,10 @@ function buildIncidentElements(detail, centroids, isGhost = false) {
 
   primaryAlerts.forEach((alert, i) => {
     const angle = (2 * Math.PI * i) / rootCount - Math.PI / 2;
-    const rootPos = {
-      x: centre.x + 40 * Math.cos(angle),
-      y: centre.y + 40 * Math.sin(angle),
-    };
     const alertPos = {
-      x: centre.x + 140 * Math.cos(angle),
-      y: centre.y + 140 * Math.sin(angle),
+      x: centre.x + 110 * Math.cos(angle),
+      y: centre.y + 110 * Math.sin(angle),
     };
-
-    elements.push({
-      group: 'nodes',
-      data: {
-        id: `root-${alert.id}`,
-        label: (alert.event_type || '').replace(/_/g, ' '),
-        type: 'root',
-        alertId: alert.id,
-        incidentId: incId,
-        parent: `hull-${incId}`,
-        severity: alert.severity,
-        method: alert.detection_method,
-        title: alert.title || '',
-      },
-      position: loadSavedPosition(`${incId}::root-${alert.id}`) || rootPos,
-      classes: `root-signal${isGhost ? ' ghost' : ''} severity-${alert.severity || 'info'} method-${alert.detection_method || 'threshold'}`,
-    });
 
     elements.push({
       group: 'nodes',
@@ -684,23 +668,24 @@ function buildIncidentElements(detail, centroids, isGhost = false) {
       position: loadSavedPosition(`${incId}::alert-${alert.id}`) || alertPos,
       classes: `alert-node${isGhost ? ' ghost' : ''} severity-${alert.severity || 'info'} method-${alert.detection_method || 'threshold'}`,
     });
-
-    elements.push({
-      group: 'edges',
-      data: { id: `e-root-${alert.id}`, source: `root-${alert.id}`, target: `alert-${alert.id}`, r: null },
-      classes: 'intra-edge',
-    });
-
-    (alert.signal_deps || []).forEach(dep => {
-      if (dep.r !== null && Math.abs(dep.r) >= 0.3) {
-        elements.push({
-          group: 'edges',
-          data: { id: `dep-${alert.id}-${dep.sensor}`, source: `root-${alert.id}`, target: `alert-${alert.id}`, r: dep.r },
-          classes: 'dep-edge',
-        });
-      }
-    });
   });
+
+  // Chronological arrows between consecutive primary alerts (by created_at).
+  // Only on non-ghost incidents to keep ghost clusters uncluttered.
+  if (!isGhost) {
+    const chronological = [...primaryAlerts].sort(
+      (a, b) => (a.created_at || '').localeCompare(b.created_at || '')
+    );
+    for (let j = 0; j < chronological.length - 1; j++) {
+      const src = chronological[j];
+      const tgt = chronological[j + 1];
+      elements.push({
+        group: 'edges',
+        data: { id: `chrono-${src.id}-${tgt.id}`, source: `alert-${src.id}`, target: `alert-${tgt.id}` },
+        classes: 'chrono-edge',
+      });
+    }
+  }
 
   crossAlerts.forEach(alert => {
     const pos = computeCrossIncidentPosition(incId, allIncidents, centroids);
