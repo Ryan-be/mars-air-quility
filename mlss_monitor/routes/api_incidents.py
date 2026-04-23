@@ -3,6 +3,7 @@
 GET /api/incidents              — paginated list with optional filters
 GET /api/incidents/<id>         — full incident detail with narrative + similar
 POST /api/incidents/<id>/split  — mark an alert as split marker
+POST /api/incidents/<id>/unsplit — remove a split marker
 """
 from __future__ import annotations
 
@@ -335,3 +336,27 @@ def split_incident(incident_id: str):
     regroup_all(DB_FILE)
 
     return jsonify({"ok": True, "split_alert_id": alert_id})
+
+
+@api_incidents_bp.route("/api/incidents/<incident_id>/unsplit", methods=["POST"])
+def unsplit_incident(incident_id: str):
+    """Remove an operator split marker. Re-runs the grouper so the
+    previously-split incidents merge back into one (if they would).
+    """
+    body = request.get_json(silent=True) or {}
+    alert_id = body.get("alert_id")
+    if not isinstance(alert_id, int):
+        return jsonify({"error": "alert_id (int) is required in body"}), 400
+
+    conn = _get_conn()
+    conn.execute(
+        "DELETE FROM incident_splits WHERE alert_id = ?",
+        (alert_id,),
+    )
+    conn.commit()
+    conn.close()
+
+    from mlss_monitor.incident_grouper import regroup_all
+    regroup_all(DB_FILE)
+
+    return jsonify({"ok": True, "unsplit_alert_id": alert_id})

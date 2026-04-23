@@ -333,3 +333,62 @@ def test_split_endpoint_requires_alert_id(client, db):
     """Missing alert_id in body => 400."""
     resp = client.post("/api/incidents/INC-X/split", json={})
     assert resp.status_code == 400
+
+
+def test_unsplit_endpoint_removes_marker_and_regroups(client, db):
+    """POST /unsplit removes the marker and regroups, merging the incidents back."""
+    from mlss_monitor.incident_grouper import regroup_all
+    conn = sqlite3.connect(db)
+    alert_ids = []
+    # Same disjoint-sensor-chain pattern as the split test: A=eco2 only,
+    # B=eco2+tvoc (bridge), C=tvoc only. With a split marker on B the
+    # chain becomes {A}, {B, C}. Removing the marker lets B re-link A.
+    sensor_sets = [
+        [("eco2_ppm", 0.8)],
+        [("eco2_ppm", 0.8), ("tvoc_ppb", 0.8)],
+        [("tvoc_ppb", 0.8)],
+    ]
+    for ts, deps in zip(
+        ("2026-04-23 09:00:00", "2026-04-23 09:10:00", "2026-04-23 09:20:00"),
+        sensor_sets,
+    ):
+        cur = conn.execute(
+            "INSERT INTO inferences (created_at, event_type, severity, title, confidence) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (ts, "tvoc_spike", "info", f"t-{ts}", 0.9),
+        )
+        alert_ids.append(cur.lastrowid)
+        for sensor, r in deps:
+            conn.execute(
+                "INSERT INTO alert_signal_deps (alert_id, sensor, r, lag_seconds) "
+                "VALUES (?, ?, ?, ?)",
+                (cur.lastrowid, sensor, r, 0),
+            )
+    conn.execute(
+        "INSERT INTO incident_splits (alert_id, created_by) VALUES (?, ?)",
+        (alert_ids[1], "test"),
+    )
+    conn.commit()
+    conn.close()
+    regroup_all(db)
+
+    # Starts as two incidents because of the split marker.
+    listing = client.get("/api/incidents?window=30d").get_json()
+    assert listing["total"] == 2
+    inc_id = listing["incidents"][0]["id"]
+
+    resp = client.post(
+        f"/api/incidents/{inc_id}/unsplit",
+        json={"alert_id": alert_ids[1]},
+    )
+    assert resp.status_code == 200
+
+    # Marker gone, single incident.
+    conn = sqlite3.connect(db)
+    remaining = conn.execute(
+        "SELECT COUNT(*) FROM incident_splits"
+    ).fetchone()[0]
+    conn.close()
+    assert remaining == 0
+    listing2 = client.get("/api/incidents?window=30d").get_json()
+    assert listing2["total"] == 1
