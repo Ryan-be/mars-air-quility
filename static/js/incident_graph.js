@@ -244,10 +244,22 @@ function renderDetail(detail) {
 
   const causal = detail.causal_sequence || [];
   if (causal.length > 0 && elCausal) {
+    const startTs = causal[0] ? new Date(causal[0].created_at.replace(' ', 'T')) : null;
+    const fmtDelta = (iso) => {
+      if (!startTs) return '';
+      const t = new Date(iso.replace(' ', 'T'));
+      const mins = Math.round((t - startTs) / 60000);
+      return mins === 0 ? 'start' : `+${mins}m`;
+    };
+    const fmtClock = (iso) => (iso || '').slice(11, 16);
+
     elCausalItems.innerHTML = '<div class="inc-causal-ribbon">'
       + causal.map((a, i) =>
           (i > 0 ? '<span class="inc-causal-arrow">→</span>' : '')
-          + `<span class="inc-causal-chip sev-chip-${escHtml(a.severity || 'info')}" title="${escHtml(a.title || a.event_type)}">${escHtml(a.title || a.event_type)}</span>`
+          + `<span class="inc-causal-chip-group" title="${escHtml(fmtClock(a.created_at))} — ${escHtml(a.title || a.event_type)}">`
+          +   `<span class="inc-causal-chip sev-chip-${escHtml(a.severity || 'info')}">${escHtml(a.title || a.event_type)}</span>`
+          +   `<span class="inc-causal-chip-time">${escHtml(fmtDelta(a.created_at))}</span>`
+          + `</span>`
         ).join('')
       + '</div>';
     elCausal.hidden = false;

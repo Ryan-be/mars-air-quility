@@ -231,6 +231,21 @@
 .sev-chip-warning  { background: rgba(252,140,47,0.15); border: 1px solid rgba(252,140,47,0.4); color: #fc8c2f; }
 .sev-chip-info     { background: rgba(45,204,255,0.1);  border: 1px solid rgba(45,204,255,0.3); color: #2dccff; }
 
+.inc-causal-chip-group {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  flex-shrink: 0;
+}
+
+.inc-causal-chip-time {
+  font-size: 0.63rem;
+  color: var(--text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding-left: 2px;
+}
+
 /* Similar incidents */
 .inc-similar-item {
   display: flex;
