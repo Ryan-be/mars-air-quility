@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}MLSS – Incidents{% endblock %}
+
+{% block extra_css %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/incident_graph.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="inc-page">
+
+  <!-- ── Toolbar ─────────────────────────────────────────────────────── -->
+  <div class="inc-toolbar">
+    <rux-input
+      id="inc-search"
+      placeholder="Search incidents…"
+      size="small"
+      style="--input-width:220px"
+    ></rux-input>
+
+    <rux-segmented-button
+      id="inc-window"
+      data="[
+        {&quot;label&quot;:&quot;1h&quot;,&quot;selected&quot;:false},
+        {&quot;label&quot;:&quot;6h&quot;,&quot;selected&quot;:false},
+        {&quot;label&quot;:&quot;24h&quot;,&quot;selected&quot;:true},
+        {&quot;label&quot;:&quot;7d&quot;,&quot;selected&quot;:false},
+        {&quot;label&quot;:&quot;30d&quot;,&quot;selected&quot;:false}
+      ]"
+    ></rux-segmented-button>
+
+    <rux-segmented-button
+      id="inc-severity"
+      data="[
+        {&quot;label&quot;:&quot;All&quot;,&quot;selected&quot;:true},
+        {&quot;label&quot;:&quot;Critical&quot;,&quot;selected&quot;:false},
+        {&quot;label&quot;:&quot;Warning&quot;,&quot;selected&quot;:false},
+        {&quot;label&quot;:&quot;Info&quot;,&quot;selected&quot;:false}
+      ]"
+    ></rux-segmented-button>
+  </div>
+
+  <!-- ── Main layout ────────────────────────────────────────────────── -->
+  <div class="inc-layout">
+
+    <!-- Left: incident list -->
+    <div class="inc-list-panel" id="inc-list-panel">
+      <div id="inc-list-items">
+        <div class="inc-loading">Loading incidents…</div>
+      </div>
+    </div>
+
+    <!-- Centre: graph canvas -->
+    <div class="inc-graph-panel">
+      <div id="cy-graph"></div>
+
+      <!-- Symbol key -->
+      <div class="inc-graph-key">
+        <span class="key-section">Border = Severity</span>
+        <span class="key-item key-critical">■ Critical</span>
+        <span class="key-item key-warning">■ Warning</span>
+        <span class="key-item key-info">■ Info</span>
+        <span class="key-section">Glyph = Method</span>
+        <span class="key-item">▲ Threshold</span>
+        <span class="key-item">◆ ML</span>
+        <span class="key-item">● Statistical</span>
+        <span class="key-item">◇ Fingerprint</span>
+        <span class="key-item key-cross">- - Cross-incident</span>
+      </div>
+    </div>
+
+    <!-- Right: detail panel -->
+    <div class="inc-detail-panel" id="inc-detail-panel">
+      <div class="inc-detail-empty">Select an incident to view details</div>
+
+      <!-- Narrative section (hidden until loaded) -->
+      <div class="inc-narrative" id="inc-narrative" hidden>
+        <h4>Narrative</h4>
+        <p id="inc-narrative-observed"></p>
+        <p id="inc-narrative-inferred"></p>
+        <p id="inc-narrative-impact"></p>
+      </div>
+
+      <!-- Causal sequence (hidden until loaded) -->
+      <div class="inc-causal" id="inc-causal" hidden>
+        <h4>Causal Sequence</h4>
+        <div id="inc-causal-items"></div>
+      </div>
+
+      <!-- Similar incidents (hidden until loaded) -->
+      <div class="inc-similar" id="inc-similar" hidden>
+        <h4>Similar Past Incidents</h4>
+        <div id="inc-similar-items"></div>
+      </div>
+
+      <!-- Node overlay (hidden until node clicked) -->
+      <div class="inc-node-overlay" id="inc-node-overlay" hidden>
+        <div class="inc-node-overlay-header">
+          <span id="inc-node-title"></span>
+          <a id="inc-node-view-link" href="#" class="inc-node-view-btn">View full inference →</a>
+        </div>
+        <div id="inc-node-body"></div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+  <!-- Cytoscape.js — MIT licence, cdnjs CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.30.2/cytoscape.min.js"></script>
+  <script type="module" src="{{ url_for('static', filename='js/incident_graph.js') }}"></script>
+{% endblock %}

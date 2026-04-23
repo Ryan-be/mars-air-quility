@@ -1,0 +1,275 @@
+/* ── Incident Correlation Graph page layout ─────────────────────────────── */
+
+.inc-page {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 56px); /* subtract nav bar */
+  overflow: hidden;
+  padding: 0;
+}
+
+/* ── Toolbar ──────────────────────────────────────────────────────────────── */
+
+.inc-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--card-bg);
+  flex-shrink: 0;
+}
+
+/* ── Main layout (3 columns) ─────────────────────────────────────────────── */
+
+.inc-layout {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ── Left: incident list ─────────────────────────────────────────────────── */
+
+.inc-list-panel {
+  width: 220px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 8px 0;
+  background: var(--bg);
+}
+
+.inc-card {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.inc-card:hover,
+.inc-card.selected {
+  background: var(--chip-bg);
+}
+
+.inc-card-id {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+}
+
+.inc-card-title {
+  font-size: 0.83rem;
+  color: var(--text);
+  margin: 2px 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inc-card-meta {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.inc-sev-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.inc-sev-dot.critical { background: #8a1515; }
+.inc-sev-dot.warning  { background: #c47a1e; }
+.inc-sev-dot.info     { background: #1a4060; }
+
+.inc-loading {
+  padding: 16px;
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 0.85rem;
+}
+
+/* ── Centre: graph canvas ────────────────────────────────────────────────── */
+
+.inc-graph-panel {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background: #0d1117;
+}
+
+#cy-graph {
+  width: 100%;
+  height: calc(100% - 36px); /* leave room for key */
+}
+
+/* ── Symbol key ─────────────────────────────────────────────────────────── */
+
+.inc-graph-key {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  background: rgba(13, 17, 23, 0.85);
+  border-top: 1px solid #2a2f3a;
+  font-size: 0.7rem;
+  color: #9ca3af;
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+.key-section {
+  font-weight: 700;
+  color: #d1d5db;
+  padding-right: 4px;
+}
+
+.key-item { opacity: 0.85; }
+.key-critical { color: #e57373; }
+.key-warning  { color: #ffb74d; }
+.key-info     { color: #64b5f6; }
+.key-cross    { color: #a5d6a7; }
+
+/* ── Right: detail panel ─────────────────────────────────────────────────── */
+
+.inc-detail-panel {
+  width: 280px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--card-bg);
+}
+
+.inc-detail-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 0.85rem;
+  padding: 24px;
+  text-align: center;
+}
+
+.inc-narrative,
+.inc-causal,
+.inc-similar {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.inc-narrative h4,
+.inc-causal h4,
+.inc-similar h4 {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0 0 8px 0;
+}
+
+.inc-narrative p {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin: 4px 0;
+}
+
+/* Causal sequence ── horizontal ribbon */
+.inc-causal-ribbon {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+
+.inc-causal-arrow {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* Similar incidents */
+.inc-similar-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.inc-similar-item:last-child { border-bottom: none; }
+
+.inc-similar-score {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.inc-similar-nav {
+  color: var(--accent);
+  font-size: 0.9rem;
+}
+
+/* Node overlay ── shown in right panel when a node is clicked */
+.inc-node-overlay {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.inc-node-overlay-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+#inc-node-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.inc-node-view-btn {
+  font-size: 0.75rem;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.inc-node-view-btn:hover { text-decoration: underline; }
+
+#inc-node-body {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+#inc-node-body table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+#inc-node-body td {
+  padding: 2px 4px;
+  vertical-align: top;
+}
+
+#inc-node-body td:first-child {
+  color: var(--text-muted);
+  white-space: nowrap;
+  padding-right: 8px;
+}
