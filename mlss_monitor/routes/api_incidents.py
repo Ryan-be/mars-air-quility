@@ -1,7 +1,8 @@
 """Incidents REST API.
 
-GET /api/incidents            — paginated list with optional filters
-GET /api/incidents/<id>       — full incident detail with narrative + similar
+GET /api/incidents              — paginated list with optional filters
+GET /api/incidents/<id>         — full incident detail with narrative + similar
+POST /api/incidents/<id>/split  — mark an alert as split marker
 """
 from __future__ import annotations
 
