@@ -693,22 +693,44 @@ function buildIncidentElements(detail, centroids, isGhost = false) {
   const rootCount = Math.max(primaryAlerts.length, 1);
 
   // ── Timeline layout: x = minutes from incident start, y = severity lane ──
+  // Many incidents have multiple alerts firing on the same sensor-tick (same
+  // created_at). Without collision handling they stack on top of each other
+  // at a single (x, y). We detect near-colliding alerts in the same lane and
+  // offset them vertically using a small sub-stack, alternating up/down so
+  // the stack stays near the lane centre and doesn't leak into neighbours.
   const TIMELINE_WIDTH_PX = 360;   // px allocated to the time axis per cluster
-  const LANE_HEIGHT_PX    = 40;
+  const LANE_HEIGHT_PX    = 44;    // distance between lanes (critical/warn/info)
   const LANE_BY_SEVERITY  = { critical: 0, warning: 1, info: 2 };
+  const COLLISION_X_PX    = 26;    // nodes closer than this on x collide
+  const STACK_DY_PX       = 13;    // vertical step per stack level
 
   const startMs = new Date((detail.started_at || '').replace(' ', 'T')).getTime();
   const endMs   = new Date((detail.ended_at   || '').replace(' ', 'T')).getTime();
-  const spanMs  = Math.max(endMs - startMs, 60_000);  // min 1 min to avoid /0
+  const validSpan = Number.isFinite(startMs) && Number.isFinite(endMs);
+  const spanMs  = validSpan ? Math.max(endMs - startMs, 60_000) : 60_000;
+
+  // Track placed {x, lane, stackLevel} so later alerts can avoid collisions.
+  const placed = [];
 
   primaryAlerts.forEach((alert) => {
     const alertMs = new Date((alert.created_at || '').replace(' ', 'T')).getTime();
-    const t = Math.max(0, Math.min(1, (alertMs - startMs) / spanMs));
+    const t = (validSpan && Number.isFinite(alertMs))
+      ? Math.max(0, Math.min(1, (alertMs - startMs) / spanMs))
+      : 0;
     const lane = LANE_BY_SEVERITY[alert.severity] ?? 2;
-    const alertPos = {
-      x: centre.x - TIMELINE_WIDTH_PX / 2 + t * TIMELINE_WIDTH_PX,
-      y: centre.y - LANE_HEIGHT_PX + lane * LANE_HEIGHT_PX,
-    };
+    const baseX = centre.x - TIMELINE_WIDTH_PX / 2 + t * TIMELINE_WIDTH_PX;
+    const baseY = centre.y - LANE_HEIGHT_PX + lane * LANE_HEIGHT_PX;
+
+    // How many already-placed alerts in this lane are within COLLISION_X_PX?
+    const collisions = placed.filter(p =>
+      p.lane === lane && Math.abs(p.x - baseX) < COLLISION_X_PX
+    ).length;
+    // Stack alternates: 0→centre, 1→down, 2→up, 3→down2, 4→up2, …
+    const stackDir = collisions === 0 ? 0
+      : (collisions % 2 === 1 ? 1 : -1) * Math.ceil(collisions / 2);
+    const alertPos = { x: baseX, y: baseY + stackDir * STACK_DY_PX };
+    placed.push({ x: baseX, lane });
+
     elements.push({
       group: 'nodes',
       data: {
