@@ -475,12 +475,19 @@ function buildCytoscapeStyle() {
     {
       selector: 'node.cross-node',
       style: {
-        'width': 16,
-        'height': 16,
+        'width': 18,
+        'height': 18,
         'border-style': 'dashed',
         'border-color': '#64b482',
-        'border-opacity': 0.6,
+        'border-opacity': 0.75,
         'background-color': '#101c14',
+        // Cross-incident nodes always carry a short human-readable label so
+        // the band below the cluster grid is scannable without having to zoom.
+        'label': 'data(label_short)',
+        'font-size': 9,
+        'color': '#9fc5a9',
+        'text-valign': 'bottom',
+        'text-margin-y': 3,
       },
     },
 
@@ -497,7 +504,10 @@ function buildCytoscapeStyle() {
     { selector: 'node.method-summary',     style: { 'shape': 'round-rectangle' } },
 
     // ── Progressive labels ────────────────────────────────────────────
-    { selector: 'node.alert-node.labels-ts',    style: { 'label': 'data(created_at)' } },
+    // Short-label mode uses only HH:MM (data-label_time) so timestamps stop
+    // overflowing when nodes are close in time. Full label shows the event
+    // title (wrapping handled by text-wrap: ellipsis + text-max-width).
+    { selector: 'node.alert-node.labels-ts',    style: { 'label': 'data(label_time)' } },
     { selector: 'node.alert-node.labels-full',  style: { 'label': 'data(label)' } },
 
     // ── Edges ─────────────────────────────────────────────────────────
@@ -742,19 +752,23 @@ function buildIncidentElements(detail, centroids, isGhost = false) {
     const baseY = centre.y - LANE_HEIGHT_PX + lane * LANE_HEIGHT_PX;
 
     // Walk STACK_STEPS to find the first y that no near-x placement occupies.
+    // Collision check is cross-lane on purpose: a critical alert stacked down
+    // into the warning lane's y-range must still block a later warning alert
+    // at the same x. (Earlier same-lane-only check allowed exactly that
+    // overlap.) STACK_STEPS has 11 slots; if all are taken we fall through
+    // to baseY — a tiny pile-on for genuinely saturated clusters.
     let finalY = baseY;
     for (const step of STACK_STEPS) {
       const candidate = baseY + step * STACK_DY_PX;
       const taken = placed.some(p =>
-        p.lane === lane &&
         Math.abs(p.x - baseX) < COLLISION_X_PX &&
-        Math.abs(p.y - candidate) < STACK_DY_PX  // half-overlap counts as taken
+        Math.abs(p.y - candidate) < STACK_DY_PX  // neighbouring slot counts as taken
       );
       if (!taken) { finalY = candidate; break; }
     }
 
     const alertPos = { x: baseX, y: finalY };
-    placed.push({ x: baseX, y: finalY, lane });
+    placed.push({ x: baseX, y: finalY });
 
     elements.push({
       group: 'nodes',
@@ -769,6 +783,8 @@ function buildIncidentElements(detail, centroids, isGhost = false) {
         method: alert.detection_method,
         title: alert.title || '',
         created_at: (alert.created_at || '').slice(0, 16),
+        // HH:MM only — used by labels-ts so close-in-time nodes don't overlap.
+        label_time: (alert.created_at || '').slice(11, 16),
       },
       position: loadSavedPosition(`${POS_KEY_PREFIX}${incId}::alert-${alert.id}`) || alertPos,
       classes: `alert-node${isGhost ? ' ghost' : ''} severity-${alert.severity || 'info'} method-${alert.detection_method || 'threshold'}`,
@@ -794,11 +810,21 @@ function buildIncidentElements(detail, centroids, isGhost = false) {
 
   crossAlerts.forEach(alert => {
     const pos = computeCrossIncidentPosition(incId, alert.id, centroids);
+    // Short label that's always visible on the band.  Compact event-type
+    // abbreviation ("hourly", "daily", "pattern", "annotation").
+    const et = alert.event_type || '';
+    const labelShort =
+      et.startsWith('hourly_summary') ? 'hourly'
+      : et.startsWith('daily_summary') ? 'daily'
+      : et.startsWith('daily_pattern') ? 'pattern'
+      : et.startsWith('annotation_context_') ? 'annotation'
+      : et.replace(/_/g, ' ').slice(0, 12);
     elements.push({
       group: 'nodes',
       data: {
         id: `cross-${alert.id}`,
         label: (alert.event_type || '').replace(/_/g, ' '),
+        label_short: labelShort,
         type: 'cross',
         alertId: alert.id,
         incidentId: incId,
@@ -822,17 +848,46 @@ function buildIncidentElements(detail, centroids, isGhost = false) {
 
 // ── Cross-incident node placement ─────────────────────────────────────────────
 
+// Tracks how many cross nodes have been placed per row so we can stagger in
+// two rows when many cross-nodes land in the band.  Keyed by the centroids
+// object so it resets on each re-render.
+const _crossPlaced = new WeakMap();
+
 /** Place cross-incident nodes on a horizontal band below the cluster grid.
- *  Each ID gets a deterministic x based on a hash of (incId, alertId) so
- *  nodes don't overlap. */
+ *  Uses deterministic hash-spread for x, then adds a second-row offset when
+ *  an earlier node already landed within CROSS_NODE_SPACING. Keeps the band
+ *  readable instead of piling dashed squares on top of each other. */
 function computeCrossIncidentPosition(incId, alertId, centroids) {
   const bandY = centroids.__crossBandY || 800;
-  // Simple deterministic hash → x spread across the band
+  const BAND_WIDTH_PX    = 2200;  // roomy landscape strip
+  const CROSS_NODE_SPACE = 60;    // minimum x-gap before we stack to row 2
+  const ROW_HEIGHT_PX    = 50;
+
+  // Hash (incId, alertId) → x across BAND_WIDTH_PX.
   const key = `${incId}-${alertId}`;
   let h = 0;
   for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) | 0;
-  const x = (Math.abs(h) % 1400) - 700;
-  return { x, y: bandY };
+  const baseX = (Math.abs(h) % BAND_WIDTH_PX) - BAND_WIDTH_PX / 2;
+
+  // Find an x-slot that isn't already claimed.  Walk outward from baseX in
+  // ±CROSS_NODE_SPACE increments, alternating rows, until we find a gap.
+  let placed = _crossPlaced.get(centroids);
+  if (!placed) { placed = []; _crossPlaced.set(centroids, placed); }
+
+  const OFFSETS = [0, 1, -1, 2, -2, 3, -3, 4, -4, 5, -5, 6, -6];
+  for (const off of OFFSETS) {
+    const x = baseX + off * CROSS_NODE_SPACE;
+    for (const row of [0, 1]) {
+      const y = bandY + row * ROW_HEIGHT_PX;
+      const clash = placed.some(p =>
+        Math.abs(p.x - x) < CROSS_NODE_SPACE && p.y === y
+      );
+      if (!clash) { placed.push({ x, y }); return { x, y }; }
+    }
+  }
+  // Saturated band — return baseX on row 0 as a last resort.
+  placed.push({ x: baseX, y: bandY });
+  return { x: baseX, y: bandY };
 }
 
 // ── localStorage position persistence ────────────────────────────────────────

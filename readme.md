@@ -276,7 +276,7 @@ The browser frontend is built on **[AstroUXDS](https://astrouxds.com)** -- NASA 
 
 ## Database design
 
-MLSS uses a single SQLite file (`data/sensor_data.db`) with eleven tables. Schema creation is idempotent -- `create_db()` uses `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE` migrations, making it safe to call on every startup.
+MLSS uses a single SQLite file (`data/sensor_data.db`) with thirteen tables. Schema creation is idempotent -- `create_db()` uses `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE` migrations, making it safe to call on every startup. The ER diagram below shows the primary tables; the two support tables (`event_tags`, `hot_tier`) are summarised in the table list beneath it.
 
 ```mermaid
 erDiagram
@@ -417,6 +417,8 @@ erDiagram
 | `incidents` | Sessionised groupings of inferences, separated by a 30-minute silence gap. Columns: `id` (format `INC-YYYYMMDD-HHMM`), `started_at`, `ended_at`, `max_severity`, `confidence`, `title`, `signature` (32-float JSON vector for similarity search). Rebuilt idempotently via `INSERT OR REPLACE` whenever a new inference arrives. | Follows `inferences` -- no separate purge. |
 | `incident_alerts` | Many-to-many link between `incidents` and `inferences` with `is_primary` flag (0 = cross-incident context like hourly summaries, 1 = primary alert). | Rebuilt on each regroup. |
 | `alert_signal_deps` | Pearson r correlation between an alert and each of the 10 sensor channels within the incident window, plus `lag_seconds`. `r` is `NULL` (not 0.0) when there were fewer than 10 clean data points. | Rebuilt on each regroup. |
+| `event_tags` | User-applied source tags attached to inferences via the event-tagging flow. Tag names are constrained to the fingerprint IDs in `config/fingerprints.yaml`. Used by the AttributionEngine to retrain its River classifier. See [docs/EVENT_TAGGING_FLOW.md](docs/EVENT_TAGGING_FLOW.md). | Indefinite. |
+| `hot_tier` | Rolling 1-second-resolution sensor buffer (last ~2 hours) used by the inference engine for fine-grained analysis windows and by the grouper for Pearson r computation. | Auto-trimmed by row count. |
 
 ### Key design decisions
 
