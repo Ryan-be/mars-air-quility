@@ -70,3 +70,11 @@ def test_insights_engine_astro_landmarks(app_client):
     assert 'class="global-status-bar"' in body, "Missing .global-status-bar"
     assert 'class="tab-nav"' in body, "Missing .tab-nav"
     assert 'data-tab="settings"' in body, "Missing data-tab=settings"
+
+
+def test_incidents_page_loads(app_client):
+    client, _ = app_client
+    rv = client.get("/incidents")
+    assert rv.status_code == 200
+    assert b"cy-graph" in rv.data
+    assert b"incident_graph.js" in rv.data

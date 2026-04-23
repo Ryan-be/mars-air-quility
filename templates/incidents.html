@@ -105,7 +105,7 @@
 </div>
 {% endblock %}
 
-{% block extra_scripts %}
+{% block scripts %}
   <!-- Cytoscape.js — MIT licence, cdnjs CDN -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.30.2/cytoscape.min.js"></script>
   <script type="module" src="{{ url_for('static', filename='js/incident_graph.js') }}"></script>

@@ -135,6 +135,14 @@
       <span>Controls</span>
     </a>
 
+    <!-- Incidents -->
+    <a href="/incidents"
+       data-tab="incidents"
+       class="{{ 'active' if request.path == '/incidents' else '' }}">
+      <rux-icon icon="alert" size="extra-small"></rux-icon>
+      <span>Incidents</span>
+    </a>
+
     <!-- Settings (admin only) -->
     {% if session_role == 'admin' %}
     <a href="{{ url_for('pages.admin') }}"
