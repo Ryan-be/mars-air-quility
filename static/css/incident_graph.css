@@ -295,6 +295,15 @@
 
 .inc-similar-item:last-child { border-bottom: none; }
 
+.inc-similar-id {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+.inc-similar-title { font-size: 0.8rem; }
+
+.inc-similar-right { text-align: right; }
+
 .inc-similar-score {
   font-size: 0.72rem;
   color: var(--text-muted);
@@ -418,6 +427,9 @@
   font-variant-numeric: tabular-nums;
 }
 .dep-row span:first-child { color: var(--text-muted); }
+
+.dep-r-pos { color: #4dacff; }
+.dep-r-neg { color: #ff8a8a; }
 /* ── Severity pills in toolbar ─────────────────────────────────────────── */
 
 .inc-sev-pills {

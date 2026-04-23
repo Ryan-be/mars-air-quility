@@ -273,46 +273,48 @@ function _syncWindowButton(win) {
 function renderList(incidents) {
   if (!elList) return;
   if (incidents.length === 0) {
-    elList.innerHTML = '<div class="inc-loading">No incidents found.</div>';
+    elList.innerHTML = html`<div class="inc-loading">No incidents found.</div>`;
     return;
   }
-
-  elList.innerHTML = incidents.map(inc => {
-    const start = (inc.started_at || '').replace('T', ' ').slice(11, 16);
-    const end   = (inc.ended_at   || '').replace('T', ' ').slice(11, 16);
-    const date  = (inc.started_at || '').slice(0, 10);
-    const durMin = (() => {
-      if (!inc.started_at || !inc.ended_at) return '';
-      const a = new Date(inc.started_at.replace(' ', 'T'));
-      const b = new Date(inc.ended_at.replace(' ', 'T'));
-      const m = Math.round((b - a) / 60000);
-      return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`;
-    })();
-    return `
-      <div class="inc-card${inc.id === currentIncidentId ? ' selected' : ''}"
-           data-id="${escHtml(inc.id)}">
-        <div class="inc-card-id">${escHtml(inc.id)}</div>
-        <div class="inc-card-title" title="${escHtml(inc.title || '')}">${escHtml(inc.title || '')}</div>
-        <div class="inc-card-time">
-          <span>${escHtml(date)}</span>
-          <span>·</span>
-          <span>${escHtml(start)}–${escHtml(end)}</span>
-          <span>·</span>
-          <span>${escHtml(durMin)}</span>
-        </div>
-        <div class="inc-card-meta">
-          <span class="inc-sev-dot ${escHtml(inc.max_severity || 'info')}"></span>
-          <span>${escHtml(inc.max_severity || 'info')}</span>
-          <span>·</span>
-          <span>${inc.alert_count ?? 0} alert${inc.alert_count === 1 ? '' : 's'}</span>
-        </div>
-      </div>
-    `;
-  }).join('');
-
+  elList.innerHTML = html`${incidents.map(incidentCardTemplate)}`;
   elList.querySelectorAll('.inc-card').forEach(card => {
     card.addEventListener('click', () => selectIncident(card.dataset.id));
   });
+}
+
+function incidentCardTemplate(inc) {
+  const start = (inc.started_at || '').replace('T', ' ').slice(11, 16);
+  const end   = (inc.ended_at   || '').replace('T', ' ').slice(11, 16);
+  const date  = (inc.started_at || '').slice(0, 10);
+  const dur   = _formatDuration(inc.started_at, inc.ended_at);
+  const sev   = inc.max_severity || 'info';
+  const sel   = inc.id === currentIncidentId ? 'selected' : '';
+  const count = inc.alert_count ?? 0;
+  return html`
+    <div class="inc-card ${sel}" data-id="${inc.id}">
+      <div class="inc-card-id">${inc.id}</div>
+      <div class="inc-card-title" title="${inc.title || ''}">${inc.title || ''}</div>
+      <div class="inc-card-time">
+        <span>${date}</span><span>·</span>
+        <span>${start}–${end}</span><span>·</span>
+        <span>${dur}</span>
+      </div>
+      <div class="inc-card-meta">
+        <span class="inc-sev-dot ${sev}"></span>
+        <span>${sev}</span><span>·</span>
+        <span>${count} alert${count === 1 ? '' : 's'}</span>
+      </div>
+    </div>
+  `;
+}
+
+function _formatDuration(from, to) {
+  if (!from || !to) return '';
+  const a = new Date(String(from).replace(' ', 'T'));
+  const b = new Date(String(to).replace(' ', 'T'));
+  const m = Math.round((b - a) / 60000);
+  if (!Number.isFinite(m) || m < 0) return '';
+  return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`;
 }
 
 // ── Select incident ───────────────────────────────────────────────────────────
@@ -354,24 +356,12 @@ function renderDetail(detail) {
 
   const causal = detail.causal_sequence || [];
   if (causal.length > 0 && elCausal) {
-    const startTs = causal[0] ? new Date(causal[0].created_at.replace(' ', 'T')) : null;
-    const fmtDelta = (iso) => {
-      if (!startTs) return '';
-      const t = new Date(iso.replace(' ', 'T'));
-      const mins = Math.round((t - startTs) / 60000);
-      return mins === 0 ? 'start' : `+${mins}m`;
-    };
-    const fmtClock = (iso) => (iso || '').slice(11, 16);
-
-    elCausalItems.innerHTML = '<div class="inc-causal-ribbon">'
-      + causal.map((a, i) =>
-          (i > 0 ? '<span class="inc-causal-arrow">→</span>' : '')
-          + `<span class="inc-causal-chip-group" title="${escHtml(fmtClock(a.created_at))} — ${escHtml(a.title || a.event_type)}">`
-          +   `<span class="inc-causal-chip sev-chip-${escHtml(a.severity || 'info')}">${escHtml(a.title || a.event_type)}</span>`
-          +   `<span class="inc-causal-chip-time">${escHtml(fmtDelta(a.created_at))}</span>`
-          + `</span>`
-        ).join('')
-      + '</div>';
+    const startTs = new Date(causal[0].created_at.replace(' ', 'T'));
+    elCausalItems.innerHTML = html`
+      <div class="inc-causal-ribbon">
+        ${causal.map((a, i) => causalChipTemplate(a, i, startTs))}
+      </div>
+    `;
     elCausal.hidden = false;
   } else if (elCausal) {
     elCausal.hidden = true;
@@ -379,20 +369,7 @@ function renderDetail(detail) {
 
   const similar = detail.similar || [];
   if (similar.length > 0 && elSimilar) {
-    elSimilarItems.innerHTML = similar.map(s => `
-      <div class="inc-similar-item" data-similar-id="${escHtml(s.id)}">
-        <div class="inc-similar-main">
-          <div style="font-size:0.75rem;font-weight:700;color:var(--text-muted)">${escHtml(s.id)}</div>
-          <div style="font-size:0.8rem">${escHtml(s.title || '')}</div>
-          <div class="inc-similar-why">${escHtml(s.why || '')}</div>
-        </div>
-        <div style="text-align:right">
-          <div class="inc-similar-score">${(s.similarity * 100).toFixed(0)}% similar</div>
-          <span class="inc-similar-nav">›</span>
-        </div>
-      </div>
-    `).join('');
-
+    elSimilarItems.innerHTML = html`${similar.map(similarRowTemplate)}`;
     elSimilarItems.querySelectorAll('.inc-similar-item').forEach(el => {
       el.addEventListener('click', () => selectIncident(el.dataset.similarId));
     });
@@ -402,6 +379,38 @@ function renderDetail(detail) {
   }
 
   if (elNodeOverlay) elNodeOverlay.hidden = true;
+}
+
+function causalChipTemplate(a, i, startTs) {
+  const clock = (a.created_at || '').slice(11, 16);
+  const label = a.title || a.event_type || '';
+  const sev = a.severity || 'info';
+  const mins = Math.round((new Date(a.created_at.replace(' ', 'T')) - startTs) / 60000);
+  const delta = mins === 0 ? 'start' : `+${mins}m`;
+  return html`
+    ${i > 0 ? html.raw('<span class="inc-causal-arrow">→</span>') : ''}
+    <span class="inc-causal-chip-group" title="${clock} — ${label}">
+      <span class="inc-causal-chip sev-chip-${sev}">${label}</span>
+      <span class="inc-causal-chip-time">${delta}</span>
+    </span>
+  `;
+}
+
+function similarRowTemplate(s) {
+  const pct = (s.similarity * 100).toFixed(0);
+  return html`
+    <div class="inc-similar-item" data-similar-id="${s.id}">
+      <div class="inc-similar-main">
+        <div class="inc-similar-id">${s.id}</div>
+        <div class="inc-similar-title">${s.title || ''}</div>
+        <div class="inc-similar-why">${s.why || ''}</div>
+      </div>
+      <div class="inc-similar-right">
+        <div class="inc-similar-score">${pct}% similar</div>
+        <span class="inc-similar-nav">›</span>
+      </div>
+    </div>
+  `;
 }
 
 // ── Node overlay ──────────────────────────────────────────────────────────────
@@ -425,35 +434,49 @@ async function showNodeOverlay(nodeData) {
 }
 
 function renderAlertTable(alert) {
-  const pct = (x) => `${((x || 0) * 100).toFixed(0)}%`;
-  const ts  = (s) => (s || '').replace('T', ' ').slice(0, 19);
+  const pct = x => `${((x || 0) * 100).toFixed(0)}%`;
+  const ts  = s => (s || '').replace('T', ' ').slice(0, 19);
+
+  // Build rows as [label, value] pairs.  value can be a plain string (which
+  // will be auto-escaped when interpolated) or a SafeHTML block (already
+  // escaped, e.g. the Correlates block).
   const rows = [
     ['ID',         `#${alert.id}`],
-    ['Time',       escHtml(ts(alert.created_at))],
-    ['Type',       escHtml(alert.event_type || '')],
-    ['Severity',   escHtml(alert.severity || '')],
-    ['Method',     escHtml(alert.detection_method || '')],
+    ['Time',       ts(alert.created_at)],
+    ['Type',       alert.event_type || ''],
+    ['Severity',   alert.severity || ''],
+    ['Method',     alert.detection_method || ''],
     ['Confidence', pct(alert.confidence)],
   ];
-  if (alert.description) {
-    rows.push(['Detail', escHtml(alert.description)]);
-  }
-  // Signal correlations (Pearson r per sensor) — only show |r| >= 0.3
-  const strongDeps = (alert.signal_deps || [])
+  if (alert.description) rows.push(['Detail', alert.description]);
+
+  // Pearson-r correlations, strongest first, |r| >= 0.3 only.
+  const strong = (alert.signal_deps || [])
     .filter(d => d.r !== null && Math.abs(d.r) >= 0.3)
     .sort((a, b) => Math.abs(b.r) - Math.abs(a.r))
     .slice(0, 6);
-  if (strongDeps.length) {
-    const depsHtml = strongDeps.map(d => {
-      const sign = d.r >= 0 ? '+' : '';
-      const colour = d.r >= 0 ? '#4dacff' : '#ff8a8a';
-      return `<div class="dep-row"><span>${escHtml(d.sensor)}</span><span style="color:${colour}">r = ${sign}${d.r.toFixed(2)}</span></div>`;
-    }).join('');
-    rows.push(['Correlates', `<div class="evidence-block">${depsHtml}</div>`]);
-  }
-  return '<table>' + rows.map(([k, v]) =>
-    `<tr><td>${k}</td><td>${v}</td></tr>`
-  ).join('') + '</table>';
+  if (strong.length) rows.push(['Correlates', correlatesBlock(strong)]);
+
+  return html`
+    <table>
+      ${rows.map(([k, v]) => html`<tr><td>${k}</td><td>${v}</td></tr>`)}
+    </table>
+  `;
+}
+
+function correlatesBlock(deps) {
+  return html`
+    <div class="evidence-block">
+      ${deps.map(d => html`
+        <div class="dep-row">
+          <span>${d.sensor}</span>
+          <span class="dep-r dep-r-${d.r >= 0 ? 'pos' : 'neg'}">
+            r = ${d.r >= 0 ? '+' : ''}${d.r.toFixed(2)}
+          </span>
+        </div>
+      `)}
+    </div>
+  `;
 }
 
 // ── Cytoscape stylesheet ──────────────────────────────────────────────────────
@@ -1196,6 +1219,42 @@ function escHtml(str) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+/**
+ * Tiny HTML tagged-template literal. Auto-escapes interpolated values,
+ * flattens arrays of template results, provides `html.raw()` as a rare
+ * escape hatch for already-trusted fragments.
+ *
+ *   html`<div class="x">${user.name}</div>`           // name is escaped
+ *   html`<ul>${items.map(i => html`<li>${i}</li>`)}</ul>`  // composes
+ *   html`${html.raw('<em>safe</em>')}`                // explicit opt-out
+ *
+ * Returns a SafeHTML instance that coerces to a string when assigned to
+ * innerHTML and is recognised as pre-escaped when re-interpolated.
+ */
+class SafeHTML extends String {}
+
+function html(strings, ...values) {
+  let out = '';
+  for (let i = 0; i < strings.length; i++) {
+    out += strings[i];
+    if (i >= values.length) continue;
+    const v = values[i];
+    if (v == null || v === false) continue;
+    if (Array.isArray(v)) {
+      for (const item of v) out += _interp(item);
+    } else {
+      out += _interp(v);
+    }
+  }
+  return new SafeHTML(out);
+}
+html.raw = s => new SafeHTML(String(s));
+
+function _interp(v) {
+  if (v == null || v === false) return '';
+  return v instanceof SafeHTML ? v.toString() : escHtml(String(v));
 }
 
 function severityToStatus(sev) {
