@@ -216,6 +216,18 @@ def connected_components(
     )
 
 
+def incident_confidence(
+    edges_in_component: list[tuple[int, int, float]],
+) -> float:
+    """Return min(edge probability over the component) or 1.0 for singletons.
+
+    Interpretation: "the chain is only as trustworthy as its weakest link".
+    """
+    if not edges_in_component:
+        return 1.0
+    return min(p for _src, _dst, p in edges_in_component)
+
+
 def is_cross_incident(event_type: str) -> bool:
     """Return True for alert types that span / summarise multiple incidents."""
     return (event_type in CROSS_INCIDENT_TYPES

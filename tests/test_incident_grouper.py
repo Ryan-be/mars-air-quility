@@ -21,6 +21,7 @@ from mlss_monitor.incident_grouper import (
     generate_incident_title,
     merge_similar_adjacent,
     connected_components,
+    incident_confidence,
 )
 
 
@@ -772,3 +773,25 @@ def test_connected_components_returns_alert_dicts_not_ids():
     assert len(components) == 1
     # Same object identity — we pass through the dicts.
     assert set(id(a) for a in components[0]) == {id(a1), id(a2)}
+
+
+# ── incident_confidence ──────────────────────────────────────────────────────
+
+def test_incident_confidence_singleton_is_one():
+    """No edges inside the component => max confidence (nothing to doubt)."""
+    assert incident_confidence(edges_in_component=[]) == 1.0
+
+
+def test_incident_confidence_single_edge():
+    assert incident_confidence(edges_in_component=[(1, 2, 0.72)]) == 0.72
+
+
+def test_incident_confidence_min_over_edges():
+    """Weakest link sets the confidence."""
+    edges = [(1, 2, 0.9), (2, 3, 0.31), (3, 4, 0.65)]
+    assert incident_confidence(edges) == 0.31
+
+
+def test_incident_confidence_ignores_edges_order():
+    edges = [(3, 4, 0.65), (1, 2, 0.9), (2, 3, 0.31)]
+    assert incident_confidence(edges) == 0.31
