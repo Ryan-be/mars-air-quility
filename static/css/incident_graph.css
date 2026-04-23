@@ -134,9 +134,9 @@
 }
 
 .key-item { opacity: 0.85; }
-.key-critical { color: #e57373; }
-.key-warning  { color: #ffb74d; }
-.key-info     { color: #64b5f6; }
+.key-critical { color: #ff3838; }
+.key-warning  { color: #fc8c2f; }
+.key-info     { color: #2dccff; }
 .key-cross    { color: #a5d6a7; }
 
 /* ── Right: detail panel ─────────────────────────────────────────────────── */
@@ -161,6 +161,13 @@
   font-size: 0.85rem;
   padding: 24px;
   text-align: center;
+}
+
+.inc-detail-scroll {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
 
 .inc-narrative,

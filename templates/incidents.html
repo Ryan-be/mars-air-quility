@@ -56,14 +56,17 @@
       <!-- Symbol key -->
       <div class="inc-graph-key">
         <span class="key-section">Border = Severity</span>
-        <span class="key-item key-critical">■ Critical</span>
-        <span class="key-item key-warning">■ Warning</span>
-        <span class="key-item key-info">■ Info</span>
-        <span class="key-section">Glyph = Method</span>
-        <span class="key-item">▲ Threshold</span>
-        <span class="key-item">◆ ML</span>
-        <span class="key-item">● Statistical</span>
-        <span class="key-item">◇ Fingerprint</span>
+        <span class="key-item key-critical">● Critical</span>
+        <span class="key-item key-warning">● Warning</span>
+        <span class="key-item key-info">● Info</span>
+        <span style="width:1px;height:16px;background:rgba(255,255,255,0.1);margin:0 4px;"></span>
+        <span class="key-section">Shape = Method</span>
+        <span class="key-item">○ Threshold</span>
+        <span class="key-item">◇ ML</span>
+        <span class="key-item">⬡ Statistical</span>
+        <span class="key-item">⬠ Fingerprint</span>
+        <span class="key-item">▭ Summary</span>
+        <span style="width:1px;height:16px;background:rgba(255,255,255,0.1);margin:0 4px;"></span>
         <span class="key-item key-cross">- - Cross-incident</span>
       </div>
     </div>
@@ -72,33 +75,35 @@
     <div class="inc-detail-panel" id="inc-detail-panel">
       <div class="inc-detail-empty">Select an incident to view details</div>
 
-      <!-- Narrative section (hidden until loaded) -->
-      <div class="inc-narrative" id="inc-narrative" hidden>
-        <h4>Narrative</h4>
-        <p id="inc-narrative-observed"></p>
-        <p id="inc-narrative-inferred"></p>
-        <p id="inc-narrative-impact"></p>
-      </div>
-
-      <!-- Causal sequence (hidden until loaded) -->
-      <div class="inc-causal" id="inc-causal" hidden>
-        <h4>Causal Sequence</h4>
-        <div id="inc-causal-items"></div>
-      </div>
-
-      <!-- Similar incidents (hidden until loaded) -->
-      <div class="inc-similar" id="inc-similar" hidden>
-        <h4>Similar Past Incidents</h4>
-        <div id="inc-similar-items"></div>
-      </div>
-
-      <!-- Node overlay (hidden until node clicked) -->
-      <div class="inc-node-overlay" id="inc-node-overlay" hidden>
-        <div class="inc-node-overlay-header">
-          <span id="inc-node-title"></span>
-          <a id="inc-node-view-link" href="#" class="inc-node-view-btn">View full inference →</a>
+      <div class="inc-detail-scroll">
+        <!-- Narrative section (hidden until loaded) -->
+        <div class="inc-narrative" id="inc-narrative" hidden>
+          <h4>Narrative</h4>
+          <p id="inc-narrative-observed"></p>
+          <p id="inc-narrative-inferred"></p>
+          <p id="inc-narrative-impact"></p>
         </div>
-        <div id="inc-node-body"></div>
+
+        <!-- Causal sequence (hidden until loaded) -->
+        <div class="inc-causal" id="inc-causal" hidden>
+          <h4>Causal Sequence</h4>
+          <div id="inc-causal-items"></div>
+        </div>
+
+        <!-- Similar incidents (hidden until loaded) -->
+        <div class="inc-similar" id="inc-similar" hidden>
+          <h4>Similar Past Incidents</h4>
+          <div id="inc-similar-items"></div>
+        </div>
+
+        <!-- Node overlay (hidden until node clicked) -->
+        <div class="inc-node-overlay" id="inc-node-overlay" hidden>
+          <div class="inc-node-overlay-header">
+            <span id="inc-node-title"></span>
+            <a id="inc-node-view-link" href="#" class="inc-node-view-btn">View full inference →</a>
+          </div>
+          <div id="inc-node-body"></div>
+        </div>
       </div>
     </div>
   </div>

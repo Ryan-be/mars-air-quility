@@ -276,83 +276,104 @@ function renderAlertTable(alert) {
 
 // ── Cytoscape stylesheet ──────────────────────────────────────────────────────
 
-const GLYPHS = {
-  threshold:   "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20'><polygon points='10,2 18,18 2,18' fill='%23ffffff' opacity='0.9'/></svg>",
-  ml:          "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20'><polygon points='10,2 18,10 10,18 2,10' fill='%23ffffff' opacity='0.9'/></svg>",
-  statistical: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20'><circle cx='10' cy='10' r='7' fill='%23ffffff' opacity='0.9'/></svg>",
-  fingerprint: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20'><polygon points='10,3 17,7 17,13 10,17 3,13 3,7' fill='none' stroke='%23ffffff' stroke-width='2' opacity='0.9'/></svg>",
-  summary:     "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20'><rect x='3' y='3' width='14' height='14' rx='2' fill='%23ffffff' opacity='0.9'/></svg>",
-};
-
-const SEV_BORDER = { critical: '#8a1515', warning: '#c47a1e', info: '#1a4060' };
+const SEV_BORDER = { critical: '#ff3838', warning: '#fc8c2f', info: '#2dccff' };
 
 function buildCytoscapeStyle() {
   return [
+    // ── Base node ──────────────────────────────────────────────────────
     {
       selector: 'node',
       style: {
-        'background-color': '#1e2530',
-        'border-width': 2,
-        'border-color': '#4a5568',
+        'background-color': '#131b2e',
+        'border-width': 1.5,
+        'border-color': '#2e3a50',
         'label': '',
-        'color': '#d1d5db',
-        'font-size': 10,
+        'color': '#6b7280',
+        'font-size': 9,
+        'font-family': 'Roboto, sans-serif',
         'text-valign': 'bottom',
         'text-margin-y': 4,
         'text-wrap': 'ellipsis',
         'text-max-width': 80,
-        'width': 28,
-        'height': 28,
-        'background-image-containment': 'inside',
-        'background-clip': 'none',
-        'background-image-opacity': 0.9,
+        'width': 20,
+        'height': 20,
+        'shape': 'ellipse',
       },
     },
+
+    // ── Compound hull (selected incident) ─────────────────────────────
     {
       selector: 'node.hull',
       style: {
-        'background-color': 'rgba(30,37,48,0.35)',
-        'border-width': 1.5,
+        'background-color': 'rgba(45,100,255,0.04)',
+        'border-width': 1,
         'border-style': 'solid',
-        'border-color': '#4a5568',
-        'shape': 'roundrectangle',
-        'padding': '24px',
+        'border-color': 'rgba(80,120,200,0.22)',
+        'shape': 'round-rectangle',
+        'padding': '22px',
         'label': 'data(label)',
-        'font-size': 9,
-        'color': '#6b7280',
+        'font-size': 8,
+        'color': '#374151',
         'text-valign': 'top',
         'text-halign': 'center',
         'width': 'label',
         'height': 'label',
       },
     },
-    { selector: 'node.hull.ghost', style: { 'background-color': 'rgba(30,37,48,0.15)', 'border-color': '#2a3240' } },
-    { selector: 'node.root-signal', style: { 'width': 22, 'height': 22, 'border-width': 2.5, 'background-color': '#252d3d' } },
-    { selector: 'node.alert-node',  style: { 'width': 28, 'height': 28, 'border-width': 2, 'background-color': '#1e2530' } },
-    { selector: 'node.cross-node',  style: { 'width': 24, 'height': 24, 'border-style': 'dashed', 'border-color': '#3d6b4a', 'background-color': '#1a2a1e' } },
 
+    // ── Ghost hull (unselected incidents — clickable to navigate) ─────
+    {
+      selector: 'node.hull.ghost',
+      style: {
+        'background-color': 'rgba(20,30,50,0.06)',
+        'border-color': 'rgba(50,70,110,0.18)',
+        'color': '#1f2937',
+        'cursor': 'pointer',
+      },
+    },
+
+    // ── Node size / shape variants ────────────────────────────────────
+    { selector: 'node.root-signal', style: { 'width': 12, 'height': 12, 'border-width': 1.5, 'background-color': '#0e1626' } },
+    { selector: 'node.alert-node',  style: { 'width': 20, 'height': 20, 'border-width': 1.5 } },
+    {
+      selector: 'node.cross-node',
+      style: {
+        'width': 16,
+        'height': 16,
+        'border-style': 'dashed',
+        'border-color': 'rgba(100,180,130,0.45)',
+        'background-color': '#101c14',
+      },
+    },
+
+    // ── Severity → border colour (AstroUXDS status palette) ──────────
     { selector: 'node.severity-critical', style: { 'border-color': SEV_BORDER.critical } },
     { selector: 'node.severity-warning',  style: { 'border-color': SEV_BORDER.warning } },
     { selector: 'node.severity-info',     style: { 'border-color': SEV_BORDER.info } },
 
-    { selector: 'node.method-threshold',   style: { 'background-image': GLYPHS.threshold } },
-    { selector: 'node.method-ml',          style: { 'background-image': GLYPHS.ml } },
-    { selector: 'node.method-statistical', style: { 'background-image': GLYPHS.statistical } },
-    { selector: 'node.method-fingerprint', style: { 'background-image': GLYPHS.fingerprint } },
-    { selector: 'node.method-summary',     style: { 'background-image': GLYPHS.summary } },
+    // ── Detection method → node shape ─────────────────────────────────
+    { selector: 'node.method-threshold',   style: { 'shape': 'ellipse' } },
+    { selector: 'node.method-ml',          style: { 'shape': 'diamond' } },
+    { selector: 'node.method-statistical', style: { 'shape': 'hexagon' } },
+    { selector: 'node.method-fingerprint', style: { 'shape': 'pentagon' } },
+    { selector: 'node.method-summary',     style: { 'shape': 'round-rectangle' } },
 
-    { selector: 'node.alert-node.labels-ts',   style: { 'label': 'data(created_at)' } },
-    { selector: 'node.alert-node.labels-full', style: { 'label': 'data(label)' } },
+    // ── Progressive labels ────────────────────────────────────────────
+    { selector: 'node.alert-node.labels-ts',    style: { 'label': 'data(created_at)' } },
+    { selector: 'node.alert-node.labels-full',  style: { 'label': 'data(label)' } },
     { selector: 'node.root-signal.labels-full', style: { 'label': 'data(label)' } },
 
-    { selector: 'edge', style: { 'width': 1, 'line-color': '#374151', 'curve-style': 'bezier', 'opacity': 0.7 } },
-    { selector: 'edge.intra-edge', style: { 'line-color': '#4a5568', 'width': 1 } },
+    // ── Edges ─────────────────────────────────────────────────────────
+    { selector: 'edge',            style: { 'width': 0.8, 'line-color': '#1e2b40', 'curve-style': 'bezier', 'opacity': 0.55 } },
+    { selector: 'edge.intra-edge', style: { 'line-color': '#2a3850', 'width': 0.8 } },
     {
       selector: 'edge.dep-edge',
-      style: { 'width': 'mapData(r, 0.3, 1.0, 0.5, 3.0)', 'line-color': '#3b82f6', 'opacity': 0.6 },
+      style: { 'width': 'mapData(r, 0.3, 1.0, 0.5, 2.0)', 'line-color': '#2563eb', 'opacity': 0.45 },
     },
-    { selector: 'edge.cross-edge', style: { 'line-color': '#3d6b4a', 'line-style': 'dashed', 'width': 1.5, 'opacity': 0.6 } },
-    { selector: 'node:selected', style: { 'border-width': 3, 'border-color': '#60a5fa', 'background-color': '#1e3a5f' } },
+    { selector: 'edge.cross-edge', style: { 'line-color': 'rgba(80,150,100,0.4)', 'line-style': 'dashed', 'width': 0.8, 'opacity': 0.45 } },
+
+    // ── Selection highlight ───────────────────────────────────────────
+    { selector: 'node:selected', style: { 'border-width': 2, 'border-color': '#4dacff', 'background-color': '#0f2040' } },
   ];
 }
 
@@ -398,6 +419,11 @@ function initCytoscape() {
 
   cy.on('tap', 'node[type="alert"]', evt => {
     showNodeOverlay(evt.target.data());
+  });
+
+  cy.on('tap', 'node.ghost', evt => {
+    const incId = evt.target.data('incidentId');
+    if (incId) selectIncident(incId);
   });
 
   cy.on('dragfree', 'node', evt => {
