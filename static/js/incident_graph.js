@@ -50,6 +50,9 @@ function setViewMode(mode) {
   if (mode === viewMode) return;
   viewMode = mode;
   try { localStorage.setItem('inc.view_mode', mode); } catch (_) {}
+  // Re-apply the Cytoscape stylesheet so the hull padding follows the
+  // active mode, then re-render nodes/edges.
+  if (cy) cy.style(buildCytoscapeStyle());
   if (currentDetail) renderGraph(currentDetail, allIncidents);
 }
 
@@ -821,6 +824,13 @@ function correlatesBlock(deps) {
 const SEV_BORDER = { critical: '#ff3838', warning: '#fc8c2f', info: '#2dccff' };
 
 function buildCytoscapeStyle() {
+  const mode = MODES[viewMode] || MODES.manual;
+  // Cytoscape's `padding` syntax: "vertical horizontal" — mirror the two
+  // MODES fields so the painted hull padding matches the clusterHalfHeight
+  // math in compute_centroids.mjs. HULL_PADDING_PX is total horizontal in
+  // the math; Cytoscape wants one side, hence the /2.
+  const hullPadding =
+    `${mode.CYTO_HULL_PADDING_Y}px ${Math.round(mode.HULL_PADDING_PX / 2)}px`;
   return [
     // ── Base node ──────────────────────────────────────────────────────
     {
@@ -860,7 +870,7 @@ function buildCytoscapeStyle() {
         'border-color': '#6a92e0',
         'border-opacity': 0.55,
         'shape': 'round-rectangle',
-        'padding': '30px 40px 30px 40px',
+        'padding': hullPadding,
         'label': 'data(label)',
         'font-size': 11,
         'font-weight': 700,
