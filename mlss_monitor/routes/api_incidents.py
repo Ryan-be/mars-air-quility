@@ -15,6 +15,7 @@ from flask import Blueprint, jsonify, request
 
 from config import config
 from mlss_monitor.incident_grouper import (
+    _safe_regroup,
     cosine_similarity,
     detection_method,
     edge_probability,
@@ -23,6 +24,7 @@ from mlss_monitor.incident_grouper import (
     is_cross_incident,
 )
 from mlss_monitor.incidents_narrative import build_narrative
+from mlss_monitor.rbac import require_role
 
 log = logging.getLogger(__name__)
 api_incidents_bp = Blueprint("api_incidents", __name__)
@@ -327,6 +329,7 @@ def get_incident(incident_id: str):
 
 
 @api_incidents_bp.route("/api/incidents/<incident_id>/split", methods=["POST"])
+@require_role("controller", "admin")
 def split_incident(incident_id: str):
     """Mark an alert as 'starts a new incident'. Persists a row in
     incident_splits and re-runs the grouper so the split takes effect
@@ -352,13 +355,13 @@ def split_incident(incident_id: str):
     conn.commit()
     conn.close()
 
-    from mlss_monitor.incident_grouper import regroup_all
-    regroup_all(DB_FILE)
+    _safe_regroup(DB_FILE)
 
     return jsonify({"ok": True, "split_alert_id": alert_id})
 
 
 @api_incidents_bp.route("/api/incidents/<incident_id>/unsplit", methods=["POST"])
+@require_role("controller", "admin")
 def unsplit_incident(incident_id: str):
     """Remove an operator split marker. Re-runs the grouper so the
     previously-split incidents merge back into one (if they would).
@@ -376,7 +379,6 @@ def unsplit_incident(incident_id: str):
     conn.commit()
     conn.close()
 
-    from mlss_monitor.incident_grouper import regroup_all
-    regroup_all(DB_FILE)
+    _safe_regroup(DB_FILE)
 
     return jsonify({"ok": True, "unsplit_alert_id": alert_id})
