@@ -178,55 +178,20 @@ function initViewControls() {
     renderGraph(currentDetail, allIncidents);
   });
 
-  // ── Layout controls ────────────────────────────────────────────────
-  // Manual (the useful default) is a prominent button. The rarely-used
-  // Cytoscape alternates live in a dropdown so they don't dominate.
-  const manualBtn = document.querySelector('.inc-layout-btn[data-layout="preset"]');
-  const altSelect = document.getElementById('inc-layout-alt');
-
-  function runLayout(name) {
-    if (!cy) return;
-    if (name === 'preset' || !name) {
-      // "Manual" means re-render from the saved timeline positions.
-      if (currentDetail) renderGraph(currentDetail, allIncidents);
-      return;
-    }
-    const common = { animate: true, animationDuration: 500, fit: false, padding: 40 };
-    const opts = {
-      cose:         { ...common, name: 'cose' },
-      breadthfirst: { ...common, name: 'breadthfirst', directed: false },
-      circle:       { ...common, name: 'circle' },
-      grid:         { ...common, name: 'grid', avoidOverlap: true, condense: false },
-      concentric:   {
-        ...common,
-        name: 'concentric',
-        // Critical in the centre, info on the outside.
-        concentric: n => {
-          const sev = (n.classes().find(c => c.startsWith('severity-')) || '').replace('severity-', '');
-          return sev === 'critical' ? 3 : sev === 'warning' ? 2 : 1;
-        },
-        levelWidth: () => 1,
-        minNodeSpacing: 40,
-      },
-    };
-    cy.layout(opts[name] || { name }).run();
-  }
-
-  if (manualBtn) {
-    manualBtn.addEventListener('click', () => {
-      if (altSelect) altSelect.value = '';
-      manualBtn.classList.add('active');
-      runLayout('preset');
+  // ── View-mode controls ────────────────────────────────────────────
+  // Three buttons pick between the three purpose-built view modes. All
+  // three honor incident hulls; the alt Cytoscape layouts were removed
+  // because they scattered nodes and broke the mental model.
+  const viewBtns = document.querySelectorAll('.inc-layout-btn');
+  // Ensure the button matching the persisted mode is active on load.
+  viewBtns.forEach(b => {
+    b.classList.toggle('active', b.dataset.view === viewMode);
+    b.addEventListener('click', () => {
+      viewBtns.forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+      setViewMode(b.dataset.view);
     });
-  }
-  if (altSelect) {
-    altSelect.addEventListener('change', e => {
-      const name = e.target.value;
-      if (!name) return;
-      if (manualBtn) manualBtn.classList.remove('active');
-      runLayout(name);
-    });
-  }
+  });
 }
 
 function applyClientFilter(incidents) {

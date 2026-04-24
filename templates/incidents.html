@@ -71,19 +71,12 @@
         <button class="inc-ctrl-btn" id="ctrl-fit-sel" title="Fit selected incident">Selected</button>
         <button class="inc-ctrl-btn" id="ctrl-reset-pos" title="Reset manual positions">Reset</button>
         <span class="inc-ctrl-sep"></span>
-        <!-- Manual (the useful default) stays as a button; the rarely-used
-             alternatives are tucked into a dropdown so they don't dominate
-             the toolbar. Selecting an alt layout also bumps the dropdown so
-             the user can see which layout is currently active. -->
-        <button class="inc-ctrl-btn inc-layout-btn active" data-layout="preset" title="Manual — timeline within each cluster, drag to arrange">Manual</button>
-        <select class="inc-ctrl-select" id="inc-layout-alt" title="Alternate Cytoscape layouts (experimental)">
-          <option value="">Alternate layout…</option>
-          <option value="cose">Physics — force-directed</option>
-          <option value="breadthfirst">Tree — hierarchical</option>
-          <option value="circle">Circle — radial</option>
-          <option value="grid">Grid — regular rows/cols</option>
-          <option value="concentric">Rings — severity-weighted</option>
-        </select>
+        <button class="inc-ctrl-btn inc-layout-btn active" data-view="manual"
+                title="Roomy timeline grid (default)">Manual</button>
+        <button class="inc-ctrl-btn inc-layout-btn" data-view="compact"
+                title="Tighter packing — scan many incidents at once">Compact</button>
+        <button class="inc-ctrl-btn inc-layout-btn" data-view="chronological"
+                title="Single row, ordered by start time">Chronological</button>
       </div>
       <div class="inc-graph-summary" id="inc-graph-summary">
         <div class="inc-summary-section">
