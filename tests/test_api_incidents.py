@@ -111,6 +111,38 @@ def test_get_incidents_includes_alert_count(client, db):
     assert "alert_count" in data["incidents"][0]
 
 
+def test_get_incidents_includes_primary_count(client, db):
+    """Listing must include primary_count alongside alert_count so the
+    frontend can size incident rows by how many primary alerts stack."""
+    _seed_incident(db, "INC-20260424-1100")
+    # Seed one primary alert + one cross-incident alert on this incident.
+    conn = sqlite3.connect(db)
+    conn.execute(
+        "INSERT INTO inferences (id, created_at, event_type, severity, "
+        "title, confidence) VALUES (?, ?, ?, ?, ?, ?)",
+        (901, "2026-04-24 11:00:00", "tvoc_spike", "warning", "t", 0.8),
+    )
+    conn.execute(
+        "INSERT INTO inferences (id, created_at, event_type, severity, "
+        "title, confidence) VALUES (?, ?, ?, ?, ?, ?)",
+        (902, "2026-04-24 11:05:00", "hourly_summary", "info", "h", 0.8),
+    )
+    conn.execute(
+        "INSERT INTO incident_alerts (incident_id, alert_id, is_primary) "
+        "VALUES (?, ?, ?)", ("INC-20260424-1100", 901, 1))
+    conn.execute(
+        "INSERT INTO incident_alerts (incident_id, alert_id, is_primary) "
+        "VALUES (?, ?, ?)", ("INC-20260424-1100", 902, 0))
+    conn.commit()
+    conn.close()
+
+    rv = client.get("/api/incidents")
+    data = rv.get_json()
+    incident = next(i for i in data["incidents"] if i["id"] == "INC-20260424-1100")
+    assert incident["alert_count"] == 2
+    assert incident["primary_count"] == 1
+
+
 def test_get_incidents_search_filter(client, db):
     _seed_incident(db, "INC-20260419-1200")
     rv = client.get("/api/incidents?q=INC-20260419-1200")

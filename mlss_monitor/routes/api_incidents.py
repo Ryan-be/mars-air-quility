@@ -67,19 +67,31 @@ def _parse_window(window: str) -> datetime | None:
     return datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=hours)
 
 
-def _alert_counts_by_incident(conn, incident_ids: list[str]) -> dict[str, int]:
-    """Single GROUP BY query returning ``{incident_id: alert_count}``.
-    Replaces the previous N-query loop (one SELECT COUNT per incident).
+def _alert_counts_by_incident(
+    conn, incident_ids: list[str]
+) -> dict[str, dict[str, int]]:
+    """Single GROUP BY query returning
+    ``{incident_id: {"total": N, "primary": P}}``.
+    ``primary`` is the count of rows with ``is_primary = 1`` and is
+    consumed by the frontend to size incident rows on the canvas by how
+    many primary alerts stack in a severity lane.
     """
     if not incident_ids:
         return {}
     placeholders = ",".join("?" * len(incident_ids))
     rows = conn.execute(
-        f"SELECT incident_id, COUNT(*) AS n FROM incident_alerts "
-        f"WHERE incident_id IN ({placeholders}) GROUP BY incident_id",
+        f"SELECT incident_id, "
+        f"       COUNT(*) AS total, "
+        f"       SUM(CASE WHEN is_primary = 1 THEN 1 ELSE 0 END) AS primary_n "
+        f"FROM incident_alerts "
+        f"WHERE incident_id IN ({placeholders}) "
+        f"GROUP BY incident_id",
         incident_ids,
     ).fetchall()
-    return {r["incident_id"]: r["n"] for r in rows}
+    return {
+        r["incident_id"]: {"total": r["total"], "primary": r["primary_n"] or 0}
+        for r in rows
+    }
 
 
 def _find_similar(
@@ -167,7 +179,9 @@ def list_incidents():
     # Single grouped query for alert counts — replaces per-incident SELECT.
     count_by_id = _alert_counts_by_incident(conn, [i["id"] for i in incidents])
     for inc in incidents:
-        inc["alert_count"] = count_by_id.get(inc["id"], 0)
+        counts_row = count_by_id.get(inc["id"], {"total": 0, "primary": 0})
+        inc["alert_count"] = counts_row["total"]
+        inc["primary_count"] = counts_row["primary"]
 
     counts = {"critical": 0, "warning": 0, "info": 0}
     for inc in incidents:
