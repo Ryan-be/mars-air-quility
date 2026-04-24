@@ -782,6 +782,22 @@ function buildCytoscapeStyle() {
     // only the border glows brighter.
     { selector: 'node.hull:selected', style: { 'border-width': 2, 'border-color': '#4dacff', 'border-opacity': 0.9, 'background-opacity': 0.08 } },
     { selector: 'node:selected:not(.hull)', style: { 'border-width': 2.5, 'border-color': '#4dacff', 'background-color': '#0f2040' } },
+
+    // Subdivision preview overlay — dashed rectangles drawn inside a hull
+    // when raising the slider would split the incident.
+    {
+      selector: 'node.subdiv-outline',
+      style: {
+        'shape': 'round-rectangle',
+        'background-opacity': 0,
+        'border-width': 1.5,
+        'border-style': 'dashed',
+        'border-color': '#4dacff',
+        'border-opacity': 0.7,
+        'label': '',
+        'events': 'no',
+      },
+    },
   ];
 }
 
@@ -963,9 +979,11 @@ async function renderGraph(detail, incidents) {
     applySelectionOpacity(currentIncidentId);
     applyZoomClasses(cy.zoom());
     applyEdgePStyling();
+    applySubdivisionPreview();
   });
 
   applyEdgePStyling();
+  applySubdivisionPreview();
 }
 
 // ── Edge styling by P ─────────────────────────────────────────────────────────
@@ -999,6 +1017,65 @@ function applyEdgePStyling() {
       'opacity': opacity,
       'width': width,
       'line-style': lineStyle,
+    });
+  });
+}
+
+// ── Subdivision preview ───────────────────────────────────────────────────────
+
+/**
+ * Re-run connectedComponents at the current slider threshold, scoped to
+ * each incident. If the incident would split into 2+ components, draw
+ * dashed sub-outlines as overlay nodes inside the hull and update the
+ * hull label with "Would split into N" badge.
+ *
+ * Purely client-side — no API calls, no server state changes.
+ */
+function applySubdivisionPreview() {
+  if (!cy || !currentDetail) return;
+  const incId = currentDetail.id;
+  const alertIds = (currentDetail.alerts || [])
+    .filter(a => a.is_primary)
+    .map(a => a.id);
+  const edges = (currentDetail.edges || []).map(e => ({
+    from: e.from, to: e.to, p: e.p,
+  }));
+  const components = connectedComponents(alertIds, edges, edgePFloor);
+  const hull = cy.$id(`hull-${incId}`);
+  // Remove previous subdivision overlay outlines.
+  cy.nodes('.subdiv-outline').remove();
+  if (components.length < 2) {
+    // No subdivision; restore the plain hull label.
+    if (hull && hull.length) hull.data('label', incId);
+    return;
+  }
+  if (hull && hull.length) {
+    hull.data('label', `${incId}  ·  Would split into ${components.length} at P ≥ ${edgePFloor.toFixed(2)}`);
+  }
+  // For each component, draw a dashed rectangle overlay node that
+  // surrounds the component's alert nodes.
+  components.forEach((compIds, idx) => {
+    const nodes = compIds.map(id => cy.$id(`alert-${id}`)).filter(n => n.length);
+    if (!nodes.length) return;
+    let xs = nodes.flatMap(n => [n.position('x')]);
+    let ys = nodes.flatMap(n => [n.position('y')]);
+    const pad = 28;
+    const x1 = Math.min(...xs) - pad;
+    const x2 = Math.max(...xs) + pad;
+    const y1 = Math.min(...ys) - pad;
+    const y2 = Math.max(...ys) + pad;
+    cy.add({
+      group: 'nodes',
+      data: {
+        id: `subdiv-${incId}-${idx}`,
+        label: '',
+      },
+      position: { x: (x1 + x2) / 2, y: (y1 + y2) / 2 },
+      classes: 'subdiv-outline',
+      style: {
+        width: x2 - x1,
+        height: y2 - y1,
+      },
     });
   });
 }
