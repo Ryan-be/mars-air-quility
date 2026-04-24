@@ -448,9 +448,6 @@ function renderDetail(detail) {
   }
 
   // Unsplit button appears when the earliest alert is a known split marker.
-  // Task 17 adds detail.operator_split + split_alert_id to the API response —
-  // until then we just check the (currently-undefined) field. Hide when
-  // unavailable.
   if (unsplitBtn) {
     if (detail.operator_split && detail.split_alert_id) {
       unsplitBtn.hidden = false;
@@ -473,6 +470,7 @@ function renderDetail(detail) {
   if (commitBtn) {
     commitBtn.onclick = async () => {
       if (!currentDetail) return;
+      const advEl = document.getElementById('inc-narrative-advisory');
       const alertIds = (currentDetail.alerts || [])
         .filter(a => a.is_primary)
         .map(a => a.id)
@@ -508,11 +506,13 @@ function renderDetail(detail) {
           );
           if (!resp.ok) {
             console.error('Commit-split failed at alert', alertId);
-            break;
+            if (advEl) advEl.textContent = `Commit failed (alert #${alertId}): server returned ${resp.status}. Check your permissions or try again.`;
+            return;
           }
         } catch (e) {
           console.error('Commit-split network error:', e);
-          break;
+          if (advEl) advEl.textContent = 'Commit failed: network error. Check your connection and try again.';
+          return;
         }
       }
       await loadIncidents();
