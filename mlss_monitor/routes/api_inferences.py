@@ -14,6 +14,7 @@ from database.db_logger import (
     update_inference_notes,
     get_inference_tags,
     add_inference_tag,
+    remove_inference_tag,
     get_sensor_data_range,
     get_hot_tier_range,
     _normalise_ts,
@@ -92,7 +93,7 @@ def patch_inference(inference_id):
     return jsonify({"ok": True})
 
 
-@api_inferences_bp.route("/api/inferences/<int:inference_id>/tags", methods=["GET", "POST"])
+@api_inferences_bp.route("/api/inferences/<int:inference_id>/tags", methods=["GET", "POST", "DELETE"])
 @require_role("controller", "admin")
 def tags(inference_id):
     if request.method == "GET":
@@ -120,6 +121,13 @@ def tags(inference_id):
             }), 400
 
         add_inference_tag(inference_id, tag, confidence, allowed_tags=allowed)
+        return jsonify({"ok": True})
+    if request.method == "DELETE":
+        data = request.get_json(silent=True) or {}
+        tag = (data.get("tag") or "").strip()
+        if not tag:
+            return jsonify({"error": "tag is required"}), 400
+        remove_inference_tag(inference_id, tag)
         return jsonify({"ok": True})
     return jsonify({"error": "method not allowed"}), 405
 
