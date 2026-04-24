@@ -506,12 +506,18 @@ function renderDetail(detail) {
           );
           if (!resp.ok) {
             console.error('Commit-split failed at alert', alertId);
-            if (advEl) advEl.textContent = `Commit failed (alert #${alertId}): server returned ${resp.status}. Check your permissions or try again.`;
+            if (advEl) {
+              advEl.textContent = `⚠ Commit failed (alert #${alertId}): server returned ${resp.status}. Check your permissions or try again.`;
+              advEl.hidden = false;
+            }
             return;
           }
         } catch (e) {
           console.error('Commit-split network error:', e);
-          if (advEl) advEl.textContent = 'Commit failed: network error. Check your connection and try again.';
+          if (advEl) {
+            advEl.textContent = '⚠ Commit failed: network error. Check your connection and try again.';
+            advEl.hidden = false;
+          }
           return;
         }
       }
