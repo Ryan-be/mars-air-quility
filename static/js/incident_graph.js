@@ -469,6 +469,56 @@ function renderDetail(detail) {
     }
   }
 
+  const commitBtn = document.getElementById('inc-btn-commit-splits');
+  if (commitBtn) {
+    commitBtn.onclick = async () => {
+      if (!currentDetail) return;
+      const alertIds = (currentDetail.alerts || [])
+        .filter(a => a.is_primary)
+        .map(a => a.id)
+        .sort((x, y) => {
+          // chronological order via the alert objects
+          const ax = (currentDetail.alerts || []).find(a => a.id === x);
+          const ay = (currentDetail.alerts || []).find(a => a.id === y);
+          return (ax.created_at || '').localeCompare(ay.created_at || '');
+        });
+      const edges = (currentDetail.edges || []).map(e => ({
+        from: e.from, to: e.to, p: e.p,
+      }));
+      const comps = connectedComponents(alertIds, edges, edgePFloor);
+      if (comps.length < 2) return;
+      // Sort comps by their earliest member's position in chronological order.
+      const idPos = new Map(alertIds.map((id, i) => [id, i]));
+      comps.sort((a, b) =>
+        Math.min(...a.map(id => idPos.get(id))) -
+        Math.min(...b.map(id => idPos.get(id))));
+      // Split point for each component after the earliest: the earliest
+      // member of that component.
+      const splitPoints = comps.slice(1).map(comp =>
+        comp.reduce((best, id) => idPos.get(id) < idPos.get(best) ? id : best, comp[0]));
+      for (const alertId of splitPoints) {
+        try {
+          const resp = await fetch(
+            `/api/incidents/${encodeURIComponent(currentDetail.id)}/split`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ alert_id: alertId }),
+            },
+          );
+          if (!resp.ok) {
+            console.error('Commit-split failed at alert', alertId);
+            break;
+          }
+        } catch (e) {
+          console.error('Commit-split network error:', e);
+          break;
+        }
+      }
+      await loadIncidents();
+    };
+  }
+
   if (detail.narrative && elNarrative) {
     if (elNarrObs) elNarrObs.textContent = detail.narrative.observed || '';
     if (elNarrInf) elNarrInf.textContent = detail.narrative.inferred || '';
@@ -1078,6 +1128,10 @@ function applySubdivisionPreview() {
       },
     });
   });
+  const commitBtn = document.getElementById('inc-btn-commit-splits');
+  if (commitBtn) {
+    commitBtn.hidden = components.length < 2;
+  }
 }
 
 // ── Centroid placement ────────────────────────────────────────────────────────
