@@ -410,60 +410,6 @@ def _fetch_hot_tier_column(
     return [r[0] for r in rows]
 
 
-def _upsert_incident(
-    cur: sqlite3.Cursor,
-    incident_id: str,
-    alerts: list[dict[str, Any]],
-    db_file: str,
-) -> None:
-    """Write/update one incident and its related rows."""
-    sorted_a = sorted(alerts, key=lambda a: a["created_at"])
-    t_start = datetime.fromisoformat(sorted_a[0]["created_at"])
-    t_end = datetime.fromisoformat(sorted_a[-1]["created_at"])
-
-    max_sev = max(
-        (a.get("severity", "info") for a in alerts),
-        key=lambda s: _SEVERITY_ORDER.get(s, 0),
-    )
-    mean_conf = sum(a.get("confidence", 0.5) for a in alerts) / len(alerts)
-    title = generate_incident_title(alerts)
-    signature = json.dumps(build_incident_similarity_vector(alerts))
-
-    cur.execute(
-        "INSERT OR REPLACE INTO incidents "
-        "(id, started_at, ended_at, max_severity, confidence, title, signature) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (incident_id, t_start.isoformat(sep=" "), t_end.isoformat(sep=" "),
-         max_sev, mean_conf, title, signature),
-    )
-
-    # Rebuild incident_alerts for this incident
-    cur.execute("DELETE FROM incident_alerts WHERE incident_id = ?", (incident_id,))
-    for alert in alerts:
-        primary = 0 if is_cross_incident(alert.get("event_type", "")) else 1
-        cur.execute(
-            "INSERT OR IGNORE INTO incident_alerts (incident_id, alert_id, is_primary) "
-            "VALUES (?, ?, ?)",
-            (incident_id, alert["id"], primary),
-        )
-
-    # Rebuild alert_signal_deps for primary alerts only
-    primary_alerts = [a for a in alerts if not is_cross_incident(a.get("event_type", ""))]
-    for alert in primary_alerts:
-        cur.execute("DELETE FROM alert_signal_deps WHERE alert_id = ?", (alert["id"],))
-        time_index = list(range(len(sorted_a)))  # proxy: ordinal position as "time"
-        for col in _SENSOR_COLS:
-            sensor_vals = _fetch_hot_tier_column(db_file, t_start, t_end, col)
-            # Correlate sensor column against ordinal time index as a simple proxy
-            r = compute_pearson_r(sensor_vals, time_index[:len(sensor_vals)])
-            # r is None when < MIN_DATA_POINTS — stored as NULL, never as 0.0
-            cur.execute(
-                "INSERT OR IGNORE INTO alert_signal_deps "
-                "(alert_id, sensor, r, lag_seconds) VALUES (?, ?, ?, ?)",
-                (alert["id"], col, r, 0),
-            )
-
-
 def regroup_all(db_file: str) -> None:
     """Re-build every incident from the causal graph.
 
