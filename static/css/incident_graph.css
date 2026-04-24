@@ -714,6 +714,28 @@
   padding: 2px 8px;
   border-radius: 10px;
   font-size: 0.72rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.inc-tag-pill-remove {
+  background: transparent;
+  border: none;
+  color: rgba(207, 232, 255, 0.55);
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 0 2px;
+  margin-left: 2px;
+  cursor: pointer;
+  border-radius: 50%;
+}
+.inc-tag-pill-remove:hover {
+  color: #ff7a7a;
+  background: rgba(255, 122, 122, 0.15);
+}
+.inc-tag-pill-remove:focus {
+  outline: 1px solid rgba(77, 172, 255, 0.7);
+  outline-offset: 1px;
 }
 .inc-tag-controls {
   display: flex;

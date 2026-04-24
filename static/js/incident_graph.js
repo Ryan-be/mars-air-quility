@@ -760,8 +760,39 @@ async function populateTagsSection(alertId) {
     listEl.innerHTML = html`${current.map(t => {
       const label = (vocab.find(v => v.id === t.tag) || {}).label || t.tag;
       const emoji = TAG_EMOJI[t.tag] || '';
-      return html`<span class="inc-tag-pill">${emoji} ${label}</span>`;
+      return html`<span class="inc-tag-pill" data-tag="${t.tag}">
+        ${emoji} ${label}
+        <button type="button" class="inc-tag-pill-remove"
+                data-tag="${t.tag}"
+                aria-label="Remove tag ${label}"
+                title="Remove tag">×</button>
+      </span>`;
     })}`;
+
+    // Wire the × remove handlers on each pill.
+    listEl.querySelectorAll('.inc-tag-pill-remove').forEach(btn => {
+      btn.onclick = async (ev) => {
+        ev.stopPropagation();
+        const tag = btn.dataset.tag;
+        if (!tag) return;
+        statusEl.textContent = 'Removing…';
+        try {
+          const resp = await fetch(`/api/inferences/${alertId}/tags`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tag }),
+          });
+          if (!resp.ok) {
+            statusEl.textContent = `Remove failed (${resp.status})`;
+            return;
+          }
+          statusEl.textContent = 'Removed';
+          await populateTagsSection(alertId);
+        } catch (e) {
+          statusEl.textContent = 'Network error — try again.';
+        }
+      };
+    });
   }
 
   // Reset the select to just the placeholder before re-populating. Without
