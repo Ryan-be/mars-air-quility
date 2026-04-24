@@ -11,6 +11,7 @@
  */
 
 import { connectedComponents } from './connected_components.mjs';
+import { computeCentroids } from './compute_centroids.mjs';
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
@@ -34,6 +35,22 @@ let edgePFloor = (() => {
     return Number.isFinite(v) ? v : 0.20;
   } catch (_) { return 0.20; }
 })();
+
+// Current view mode. Persisted per-user; defaults to 'manual'.
+// Valid: 'manual' | 'compact' | 'chronological'.
+let viewMode = (() => {
+  try {
+    const v = localStorage.getItem('inc.view_mode');
+    return (v === 'compact' || v === 'chronological') ? v : 'manual';
+  } catch (_) { return 'manual'; }
+})();
+
+function setViewMode(mode) {
+  if (mode !== 'manual' && mode !== 'compact' && mode !== 'chronological') return;
+  viewMode = mode;
+  try { localStorage.setItem('inc.view_mode', mode); } catch (_) {}
+  if (currentDetail) renderGraph(currentDetail, allIncidents);
+}
 
 // ── DOM refs ─────────────────────────────────────────────────────────────────
 
@@ -1143,58 +1160,7 @@ function applySubdivisionPreview() {
 // ── Centroid placement ────────────────────────────────────────────────────────
 
 function buildCentroids(incidents) {
-  // Per-cluster row packing: each incident gets its own width from its
-  // alert_count (matching the adaptive TIMELINE_WIDTH_PX in buildIncidentElements).
-  // Within a row we walk a cursor left-to-right, advancing by each cluster's
-  // actual width + a gap. Big clusters take their real space; small ones pack
-  // tight next to their neighbours. Much denser than the old square-grid
-  // approach that sized every cell to the widest incident in the set.
-  //
-  // INTENTIONAL CONSERVATISM: this function sizes hulls using `alert_count`
-  // (primary + cross) because that's what the list endpoint returns, while
-  // `buildIncidentElements` sizes the TIMELINE using `primaryAlerts.length`
-  // only (cross alerts live on a separate band below the grid). So for
-  // incidents with many cross alerts we over-reserve horizontal space —
-  // producing a small gap between hulls rather than overlap. The
-  // alternative (pass detail objects through) would leak the grouping
-  // detail into a pure coordinate function. Under-reserving causes visible
-  // bugs; over-reserving is invisible — we prefer the safe side.
-  //
-  // Constants mirror buildIncidentElements — keep in sync.
-  const MIN_WIDTH_PX    = 360;
-  const PX_PER_ALERT    = 32;
-  const HULL_PADDING_PX = 80;  // 40 each side (from the node.hull style rule)
-  const INTER_CLUSTER_GAP = 70;
-  const GRID_SPACING_Y  = 220;
-
-  const n = incidents.length;
-  const cols = Math.ceil(Math.sqrt(Math.max(n, 1)));
-  const centroids = {};
-
-  // Precompute each cluster's full width (timeline + both padding edges).
-  const widths = incidents.map(i => {
-    const count = Math.max(1, i.alert_count || 0);
-    return Math.max(MIN_WIDTH_PX, count * PX_PER_ALERT) + 2 * HULL_PADDING_PX;
-  });
-
-  for (let r = 0; r * cols < n; r++) {
-    let cursor = 0;
-    for (let c = 0; c < cols && r * cols + c < n; c++) {
-      const idx = r * cols + c;
-      const w = widths[idx];
-      // centroid.x = centre of this cluster in world coords.
-      centroids[incidents[idx].id] = {
-        x: cursor + w / 2,
-        y: r * GRID_SPACING_Y,
-      };
-      cursor += w + INTER_CLUSTER_GAP;
-    }
-  }
-
-  // Cross-incident band lives below the last row.
-  const rows = Math.ceil(n / cols);
-  centroids.__crossBandY = rows * GRID_SPACING_Y + 140;
-  return centroids;
+  return computeCentroids(incidents, viewMode);
 }
 
 // ── Build elements for the selected incident ──────────────────────────────────
