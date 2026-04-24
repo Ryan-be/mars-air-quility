@@ -10,6 +10,8 @@
  * Dependencies: Cytoscape.js v3 loaded globally via CDN before this module.
  */
 
+import { connectedComponents } from './connected_components.mjs';
+
 // ── State ─────────────────────────────────────────────────────────────────────
 
 let cy = null;                  // Cytoscape instance
