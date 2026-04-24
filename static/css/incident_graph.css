@@ -417,18 +417,6 @@
   flex-shrink: 0;
 }
 
-.inc-ctrl-select {
-  background: transparent;
-  border: 1px solid var(--color-border-interactive-muted, rgba(90,120,170,0.55));
-  color: var(--color-text-secondary, #c9d1d9);
-  font-size: 0.72rem;
-  font-family: inherit;
-  padding: 3px 6px;
-  border-radius: 3px;
-  cursor: pointer;
-}
-.inc-ctrl-select:hover { border-color: rgba(77,172,255,0.7); }
-.inc-ctrl-select:focus { outline: none; border-color: rgba(77,172,255,0.9); }
 .inc-node-close-btn {
   background: transparent;
   border: none;
