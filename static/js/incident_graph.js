@@ -1277,12 +1277,24 @@ function applySubdivisionPreview() {
     if (hull && hull.length) hull.data('label', incId);
     return;
   }
+  // If every proposed component is a singleton, the preview conveys no
+  // grouping information (each alert becomes its own incident, which
+  // already corresponds 1:1 to the drawn alert node). Bail without
+  // drawing overlapping-box artifacts.
+  const hasMultiNodeComponent = components.some(c => c.length >= 2);
+  if (!hasMultiNodeComponent) {
+    if (hull && hull.length) hull.data('label', incId);
+    const commitBtn = document.getElementById('inc-btn-commit-splits');
+    if (commitBtn) commitBtn.hidden = true;
+    return;
+  }
   if (hull && hull.length) {
     hull.data('label', `${incId}  ·  Would split into ${components.length} at P ≥ ${edgePFloor.toFixed(2)}`);
   }
   // For each component, draw a dashed rectangle overlay node that
   // surrounds the component's alert nodes.
   components.forEach((compIds, idx) => {
+    if (compIds.length < 2) return;  // singleton adds no visual info
     const nodes = compIds.map(id => cy.$id(`alert-${id}`)).filter(n => n.length);
     if (!nodes.length) return;
     let xs = nodes.flatMap(n => [n.position('x')]);
