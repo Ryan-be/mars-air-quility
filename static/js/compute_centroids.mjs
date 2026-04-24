@@ -47,7 +47,8 @@ const MODES = {
 const MAX_STACK_STEPS = 5;
 
 function clusterHalfHeight(primaryCount, c) {
-  const stackSlots = Math.min(MAX_STACK_STEPS, Math.ceil(Math.max(1, primaryCount) / 3));
+  const primary = Math.max(1, primaryCount || 0);
+  const stackSlots = Math.min(MAX_STACK_STEPS, Math.ceil(primary / 3));
   return c.LANE_HEIGHT_PX + stackSlots * c.STACK_DY_PX;
 }
 
@@ -63,6 +64,8 @@ export function computeCentroids(incidents, viewMode = 'manual') {
 
   // Chronological: single row, sorted by started_at ascending.
   if (viewMode === 'chronological') {
+    // started_at is an ISO-8601 string from the API; localeCompare on ISO
+    // strings is equivalent to chronological order for same-timezone values.
     const sorted = [...incidents].sort(
       (a, b) => String(a.started_at || '').localeCompare(String(b.started_at || ''))
     );
