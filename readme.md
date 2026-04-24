@@ -395,11 +395,18 @@ erDiagram
         INTEGER lag_seconds
     }
 
+    incident_splits {
+        INTEGER alert_id PK
+        TEXT created_by
+        DATETIME created_at
+    }
+
     sensor_data ||--o{ inferences : "linked via start/end IDs"
     users ||--o{ login_log : "github_username"
     incidents ||--o{ incident_alerts : "groups"
     inferences ||--o{ incident_alerts : "linked to incidents"
     inferences ||--o{ alert_signal_deps : "sensor correlations"
+    inferences ||--o{ incident_splits : "marked split"
 ```
 
 ### Table summary
@@ -418,6 +425,7 @@ erDiagram
 | `incident_alerts` | Many-to-many link between `incidents` and `inferences` with `is_primary` flag (0 = cross-incident context like hourly summaries, 1 = primary alert). | Rebuilt on each regroup. |
 | `alert_signal_deps` | Pearson r correlation between an alert and each of the 10 sensor channels within the incident window, plus `lag_seconds`. `r` is `NULL` (not 0.0) when there were fewer than 10 clean data points. | Rebuilt on each regroup. |
 | `event_tags` | User-applied source tags attached to inferences via the event-tagging flow. Tag names are constrained to the fingerprint IDs in `config/fingerprints.yaml`. Used by the AttributionEngine to retrain its River classifier. See [docs/EVENT_TAGGING_FLOW.md](docs/EVENT_TAGGING_FLOW.md). | Indefinite. |
+| `incident_splits` | One row per alert that an operator has marked as "start a new incident here". Respected by the grouper on every regroup so operator overrides survive algorithm changes. | Indefinite; manual only. |
 | `hot_tier` | Rolling 1-second-resolution sensor buffer (last ~2 hours) used by the inference engine for fine-grained analysis windows and by the grouper for Pearson r computation. | Auto-trimmed by row count. |
 
 ### Key design decisions
@@ -666,14 +674,16 @@ Individual inferences are noisy in isolation. When the room gets warm at noon, C
 
 ### Grouping
 
-`mlss_monitor/incident_grouper.py` owns the logic. A daemon thread subscribes to `new_inference` events on the in-process event bus and re-sessionises all non-dismissed inferences whenever one arrives, with a 60-second safety-net pass in case events are missed.
+Incidents are formed by connected components of a *causal graph* built over primary alerts. The algorithm lives in `mlss_monitor/incident_grouper.py` as a composition of pure functions, each independently unit-tested in `tests/test_incident_grouper.py`.
 
-- **Silence-gap sessionisation** (`sessionise`) — alerts more than 30 minutes apart start a new incident. Uses `total_seconds()` (not `.seconds`, which only returns 0-59).
-- **Similarity-aware merging** (`merge_similar_adjacent`) — refinement pass applied after sessionisation that merges adjacent sessions whose event-type sets overlap above a Jaccard threshold of 0.3, provided the time gap between them is within 4 hours. This handles the common case of a single long-running event (e.g. a 3-hour CO₂ buildup) that goes quiet for 31 minutes mid-event: the two temporal sessions get merged back together because their event signatures match. Can only merge, never split; idempotent.
-- **Deterministic IDs** — `make_incident_id(ts)` returns `INC-YYYYMMDD-HHMM` from the earliest alert's timestamp, so re-running the grouper produces the same IDs.
-- **Pearson r per sensor** — for every primary alert, the grouper correlates each of the 10 sensor channels against an ordinal time index across the incident window and stores the result in `alert_signal_deps`. `r` is `NULL` (not `0.0`) when fewer than 10 clean data points exist.
-- **32-dim similarity signature** (`build_incident_similarity_vector`) — an incident-level vector used for cosine similarity against past incidents. Layout: 0-9 peak-delta placeholders, 10-19 sensor presence flags, 20-24 detection-method one-hot, 25 reserved, 26-28 severity one-hot, 29 duration, 30 mean confidence, 31 time-of-day bucket.
-- **Idempotent persistence** — `regroup_all(db_file)` rebuilds `incidents`, `incident_alerts`, and `alert_signal_deps` via `INSERT OR REPLACE` / `DELETE + INSERT`. Safe to call on every startup.
+- **`edge_probability(a, b)`** — returns P(link) between two alerts. P=1.0 when the gap is ≤ 30 min; linearly decays to 0.0 at 4 h; always 0.0 if the alerts don't share a sensor with |r| ≥ 0.5 and matching sign. Full formula documented at the top of the function in-source.
+- **`build_edges(alerts, split_markers)`** — computes all pairwise edges with P > `MIN_EDGE_P_SERVER` (0.05). Suppresses any edge whose later alert has an entry in the `incident_splits` table (operator splits).
+- **`connected_components(alerts, edges)`** — union-find over the edge set. Output: list of alert-lists, one per component. Singletons become single-alert incidents.
+- **`incident_confidence(edges_in_component)`** — min edge P in the component, or 1.0 for singletons. Interpretation: "the chain is only as trustworthy as its weakest link". Persisted in `incidents.confidence`.
+
+Operators can override a false merge with `POST /api/incidents/<id>/split` (body `{alert_id}`); the marker persists in `incident_splits` and the grouper respects it on every subsequent regroup. `POST /api/incidents/<id>/unsplit` removes a marker. Both endpoints trigger a full regroup.
+
+The frontend exposes a slider (persisted per-user in `localStorage`) that filters which edges render. Raising the slider also runs a client-side `connectedComponents` pass to preview the subdivision that *would* result at that threshold; a `[Commit these splits]` button turns the preview into persisted split markers via a batch of `/split` calls.
 
 ### The incidents page (`/incidents`)
 
@@ -986,8 +996,10 @@ The `MLSS_ALLOWED_GITHUB_USER` bootstrap account always has the **admin** role r
 
 | Method | Endpoint | Min role | Description |
 |---|---|---|---|
-| `GET` | `/api/incidents?window=24h&severity=all&q=&limit=50` | viewer | List incidents within `window` (`1h`/`6h`/`24h`/`7d`/`30d`). Returns `{incidents, total, counts: {critical, warning, info}, summary: {top_sensors, hour_histogram}}`. `q` is a free-text filter over id + title. |
-| `GET` | `/api/incidents/<id>` | viewer | Full incident detail: alerts (with `signal_deps` Pearson r per sensor), `causal_sequence` (primary alerts, chronological), `narrative` (`{observed, inferred, impact, correlation}` English prose with timestamps, built by `mlss_monitor/incidents_narrative.py`; the `correlation` field explains *why* the alerts appear linked — dominant sensor, cross-sensor co-movement, and/or severity trajectory), `similar` (top 3 past incidents by 32-dim cosine similarity, each with a `why` string naming the matching axes via `explain_similarity`). |
+| `GET` | `/api/incidents?window=24h&severity=all&q=&limit=50` | viewer | List incidents with counts + summary. `window` must be one of `15m`, `1h`, `6h`, `12h`, `24h`, `14d` (or legacy `7d`/`30d`); unknown values return 400. |
+| `GET` | `/api/incidents/<id>` | viewer | Full incident detail — alerts, causal_sequence, narrative, similar, edges (`[{from, to, p, shared_sensors}]`), plus `operator_split` + `split_alert_id` when the earliest alert is itself a split marker. |
+| `POST` | `/api/incidents/<id>/split` | controller | Body `{alert_id: int}`. Adds an `incident_splits` row and triggers a regroup. |
+| `POST` | `/api/incidents/<id>/unsplit` | controller | Body `{alert_id: int}`. Removes a split marker and triggers a regroup. |
 
 Incidents are sessionised by a 30-minute silence gap and persisted in three tables (see [Database design](#database-design)). The grouping is handled by a background daemon (`mlss_monitor/incident_grouper.py`) that subscribes to `new_inference` events on the in-process event bus and re-groups on a 60-second safety-net interval. See `docs/superpowers/plans/2026-04-23-incident-correlation-graph.md` and `docs/superpowers/plans/2026-04-23-incidents-tab-improvements.md` for the full architecture.
 
