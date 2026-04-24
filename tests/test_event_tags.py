@@ -82,3 +82,54 @@ def test_api_post_tag_accepts_valid(app_client, db):
         json={"tag": "cooking", "confidence": 1.0},
     )
     assert resp.status_code == 200
+
+
+def test_remove_inference_tag(db):
+    """remove_inference_tag deletes rows matching (inference_id, tag)."""
+    from database.db_logger import (
+        add_inference_tag, get_inference_tags, remove_inference_tag, save_inference
+    )
+    inf_id = save_inference(
+        event_type="tvoc_spike", severity="warning",
+        title="t", description="d", action="", confidence=0.8, evidence={},
+    )
+    add_inference_tag(inf_id, "cooking")
+    add_inference_tag(inf_id, "combustion")
+    assert len(get_inference_tags(inf_id)) == 2
+
+    remove_inference_tag(inf_id, "cooking")
+
+    remaining = get_inference_tags(inf_id)
+    assert len(remaining) == 1
+    assert remaining[0]["tag"] == "combustion"
+
+
+def test_remove_inference_tag_idempotent(db):
+    """remove_inference_tag for a non-existent tag is a no-op."""
+    from database.db_logger import (
+        get_inference_tags, remove_inference_tag, save_inference
+    )
+    inf_id = save_inference(
+        event_type="tvoc_spike", severity="warning",
+        title="t", description="d", action="", confidence=0.8, evidence={},
+    )
+    # Should not raise
+    remove_inference_tag(inf_id, "cooking")
+    assert get_inference_tags(inf_id) == []
+
+
+def test_remove_inference_tag_removes_all_duplicates(db):
+    """If the same tag was added twice (no UNIQUE constraint), remove all."""
+    from database.db_logger import (
+        add_inference_tag, get_inference_tags, remove_inference_tag, save_inference
+    )
+    inf_id = save_inference(
+        event_type="tvoc_spike", severity="warning",
+        title="t", description="d", action="", confidence=0.8, evidence={},
+    )
+    add_inference_tag(inf_id, "cooking")
+    add_inference_tag(inf_id, "cooking")
+    assert len(get_inference_tags(inf_id)) == 2
+
+    remove_inference_tag(inf_id, "cooking")
+    assert get_inference_tags(inf_id) == []
