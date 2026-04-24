@@ -53,6 +53,38 @@ function setViewMode(mode) {
   if (currentDetail) renderGraph(currentDetail, allIncidents);
 }
 
+// ── Tag vocab cache + helpers ─────────────────────────────────────────────────
+
+// Controlled-vocabulary tags fetched from /api/tags once per page load.
+// Cache to avoid re-fetching on every overlay open.
+let tagVocab = null;
+const TAG_EMOJI = {
+  cooking: '🍳',
+  external_pollution: '🌫️',
+  vehicle_exhaust: '🚗',
+  biological_offgas: '🧬',
+  chemical_offgassing: '🧪',
+  combustion: '🔥',
+  cleaning_products: '🧹',
+  human_activity: '👤',
+  mould_voc: '🍄',
+  personal_care: '🧴',
+};
+
+async function fetchTagVocab() {
+  if (tagVocab) return tagVocab;
+  try {
+    const resp = await fetch('/api/tags');
+    if (resp.ok) {
+      const data = await resp.json();
+      tagVocab = data.tags || [];
+    } else {
+      tagVocab = [];
+    }
+  } catch (_) { tagVocab = []; }
+  return tagVocab;
+}
+
 // ── DOM refs ─────────────────────────────────────────────────────────────────
 
 const elSearch      = document.getElementById('inc-search');
@@ -626,7 +658,18 @@ async function showNodeOverlay(nodeData) {
     if (elNodeBody) elNodeBody.textContent = 'Alert not found in current incident.';
     return;
   }
-  if (elNodeBody) elNodeBody.innerHTML = renderAlertTable(alert);
+
+  // Cross-incident alerts (hourly/daily/annotation) aren't root causes, so
+  // we don't surface the tagging UI on them.
+  const taggable = !alert.is_cross_incident;
+
+  // Render the metadata table immediately; the tags section appears once
+  // the async fetches settle.
+  if (elNodeBody) {
+    elNodeBody.innerHTML = renderAlertTable(alert)
+      + (taggable ? renderTagsShell() : '');
+  }
+  if (taggable) await populateTagsSection(alert.id);
 }
 
 function renderAlertTable(alert) {
@@ -658,6 +701,99 @@ function renderAlertTable(alert) {
       ${rows.map(([k, v]) => html`<tr><td>${k}</td><td>${v}</td></tr>`)}
     </table>
   `;
+}
+
+// Renders an empty tag section. populateTagsSection() fills it once the
+// async fetches return. No interpolation here — the literal shell is safe.
+function renderTagsShell() {
+  return html`
+    <div class="inc-tags-section" id="inc-tags-section">
+      <div class="inc-tags-header">
+        Tags <span class="inc-tags-help"
+          title="Tags record what caused this event. Feedback trains the attribution engine.">ⓘ</span>
+      </div>
+      <div class="inc-tags-list" id="inc-tags-list">
+        <span class="inc-tags-loading">Loading tags…</span>
+      </div>
+      <div class="inc-tag-controls">
+        <select id="inc-tag-select" class="inc-tag-select">
+          <option value="">Select a tag…</option>
+        </select>
+        <button type="button" id="inc-tag-add" class="inc-tag-add-btn">Add Tag</button>
+      </div>
+      <div class="inc-tag-status" id="inc-tag-status"></div>
+    </div>
+  `;
+}
+
+// Monotonic token — if the user has clicked a different node while we
+// awaited the network, the token no longer matches and we bail out.
+let lastTagFetchToken = 0;
+
+async function populateTagsSection(alertId) {
+  const myToken = ++lastTagFetchToken;
+  const vocab = await fetchTagVocab();
+  if (myToken !== lastTagFetchToken) return;  // superseded
+
+  // Fetch current tags on this alert.
+  let current = [];
+  try {
+    const resp = await fetch(`/api/inferences/${alertId}/tags`);
+    if (resp.ok) current = await resp.json();
+  } catch (_) { /* leave empty */ }
+  if (myToken !== lastTagFetchToken) return;
+
+  const listEl = document.getElementById('inc-tags-list');
+  const selectEl = document.getElementById('inc-tag-select');
+  const addBtn = document.getElementById('inc-tag-add');
+  const statusEl = document.getElementById('inc-tag-status');
+  if (!listEl || !selectEl || !addBtn) return;
+
+  // Render existing tags as pills via the `html` tagged template so the
+  // label text is auto-escaped.
+  if (current.length === 0) {
+    listEl.innerHTML = html`<span class="inc-tags-empty">No tags yet.</span>`;
+  } else {
+    listEl.innerHTML = html`${current.map(t => {
+      const label = (vocab.find(v => v.id === t.tag) || {}).label || t.tag;
+      const emoji = TAG_EMOJI[t.tag] || '';
+      return html`<span class="inc-tag-pill">${emoji} ${label}</span>`;
+    })}`;
+  }
+
+  // Populate the select with vocab, skipping tags already applied. Using
+  // DOM APIs (not innerHTML) so we don't have to think about escaping the
+  // option values.
+  const appliedIds = new Set(current.map(t => t.tag));
+  vocab.forEach(({ id, label }) => {
+    if (appliedIds.has(id)) return;
+    const opt = document.createElement('option');
+    opt.value = id;
+    opt.textContent = `${TAG_EMOJI[id] || ''} ${label}`.trim();
+    selectEl.appendChild(opt);
+  });
+
+  addBtn.onclick = async () => {
+    const chosen = selectEl.value;
+    if (!chosen) return;
+    statusEl.textContent = 'Saving…';
+    try {
+      const resp = await fetch(`/api/inferences/${alertId}/tags`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tag: chosen, confidence: 1.0 }),
+      });
+      if (!resp.ok) {
+        statusEl.textContent = `Save failed (${resp.status})`;
+        return;
+      }
+      statusEl.textContent = 'Saved';
+      // Re-populate to reflect the new pill and drop the used option.
+      await populateTagsSection(alertId);
+    } catch (e) {
+      statusEl.textContent = 'Network error — try again.';
+    }
+  };
 }
 
 function correlatesBlock(deps) {

@@ -684,3 +684,78 @@
 .inc-btn-split:hover, .inc-btn-unsplit:hover, .inc-btn-commit:hover {
   background: rgba(77, 172, 255, 0.20);
 }
+
+/* ── Node overlay: tag controls ─────────────────────────────────────────── */
+
+.inc-tags-section {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(90, 120, 170, 0.25);
+}
+.inc-tags-header {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-secondary, #9aa5bd);
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.inc-tags-help {
+  cursor: help;
+  opacity: 0.7;
+}
+.inc-tags-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+  min-height: 20px;
+}
+.inc-tags-loading, .inc-tags-empty {
+  font-size: 0.72rem;
+  color: var(--color-text-muted, #7a8497);
+  font-style: italic;
+}
+.inc-tag-pill {
+  background: rgba(45, 204, 255, 0.15);
+  border: 1px solid rgba(45, 204, 255, 0.35);
+  color: #cfe8ff;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.72rem;
+}
+.inc-tag-controls {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.inc-tag-select {
+  flex: 1;
+  background: transparent;
+  border: 1px solid rgba(90, 120, 170, 0.55);
+  color: var(--color-text-secondary, #c9d1d9);
+  font-size: 0.72rem;
+  padding: 3px 6px;
+  border-radius: 3px;
+}
+.inc-tag-add-btn {
+  background: rgba(77, 172, 255, 0.15);
+  border: 1px solid rgba(77, 172, 255, 0.55);
+  color: #cfe8ff;
+  font-size: 0.72rem;
+  padding: 3px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.inc-tag-add-btn:hover {
+  background: rgba(77, 172, 255, 0.28);
+}
+.inc-tag-status {
+  font-size: 0.7rem;
+  color: var(--color-text-muted, #7a8497);
+  margin-top: 4px;
+  min-height: 14px;
+}
