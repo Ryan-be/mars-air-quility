@@ -47,6 +47,7 @@ let viewMode = (() => {
 
 function setViewMode(mode) {
   if (mode !== 'manual' && mode !== 'compact' && mode !== 'chronological') return;
+  if (mode === viewMode) return;
   viewMode = mode;
   try { localStorage.setItem('inc.view_mode', mode); } catch (_) {}
   if (currentDetail) renderGraph(currentDetail, allIncidents);
@@ -184,11 +185,18 @@ function initViewControls() {
   // because they scattered nodes and broke the mental model.
   const viewBtns = document.querySelectorAll('.inc-layout-btn');
   // Ensure the button matching the persisted mode is active on load.
+  // aria-pressed lets screen readers announce the selected mode.
   viewBtns.forEach(b => {
-    b.classList.toggle('active', b.dataset.view === viewMode);
+    const isActive = b.dataset.view === viewMode;
+    b.classList.toggle('active', isActive);
+    b.setAttribute('aria-pressed', isActive ? 'true' : 'false');
     b.addEventListener('click', () => {
-      viewBtns.forEach(x => x.classList.remove('active'));
+      viewBtns.forEach(x => {
+        x.classList.remove('active');
+        x.setAttribute('aria-pressed', 'false');
+      });
       b.classList.add('active');
+      b.setAttribute('aria-pressed', 'true');
       setViewMode(b.dataset.view);
     });
   });

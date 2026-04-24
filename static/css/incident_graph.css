@@ -380,6 +380,7 @@
   background: rgba(13,17,23,0.9);
   border-bottom: 1px solid rgba(45,60,90,0.4);
   flex-shrink: 0;
+  flex-wrap: wrap;
 }
 
 .inc-ctrl-btn {
