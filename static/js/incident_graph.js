@@ -761,6 +761,11 @@ async function populateTagsSection(alertId) {
     })}`;
   }
 
+  // Reset the select to just the placeholder before re-populating. Without
+  // this, repeat calls (e.g. after a successful POST) leave the previously
+  // appended <option> elements in place, causing duplicates.
+  selectEl.innerHTML = '<option value="">Select a tag…</option>';
+
   // Populate the select with vocab, skipping tags already applied. Using
   // DOM APIs (not innerHTML) so we don't have to think about escaping the
   // option values.
