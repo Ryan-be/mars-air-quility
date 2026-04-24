@@ -11,7 +11,7 @@
  */
 
 import { connectedComponents } from './connected_components.mjs';
-import { computeCentroids } from './compute_centroids.mjs';
+import { computeCentroids, MODES } from './compute_centroids.mjs';
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
@@ -1202,14 +1202,18 @@ function buildIncidentElements(detail, centroids, isGhost = false) {
   // so that a 40-alert incident doesn't jam everything into the same narrow
   // window.  ~32px per alert gives a node-width of 20 + ~12 gap on average,
   // enough for HH:MM labels not to overlap at default zoom.
-  const PX_PER_ALERT      = 32;
-  const TIMELINE_WIDTH_PX = Math.max(360, primaryAlerts.length * PX_PER_ALERT);
-  const LANE_HEIGHT_PX    = 44;
+  // Pull the active-view-mode constants so alert placement matches the
+  // hull sizing done in computeCentroids(). MODES keys: manual / compact /
+  // chronological.
+  const modeCfg           = MODES[viewMode] || MODES.manual;
+  const PX_PER_ALERT      = modeCfg.PX_PER_ALERT;
+  const MIN_WIDTH_PX      = modeCfg.MIN_WIDTH_PX;
+  const TIMELINE_WIDTH_PX = Math.max(MIN_WIDTH_PX, primaryAlerts.length * PX_PER_ALERT);
+  const LANE_HEIGHT_PX    = modeCfg.LANE_HEIGHT_PX;
   const LANE_BY_SEVERITY  = { critical: 0, warning: 1, info: 2 };
-  const COLLISION_X_PX    = 30;   // alerts closer than this share a slot
-  const STACK_DY_PX       = 16;   // vertical step between stack slots
-  const STACK_DX_PX       = 16;   // horizontal step — fans stacked alerts
-                                  // diagonally so HH:MM labels don't collide
+  const COLLISION_X_PX    = Math.max(PX_PER_ALERT - 2, 14);  // scales with alert spacing
+  const STACK_DY_PX       = modeCfg.STACK_DY_PX;
+  const STACK_DX_PX       = modeCfg.STACK_DY_PX;  // keep DX = DY for symmetric diagonal stacking
   // Order: centre first, then alternating out so the stack stays balanced.
   const STACK_STEPS = [0, 1, -1, 2, -2, 3, -3, 4, -4, 5, -5];
 

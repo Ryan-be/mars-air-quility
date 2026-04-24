@@ -10,7 +10,7 @@
 // Contract: given a list of incidents with { id, alert_count, primary_count,
 // started_at? } and a view mode, return { [id]: {x, y}, __crossBandY }.
 
-const MODES = {
+export const MODES = {
   manual: {
     MIN_WIDTH_PX:       360,
     PX_PER_ALERT:       32,
