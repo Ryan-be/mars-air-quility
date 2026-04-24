@@ -223,7 +223,6 @@ def test_get_incident_detail_includes_edges(client, db):
     # Seed two alerts sharing eco2 within the edge window + link them
     # into an incident via regroup.
     from mlss_monitor.incident_grouper import regroup_all
-    import sqlite3
     conn = sqlite3.connect(db)
     for ts in ("2026-04-23 09:00:00", "2026-04-23 09:10:00"):
         cur = conn.execute(

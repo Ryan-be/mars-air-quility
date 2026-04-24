@@ -306,13 +306,13 @@ def _seed_inference(db_path, created_at, event_type="tvoc_spike",
 from mlss_monitor.incident_grouper import edge_probability
 
 
-def _make_alert(id, ts, deps=()):
+def _make_alert(alert_id, ts, deps=()):
     """Build an alert dict with the signal_deps shape the grouper expects.
 
     deps: iterable of (sensor, r) pairs.
     """
     return {
-        "id": id,
+        "id": alert_id,
         "created_at": ts,
         "signal_deps": [
             {"sensor": s, "r": r, "lag_seconds": 0} for s, r in deps
@@ -558,7 +558,7 @@ def test_regroup_all_split_marker_breaks_chain(tmp_db):
     is gone), breaking the bridge. A becomes isolated; B+C stay linked.
     => 2 incidents.
     """
-    a_id = _seed_inf_with_dep(tmp_db, "2026-04-23 09:00:00", "eco2_ppm", 0.8)
+    _a_id = _seed_inf_with_dep(tmp_db, "2026-04-23 09:00:00", "eco2_ppm", 0.8)
     # B bridges A (eco2_ppm) and C (tvoc_ppb).
     conn = sqlite3.connect(tmp_db)
     cur = conn.execute(
@@ -577,7 +577,7 @@ def test_regroup_all_split_marker_breaks_chain(tmp_db):
     )
     conn.commit()
     conn.close()
-    c_id = _seed_inf_with_dep(tmp_db, "2026-04-23 09:20:00", "tvoc_ppb", 0.8)
+    _c_id = _seed_inf_with_dep(tmp_db, "2026-04-23 09:20:00", "tvoc_ppb", 0.8)
 
     # Without a split: A+B+C bridge => one incident.
     regroup_all(tmp_db)
