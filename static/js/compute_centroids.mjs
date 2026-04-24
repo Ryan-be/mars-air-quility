@@ -43,10 +43,12 @@ export const MODES = {
   },
 };
 
-// Max STACK_STEPS depth (from incident_graph.js STACK_STEPS array = 11 slots
-// = 5 steps each side). A cluster's stack depth is bounded by how many
-// alerts share a severity lane; with 3 lanes and even distribution, the
-// worst-case slot used ≈ ceil(primary_count / 3), capped at 5.
+// Max STACK_STEPS depth. The stacker in incident_graph.js walks the
+// array [0, ±1, ±2, ±3, ±4, ±5] — 11 slots = 5 steps each side — to find
+// a non-colliding slot for each alert. Beyond 11 alerts piled at the
+// same x/severity, new alerts re-use existing slots and visually stack
+// on top rather than extending outward. This cap is the vertical
+// extent guarantee clusterHalfHeight budgets against.
 export const MAX_STACK_STEPS = 5;
 
 function clusterHalfHeight(primaryCount, c) {

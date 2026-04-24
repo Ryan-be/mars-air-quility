@@ -83,6 +83,20 @@ const cl = computeCentroids(oneLane, 'manual');
 expect('one-lane 10 primaries: row1_y - row0_y >= 308',
   cl.L3.y - cl.L1.y >= 308, true);
 
+// --- Clamp boundary: single-primary incident --------------------------
+// ceil((1-1)/2) = 0 → clamp to 1 slot → halfH = 44 + 16 + 30 = 90.
+// Locks the Math.max(1, ...) clamp so a refactor that drops the clamp
+// would fail here instead of silently shrinking hulls for lone events.
+const lone = [
+  { id: 'X1', alert_count: 1, primary_count: 1 },
+  { id: 'X2', alert_count: 1, primary_count: 1 },
+  { id: 'X3', alert_count: 1, primary_count: 1 },
+  { id: 'X4', alert_count: 1, primary_count: 1 },
+];
+const cxl = computeCentroids(lone, 'manual');
+expect('singleton-primary clamp: row1_y - row0_y >= 180 (2 * 90)',
+  cxl.X3.y - cxl.X1.y >= 180, true);
+
 // --- Chronological mode: all clusters on row 0 ---------------------------
 const chronoIn = [
   { id: 'A', alert_count: 2, primary_count: 2, started_at: '2026-04-24 10:00:00' },
