@@ -449,7 +449,23 @@ function renderDetail(detail) {
   // Task 17 adds detail.operator_split + split_alert_id to the API response —
   // until then we just check the (currently-undefined) field. Hide when
   // unavailable.
-  if (unsplitBtn) unsplitBtn.hidden = !detail.operator_split;
+  if (unsplitBtn) {
+    if (detail.operator_split && detail.split_alert_id) {
+      unsplitBtn.hidden = false;
+      unsplitBtn.onclick = async () => {
+        try {
+          const resp = await fetch(`/api/incidents/${encodeURIComponent(detail.id)}/unsplit`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ alert_id: detail.split_alert_id }),
+          });
+          if (resp.ok) await loadIncidents();
+        } catch (e) { console.error('Unsplit network error:', e); }
+      };
+    } else {
+      unsplitBtn.hidden = true;
+    }
+  }
 
   if (detail.narrative && elNarrative) {
     if (elNarrObs) elNarrObs.textContent = detail.narrative.observed || '';

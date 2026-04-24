@@ -293,6 +293,24 @@ def get_incident(incident_id: str):
                 "shared_sensors": sorted(strong_a & strong_b),
             })
 
+    # operator_split: true iff the earliest primary alert in this incident
+    # is itself a split marker. Used by the UI to surface an Undo split.
+    earliest_primary_id = None
+    for a in alerts:
+        if a.get("is_primary"):
+            earliest_primary_id = a["id"]
+            break
+    operator_split = False
+    earliest_split_alert_id = None
+    if earliest_primary_id is not None:
+        row = conn.execute(
+            "SELECT alert_id FROM incident_splits WHERE alert_id = ?",
+            (earliest_primary_id,),
+        ).fetchone()
+        operator_split = row is not None
+        if operator_split:
+            earliest_split_alert_id = earliest_primary_id
+
     incident.pop("signature", None)
     conn.close()
 
@@ -303,6 +321,8 @@ def get_incident(incident_id: str):
         "narrative": narrative,
         "similar": similar,
         "edges": edges_out,
+        "operator_split": operator_split,
+        "split_alert_id": earliest_split_alert_id,
     })
 
 

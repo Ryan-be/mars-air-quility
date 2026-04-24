@@ -392,3 +392,55 @@ def test_unsplit_endpoint_removes_marker_and_regroups(client, db):
     assert remaining == 0
     listing2 = client.get("/api/incidents?window=30d").get_json()
     assert listing2["total"] == 1
+
+
+def test_get_incident_detail_reports_operator_split(client, db):
+    """detail.operator_split is True iff the earliest alert of the incident
+    has a row in incident_splits."""
+    from mlss_monitor.incident_grouper import regroup_all
+    conn = sqlite3.connect(db)
+    alert_ids = []
+    # Disjoint-sensor-chain so the split marker actually creates two incidents.
+    sensor_sets = [
+        [("eco2_ppm", 0.8)],
+        [("eco2_ppm", 0.8), ("tvoc_ppb", 0.8)],
+        [("tvoc_ppb", 0.8)],
+    ]
+    for ts, deps in zip(
+        ("2026-04-23 09:00:00", "2026-04-23 09:10:00", "2026-04-23 09:20:00"),
+        sensor_sets,
+    ):
+        cur = conn.execute(
+            "INSERT INTO inferences (created_at, event_type, severity, title, confidence) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (ts, "tvoc_spike", "info", f"t-{ts}", 0.9),
+        )
+        alert_ids.append(cur.lastrowid)
+        for sensor, r in deps:
+            conn.execute(
+                "INSERT INTO alert_signal_deps (alert_id, sensor, r, lag_seconds) "
+                "VALUES (?, ?, ?, ?)",
+                (cur.lastrowid, sensor, r, 0),
+            )
+    conn.execute(
+        "INSERT INTO incident_splits (alert_id, created_by) VALUES (?, ?)",
+        (alert_ids[1], "test"),
+    )
+    conn.commit()
+    conn.close()
+    regroup_all(db)
+
+    listing = client.get("/api/incidents?window=30d").get_json()
+    incidents = listing["incidents"]
+    assert len(incidents) == 2
+
+    # The incident whose earliest alert IS alert_ids[1] should have the flag.
+    hit = None
+    for inc in incidents:
+        resp = client.get(f"/api/incidents/{inc['id']}").get_json()
+        earliest_alert_id = min(a["id"] for a in resp["alerts"] if a.get("is_primary"))
+        if earliest_alert_id == alert_ids[1]:
+            hit = resp
+            break
+    assert hit is not None
+    assert hit["operator_split"] is True
