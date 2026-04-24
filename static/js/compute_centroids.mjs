@@ -19,6 +19,7 @@ export const MODES = {
     LANE_HEIGHT_PX:     44,
     STACK_DY_PX:        16,
     INTER_ROW_GAP:      60,
+    CYTO_HULL_PADDING_Y: 30,
   },
   compact: {
     MIN_WIDTH_PX:       240,
@@ -28,6 +29,7 @@ export const MODES = {
     LANE_HEIGHT_PX:     32,
     STACK_DY_PX:        14,
     INTER_ROW_GAP:      40,
+    CYTO_HULL_PADDING_Y: 22,
   },
   chronological: {
     MIN_WIDTH_PX:       300,
@@ -37,6 +39,7 @@ export const MODES = {
     LANE_HEIGHT_PX:     40,
     STACK_DY_PX:        16,
     INTER_ROW_GAP:      60,  // unused in single-row mode
+    CYTO_HULL_PADDING_Y: 26,
   },
 };
 
@@ -48,8 +51,20 @@ export const MAX_STACK_STEPS = 5;
 
 function clusterHalfHeight(primaryCount, c) {
   const primary = Math.max(1, primaryCount || 0);
-  const stackSlots = Math.min(MAX_STACK_STEPS, Math.ceil(primary / 3));
-  return c.LANE_HEIGHT_PX + stackSlots * c.STACK_DY_PX;
+  // Worst case: all alerts land in one severity lane. The stacker walks
+  // STACK_STEPS [0, ±1, ±2, ...], so N alerts in one lane reach step
+  // ±ceil((N-1)/2). Capped at MAX_STACK_STEPS. The previous ceil(N/3)
+  // estimator assumed even 3-lane distribution and under-reserved by up
+  // to 16px for same-severity cascades.
+  const stackSlots = Math.min(
+    MAX_STACK_STEPS,
+    Math.max(1, Math.ceil((primary - 1) / 2)),
+  );
+  const contentHalf = c.LANE_HEIGHT_PX + stackSlots * c.STACK_DY_PX;
+  // Cytoscape compound-node padding extends the hull beyond the child
+  // bounding box. Include it so row spacing leaves room for the full
+  // VISUAL hull, not just the placed alerts.
+  return contentHalf + c.CYTO_HULL_PADDING_Y;
 }
 
 function clusterWidth(alertCount, c) {

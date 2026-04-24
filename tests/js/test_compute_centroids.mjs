@@ -38,11 +38,12 @@ const c2 = computeCentroids(four, 'manual');
 expect('manual: row 1 centre y > 0', c2.C.y > 0, true);
 expect('manual: rows A and C share x lane', c2.A.x === c2.C.x, true);
 
-// --- Row height scales with stack depth ----------------------------------
-// 30 primary alerts → full stack (primary/3 >= 5) → half_h capped at 124.
-// 2 primary alerts → shallow stack (ceil(2/3) = 1) → half_h = 44 + 16 = 60.
-// Two rows of deep incidents must have MORE vertical gap than two rows of
-// shallow incidents.
+// --- Row height scales with stack depth (one-lane worst case) ------------
+// clusterHalfHeight(primary, manual) =
+//   LANE_HEIGHT_PX(44) + stackSlots * STACK_DY_PX(16) + CYTO_HULL_PADDING_Y(30)
+// where stackSlots = min(MAX_STACK_STEPS, max(1, ceil((primary-1)/2)))
+// For primary=30: stackSlots=min(5, ceil(29/2))=5, halfH = 44 + 80 + 30 = 154
+// For primary=2:  stackSlots=min(5, ceil(1/2))=1,  halfH = 44 + 16 + 30 = 90
 const deep = [
   { id: 'D1', alert_count: 30, primary_count: 30 },
   { id: 'D2', alert_count: 30, primary_count: 30 },
@@ -60,11 +61,27 @@ const cs = computeCentroids(shallow, 'manual');
 expect('deep rows get more vertical gap than shallow rows',
   cd.D3.y > cs.S3.y, true);
 
-// No-overlap invariant: adjacent rows' clusters must not overlap
-// vertically. row_gap >= half_h(r) + half_h(r+1).
-// For 30-alert rows: half_h = 124. Two rows: delta >= 248 + INTER_ROW_GAP.
-expect('deep rows: row1_y - row0_y >= 248',
-  cd.D3.y - cd.D1.y >= 248, true);
+// No-overlap invariant — row spacing must accommodate full hull extent of
+// both rows: delta >= half_h(r) + half_h(r+1).
+// For deep rows half_h = 154: delta >= 308.
+expect('deep rows: row1_y - row0_y >= 308 (2 * 154)',
+  cd.D3.y - cd.D1.y >= 308, true);
+
+// For shallow rows half_h = 90: delta >= 180.
+expect('shallow rows: row1_y - row0_y >= 180 (2 * 90)',
+  cs.S3.y - cs.S1.y >= 180, true);
+
+// One-lane worst case — ten primaries all-same-severity pile into one
+// lane and reach step ±5. halfHeight must match deep rows.
+const oneLane = [
+  { id: 'L1', alert_count: 10, primary_count: 10 },
+  { id: 'L2', alert_count: 10, primary_count: 10 },
+  { id: 'L3', alert_count: 10, primary_count: 10 },
+  { id: 'L4', alert_count: 10, primary_count: 10 },
+];
+const cl = computeCentroids(oneLane, 'manual');
+expect('one-lane 10 primaries: row1_y - row0_y >= 308',
+  cl.L3.y - cl.L1.y >= 308, true);
 
 // --- Chronological mode: all clusters on row 0 ---------------------------
 const chronoIn = [
