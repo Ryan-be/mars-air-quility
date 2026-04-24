@@ -11,7 +11,7 @@
  */
 
 import { connectedComponents } from './connected_components.mjs';
-import { computeCentroids, MODES } from './compute_centroids.mjs';
+import { computeCentroids, MODES, MAX_STACK_STEPS } from './compute_centroids.mjs';
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
@@ -1165,7 +1165,7 @@ function buildCentroids(incidents) {
 
 // ── Build elements for the selected incident ──────────────────────────────────
 
-function buildIncidentElements(detail, centroids, isGhost = false) {
+function buildIncidentElements(detail, centroids, isGhost = false, mode = viewMode) {
   const elements = [];
   const incId = detail.id;
   const centre = centroids[incId] || { x: 0, y: 0 };
@@ -1205,7 +1205,7 @@ function buildIncidentElements(detail, centroids, isGhost = false) {
   // Pull the active-view-mode constants so alert placement matches the
   // hull sizing done in computeCentroids(). MODES keys: manual / compact /
   // chronological.
-  const modeCfg           = MODES[viewMode] || MODES.manual;
+  const modeCfg           = MODES[mode] || MODES.manual;
   const PX_PER_ALERT      = modeCfg.PX_PER_ALERT;
   const MIN_WIDTH_PX      = modeCfg.MIN_WIDTH_PX;
   const TIMELINE_WIDTH_PX = Math.max(MIN_WIDTH_PX, primaryAlerts.length * PX_PER_ALERT);
@@ -1214,8 +1214,14 @@ function buildIncidentElements(detail, centroids, isGhost = false) {
   const COLLISION_X_PX    = Math.max(PX_PER_ALERT - 2, 14);  // scales with alert spacing
   const STACK_DY_PX       = modeCfg.STACK_DY_PX;
   const STACK_DX_PX       = modeCfg.STACK_DY_PX;  // keep DX = DY for symmetric diagonal stacking
-  // Order: centre first, then alternating out so the stack stays balanced.
-  const STACK_STEPS = [0, 1, -1, 2, -2, 3, -3, 4, -4, 5, -5];
+  // Order: centre first, then alternating out. Derived from MAX_STACK_STEPS
+  // so clusterHalfHeight() in compute_centroids.mjs cannot silently desync
+  // from the array's actual depth.
+  const STACK_STEPS = (() => {
+    const steps = [0];
+    for (let i = 1; i <= MAX_STACK_STEPS; i++) { steps.push(i, -i); }
+    return steps;
+  })();
 
   const startMs = new Date((detail.started_at || '').replace(' ', 'T')).getTime();
   const endMs   = new Date((detail.ended_at   || '').replace(' ', 'T')).getTime();

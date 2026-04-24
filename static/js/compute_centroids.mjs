@@ -44,7 +44,7 @@ export const MODES = {
 // = 5 steps each side). A cluster's stack depth is bounded by how many
 // alerts share a severity lane; with 3 lanes and even distribution, the
 // worst-case slot used ≈ ceil(primary_count / 3), capped at 5.
-const MAX_STACK_STEPS = 5;
+export const MAX_STACK_STEPS = 5;
 
 function clusterHalfHeight(primaryCount, c) {
   const primary = Math.max(1, primaryCount || 0);
