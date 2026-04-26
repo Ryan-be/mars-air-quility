@@ -179,14 +179,17 @@ function initToolbar() {
   const sliderValue = document.getElementById('inc-edge-slider-value');
   if (slider && sliderValue) {
     slider.value = String(edgePFloor);
-    sliderValue.textContent = `P ≥ ${edgePFloor.toFixed(2)}`;
+    updateEdgeSliderDisplay(null);
     slider.addEventListener('input', e => {
       edgePFloor = parseFloat(e.target.value);
-      sliderValue.textContent = `P ≥ ${edgePFloor.toFixed(2)}`;
       try { localStorage.setItem('inc.edge_p_floor', String(edgePFloor)); }
       catch (_) {}
-      // Re-apply edge styling + subdivision preview on the current graph.
-      if (typeof applyEdgePStyling === 'function') applyEdgePStyling();
+      // Re-apply edge styling + subdivision preview on the current graph,
+      // and reflect the resulting edge count in the slider's value label.
+      const counts = (typeof applyEdgePStyling === 'function')
+        ? applyEdgePStyling()
+        : { visible: 0, total: 0 };
+      updateEdgeSliderDisplay(counts);
       if (typeof applySubdivisionPreview === 'function') applySubdivisionPreview();
     });
   }
@@ -1215,7 +1218,7 @@ async function renderGraph(detail, incidents) {
     restorePositions();
     applySelectionOpacity(currentIncidentId);
     applyZoomClasses(cy.zoom());
-    applyEdgePStyling();
+    updateEdgeSliderDisplay(applyEdgePStyling());
     applySubdivisionPreview();
   });
 
@@ -1236,14 +1239,32 @@ async function renderGraph(detail, incidents) {
  *
  * Edges are expected to carry .data('p') from renderGraph.
  */
+// Update the slider's value label to show both the threshold and the
+// current edge-visible count. Operators get visible feedback even when
+// the slider doesn't cross any edge's P value (most short-duration
+// incidents have all edges at P=1.0).
+function updateEdgeSliderDisplay(counts) {
+  const sliderValue = document.getElementById('inc-edge-slider-value');
+  if (!sliderValue) return;
+  const base = `P ≥ ${edgePFloor.toFixed(2)}`;
+  if (counts && counts.total > 0) {
+    sliderValue.textContent = `${base} · ${counts.visible}/${counts.total} edges`;
+  } else {
+    sliderValue.textContent = `${base} · no edges`;
+  }
+}
+
 function applyEdgePStyling() {
-  if (!cy) return;
+  if (!cy) return { visible: 0, total: 0 };
+  let visible = 0, total = 0;
   cy.edges('.chrono-edge').forEach(e => {
+    total += 1;
     const p = Number(e.data('p') || 0);
     if (p < edgePFloor) {
       e.style({ display: 'none' });
       return;
     }
+    visible += 1;
     let opacity, width, lineStyle;
     if      (p >= 0.7) { opacity = 1.0; width = 2.0; lineStyle = 'solid'; }
     else if (p >= 0.4) { opacity = 0.7; width = 1.5; lineStyle = 'solid'; }
@@ -1256,6 +1277,7 @@ function applyEdgePStyling() {
       'line-style': lineStyle,
     });
   });
+  return { visible, total };
 }
 
 // ── Subdivision preview ───────────────────────────────────────────────────────
