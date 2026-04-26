@@ -446,6 +446,22 @@ function renderDetail(detail) {
   const confPct = Math.round(conf * 100);
   if (confEl) confEl.textContent = `${detail.id} · confidence ${confPct}%`;
 
+  // Surface alert + edge counts so the operator can see at a glance
+  // whether the slider has anything to filter. Zero edges == "alerts
+  // exist but don't share strong-correlated sensors and/or are >240
+  // minutes apart". Same element used elsewhere (existing #inc-narrative-conf).
+  if (confEl) {
+    const primaryCount = (detail.alerts || [])
+      .filter(a => a.is_primary).length;
+    const edgeCount = (detail.edges || []).length;
+    const edgeHint = edgeCount === 0 && primaryCount >= 2
+      ? '  ·  no causal links (alerts uncorrelated or >4h apart)'
+      : '';
+    const baseConf = confEl.textContent;  // already set by prior block
+    confEl.textContent =
+      `${baseConf}  ·  ${primaryCount} alerts  ·  ${edgeCount} edges${edgeHint}`;
+  }
+
   // Advisory: weakest edge gap (if any edges).
   if (advEl) {
     if (conf < 0.5 && detail.edges && detail.edges.length) {
@@ -1260,32 +1276,33 @@ function applyEdgePStyling() {
   cy.edges('.chrono-edge').forEach(e => {
     total += 1;
     const p = Number(e.data('p') || 0);
-    // Continuous mapping: edges always render, but their opacity (and
-    // line weight + style) scales with how far above the floor they are.
-    // 'visible' counts edges with p >= floor for the toolbar display;
-    // edges below floor still show as a faint dotted ghost so the
-    // operator can see WHICH alerts WOULD have been linked.
     if (p >= edgePFloor) visible += 1;
-    let opacity, width, lineStyle;
+
+    // Continuous fade: opacity scales with p AND with how high the
+    // floor is set. As the floor moves toward 1.0, ALL edges fade
+    // proportionally (even P=1.0 edges visibly recede). Below the
+    // floor, edges drop to a faint dotted ghost so operators see
+    // which links exist but recognize them as 'weak'.
+    //   opacity = clamp(p * (1.0 - 0.7 * floor), 0.10, 1.0)
+    // Examples:
+    //   p=1.0, floor=0.0 → 1.00     p=1.0, floor=0.5 → 0.65
+    //   p=1.0, floor=1.0 → 0.30     p=0.5, floor=0.0 → 0.50
+    //   p=0.5, floor=0.5 → 0.32     p=0.0, floor=0.0 → 0.10 (clamped)
+    const baseOpacity = Math.max(0.10, Math.min(1.0, p * (1.0 - 0.7 * edgePFloor)));
+
+    let width, lineStyle;
     if (p < edgePFloor) {
-      // Below threshold — ghost (still visible, but recedes).
-      opacity = 0.10;
+      // Below threshold — force the ghost dotted style regardless of p.
       width = 0.6;
       lineStyle = 'dotted';
-    } else {
-      // Above threshold — scale opacity by margin above floor so even
-      // P=1.0 edges visibly fade as the slider approaches 1.0.
-      const span = Math.max(0.05, 1 - edgePFloor);
-      const t = (p - edgePFloor) / span;  // 0..1 within visible range
-      opacity = 0.30 + 0.70 * t;          // 0.30 at floor, 1.00 at p=1
-      if      (p >= 0.7) { width = 2.0; lineStyle = 'solid'; }
-      else if (p >= 0.4) { width = 1.5; lineStyle = 'solid'; }
-      else if (p >= 0.2) { width = 1.0; lineStyle = 'dashed'; }
-      else               { width = 0.8; lineStyle = 'dotted'; }
-    }
+    } else if (p >= 0.7) { width = 2.0; lineStyle = 'solid'; }
+    else if (p >= 0.4)   { width = 1.5; lineStyle = 'solid'; }
+    else if (p >= 0.2)   { width = 1.0; lineStyle = 'dashed'; }
+    else                 { width = 0.8; lineStyle = 'dotted'; }
+
     e.style({
       display: 'element',
-      'opacity': opacity,
+      'opacity': baseOpacity,
       'width': width,
       'line-style': lineStyle,
     });
