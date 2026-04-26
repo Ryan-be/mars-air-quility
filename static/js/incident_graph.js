@@ -940,7 +940,15 @@ function buildCytoscapeStyle() {
     { selector: 'node.hull.conf-low',  style: { 'border-style': 'dashed', 'border-width': 2.5 } },
 
     // ── Node size / shape variants ────────────────────────────────────
-    { selector: 'node.alert-node',  style: { 'width': 20, 'height': 20, 'border-width': 1.5 } },
+    { selector: 'node.alert-node', style: {
+        'width': 20,
+        'height': 20,
+        'border-width': 1.5,
+        // Constrain label width per alert so two stacked alerts' labels
+        // don't pile on top of each other. Headlines (which need their
+        // titles readable at-a-glance) get a wider override below.
+        'text-max-width': 50,
+    } },
 
     // Headline: the first primary alert chronologically — the "entry point"
     // of the incident that the narrative panel leads with. Slightly larger
@@ -950,6 +958,7 @@ function buildCytoscapeStyle() {
         'height': 26,
         'border-width': 2.5,
         'font-weight': 700,
+        'text-max-width': 90,
     } },
     {
       selector: 'node.cross-node',

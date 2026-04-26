@@ -40,10 +40,10 @@ expect('manual: rows A and C share x lane', c2.A.x === c2.C.x, true);
 
 // --- Row height scales with stack depth (one-lane worst case) ------------
 // clusterHalfHeight(primary, manual) =
-//   LANE_HEIGHT_PX(44) + stackSlots * STACK_DY_PX(16) + CYTO_HULL_PADDING_Y(30)
+//   LANE_HEIGHT_PX(44) + stackSlots * STACK_DY_PX(20) + CYTO_HULL_PADDING_Y(30)
 // where stackSlots = min(MAX_STACK_STEPS, max(1, ceil((primary-1)/2)))
-// For primary=30: stackSlots=min(5, ceil(29/2))=5, halfH = 44 + 80 + 30 = 154
-// For primary=2:  stackSlots=min(5, ceil(1/2))=1,  halfH = 44 + 16 + 30 = 90
+// For primary=30: stackSlots=min(5, ceil(29/2))=5, halfH = 44 + 100 + 30 = 174
+// For primary=2:  stackSlots=min(5, ceil(1/2))=1,  halfH = 44 + 20 + 30 = 94
 const deep = [
   { id: 'D1', alert_count: 30, primary_count: 30 },
   { id: 'D2', alert_count: 30, primary_count: 30 },
@@ -63,13 +63,13 @@ expect('deep rows get more vertical gap than shallow rows',
 
 // No-overlap invariant — row spacing must accommodate full hull extent of
 // both rows: delta >= half_h(r) + half_h(r+1).
-// For deep rows half_h = 154: delta >= 308.
-expect('deep rows: row1_y - row0_y >= 308 (2 * 154)',
-  cd.D3.y - cd.D1.y >= 308, true);
+// For deep rows half_h = 174: delta >= 348.
+expect('deep rows: row1_y - row0_y >= 348 (2 * 174)',
+  cd.D3.y - cd.D1.y >= 348, true);
 
-// For shallow rows half_h = 90: delta >= 180.
-expect('shallow rows: row1_y - row0_y >= 180 (2 * 90)',
-  cs.S3.y - cs.S1.y >= 180, true);
+// For shallow rows half_h = 94: delta >= 188.
+expect('shallow rows: row1_y - row0_y >= 188 (2 * 94)',
+  cs.S3.y - cs.S1.y >= 188, true);
 
 // One-lane worst case — ten primaries all-same-severity pile into one
 // lane and reach step ±5. halfHeight must match deep rows.
@@ -80,11 +80,11 @@ const oneLane = [
   { id: 'L4', alert_count: 10, primary_count: 10 },
 ];
 const cl = computeCentroids(oneLane, 'manual');
-expect('one-lane 10 primaries: row1_y - row0_y >= 308',
-  cl.L3.y - cl.L1.y >= 308, true);
+expect('one-lane 10 primaries: row1_y - row0_y >= 348',
+  cl.L3.y - cl.L1.y >= 348, true);
 
 // --- Clamp boundary: single-primary incident --------------------------
-// ceil((1-1)/2) = 0 → clamp to 1 slot → halfH = 44 + 16 + 30 = 90.
+// ceil((1-1)/2) = 0 → clamp to 1 slot → halfH = 44 + 20 + 30 = 94.
 // Locks the Math.max(1, ...) clamp so a refactor that drops the clamp
 // would fail here instead of silently shrinking hulls for lone events.
 const lone = [
@@ -94,8 +94,8 @@ const lone = [
   { id: 'X4', alert_count: 1, primary_count: 1 },
 ];
 const cxl = computeCentroids(lone, 'manual');
-expect('singleton-primary clamp: row1_y - row0_y >= 180 (2 * 90)',
-  cxl.X3.y - cxl.X1.y >= 180, true);
+expect('singleton-primary clamp: row1_y - row0_y >= 188 (2 * 94)',
+  cxl.X3.y - cxl.X1.y >= 188, true);
 
 // --- Chronological mode: all clusters on row 0 ---------------------------
 const chronoIn = [
