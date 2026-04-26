@@ -1260,16 +1260,29 @@ function applyEdgePStyling() {
   cy.edges('.chrono-edge').forEach(e => {
     total += 1;
     const p = Number(e.data('p') || 0);
-    if (p < edgePFloor) {
-      e.style({ display: 'none' });
-      return;
-    }
-    visible += 1;
+    // Continuous mapping: edges always render, but their opacity (and
+    // line weight + style) scales with how far above the floor they are.
+    // 'visible' counts edges with p >= floor for the toolbar display;
+    // edges below floor still show as a faint dotted ghost so the
+    // operator can see WHICH alerts WOULD have been linked.
+    if (p >= edgePFloor) visible += 1;
     let opacity, width, lineStyle;
-    if      (p >= 0.7) { opacity = 1.0; width = 2.0; lineStyle = 'solid'; }
-    else if (p >= 0.4) { opacity = 0.7; width = 1.5; lineStyle = 'solid'; }
-    else if (p >= 0.2) { opacity = 0.5; width = 1.0; lineStyle = 'dashed'; }
-    else               { opacity = 0.3; width = 0.8; lineStyle = 'dotted'; }
+    if (p < edgePFloor) {
+      // Below threshold — ghost (still visible, but recedes).
+      opacity = 0.10;
+      width = 0.6;
+      lineStyle = 'dotted';
+    } else {
+      // Above threshold — scale opacity by margin above floor so even
+      // P=1.0 edges visibly fade as the slider approaches 1.0.
+      const span = Math.max(0.05, 1 - edgePFloor);
+      const t = (p - edgePFloor) / span;  // 0..1 within visible range
+      opacity = 0.30 + 0.70 * t;          // 0.30 at floor, 1.00 at p=1
+      if      (p >= 0.7) { width = 2.0; lineStyle = 'solid'; }
+      else if (p >= 0.4) { width = 1.5; lineStyle = 'solid'; }
+      else if (p >= 0.2) { width = 1.0; lineStyle = 'dashed'; }
+      else               { width = 0.8; lineStyle = 'dotted'; }
+    }
     e.style({
       display: 'element',
       'opacity': opacity,
