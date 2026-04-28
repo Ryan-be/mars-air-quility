@@ -1244,7 +1244,7 @@ async function renderGraph(detail, incidents) {
     applySubdivisionPreview();
   });
 
-  applyEdgePStyling();
+  updateEdgeSliderDisplay(applyEdgePStyling());
   applySubdivisionPreview();
 }
 
