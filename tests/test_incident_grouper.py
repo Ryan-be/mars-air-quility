@@ -820,3 +820,25 @@ def test_load_split_markers_returns_ids(tmp_db):
     conn.close()
 
     assert _load_split_markers(tmp_db) == {101, 202, 303}
+
+
+# ── temporal_edge_probability ────────────────────────────────────────────────
+
+def test_temporal_edge_probability_ignores_sensor_gate():
+    """temporal_edge_probability must NOT short-circuit on missing shared
+    sensors — that's the entire point of the helper."""
+    from mlss_monitor.incident_grouper import temporal_edge_probability
+    a = {"created_at": "2026-04-26T15:27:22.707337", "signal_deps": []}
+    b = {"created_at": "2026-04-26T15:27:22.787104", "signal_deps": []}
+    p = temporal_edge_probability(a, b)
+    assert p == 1.0  # within 30 min window, no sensor overlap required
+
+
+def test_edge_probability_still_requires_sensor_overlap():
+    """edge_probability (used by the grouper) MUST still return 0 when
+    no shared sensor — the strict gate is preserved."""
+    from mlss_monitor.incident_grouper import edge_probability
+    a = {"created_at": "2026-04-26T15:27:22.707337", "signal_deps": []}
+    b = {"created_at": "2026-04-26T15:27:22.787104", "signal_deps": []}
+    p = edge_probability(a, b)
+    assert p == 0.0  # no shared sensors → 0 regardless of time

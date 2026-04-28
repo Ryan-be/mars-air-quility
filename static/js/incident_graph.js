@@ -1031,6 +1031,12 @@ function buildCytoscapeStyle() {
         'arrow-scale': 0.9,
       },
     },
+    // Causal edge — shared-sensor evidence; line is solid/coloured.
+    { selector: 'edge.chrono-edge.causal-edge', style: { 'line-style': 'solid', 'line-color': '#4dacff', 'target-arrow-color': '#4dacff' } },
+    // Temporal-only edge — no shared-sensor evidence; rendered as a
+    // softer dashed grey to communicate "linked in time but not in
+    // signal".
+    { selector: 'edge.chrono-edge.temporal-edge', style: { 'line-style': 'dashed', 'line-color': '#9aa5bd', 'target-arrow-color': '#9aa5bd' } },
     { selector: 'edge.cross-edge', style: { 'line-color': '#7ec090', 'line-style': 'dashed', 'width': 1, 'opacity': 0.65 } },
 
     // ── Selection highlight ───────────────────────────────────────────
@@ -1290,15 +1296,21 @@ function applyEdgePStyling() {
     //   p=0.5, floor=0.5 → 0.32     p=0.0, floor=0.0 → 0.10 (clamped)
     const baseOpacity = Math.max(0.10, Math.min(1.0, p * (1.0 - 0.7 * edgePFloor)));
 
+    const isCausal = e.hasClass('causal-edge');
     let width, lineStyle;
     if (p < edgePFloor) {
-      // Below threshold — force the ghost dotted style regardless of p.
       width = 0.6;
-      lineStyle = 'dotted';
-    } else if (p >= 0.7) { width = 2.0; lineStyle = 'solid'; }
-    else if (p >= 0.4)   { width = 1.5; lineStyle = 'solid'; }
-    else if (p >= 0.2)   { width = 1.0; lineStyle = 'dashed'; }
-    else                 { width = 0.8; lineStyle = 'dotted'; }
+      lineStyle = 'dotted';  // ghost — same for both kinds when below floor
+    } else if (isCausal) {
+      // Causal edges keep solid styling regardless of P (their selector
+      // rule sets solid; we only adjust width by P).
+      width = p >= 0.7 ? 2.0 : p >= 0.4 ? 1.5 : 1.0;
+      lineStyle = 'solid';
+    } else {
+      // Temporal-only edges stay dashed regardless of P.
+      width = p >= 0.7 ? 1.5 : p >= 0.4 ? 1.2 : 0.9;
+      lineStyle = 'dashed';
+    }
 
     e.style({
       display: 'element',
@@ -1520,6 +1532,7 @@ function buildIncidentElements(detail, centroids, isGhost = false, mode = viewMo
   // applyEdgePStyling(); shared_sensors feeds the hover tooltip.
   if (!isGhost) {
     (detail.edges || []).forEach(edge => {
+      const causalClass = edge.causal ? 'causal-edge' : 'temporal-edge';
       elements.push({
         group: 'edges',
         data: {
@@ -1529,8 +1542,9 @@ function buildIncidentElements(detail, centroids, isGhost = false, mode = viewMo
           incidentId: incId,
           p: edge.p,
           shared_sensors: (edge.shared_sensors || []).join(','),
+          causal: !!edge.causal,
         },
-        classes: 'chrono-edge',
+        classes: `chrono-edge ${causalClass}`,
       });
     });
   }

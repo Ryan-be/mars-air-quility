@@ -19,6 +19,7 @@ from mlss_monitor.incident_grouper import (
     cosine_similarity,
     detection_method,
     edge_probability,
+    temporal_edge_probability,
     EDGE_STRONG_R_THRESHOLD,
     explain_similarity,
     is_cross_incident,
@@ -284,16 +285,19 @@ def get_incident(incident_id: str):
     similar = _find_similar(conn, incident_id, signature)
 
     # ── Compute causal edges between primary alerts for the UI ────────────
+    # Use TEMPORAL probability so the graph always shows in-incident
+    # alerts as connected even when signal_deps are empty (very common).
+    # The 'causal' boolean records whether the strict shared-sensor gate
+    # passed — the frontend uses this to draw causal-evidenced edges
+    # solid and temporal-only edges dashed.
     primary_alerts = [a for a in alerts if a.get("is_primary")]
-    # Sort chronologically so edges are always src(earlier) -> dst(later).
     primary_alerts.sort(key=lambda a: a.get("created_at", ""))
     edges_out: list[dict] = []
     for i, a1 in enumerate(primary_alerts):
         for a2 in primary_alerts[i + 1:]:
-            p = edge_probability(a1, a2)
+            p = temporal_edge_probability(a1, a2)
             if p <= 0.0:
                 continue
-            # Describe WHICH sensors drove the link, for the hover tooltip.
             strong_a = {
                 d["sensor"] for d in (a1.get("signal_deps") or [])
                 if d["r"] is not None and abs(d["r"]) >= EDGE_STRONG_R_THRESHOLD
@@ -302,11 +306,13 @@ def get_incident(incident_id: str):
                 d["sensor"] for d in (a2.get("signal_deps") or [])
                 if d["r"] is not None and abs(d["r"]) >= EDGE_STRONG_R_THRESHOLD
             }
+            shared = sorted(strong_a & strong_b)
             edges_out.append({
                 "from": a1["id"],
                 "to": a2["id"],
                 "p": round(p, 3),
-                "shared_sensors": sorted(strong_a & strong_b),
+                "shared_sensors": shared,
+                "causal": bool(shared),  # True iff strict edge_probability would also fire
             })
 
     # operator_split: true iff the earliest primary alert in this incident

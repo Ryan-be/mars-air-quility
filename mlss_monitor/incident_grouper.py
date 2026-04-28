@@ -108,15 +108,14 @@ def _strong_signed_sensors(alert: dict[str, Any]) -> set[tuple[str, int]]:
     return out
 
 
-def edge_probability(a: dict[str, Any], b: dict[str, Any]) -> float:
-    """Probability that alerts A and B belong to the same causal incident.
+def temporal_edge_probability(a: dict[str, Any], b: dict[str, Any]) -> float:
+    """Pure time-decay component of the edge probability.
 
-    See the section comment above for semantics.
+    Returns 1.0 if alerts are within EDGE_FULL_P_WINDOW_MINUTES of each
+    other, 0.0 if >= EDGE_ZERO_P_WINDOW_MINUTES apart, linear decay in
+    between. Does NOT check shared-sensor evidence — used by the UI to
+    draw connecting lines for any pair of alerts in the same incident.
     """
-    # 1. Signed sensor overlap
-    if not _strong_signed_sensors(a) & _strong_signed_sensors(b):
-        return 0.0
-    # 2. Time decay
     try:
         ta = datetime.fromisoformat(str(a["created_at"]))
         tb = datetime.fromisoformat(str(b["created_at"]))
@@ -129,6 +128,19 @@ def edge_probability(a: dict[str, Any], b: dict[str, Any]) -> float:
         return 0.0
     span = EDGE_ZERO_P_WINDOW_MINUTES - EDGE_FULL_P_WINDOW_MINUTES
     return (EDGE_ZERO_P_WINDOW_MINUTES - gap_min) / span
+
+
+def edge_probability(a: dict[str, Any], b: dict[str, Any]) -> float:
+    """Probability that alerts A and B belong to the same causal incident.
+
+    Used by the GROUPER to decide composition. Requires both:
+      1. A shared sensor with matching sign (|r| >= threshold).
+      2. Temporal proximity (see temporal_edge_probability).
+    Returns 0.0 if either condition fails.
+    """
+    if not _strong_signed_sensors(a) & _strong_signed_sensors(b):
+        return 0.0
+    return temporal_edge_probability(a, b)
 
 
 # Edges below this floor are dropped — prevents near-zero chains from
