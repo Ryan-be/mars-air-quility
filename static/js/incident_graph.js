@@ -25,7 +25,19 @@ let allIncidentDetails = {};    // incidentId → detail object (persistent cach
 // Bumped to 'tl1::' when the timeline layout landed so stale positions from
 // the previous radial/hub-and-spoke layouts are ignored automatically rather
 // than bypassing the new collision-stacking logic via loadSavedPosition.
-const POS_KEY_PREFIX = 'tl1::';
+// Bumped again to 'tl2::' after STACK_DY/STACK_DX constants changed (16 →
+// 20 → 26 across modes); old saved positions placed alerts at offsets that
+// no longer fit the math, stretching hulls to thousands of pixels wide.
+const POS_KEY_PREFIX = 'tl2::';
+
+// Opportunistic cleanup: drop stale 'tl1::' positions on page load so they
+// don't pile up in localStorage. New 'tl2::' positions get persisted in
+// their place as the user drags nodes.
+try {
+  Object.keys(localStorage)
+    .filter(k => k.startsWith('tl1::'))
+    .forEach(k => localStorage.removeItem(k));
+} catch (_) { /* localStorage may be disabled */ }
 
 // Client-side threshold for edge rendering + subdivision preview.
 // Persisted in localStorage under inc.edge_p_floor. Default 0.20.
