@@ -76,5 +76,9 @@ def test_incidents_page_loads(app_client):
     client, _ = app_client
     rv = client.get("/incidents")
     assert rv.status_code == 200
-    assert b"cy-graph" in rv.data
+    assert b"inc-dashboard" in rv.data
+    assert b"inc-galaxy" in rv.data
+    assert b"inc-rose" in rv.data
+    assert b"inc-storyline" in rv.data
+    assert b"inc-cooccurrence" in rv.data
     assert b"incident_graph.js" in rv.data
