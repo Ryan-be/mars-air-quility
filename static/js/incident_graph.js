@@ -18,6 +18,7 @@ import { renderGalaxy }       from './sections/galaxy.mjs';
 import { renderRose }         from './sections/rose.mjs';
 import { renderStoryline }    from './sections/storyline.mjs';
 import { renderCooccurrence } from './sections/cooccurrence.mjs';
+import { primaryChannel }     from './sections/sensor_map.mjs';
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
 
@@ -349,7 +350,34 @@ function applyChipFilters(incidents) {
       return h === filterHour;
     });
   }
+  if (filterSensor !== null && storylineData) {
+    // Look up which incidents touch the filterSensor channel via the
+    // Storyline payload (which includes per-alert event_type → channel).
+    const touching = new Set();
+    for (const inc of (storylineData.incidents || [])) {
+      for (const a of (inc.alerts || [])) {
+        if (primaryChannel(a.event_type) === filterSensor) {
+          touching.add(inc.id);
+          break;
+        }
+      }
+    }
+    filtered = filtered.filter(inc => touching.has(inc.id));
+  }
   return filtered;
+}
+
+// Apply the same client-side filters (search, severity, chips) to the
+// Storyline payload so Storyline + Co-occurrence respect the toolbar
+// like Galaxy does.
+function filteredStorylineData() {
+  if (!storylineData) return null;
+  const allowed = new Set(
+    applyChipFilters(applyClientFilter(allIncidents)).map(i => i.id)
+  );
+  return {
+    incidents: (storylineData.incidents || []).filter(i => allowed.has(i.id)),
+  };
 }
 
 function renderChips() {
@@ -411,9 +439,10 @@ function renderDashboard() {
     },
   });
 
+  const filteredStory = filteredStorylineData();
   const { start: ws, end: we } = currentWindowRange();
   if (storyEl) renderStoryline(storyEl, {
-    storylineData,
+    storylineData: filteredStory,
     windowStart: ws, windowEnd: we,
     selectedId: currentIncidentId,
     edgePFloor,
@@ -422,7 +451,7 @@ function renderDashboard() {
   });
 
   if (coEl) renderCooccurrence(coEl, {
-    storylineData,
+    storylineData: filteredStory,
     edgePFloor,
     sensorFilter: filterSensor,
     onSensorClick: ch => {
