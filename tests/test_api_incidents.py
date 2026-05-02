@@ -503,3 +503,59 @@ def test_get_incidents_summary_includes_severity_by_hour(client, db):
     assert len(sbh) == 24
     assert sbh[15] == 2  # critical wins
     assert sbh[3] == -1  # no incidents
+
+
+def test_storyline_endpoint_returns_alerts_and_edges(client, db):
+    """Batched-detail endpoint returns lightweight alert+edge data per
+    incident in the active window so Storyline can render in one fetch."""
+    import sqlite3
+    from datetime import datetime, timedelta
+    now = datetime.utcnow()
+    started = now.strftime("%Y-%m-%d %H:%M:%S")
+    ended = (now + timedelta(seconds=10)).strftime("%Y-%m-%d %H:%M:%S")
+    _seed_incident(db, "INC-STORY-1500", started_at=started, ended_at=ended)
+    a1_ts = started + ".000001"
+    a2_ts = started + ".000005"
+    conn = sqlite3.connect(db)
+    conn.execute(
+        "INSERT INTO inferences (id, created_at, event_type, severity, "
+        "title, confidence) VALUES (?, ?, ?, ?, ?, ?)",
+        (701, a1_ts, "tvoc_spike", "warning", "t", 0.8),
+    )
+    conn.execute(
+        "INSERT INTO inferences (id, created_at, event_type, severity, "
+        "title, confidence) VALUES (?, ?, ?, ?, ?, ?)",
+        (702, a2_ts, "eco2_elevated", "warning", "e", 0.8),
+    )
+    conn.execute("INSERT INTO incident_alerts (incident_id, alert_id, is_primary) "
+                 "VALUES (?, ?, ?)", ("INC-STORY-1500", 701, 1))
+    conn.execute("INSERT INTO incident_alerts (incident_id, alert_id, is_primary) "
+                 "VALUES (?, ?, ?)", ("INC-STORY-1500", 702, 1))
+    conn.commit()
+    conn.close()
+
+    rv = client.get("/api/incidents/storyline?window=30d")
+    assert rv.status_code == 200
+    data = rv.get_json()
+    inc = next(i for i in data["incidents"] if i["id"] == "INC-STORY-1500")
+    assert len(inc["alerts"]) == 2
+    assert {a["event_type"] for a in inc["alerts"]} == {"tvoc_spike", "eco2_elevated"}
+    # 2 alerts within seconds → temporal_edge_probability = 1.0
+    assert len(inc["edges"]) == 1
+    assert inc["edges"][0]["p"] == 1.0
+
+
+def test_storyline_endpoint_respects_window(client, db):
+    """A 24h window must exclude an incident that started 10 days ago."""
+    from datetime import datetime, timedelta
+    old = (datetime.utcnow() - timedelta(days=10)).strftime("%Y-%m-%d %H:%M:%S")
+    old_end = (datetime.utcnow() - timedelta(days=10) + timedelta(minutes=1)).strftime("%Y-%m-%d %H:%M:%S")
+    _seed_incident(db, "INC-STORY-OLD", started_at=old, ended_at=old_end)
+    rv = client.get("/api/incidents/storyline?window=24h")
+    data = rv.get_json()
+    assert all(i["id"] != "INC-STORY-OLD" for i in data["incidents"])
+
+
+def test_storyline_endpoint_unknown_window_returns_400(client, db):
+    rv = client.get("/api/incidents/storyline?window=99q")
+    assert rv.status_code == 400

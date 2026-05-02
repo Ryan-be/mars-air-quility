@@ -245,6 +245,68 @@ def list_incidents():
     })
 
 
+@api_incidents_bp.route("/api/incidents/storyline")
+def storyline_data():
+    """Lightweight batched-detail endpoint for the Storyline sub-section.
+
+    Returns one entry per incident in the active window, with primary alerts
+    and their temporal edges only. No narrative, no signal_deps, no signature
+    — those live in the per-incident detail endpoint when an incident is
+    selected.
+    """
+    window = request.args.get("window", "24h")
+    severity = request.args.get("severity", "all")
+    if window not in _WINDOW_MAP:
+        return jsonify({"error": f"Unknown window: {window!r}"}), 400
+
+    conn = _get_conn()
+    since = _parse_window(window)
+    conditions: list[str] = []
+    params: list = []
+    if since:
+        conditions.append("started_at >= ?")
+        params.append(since.isoformat(sep=" "))
+    if severity and severity != "all":
+        conditions.append("max_severity = ?")
+        params.append(severity)
+    query = "SELECT id, started_at, max_severity FROM incidents"
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+    query += " ORDER BY started_at DESC LIMIT 500"
+    inc_rows = conn.execute(query, params).fetchall()
+
+    incidents_out: list[dict] = []
+    for inc_row in inc_rows:
+        inc = dict(inc_row)
+        alert_rows = conn.execute(
+            "SELECT i.id, i.created_at, i.event_type, i.severity, ia.is_primary "
+            "FROM inferences i JOIN incident_alerts ia ON ia.alert_id = i.id "
+            "WHERE ia.incident_id = ? AND ia.is_primary = 1 ORDER BY i.created_at",
+            (inc["id"],),
+        ).fetchall()
+        alerts = [dict(a) for a in alert_rows]
+        edges_out: list[dict] = []
+        for i, a1 in enumerate(alerts):
+            for a2 in alerts[i + 1:]:
+                p = temporal_edge_probability(a1, a2)
+                if p <= 0.0:
+                    continue
+                edges_out.append({
+                    "from": a1["id"], "to": a2["id"],
+                    "p": round(p, 3), "causal": False,
+                })
+        incidents_out.append({
+            "id": inc["id"],
+            "started_at": inc["started_at"],
+            "max_severity": inc["max_severity"],
+            "alerts": alerts,
+            "edges": edges_out,
+        })
+
+    conn.close()
+    return jsonify({"incidents": incidents_out})
+
+
 @api_incidents_bp.route("/api/incidents/<incident_id>")
 def get_incident(incident_id: str):
     conn = _get_conn()
