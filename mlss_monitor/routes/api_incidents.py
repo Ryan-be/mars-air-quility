@@ -172,7 +172,6 @@ def list_incidents():
     incidents: list[dict] = []
     for row in rows:
         d = dict(row)
-        d.pop("signature", None)  # don't expose raw vector over the wire
         if q and q not in d.get("title", "").lower() and q not in d["id"].lower():
             continue
         incidents.append(d)
@@ -219,6 +218,20 @@ def list_incidents():
                 except ValueError:
                     pass
 
+    # Per-hour MAX severity rank (0 info, 1 warning, 2 critical, -1 empty).
+    # The Rose / Galaxy sections colour wedges and dots by this.
+    severity_by_hour = [-1] * 24
+    for inc in incidents:
+        started = inc.get("started_at", "")
+        if len(started) >= 13:
+            try:
+                hour = int(started[11:13])
+                rank = _SEVERITY_ORDER.get(inc.get("max_severity", "info"), 0)
+                if rank > severity_by_hour[hour]:
+                    severity_by_hour[hour] = rank
+            except (ValueError, KeyError):
+                pass
+
     conn.close()
     return jsonify({
         "incidents": incidents,
@@ -227,6 +240,7 @@ def list_incidents():
         "summary": {
             "top_sensors": top_sensors,
             "hour_histogram": hour_histogram,
+            "severity_by_hour": severity_by_hour,
         },
     })
 

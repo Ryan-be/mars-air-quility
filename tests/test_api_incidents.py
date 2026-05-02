@@ -475,3 +475,31 @@ def test_get_incident_detail_reports_operator_split(client, db):
             break
     assert hit is not None
     assert hit["operator_split"] is True
+
+
+def test_get_incidents_retains_signature_field(client, db):
+    """list_incidents must return the signature vector so the Galaxy
+    section can run PCA over the active window."""
+    _seed_incident(db, "INC-20260429-1100")
+    rv = client.get("/api/incidents")
+    data = rv.get_json()
+    inc = next(i for i in data["incidents"] if i["id"] == "INC-20260429-1100")
+    assert "signature" in inc
+    assert isinstance(inc["signature"], str)  # JSON-encoded list
+
+
+def test_get_incidents_summary_includes_severity_by_hour(client, db):
+    """summary.severity_by_hour is a 24-int array of severity ranks
+    (0 info, 1 warning, 2 critical, -1 if no incidents that hour)."""
+    _seed_incident(db, "INC-20260429-1500", max_severity="warning",
+                   started_at="2026-04-29 15:00:00",
+                   ended_at="2026-04-29 15:05:00")
+    _seed_incident(db, "INC-20260429-1530", max_severity="critical",
+                   started_at="2026-04-29 15:30:00",
+                   ended_at="2026-04-29 15:35:00")
+    rv = client.get("/api/incidents?window=30d")
+    data = rv.get_json()
+    sbh = data["summary"]["severity_by_hour"]
+    assert len(sbh) == 24
+    assert sbh[15] == 2  # critical wins
+    assert sbh[3] == -1  # no incidents
