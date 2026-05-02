@@ -56,6 +56,7 @@ export function renderGalaxy(rootEl, { incidents, selectedId, onSelect }) {
 
   const svgNS = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(svgNS, 'svg');
+  svg.style.display = 'block';
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
   svg.setAttribute('width', '100%');
   svg.setAttribute('height', '100%');

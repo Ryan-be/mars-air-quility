@@ -80,14 +80,14 @@
           <div class="inc-section-pane">
             <div class="inc-section-subtitle">
               Galaxy
-              <span class="info-icon" title="Each dot is one incident in the current window. Distance between dots = how similar their sensor signatures are. Clusters reveal recurring incident shapes (cooking, ventilation, humid drift). Dot colour = max severity. Dot size scales with alert count. Click any dot to focus that incident in the right panel.">ⓘ</span>
+              <span class="info-icon" title="Each dot is one incident. Distance = signature similarity. Click to focus.">ⓘ</span>
             </div>
             <div id="inc-galaxy" class="inc-section-canvas"></div>
           </div>
           <div class="inc-section-pane">
             <div class="inc-section-subtitle">
               Daily rhythm (UTC)
-              <span class="info-icon" title="Incidents binned by the hour-of-day they started. Wedge length = count, colour = max severity in that hour. Long red wedges flag recurring critical-severity peaks (e.g. cooking ~18:00). Click a wedge to filter every section on this page to that hour-of-day; click again to clear.">ⓘ</span>
+              <span class="info-icon" title="Incidents binned by hour-of-day. Wedge length = count, colour = severity. Click to filter the page to that hour.">ⓘ</span>
             </div>
             <div id="inc-rose" class="inc-section-canvas"></div>
           </div>
@@ -99,7 +99,7 @@
         <div class="inc-section-header">
           <span class="inc-section-title">
             Storyline · sensor lanes × time
-            <span class="info-icon" title="Time runs left to right across the active window. Each row is a sensor; each dot is an alert when that sensor crossed a threshold or anomaly. Curves connect alerts in the same incident — the curve's shape IS the incident's signature. Selected incident is solid blue; others dashed grey. The 'Hide weak links' slider fades curves whose minimum edge probability falls below the threshold.">ⓘ</span>
+            <span class="info-icon" title="Time × sensor lanes. Curves connect alerts in the same incident. Click a curve to focus its incident.">ⓘ</span>
           </span>
           <span class="inc-section-meta" id="inc-storyline-meta"></span>
         </div>
@@ -113,7 +113,7 @@
         <div class="inc-section-header">
           <span class="inc-section-title">
             Sensor co-occurrence
-            <span class="info-icon" title="Each circle is a sensor channel — its size = how many alerts it fired in this window. Lines join sensors that fired together (within 5 minutes). Thick lines = strong co-occurrence — e.g. TVOC + eCO₂ together usually means a cooking event. Click a sensor to filter the page to incidents touching that sensor; drag the 'Hide weak links' slider to fade weak links.">ⓘ</span>
+            <span class="info-icon" title="Sensor circles sized by alert count; lines link sensors that fire together within 5 min.">ⓘ</span>
           </span>
           <span class="inc-section-meta" id="inc-cooccurrence-meta"></span>
         </div>
