@@ -167,15 +167,24 @@
   {% block extra_js %}{% endblock %}
 
   <script>
-    // Wrap .info-icon[title] elements with rux-tooltip web components
+    // Wrap .info-icon[title] elements with a hand-rolled CSS tooltip.
+    // We previously used AstroUXDS rux-tooltip but Stencil only hydrates
+    // web components that exist at module init; tooltips created at
+    // DOMContentLoaded never rendered. The replacement below uses a
+    // sibling .mlss-tip-pop span shown on hover (see base.css).
     document.addEventListener('DOMContentLoaded', function() {
       document.querySelectorAll('.info-icon[title]').forEach(function(el) {
         var msg = el.getAttribute('title');
         el.removeAttribute('title');
-        var tooltip = document.createElement('rux-tooltip');
-        tooltip.setAttribute('message', msg);
-        el.parentNode.insertBefore(tooltip, el);
-        tooltip.appendChild(el);
+        var wrap = document.createElement('span');
+        wrap.className = 'mlss-tip';
+        wrap.tabIndex = 0;  // keyboard-accessible focus to show tooltip
+        var pop = document.createElement('span');
+        pop.className = 'mlss-tip-pop';
+        pop.textContent = msg;
+        el.parentNode.insertBefore(wrap, el);
+        wrap.appendChild(el);
+        wrap.appendChild(pop);
       });
     });
   </script>
