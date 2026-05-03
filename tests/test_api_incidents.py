@@ -508,7 +508,6 @@ def test_get_incidents_summary_includes_severity_by_hour(client, db):
 def test_storyline_endpoint_returns_alerts_and_edges(client, db):
     """Batched-detail endpoint returns lightweight alert+edge data per
     incident in the active window so Storyline can render in one fetch."""
-    import sqlite3
     from datetime import datetime, timedelta
     now = datetime.utcnow()
     started = now.strftime("%Y-%m-%d %H:%M:%S")

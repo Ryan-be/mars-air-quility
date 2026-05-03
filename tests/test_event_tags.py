@@ -86,9 +86,7 @@ def test_api_post_tag_accepts_valid(app_client, db):
 
 def test_remove_inference_tag(db):
     """remove_inference_tag deletes rows matching (inference_id, tag)."""
-    from database.db_logger import (
-        add_inference_tag, get_inference_tags, remove_inference_tag, save_inference
-    )
+    from database.db_logger import remove_inference_tag
     inf_id = save_inference(
         event_type="tvoc_spike", severity="warning",
         title="t", description="d", action="", confidence=0.8, evidence={},
@@ -106,9 +104,7 @@ def test_remove_inference_tag(db):
 
 def test_remove_inference_tag_idempotent(db):
     """remove_inference_tag for a non-existent tag is a no-op."""
-    from database.db_logger import (
-        get_inference_tags, remove_inference_tag, save_inference
-    )
+    from database.db_logger import remove_inference_tag
     inf_id = save_inference(
         event_type="tvoc_spike", severity="warning",
         title="t", description="d", action="", confidence=0.8, evidence={},
@@ -120,9 +116,7 @@ def test_remove_inference_tag_idempotent(db):
 
 def test_remove_inference_tag_removes_all_duplicates(db):
     """If the same tag was added twice (no UNIQUE constraint), remove all."""
-    from database.db_logger import (
-        add_inference_tag, get_inference_tags, remove_inference_tag, save_inference
-    )
+    from database.db_logger import remove_inference_tag
     inf_id = save_inference(
         event_type="tvoc_spike", severity="warning",
         title="t", description="d", action="", confidence=0.8, evidence={},

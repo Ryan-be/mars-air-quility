@@ -303,7 +303,7 @@ def _seed_inference(db_path, created_at, event_type="tvoc_spike",
 
 # ── edge_probability ────────────────────────────────────────────────────────────
 
-from mlss_monitor.incident_grouper import edge_probability
+from mlss_monitor.incident_grouper import edge_probability, temporal_edge_probability
 
 
 def _make_alert(alert_id, ts, deps=()):
@@ -372,7 +372,7 @@ def test_edge_probability_symmetric_in_order():
     """Gap is abs — order of arguments doesn't matter."""
     a = _make_alert(1, "2026-04-23 09:00:00", [("eco2_ppm", 0.8)])
     b = _make_alert(2, "2026-04-23 10:00:00", [("eco2_ppm", 0.9)])
-    assert edge_probability(a, b) == edge_probability(b, a)
+    assert edge_probability(a=a, b=b) == edge_probability(a=b, b=a)
 
 
 def test_edge_probability_handles_negative_r_matching():
@@ -827,7 +827,6 @@ def test_load_split_markers_returns_ids(tmp_db):
 def test_temporal_edge_probability_ignores_sensor_gate():
     """temporal_edge_probability must NOT short-circuit on missing shared
     sensors — that's the entire point of the helper."""
-    from mlss_monitor.incident_grouper import temporal_edge_probability
     a = {"created_at": "2026-04-26T15:27:22.707337", "signal_deps": []}
     b = {"created_at": "2026-04-26T15:27:22.787104", "signal_deps": []}
     p = temporal_edge_probability(a, b)
@@ -837,7 +836,6 @@ def test_temporal_edge_probability_ignores_sensor_gate():
 def test_edge_probability_still_requires_sensor_overlap():
     """edge_probability (used by the grouper) MUST still return 0 when
     no shared sensor — the strict gate is preserved."""
-    from mlss_monitor.incident_grouper import edge_probability
     a = {"created_at": "2026-04-26T15:27:22.707337", "signal_deps": []}
     b = {"created_at": "2026-04-26T15:27:22.787104", "signal_deps": []}
     p = edge_probability(a, b)

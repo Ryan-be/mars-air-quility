@@ -18,7 +18,6 @@ from mlss_monitor.incident_grouper import (
     _safe_regroup,
     cosine_similarity,
     detection_method,
-    edge_probability,
     temporal_edge_probability,
     EDGE_STRONG_R_THRESHOLD,
     explain_similarity,
