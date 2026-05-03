@@ -30,8 +30,8 @@
 | 5 | 5V DC water pump (small hobby diaphragm or peristaltic) | 1 | Target ≤ 500 mA stall current. Examples: Pimoroni mini pump, generic submersible 5V hobby pumps. |
 | 6 | 5V LED grow light, 96 LED, USB-powered | 1 | The cable will be cut and wired direct (USB connector removed). Approx 300 mA – 1 A draw. |
 | 7 | Raspberry Pi Camera Module v2 or v3 | 1 | Connect to the Pi Zero's CSI port via the **Zero-specific narrower ribbon cable** (15-pin to 22-pin) — this is **not** the cable that ships with the camera. |
-| 8 | 5V/3A USB-C or microUSB power supply | 1 | Powers the Pi. |
-| 9 | Separate 5V/3A power supply for actuators | 1 | Drives pump + grow light. **Don't try to power them from the Pi's 5V rail** — the Pi will brown out under inrush. |
+| 8 | 5V/3A USB-A multi-port wall charger (≥2 ports, ≥3A total) | 1 | **Single PSU powers everything** via split wiring: one port → Pi microUSB; another port → spliced wires to the actuator load rail. Anker / RAVPower / similar quality chargers are fine. **Avoid loading the Pi's 5V GPIO rail directly** — the Pi's polyfuse will trip under inrush. The split-wiring approach gives loads their own current path while keeping a single physical PSU. |
+| 9 | USB-A breakout / cut USB-A cable (for splicing the load rail) | 1 | Lets you tap +5V and GND from the second USB-A port to the actuator terminal block. A £2 USB-A breakout PCB is cleanest; a sacrificial USB-A cable cut and stripped works too. |
 | 10 | Flyback diode (1N4007 or similar) | 1 | Across the pump terminals — protects the relay from inductive spike on switch-off. |
 | 11 | Hookup wire (22 AWG), heatshrink, screwdriver | as needed | The Automation pHAT terminals are screw-down. |
 | 12 | Project enclosure / 3D-printed mount | 1 | Optional for prototype, recommended for production. Camera + light + pot want a fixed geometry. |
@@ -42,9 +42,12 @@
 
 ```mermaid
 flowchart TB
-    subgraph PowerBlock["Power"]
-        PSU_PI["5V/3A → Pi Zero (USB)"]
-        PSU_LOAD["5V/3A → Pump + Light<br/>(separate rail!)"]
+    subgraph PowerBlock["Power — single multi-port USB wall wart"]
+        PSU["5V / ≥3A USB-A multi-port charger"]
+        PortPi["Port 1 → microUSB cable"]
+        PortLoad["Port 2 → spliced via USB-A breakout<br/>to the load rail"]
+        PSU --> PortPi
+        PSU --> PortLoad
     end
 
     subgraph PiZero["Raspberry Pi Zero W + Automation pHAT"]
@@ -57,6 +60,11 @@ flowchart TB
         Soil["Seesaw Soil Sensor<br/>(I2C, 0x36)"]
     end
 
+    subgraph LoadRail["Load rail (own +5V / GND, not the Pi's)"]
+        Plus5V["+5V to Light (+) and Pump (+)"]
+        Gnd["GND tied to pHAT GND"]
+    end
+
     subgraph Actuators["Actuators (5V loads)"]
         Light["Grow Light<br/>96 LED · ~1A"]
         Pump["Water Pump<br/>~300 mA"]
@@ -67,17 +75,22 @@ flowchart TB
         MLSS["MLSS Server<br/>(wss://mlss.local)"]
     end
 
-    PSU_PI --> Pi
-    PSU_LOAD --> Light
-    PSU_LOAD --> Pump
-    pHAT -.relay closed.-> Light
-    pHAT -.sinking output 1.-> Pump
+    PortPi --> Pi
+    PortLoad --> Plus5V
+    PortLoad --> Gnd
+    Plus5V --> Light
+    Plus5V --> Pump
+    pHAT -.relay COM/NO closes.-> Light
+    pHAT -.sinking OUT 1 to GND.-> Pump
     Pi --- pHAT
     Cam --> Pi
     Soil <-.I2C 4-wire.-> pHAT
+    Gnd -.tied for signal ref.-> pHAT
     Pi <-.WSS.-> WiFi
     WiFi <--> MLSS
 ```
+
+> **The key idea:** *one* wall wart, *two* USB-A ports — Port 1 powers the Pi cleanly through its microUSB connector; Port 2 has its +5V and GND wires spliced out (via a small USB-A breakout PCB or a sacrificial cut cable) to feed the load rail. The loads do **not** draw current through the Pi's 5V GPIO rail or polyfuse.
 
 ---
 
@@ -153,13 +166,13 @@ If the cable colours are non-standard, **measure with a multimeter before connec
 
 ### Step 2 — wire through the relay
 
-The relay switches the **5V supply line**, not the ground. Ground returns directly to the actuator PSU.
+The relay switches the **5V supply line**, not the ground. Ground returns directly to the load rail's GND (which is the wall wart's Port 2 GND, spliced out via the USB-A breakout).
 
 | Wire | Connect to | Notes |
 |---|---|---|
 | Light **Red (+5V)** | pHAT **RELAY → COM** terminal | Common contact |
-| pHAT **RELAY → NO** terminal | Actuator PSU **+5V** | Closed when relay energised → light on |
-| Light **Black (GND)** | Actuator PSU **GND** | Direct, no switching |
+| pHAT **RELAY → NO** terminal | Load-rail **+5V** (Port 2 of wall wart, via USB-A breakout) | Closed when relay energised → light on |
+| Light **Black (GND)** | Load-rail **GND** (Port 2 of wall wart) | Direct, no switching |
 
 > **Why NO (Normally Open) and not NC:** when the Pi is off or the service crashes, NO leaves the light **off**. Failsafe-to-dark is the right default — leaving a grow light on indefinitely cooks the plant.
 
@@ -171,18 +184,18 @@ The pHAT's relay is rated for up to **2 A**. The grow light at 96 LEDs nominally
 
 ## Wiring — Water pump (5V, on sinking output)
 
-The pump runs from the actuator PSU's 5V rail; OUT 1 (a sinking output, i.e. open-collector transistor) provides the path to ground when activated. Sinking outputs are well-suited to small DC motor loads.
+The pump runs from the load rail's 5V (Port 2 of the wall wart, spliced out via the USB-A breakout); OUT 1 (a sinking output, i.e. open-collector transistor) provides the path to ground when activated. Sinking outputs are well-suited to small DC motor loads.
 
 ### Wiring table
 
 | Wire | Connect to | Notes |
 |---|---|---|
-| Pump **Red (+5V)** | Actuator PSU **+5V** | Direct |
+| Pump **Red (+5V)** | Load-rail **+5V** (Port 2 of wall wart, via USB-A breakout) | Direct |
 | Pump **Black (GND)** | pHAT **OUT 1** terminal | Sinking output pulls this to GND when on |
 | **Flyback diode (1N4007 or similar)** | Cathode (banded end) → Pump red wire; Anode → Pump black wire | **Mandatory** — protects OUT 1 from the inductive back-EMF spike when the pump motor switches off |
 
 ```
-            +5V (PSU)
+       +5V (load rail — Port 2 of wall wart)
               │
               ├─── Pump (+) ───┐
               │                │
@@ -233,25 +246,42 @@ libcamera-jpeg -o test.jpg        # capture single frame
 
 ## Power
 
-Power is the most common cause of grief in projects like this. Two rules:
+Power is the most common cause of grief in projects like this. The setup is **one wall wart, two physical paths** so loads never draw through the Pi's 5V rail.
 
-1. **The Pi Zero gets its own 5V/3A supply via USB.**
-2. **The pump and grow light get their own separate 5V/3A supply** wired through the actuator side of the relay/sinking outputs. **Do not try to power them from the Pi's 5V GPIO pin** — the inrush will brown out the Pi mid-write and corrupt the SD card.
+### The single-wall-wart split-wiring approach
+
+A standard multi-port USB-A wall charger (the kind that came with your phone, ≥ 2 ports, ≥ 3 A total — Anker / RAVPower / similar quality brands) provides:
+
+1. **Port 1** → standard microUSB cable → Pi Zero microUSB-PWR socket. Pi gets its own clean rail.
+2. **Port 2** → USB-A breakout PCB (or sacrificial cut USB cable) exposing +5V and GND wires → wired to the **load rail** (a small terminal block) which feeds the pump's `+` and the relay's COM, with GND returning to the breakout's GND.
+
+Because the loads are on Port 2's rail, not the Pi's, the Pi's polyfuse never sees the load current — no risk of the inrush from the LED grow strip or the pump motor browning out the Pi mid-write.
+
+### Why not just power loads from the Pi's GPIO 5V pin?
+
+The Pi Zero W's 5V GPIO rail is protected by a polyfuse rated ~1.1 A. With the Pi (~300 mA) + pHAT (~50 mA) + light (~1 A peak) + pump (~500 mA peak) drawing simultaneously, you'd exceed the polyfuse, trip it during inrush at switch-on, and reset the Pi. SD-card corruption follows quickly. Don't.
 
 ### Power wiring summary
 
-| Source | Powers | Wire to |
+| Source | Powers | Wire path |
 |---|---|---|
-| **PSU 1: 5V/3A → microUSB** | Raspberry Pi Zero W | Pi Zero microUSB-PWR socket |
-| **PSU 2: 5V/3A → terminal block** | Pump + Grow light | Common +5V terminal on actuator side; both share GND |
-| (Optional) **Common ground** between PSU 1 and PSU 2 | — | Tie GND of both PSUs together at the pHAT GND terminal. Keeps signal references aligned. **Do not tie +5V together.** |
+| Wall wart **Port 1 (USB-A)** | Pi Zero W | Standard microUSB cable → Pi Zero microUSB-PWR socket |
+| Wall wart **Port 2 (USB-A)** | Pump + Grow light | USB-A breakout PCB (or cut cable) → **+5V** to load-rail terminal → splits to Light(+) and Pump(+); **GND** to load-rail GND terminal → splits to Light(−) return path (via relay) and Pump(−) return path (via OUT 1 sink) |
+| **Common ground** between load rail and pHAT | — | One wire from the load-rail GND terminal to the pHAT GND terminal. **Required** — gives the sinking outputs a return path and keeps signal references aligned. The +5V rails (Pi side vs load side) stay separate. |
+
+### Choosing the wall wart
+
+- ≥ 3 A total output across all ports, ≥ 2.4 A on a single port (a port that supports "USB BC 1.2" or "USB-PD" can deliver enough)
+- USB-A ports (most common); USB-C is fine if your microUSB-to-USB-A cable + USB-A breakout match
+- Avoid no-name £3 chargers — under-rated cores, poor regulation, dangerous on a 24/7 home appliance
+- Reliable picks: Anker PowerPort, RAVPower, official Raspberry Pi PSU adapter (the white wall wart with a built-in ferrite)
 
 ### Safety
 
-- Use a fused or polyfuse-protected PSU (most quality ones are)
-- Mount the actuator PSU in the enclosure; keep mains separate from the Pi
+- Use a fused or polyfuse-protected wall wart (every quality one is)
+- Mount the wall wart outside the project enclosure; route the USB cables in
 - Cable-strain-relief everything that leaves the enclosure (water pump tubing especially)
-- **Water + mains electricity:** the actuator PSU should be class-II (double-insulated) and ideally on its own RCD/RCBO. Pump tubing should be sized to prevent the pot ever overflowing into the enclosure
+- **Water + mains electricity:** the wall wart should be class-II (double-insulated; the symbol is two concentric squares) and ideally on its own RCD/RCBO. Pump tubing should be sized to prevent the pot ever overflowing into the enclosure
 
 ---
 
@@ -262,10 +292,11 @@ Before powering on for the first time:
 - [ ] Pi Zero W + Automation pHAT seated firmly on GPIO header (40 pins all engaged)
 - [ ] Pi camera ribbon: silver contacts facing the PCB, retaining clip closed, no twist
 - [ ] Soil sensor cable: red→VIN/+5V, black→GND, no swap
-- [ ] Grow light: red→COM, NO→PSU+5V, black→PSU GND, **NO terminal not COM-NC** (failsafe to dark)
-- [ ] Pump: red→PSU+5V, black→OUT 1, **flyback diode fitted across pump terminals (cathode to red)**
-- [ ] Actuator PSU and Pi PSU **GND tied together** (one wire between them at the pHAT GND terminal)
-- [ ] +5V **not** tied between PSUs
+- [ ] Grow light: red→RELAY COM, NO→load-rail +5V (Port 2), black→load-rail GND. **NO terminal, not NC** — failsafe to dark
+- [ ] Pump: red→load-rail +5V (Port 2), black→OUT 1, **flyback diode fitted across pump terminals (cathode to red)**
+- [ ] Wall wart Port 1 → Pi microUSB; Port 2 → USB-A breakout → load rail
+- [ ] Load rail **GND tied to pHAT GND** with a single wire (gives sinking outputs a return path; aligns signal reference)
+- [ ] Load rail **+5V NOT tied to Pi 5V** — they share the wall wart but the rails stay separate
 - [ ] microSD card flashed with Pi OS Lite, WiFi + SSH preconfigured in Imager advanced options
 - [ ] `/boot/mlss-grow.yaml` dropped on SD card boot partition (template in the design spec)
 - [ ] I2C enabled in `raspi-config`
