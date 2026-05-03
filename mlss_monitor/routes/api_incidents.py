@@ -1,0 +1,479 @@
+"""Incidents REST API.
+
+GET /api/incidents              — paginated list with optional filters
+GET /api/incidents/<id>         — full incident detail with narrative + similar
+POST /api/incidents/<id>/split  — mark an alert as split marker
+POST /api/incidents/<id>/unsplit — remove a split marker
+"""
+from __future__ import annotations
+
+import json
+import logging
+from datetime import datetime, timedelta, timezone
+
+from flask import Blueprint, jsonify, request
+
+from config import config
+from mlss_monitor.incident_grouper import (
+    _safe_regroup,
+    cosine_similarity,
+    detection_method,
+    temporal_edge_probability,
+    EDGE_STRONG_R_THRESHOLD,
+    explain_similarity,
+    is_cross_incident,
+)
+from mlss_monitor.incidents_narrative import build_narrative
+from mlss_monitor.rbac import require_role
+
+log = logging.getLogger(__name__)
+api_incidents_bp = Blueprint("api_incidents", __name__)
+
+DB_FILE = config.get("DB_FILE", "data/sensor_data.db")
+
+_SEVERITY_ORDER = {"info": 0, "warning": 1, "critical": 2}
+_WINDOW_MAP = {
+    # Range keys mirror the history/dashboard segmented-buttons.
+    # 7d / 30d kept for backwards-compat with any external callers that
+    # might still pass them; the UI only exposes the six below.
+    "15m": 0.25,
+    "1h": 1,
+    "6h": 6,
+    "12h": 12,
+    "24h": 24,
+    "14d": 336,
+    "7d": 168,
+    "30d": 720,
+}
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _get_conn():
+    import sqlite3
+    conn = sqlite3.connect(DB_FILE, timeout=15)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def _parse_window(window: str) -> datetime | None:
+    """Return the earliest datetime included by ``window``, or ``None`` if the
+    key is not a known window. The caller decides whether ``None`` means
+    "reject with 400" or "no time filter" — see ``list_incidents``.
+    """
+    hours = _WINDOW_MAP.get(window)
+    if hours is None:
+        return None
+    return datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=hours)
+
+
+def _alert_counts_by_incident(
+    conn, incident_ids: list[str]
+) -> dict[str, dict[str, int]]:
+    """Single GROUP BY query returning
+    ``{incident_id: {"total": N, "primary": P}}``.
+    ``primary`` is the count of rows with ``is_primary = 1`` and is
+    consumed by the frontend to size incident rows on the canvas by how
+    many primary alerts stack in a severity lane.
+    """
+    if not incident_ids:
+        return {}
+    placeholders = ",".join("?" * len(incident_ids))
+    rows = conn.execute(
+        f"SELECT incident_id, "
+        f"       COUNT(*) AS total, "
+        f"       SUM(CASE WHEN is_primary = 1 THEN 1 ELSE 0 END) AS primary_n "
+        f"FROM incident_alerts "
+        f"WHERE incident_id IN ({placeholders}) "
+        f"GROUP BY incident_id",
+        incident_ids,
+    ).fetchall()
+    return {
+        r["incident_id"]: {"total": r["total"], "primary": r["primary_n"] or 0}
+        for r in rows
+    }
+
+
+def _find_similar(
+    conn,
+    incident_id: str,
+    signature: list[float],
+    top_n: int = 3,
+) -> list[dict]:
+    """Find similar past incidents using cosine similarity on signature vectors."""
+    rows = conn.execute(
+        "SELECT id, title, started_at, max_severity, confidence, signature "
+        "FROM incidents WHERE id != ? ORDER BY started_at DESC LIMIT 100",
+        (incident_id,)
+    ).fetchall()
+
+    scored = []
+    for row in rows:
+        try:
+            other_sig = json.loads(row["signature"])
+            score = cosine_similarity(signature, other_sig)
+            if score >= 0.5:
+                scored.append({
+                    "id": row["id"],
+                    "title": row["title"],
+                    "started_at": row["started_at"],
+                    "max_severity": row["max_severity"],
+                    "confidence": row["confidence"],
+                    "similarity": round(score, 3),
+                    "why": explain_similarity(signature, other_sig),
+                })
+        except Exception:  # pylint: disable=broad-except
+            continue
+
+    scored.sort(key=lambda x: -x["similarity"])
+    return scored[:top_n]
+
+
+# ── Routes ────────────────────────────────────────────────────────────────────
+
+@api_incidents_bp.route("/api/incidents")
+def list_incidents():
+    window = request.args.get("window", "24h")
+    severity = request.args.get("severity", "all")
+    q = request.args.get("q", "").strip().lower()
+    limit = request.args.get("limit", 50, type=int)
+
+    # Reject unknown windows with 400 rather than silently returning all rows.
+    # Caller may pass any key that's in _WINDOW_MAP (incl. back-compat 7d/30d).
+    if window not in _WINDOW_MAP:
+        return jsonify({
+            "error": f"Unknown window: {window!r}. "
+                     f"Valid: {', '.join(sorted(_WINDOW_MAP.keys()))}"
+        }), 400
+
+    conn = _get_conn()
+    since = _parse_window(window)
+
+    conditions: list[str] = []
+    params: list = []
+
+    if since:
+        conditions.append("started_at >= ?")
+        params.append(since.isoformat(sep=" "))
+    if severity and severity != "all":
+        conditions.append("max_severity = ?")
+        params.append(severity)
+
+    query = "SELECT * FROM incidents"
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+    query += " ORDER BY started_at DESC LIMIT ?"
+    params.append(limit)
+
+    rows = conn.execute(query, params).fetchall()
+    # Apply the free-text filter first, THEN fetch alert counts so we don't
+    # pay the GROUP BY cost for incidents we're about to drop.
+    incidents: list[dict] = []
+    for row in rows:
+        d = dict(row)
+        if q and q not in d.get("title", "").lower() and q not in d["id"].lower():
+            continue
+        incidents.append(d)
+
+    # Single grouped query for alert counts — replaces per-incident SELECT.
+    count_by_id = _alert_counts_by_incident(conn, [i["id"] for i in incidents])
+    for inc in incidents:
+        counts_row = count_by_id.get(inc["id"], {"total": 0, "primary": 0})
+        inc["alert_count"] = counts_row["total"]
+        inc["primary_count"] = counts_row["primary"]
+
+    counts = {"critical": 0, "warning": 0, "info": 0}
+    for inc in incidents:
+        sev = inc.get("max_severity", "info")
+        if sev in counts:
+            counts[sev] += 1
+
+    # Top 3 sensors + 24-bucket hour-of-day histogram across this window.
+    inc_ids = [i["id"] for i in incidents]
+    top_sensors: list[dict] = []
+    hour_histogram: list[int] = [0] * 24
+
+    if inc_ids:
+        placeholders = ",".join("?" * len(inc_ids))
+        sensor_rows = conn.execute(
+            f"SELECT d.sensor, COUNT(*) AS n FROM alert_signal_deps d "
+            f"JOIN incident_alerts ia ON ia.alert_id = d.alert_id "
+            f"WHERE ia.incident_id IN ({placeholders}) "
+            f"GROUP BY d.sensor ORDER BY n DESC LIMIT 3",
+            inc_ids,
+        ).fetchall()
+        top_sensors = [{"sensor": r["sensor"], "n": r["n"]} for r in sensor_rows]
+
+        # NOTE: started_at is stored in UTC (datetime.now(timezone.utc) at
+        # insert time) so the extracted hour here is the UTC hour. The UI
+        # label on the histogram says "(UTC)" explicitly so operators know
+        # not to read it as local time.
+        for inc in incidents:
+            started = inc.get("started_at", "")
+            if len(started) >= 13:
+                try:
+                    hour = int(started[11:13])
+                    hour_histogram[hour] += 1
+                except ValueError:
+                    pass
+
+    # Per-hour MAX severity rank (0 info, 1 warning, 2 critical, -1 empty).
+    # The Rose / Galaxy sections colour wedges and dots by this.
+    severity_by_hour = [-1] * 24
+    for inc in incidents:
+        started = inc.get("started_at", "")
+        if len(started) >= 13:
+            try:
+                hour = int(started[11:13])
+                rank = _SEVERITY_ORDER.get(inc.get("max_severity", "info"), 0)
+                if rank > severity_by_hour[hour]:
+                    severity_by_hour[hour] = rank
+            except (ValueError, KeyError):
+                pass
+
+    conn.close()
+    return jsonify({
+        "incidents": incidents,
+        "total": len(incidents),
+        "counts": counts,
+        "summary": {
+            "top_sensors": top_sensors,
+            "hour_histogram": hour_histogram,
+            "severity_by_hour": severity_by_hour,
+        },
+    })
+
+
+@api_incidents_bp.route("/api/incidents/storyline")
+def storyline_data():
+    """Lightweight batched-detail endpoint for the Storyline sub-section.
+
+    Returns one entry per incident in the active window, with primary alerts
+    and their temporal edges only. No narrative, no signal_deps, no signature
+    — those live in the per-incident detail endpoint when an incident is
+    selected.
+    """
+    window = request.args.get("window", "24h")
+    severity = request.args.get("severity", "all")
+    if window not in _WINDOW_MAP:
+        return jsonify({"error": f"Unknown window: {window!r}"}), 400
+
+    conn = _get_conn()
+    since = _parse_window(window)
+    conditions: list[str] = []
+    params: list = []
+    if since:
+        conditions.append("started_at >= ?")
+        params.append(since.isoformat(sep=" "))
+    if severity and severity != "all":
+        conditions.append("max_severity = ?")
+        params.append(severity)
+    query = "SELECT id, started_at, max_severity FROM incidents"
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+    query += " ORDER BY started_at DESC LIMIT 500"
+    inc_rows = conn.execute(query, params).fetchall()
+
+    incidents_out: list[dict] = []
+    for inc_row in inc_rows:
+        inc = dict(inc_row)
+        alert_rows = conn.execute(
+            "SELECT i.id, i.created_at, i.event_type, i.severity, ia.is_primary "
+            "FROM inferences i JOIN incident_alerts ia ON ia.alert_id = i.id "
+            "WHERE ia.incident_id = ? AND ia.is_primary = 1 ORDER BY i.created_at",
+            (inc["id"],),
+        ).fetchall()
+        alerts = [dict(a) for a in alert_rows]
+        edges_out: list[dict] = []
+        for i, a1 in enumerate(alerts):
+            for a2 in alerts[i + 1:]:
+                p = temporal_edge_probability(a1, a2)
+                if p <= 0.0:
+                    continue
+                edges_out.append({
+                    "from": a1["id"], "to": a2["id"],
+                    "p": round(p, 3), "causal": False,
+                })
+        incidents_out.append({
+            "id": inc["id"],
+            "started_at": inc["started_at"],
+            "max_severity": inc["max_severity"],
+            "alerts": alerts,
+            "edges": edges_out,
+        })
+
+    conn.close()
+    return jsonify({"incidents": incidents_out})
+
+
+@api_incidents_bp.route("/api/incidents/<incident_id>")
+def get_incident(incident_id: str):
+    conn = _get_conn()
+    row = conn.execute(
+        "SELECT * FROM incidents WHERE id = ?", (incident_id,)
+    ).fetchone()
+    if row is None:
+        conn.close()
+        return jsonify({"error": "Incident not found"}), 404
+
+    incident = dict(row)
+    try:
+        signature = json.loads(incident.get("signature", "[]"))
+    except Exception:  # pylint: disable=broad-except
+        signature = []
+
+    # Load alerts with signal deps
+    alert_rows = conn.execute(
+        "SELECT i.id, i.created_at, i.event_type, i.severity, i.title, "
+        "i.description, i.confidence, ia.is_primary "
+        "FROM inferences i "
+        "JOIN incident_alerts ia ON ia.alert_id = i.id "
+        "WHERE ia.incident_id = ? ORDER BY i.created_at",
+        (incident_id,)
+    ).fetchall()
+
+    alerts = []
+    for ar in alert_rows:
+        a = dict(ar)
+        a["detection_method"] = detection_method(a["event_type"])
+        a["is_cross_incident"] = bool(is_cross_incident(a["event_type"]))
+
+        dep_rows = conn.execute(
+            "SELECT sensor, r, lag_seconds FROM alert_signal_deps WHERE alert_id = ?",
+            (a["id"],)
+        ).fetchall()
+        a["signal_deps"] = [dict(d) for d in dep_rows]
+        alerts.append(a)
+
+    causal_sequence = [
+        {
+            "id": a["id"],
+            "title": a.get("title", ""),
+            "event_type": a["event_type"],
+            "severity": a["severity"],
+            "created_at": a["created_at"],
+        }
+        for a in alerts if a["is_primary"]
+    ]
+
+    narrative = build_narrative(incident, alerts)
+    similar = _find_similar(conn, incident_id, signature)
+
+    # ── Compute causal edges between primary alerts for the UI ────────────
+    # Use TEMPORAL probability so the graph always shows in-incident
+    # alerts as connected even when signal_deps are empty (very common).
+    # The 'causal' boolean records whether the strict shared-sensor gate
+    # passed — the frontend uses this to draw causal-evidenced edges
+    # solid and temporal-only edges dashed.
+    primary_alerts = [a for a in alerts if a.get("is_primary")]
+    primary_alerts.sort(key=lambda a: a.get("created_at", ""))
+    edges_out: list[dict] = []
+    for i, a1 in enumerate(primary_alerts):
+        for a2 in primary_alerts[i + 1:]:
+            p = temporal_edge_probability(a1, a2)
+            if p <= 0.0:
+                continue
+            strong_a = {
+                d["sensor"] for d in (a1.get("signal_deps") or [])
+                if d["r"] is not None and abs(d["r"]) >= EDGE_STRONG_R_THRESHOLD
+            }
+            strong_b = {
+                d["sensor"] for d in (a2.get("signal_deps") or [])
+                if d["r"] is not None and abs(d["r"]) >= EDGE_STRONG_R_THRESHOLD
+            }
+            shared = sorted(strong_a & strong_b)
+            edges_out.append({
+                "from": a1["id"],
+                "to": a2["id"],
+                "p": round(p, 3),
+                "shared_sensors": shared,
+                "causal": bool(shared),  # True iff strict edge_probability would also fire
+            })
+
+    # operator_split: true iff the earliest primary alert in this incident
+    # is itself a split marker. Used by the UI to surface an Undo split.
+    earliest_primary_id = None
+    for a in alerts:
+        if a.get("is_primary"):
+            earliest_primary_id = a["id"]
+            break
+    operator_split = False
+    earliest_split_alert_id = None
+    if earliest_primary_id is not None:
+        row = conn.execute(
+            "SELECT alert_id FROM incident_splits WHERE alert_id = ?",
+            (earliest_primary_id,),
+        ).fetchone()
+        operator_split = row is not None
+        if operator_split:
+            earliest_split_alert_id = earliest_primary_id
+
+    incident.pop("signature", None)
+    conn.close()
+
+    return jsonify({
+        **incident,
+        "alerts": alerts,
+        "causal_sequence": causal_sequence,
+        "narrative": narrative,
+        "similar": similar,
+        "edges": edges_out,
+        "operator_split": operator_split,
+        "split_alert_id": earliest_split_alert_id,
+    })
+
+
+@api_incidents_bp.route("/api/incidents/<incident_id>/split", methods=["POST"])
+@require_role("controller", "admin")
+def split_incident(incident_id: str):
+    """Mark an alert as 'starts a new incident'. Persists a row in
+    incident_splits and re-runs the grouper so the split takes effect
+    immediately.
+    """
+    body = request.get_json(silent=True) or {}
+    alert_id = body.get("alert_id")
+    if not isinstance(alert_id, int):
+        return jsonify({"error": "alert_id (int) is required in body"}), 400
+
+    conn = _get_conn()
+    # session_user is set by the auth layer; may be None in unauth tests.
+    user = None
+    try:
+        from flask import session
+        user = session.get("user")
+    except RuntimeError:
+        pass
+    conn.execute(
+        "INSERT OR REPLACE INTO incident_splits (alert_id, created_by) VALUES (?, ?)",
+        (alert_id, user),
+    )
+    conn.commit()
+    conn.close()
+
+    _safe_regroup(DB_FILE)
+
+    return jsonify({"ok": True, "split_alert_id": alert_id})
+
+
+@api_incidents_bp.route("/api/incidents/<incident_id>/unsplit", methods=["POST"])
+@require_role("controller", "admin")
+def unsplit_incident(incident_id: str):
+    """Remove an operator split marker. Re-runs the grouper so the
+    previously-split incidents merge back into one (if they would).
+    """
+    body = request.get_json(silent=True) or {}
+    alert_id = body.get("alert_id")
+    if not isinstance(alert_id, int):
+        return jsonify({"error": "alert_id (int) is required in body"}), 400
+
+    conn = _get_conn()
+    conn.execute(
+        "DELETE FROM incident_splits WHERE alert_id = ?",
+        (alert_id,),
+    )
+    conn.commit()
+    conn.close()
+
+    _safe_regroup(DB_FILE)
+
+    return jsonify({"ok": True, "unsplit_alert_id": alert_id})

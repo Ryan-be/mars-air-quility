@@ -1204,3 +1204,50 @@ label {
 .inf-ev-val.ev-good { color: var(--color-status-normal,   #56f000); }
 .ev-trend { opacity: 0.7; margin-left: 0.3em; font-size: 0.9em; }
 .ev-ratio { font-size: 0.8em; opacity: 0.6; margin-left: 0.4em; }
+
+/* ── App-wide info-icon tooltip ──────────────────────────────────────────────
+   Auto-wrap script in base.html turns every .info-icon[title] into:
+     <span class="mlss-tip">⟨icon⟩</span>
+     <span class="mlss-tip-pop">…msg…</span>  ← appended to <body>
+   so position:fixed coords escape any ancestor overflow:hidden. */
+.mlss-tip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  cursor: help;
+  outline: none;
+}
+.mlss-tip-pop {
+  position: fixed;
+  display: none;
+  /* Anchor: JS sets left/top to (icon centre, icon top - 8px).
+     translate centres horizontally and lifts above the anchor. */
+  transform: translate(-50%, -100%);
+  background: rgba(13, 17, 23, 0.97);
+  border: 1px solid #4dacff;
+  color: #cfe8ff;
+  padding: 8px 10px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  line-height: 1.45;
+  white-space: normal;
+  width: 240px;
+  z-index: 10000;
+  pointer-events: none;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6),
+              0 0 0 1px rgba(77, 172, 255, 0.25);
+}
+/* Down-pointing arrow on the bottom edge of the popup. */
+.mlss-tip-pop::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  margin-left: -5px;
+  border: 5px solid transparent;
+  border-top-color: #4dacff;
+}
+.mlss-tip-pop.mlss-tip-pop-shown { display: block; }

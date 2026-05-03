@@ -607,6 +607,23 @@ def add_inference_tag(inference_id, tag, confidence=1.0, *, allowed_tags=None):
         pass
 
 
+def remove_inference_tag(inference_id, tag):
+    """Remove all rows matching (inference_id, tag) from event_tags.
+
+    Idempotent — no error if nothing matches. Does NOT trigger ML
+    retraining (training happens on add; removal just drops the
+    supervised signal).
+    """
+    conn = _connect()
+    cur = conn.cursor()
+    cur.execute(
+        "DELETE FROM event_tags WHERE inference_id = ? AND tag = ?",
+        (inference_id, tag),
+    )
+    conn.commit()
+    conn.close()
+
+
 # ── Inference thresholds ──────────────────────────────────────────────────────
 
 def get_thresholds():

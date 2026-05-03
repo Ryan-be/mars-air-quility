@@ -232,3 +232,44 @@ def test_list_inferences_filter_by_attribution_category(app_client, db):
     assert len(rows) >= 1
     for r in rows:
         assert r["category"] == "attribution", f"Non-attribution row in attribution filter: {r['category']}"
+
+
+# ---------------------------------------------------------------------------
+# DELETE /api/inferences/<id>/tags
+# ---------------------------------------------------------------------------
+
+def test_delete_inference_tag_removes_row(app_client, db):
+    """DELETE /api/inferences/<id>/tags with body {tag: ...} removes it."""
+    from database.db_logger import add_inference_tag, get_inference_tags
+
+    client, _ = app_client
+    inf_id = save_inference(
+        event_type="tvoc_spike", severity="warning",
+        title="t", description="d", action="none", confidence=0.8, evidence={},
+    )
+    add_inference_tag(inf_id, "cooking")
+    add_inference_tag(inf_id, "combustion")
+    assert len(get_inference_tags(inf_id)) == 2
+
+    resp = client.delete(
+        f"/api/inferences/{inf_id}/tags",
+        json={"tag": "cooking"},
+    )
+    assert resp.status_code == 200
+    assert resp.get_json() == {"ok": True}
+
+    remaining = get_inference_tags(inf_id)
+    assert len(remaining) == 1
+    assert remaining[0]["tag"] == "combustion"
+
+
+def test_delete_inference_tag_missing_tag_body(app_client, db):
+    client, _ = app_client
+    inf_id = save_inference(
+        event_type="tvoc_spike", severity="warning",
+        title="t", description="d", action="none", confidence=0.8, evidence={},
+    )
+    resp = client.delete(f"/api/inferences/{inf_id}/tags", json={})
+    assert resp.status_code == 400
+    body = resp.get_json()
+    assert body.get("error") == "tag is required"

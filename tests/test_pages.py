@@ -70,3 +70,15 @@ def test_insights_engine_astro_landmarks(app_client):
     assert 'class="global-status-bar"' in body, "Missing .global-status-bar"
     assert 'class="tab-nav"' in body, "Missing .tab-nav"
     assert 'data-tab="settings"' in body, "Missing data-tab=settings"
+
+
+def test_incidents_page_loads(app_client):
+    client, _ = app_client
+    rv = client.get("/incidents")
+    assert rv.status_code == 200
+    assert b"inc-dashboard" in rv.data
+    assert b"inc-galaxy" in rv.data
+    assert b"inc-rose" in rv.data
+    assert b"inc-storyline" in rv.data
+    assert b"inc-cooccurrence" in rv.data
+    assert b"incident_graph.js" in rv.data

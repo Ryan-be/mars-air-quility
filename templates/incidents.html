@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+{% block title %}MLSS – Incidents{% endblock %}
+
+{% block extra_css %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/incident_graph.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="inc-page">
+
+  <!-- ── Toolbar ─────────────────────────────────────────────────────── -->
+  <div class="inc-toolbar">
+    <input
+      type="search"
+      id="inc-search"
+      class="inc-search-input"
+      placeholder="Search incidents…"
+      autocomplete="off"
+    />
+
+    <!-- Plain range-buttons (shared .range-btn style from base.css).  The
+         AstroUXDS rux-segmented-button didn't populate its shadow DOM on
+         this build, so match the history page's working pattern. -->
+    <div class="range-btn-group" id="inc-window-group" role="group" aria-label="Time window">
+      <button class="range-btn" data-window="15m">15m</button>
+      <button class="range-btn" data-window="1h">1h</button>
+      <button class="range-btn" data-window="6h">6h</button>
+      <button class="range-btn" data-window="12h">12h</button>
+      <button class="range-btn active" data-window="24h">24h</button>
+      <button class="range-btn" data-window="14d">14d</button>
+    </div>
+
+    <div class="range-btn-group" id="inc-severity-group" role="group" aria-label="Severity filter">
+      <button class="range-btn active" data-sev="all">All</button>
+      <button class="range-btn" data-sev="critical">Critical</button>
+      <button class="range-btn" data-sev="warning">Warning</button>
+      <button class="range-btn" data-sev="info">Info</button>
+    </div>
+
+    <div class="inc-sev-pills" id="inc-sev-pills">
+      <span class="inc-sev-pill pill-critical"><span class="inc-sev-pill-count" id="pill-critical-count">0</span> Critical</span>
+      <span class="inc-sev-pill pill-warning"><span class="inc-sev-pill-count" id="pill-warning-count">0</span> Warning</span>
+      <span class="inc-sev-pill pill-info"><span class="inc-sev-pill-count" id="pill-info-count">0</span> Info</span>
+    </div>
+
+    <!-- Edge-strength slider. Filters which edges render in the main graph
+         and drives the client-side subdivision preview. Persisted per-user
+         in localStorage (inc.edge_p_floor). -->
+    <label class="inc-edge-slider" title="Hide edges with probability below this threshold">
+      <span class="inc-edge-slider-label">Hide weak links</span>
+      <input id="inc-edge-slider" type="range" min="0" max="1" step="0.05" value="0.20">
+      <span class="inc-edge-slider-value" id="inc-edge-slider-value">P ≥ 0.20</span>
+    </label>
+  </div>
+
+  <!-- ── Main layout ────────────────────────────────────────────────── -->
+  <div class="inc-layout">
+
+    <!-- Left: incident list -->
+    <div class="inc-list-panel" id="inc-list-panel">
+      <div id="inc-list-items">
+        <div class="inc-loading">Loading incidents…</div>
+      </div>
+    </div>
+
+    <!-- Centre: 4 stacked sub-sections (replaces grid-of-hulls) -->
+    <div class="inc-dashboard">
+
+      <!-- Filter chips bar — empty by default; populated when user clicks
+           a Rose wedge or Co-occurrence sensor. -->
+      <div id="inc-filter-chips" class="inc-filter-chips" hidden></div>
+
+      <!-- ① Galaxy + Rose side by side -->
+      <div class="inc-section">
+        <div class="inc-section-header">
+          <span class="inc-section-title">Incident similarity &nbsp;·&nbsp; Daily rhythm</span>
+          <span class="inc-section-meta" id="inc-band1-meta"></span>
+        </div>
+        <div class="inc-section-body inc-section-split">
+          <div class="inc-section-pane">
+            <div class="inc-section-subtitle">
+              Galaxy
+              <span class="info-icon" title="Each dot is one incident. Distance = signature similarity. Click to focus.">ⓘ</span>
+            </div>
+            <div id="inc-galaxy" class="inc-section-canvas"></div>
+          </div>
+          <div class="inc-section-pane">
+            <div class="inc-section-subtitle">
+              Daily rhythm (UTC)
+              <span class="info-icon" title="Incidents binned by hour-of-day. Wedge length = count, colour = severity. Click to filter the page to that hour.">ⓘ</span>
+            </div>
+            <div id="inc-rose" class="inc-section-canvas"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ② Storyline -->
+      <div class="inc-section">
+        <div class="inc-section-header">
+          <span class="inc-section-title">
+            Storyline · sensor lanes × time
+            <span class="info-icon" title="Time × sensor lanes. Curves connect alerts in the same incident. Click a curve to focus its incident.">ⓘ</span>
+          </span>
+          <span class="inc-section-meta" id="inc-storyline-meta"></span>
+        </div>
+        <div class="inc-section-body">
+          <div id="inc-storyline" class="inc-section-canvas"></div>
+        </div>
+      </div>
+
+      <!-- ③ Co-occurrence -->
+      <div class="inc-section">
+        <div class="inc-section-header">
+          <span class="inc-section-title">
+            Sensor co-occurrence
+            <span class="info-icon" title="Sensor circles sized by alert count; lines link sensors that fire together within 5 min.">ⓘ</span>
+          </span>
+          <span class="inc-section-meta" id="inc-cooccurrence-meta"></span>
+        </div>
+        <div class="inc-section-body">
+          <div id="inc-cooccurrence" class="inc-section-canvas"></div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Right: detail panel -->
+    <div class="inc-detail-panel" id="inc-detail-panel">
+      <div class="inc-detail-empty">Select an incident to view details</div>
+
+      <div class="inc-detail-scroll">
+        <!-- Narrative section (hidden until loaded) -->
+        <div class="inc-narrative" id="inc-narrative" hidden>
+          <h4>Narrative</h4>
+          <div class="inc-narrative-conf" id="inc-narrative-conf"></div>
+          <div class="inc-narrative-advisory" id="inc-narrative-advisory" hidden></div>
+          <div class="inc-narrative-actions">
+            <button type="button" class="inc-btn-split" id="inc-btn-split" hidden>
+              Split at weakest link
+            </button>
+            <button type="button" class="inc-btn-unsplit" id="inc-btn-unsplit" hidden>
+              Undo split
+            </button>
+            <button type="button" class="inc-btn-commit" id="inc-btn-commit-splits" hidden>
+              Commit these splits
+            </button>
+          </div>
+          <p id="inc-narrative-observed"></p>
+          <p id="inc-narrative-inferred"></p>
+          <p id="inc-narrative-impact"></p>
+          <p id="inc-narrative-correlation" class="inc-narrative-correlation"></p>
+        </div>
+
+        <!-- Causal sequence (hidden until loaded) -->
+        <div class="inc-causal" id="inc-causal" hidden>
+          <h4>Causal Sequence</h4>
+          <div id="inc-causal-items"></div>
+        </div>
+
+        <!-- Similar incidents (hidden until loaded) -->
+        <div class="inc-similar" id="inc-similar" hidden>
+          <h4>Similar Past Incidents</h4>
+          <div id="inc-similar-items"></div>
+        </div>
+
+        <!-- Node overlay (hidden until node clicked) -->
+        <div class="inc-node-overlay" id="inc-node-overlay" hidden>
+          <div class="inc-node-overlay-header">
+            <span id="inc-node-title"></span>
+            <button type="button" id="inc-node-close" class="inc-node-close-btn" aria-label="Close">×</button>
+          </div>
+          <div id="inc-node-body"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+  <!-- Cytoscape.js — MIT licence, cdnjs CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.30.2/cytoscape.min.js"></script>
+  <script type="module" src="{{ url_for('static', filename='js/incident_graph.js') }}"></script>
+{% endblock %}
