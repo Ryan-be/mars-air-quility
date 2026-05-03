@@ -167,24 +167,53 @@
   {% block extra_js %}{% endblock %}
 
   <script>
-    // Wrap .info-icon[title] elements with a hand-rolled CSS tooltip.
-    // We previously used AstroUXDS rux-tooltip but Stencil only hydrates
-    // web components that exist at module init; tooltips created at
-    // DOMContentLoaded never rendered. The replacement below uses a
-    // sibling .mlss-tip-pop span shown on hover (see base.css).
+    // App-wide tooltip wrapper. Appends each popover to document.body and
+    // uses position:fixed with JS-computed coords so the popover escapes
+    // every ancestor overflow:hidden (sub-section panels, side rails,
+    // accordion containers, etc).
     document.addEventListener('DOMContentLoaded', function() {
       document.querySelectorAll('.info-icon[title]').forEach(function(el) {
         var msg = el.getAttribute('title');
         el.removeAttribute('title');
         var wrap = document.createElement('span');
         wrap.className = 'mlss-tip';
-        wrap.tabIndex = 0;  // keyboard-accessible focus to show tooltip
+        wrap.tabIndex = 0;  // keyboard-accessible
         var pop = document.createElement('span');
         pop.className = 'mlss-tip-pop';
         pop.textContent = msg;
         el.parentNode.insertBefore(wrap, el);
         wrap.appendChild(el);
-        wrap.appendChild(pop);
+        // Detach the popover to <body> so overflow:hidden ancestors of
+        // the icon can't clip it. Position is computed on hover.
+        document.body.appendChild(pop);
+
+        function position() {
+          var r = wrap.getBoundingClientRect();
+          // Centre the popover above the icon, then nudge if it would
+          // overflow the viewport.
+          var px = r.left + r.width / 2;
+          var py = r.top - 8;  // 8px gap above the icon
+          var maxRight = window.innerWidth - 8;
+          // The popover is 240px wide (see .mlss-tip-pop in base.css).
+          var halfW = 120;
+          if (px + halfW > maxRight) px = maxRight - halfW;
+          if (px - halfW < 8) px = 8 + halfW;
+          pop.style.left = px + 'px';
+          pop.style.top  = py + 'px';
+        }
+
+        function show() { position(); pop.classList.add('mlss-tip-pop-shown'); }
+        function hide() { pop.classList.remove('mlss-tip-pop-shown'); }
+        wrap.addEventListener('mouseenter', show);
+        wrap.addEventListener('mouseleave', hide);
+        wrap.addEventListener('focus', show);
+        wrap.addEventListener('blur', hide);
+        window.addEventListener('scroll', function() {
+          if (pop.classList.contains('mlss-tip-pop-shown')) position();
+        }, { passive: true });
+        window.addEventListener('resize', function() {
+          if (pop.classList.contains('mlss-tip-pop-shown')) position();
+        });
       });
     });
   </script>

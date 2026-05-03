@@ -1206,12 +1206,10 @@ label {
 .ev-ratio { font-size: 0.8em; opacity: 0.6; margin-left: 0.4em; }
 
 /* ── App-wide info-icon tooltip ──────────────────────────────────────────────
-   AstroUXDS rux-tooltip doesn't reliably hydrate when wrapped dynamically
-   (Stencil only hydrates components present at module init; tooltips
-   wrapped at DOMContentLoaded never render). The DOMContentLoaded script
-   in base.html now wraps every .info-icon[title] with .mlss-tip +
-   .mlss-tip-pop. Pure CSS show-on-hover, matches the AstroUX dark-blue
-   accent. Reliable everywhere; works without the AstroUX bundle. */
+   Auto-wrap script in base.html turns every .info-icon[title] into:
+     <span class="mlss-tip">⟨icon⟩</span>
+     <span class="mlss-tip-pop">…msg…</span>  ← appended to <body>
+   so position:fixed coords escape any ancestor overflow:hidden. */
 .mlss-tip {
   position: relative;
   display: inline-flex;
@@ -1220,11 +1218,11 @@ label {
   outline: none;
 }
 .mlss-tip-pop {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 50%;
-  transform: translateX(-50%);
+  position: fixed;
   display: none;
+  /* Anchor: JS sets left/top to (icon centre, icon top - 8px).
+     translate centres horizontally and lifts above the anchor. */
+  transform: translate(-50%, -100%);
   background: rgba(13, 17, 23, 0.97);
   border: 1px solid #4dacff;
   color: #cfe8ff;
@@ -1252,7 +1250,4 @@ label {
   border: 5px solid transparent;
   border-top-color: #4dacff;
 }
-.mlss-tip:hover .mlss-tip-pop,
-.mlss-tip:focus-visible .mlss-tip-pop {
-  display: block;
-}
+.mlss-tip-pop.mlss-tip-pop-shown { display: block; }
