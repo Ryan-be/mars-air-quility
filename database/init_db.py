@@ -1,6 +1,7 @@
 import sqlite3
 
 from config import config
+from database.grow_schema import create_grow_schema
 
 DB_FILE = config.get("DB_FILE", "data/sensor_data.db")
 
@@ -323,6 +324,9 @@ def create_db():
         created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
     """)
+
+    # Plant Grow Unit tables (Phase 1)
+    create_grow_schema(cur)
 
     conn.commit()
     conn.close()
