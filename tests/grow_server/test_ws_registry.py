@@ -4,7 +4,6 @@ Used by REST endpoints to push commands (e.g. identify, water_now) to a
 specific unit, and by status checks to know whether a unit is currently
 holding an open connection.
 """
-import asyncio
 import pytest
 from mlss_monitor.grow.ws_registry import WSRegistry
 
