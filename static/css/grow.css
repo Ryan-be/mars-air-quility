@@ -70,3 +70,9 @@
 .du-act-btn.primary { background: #4dacff; color: #001028; border-color: #4dacff; }
 .du-act-btn.locked, .du-act-btn:disabled { background: #0e1722; color: #4a5d72; border-color: #1f2e3c; cursor: not-allowed; opacity: 0.85; }
 .du-photo-hero { aspect-ratio: 16/9; background: #0a1219; }
+
+.du-schedule-bar { padding: 14px; }
+.du-schedule-track { height: 24px; background: #0a1219; border-radius: 2px; position: relative; overflow: hidden; }
+.du-schedule-on { position: absolute; top: 0; bottom: 0; background: linear-gradient(180deg, #4dacff, #2476b8); opacity: 0.7; }
+.du-schedule-now { position: absolute; top: -4px; bottom: -4px; width: 2px; background: #56f000; box-shadow: 0 0 8px #56f000; }
+.du-schedule-now .lbl { position: absolute; top: -16px; left: 4px; font-size: 9px; color: #56f000; letter-spacing: 0.08em; white-space: nowrap; }

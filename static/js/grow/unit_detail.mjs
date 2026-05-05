@@ -1,5 +1,7 @@
 import { renderStatusPill } from "./components/status-pill.mjs";
 import { renderStatTile } from "./components/stat-tile.mjs";
+import { renderScheduleBar } from "./components/schedule-bar.mjs";
+import { renderSensorEventChart } from "./components/sensor-event-chart.mjs";
 
 const SUBTABS = [
   { id: "live", label: "● Live", enabled: true },
@@ -144,6 +146,44 @@ export function renderPhotoPanel(unit, doc = document) {
 }
 
 
+export function renderLightSchedulePanel(unit, doc = document) {
+  const wrap = doc.createElement("div");
+  wrap.className = "du-panel";
+  const head = doc.createElement("div");
+  head.className = "du-panel-head";
+  head.innerHTML = `<span>🕐 Light schedule · ${unit.current_phase}</span>`;
+  wrap.appendChild(head);
+
+  // Phase 1: assume single window from spec defaults if no per-unit windows present.
+  // Phase 2 will let users edit windows in the Configure tab.
+  const windows = unit.light_windows && unit.light_windows.length > 0
+    ? unit.light_windows
+    : [{ start: "06:00", end: "22:00" }];
+  wrap.appendChild(renderScheduleBar(windows, new Date(), doc));
+  return wrap;
+}
+
+
+async function renderWateringHistoryPanel(unit, doc = document) {
+  const wrap = doc.createElement("div");
+  wrap.className = "du-panel";
+  const head = doc.createElement("div");
+  head.className = "du-panel-head";
+  head.innerHTML = "<span>💧 Watering history · last 24h</span>";
+  wrap.appendChild(head);
+  const chartDiv = doc.createElement("div");
+  chartDiv.id = `watering-chart-${unit.id}`;
+  wrap.appendChild(chartDiv);
+
+  const r = await fetch(`/api/grow/units/${unit.id}/history?range=24h`);
+  if (r.ok) {
+    const data = await r.json();
+    renderSensorEventChart(chartDiv, data);
+  }
+  return wrap;
+}
+
+
 export function computeWaterLockedUntil(lastPulseAt, soakWindowMin, now = new Date()) {
   if (!lastPulseAt) return null;
   const last = lastPulseAt instanceof Date ? lastPulseAt : new Date(lastPulseAt);
@@ -226,6 +266,8 @@ async function init() {
   const body = document.getElementById("du-body");
   body.appendChild(renderPhotoPanel(unit));
   body.appendChild(renderLiveReadings(unit));
+  body.appendChild(renderLightSchedulePanel(unit));
+  body.appendChild(await renderWateringHistoryPanel(unit));
 
   // Compute water-lock from unit.last_known_state.last_pulse_at + unit.soak_window_min_resolved
   const lastPulse = unit.last_known_state?.last_pulse_at || null;
