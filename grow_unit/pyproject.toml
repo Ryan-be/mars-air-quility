@@ -1,0 +1,38 @@
+[tool.poetry]
+name = "mlss-grow"
+version = "0.1.0"
+description = "Plant Grow Unit firmware — runs on Raspberry Pi Zero with Pimoroni Automation pHAT"
+authors = ["MLSS"]
+packages = [{include = "mlss_grow", from = "src"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+websockets = "^12.0"
+pydantic = "^2.0"
+pyyaml = "^6.0"
+mlss-contracts = {path = "../contracts", develop = true}
+
+# Pi-only deps marked with markers so dev laptops can install without them
+"adafruit-circuitpython-seesaw" = {version = "^1.13", markers = "platform_machine == 'armv7l' or platform_machine == 'aarch64'"}
+"RPi.GPIO" = {version = "^0.7", markers = "platform_machine == 'armv7l' or platform_machine == 'aarch64'"}
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0"
+pytest-asyncio = "^0.24"
+
+[tool.pytest.ini_options]
+# Scope pytest to the grow_unit test tree only. The repo-root tests/conftest.py
+# imports MLSS server modules (database, mlss_monitor.hot_tier, authlib, ...)
+# that aren't installed in this isolated venv — without --noconftest pytest
+# explodes during conftest collection.
+# Same pattern applied to contracts/pyproject.toml — see Task 0.1's fix commit.
+testpaths = ["../tests/grow_unit"]
+addopts = "--noconftest"
+asyncio_mode = "auto"
+
+[tool.poetry.scripts]
+mlss-grow = "mlss_grow.service:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
