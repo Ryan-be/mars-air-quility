@@ -1,2 +1,49 @@
 /* Plant Grow Unit styles — Grow tab + per-unit detail page */
 .grow-fleet { padding: 0; }
+
+/* Grow tab fleet view */
+.grow-pageheader {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px; border-bottom: 1px solid #1c2733;
+  background: linear-gradient(180deg, #0e1722, #0a1219);
+  gap: 16px; flex-wrap: wrap;
+  font-family: Roboto, sans-serif;
+}
+.grow-summary { display: flex; gap: 28px; align-items: baseline; color: #c2d2e3; flex-wrap: wrap; }
+.grow-summary .num { font-size: 22px; font-weight: 500; color: #fff; margin-right: 6px; }
+.grow-summary .num.warn { color: #ffb302; }
+.grow-summary .num.crit { color: #ff5252; }
+.grow-summary .num.ok { color: #56f000; }
+.grow-summary .lbl { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #7d92a8; }
+.px-btn { background: #4dacff; color: #001028; border: none; padding: 9px 16px; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; font-family: Roboto, sans-serif; cursor: pointer; border-radius: 2px; font-weight: 500; }
+
+.grow-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; padding: 18px 20px; background: #080c11; }
+
+.gu-card { background: #142028; border: 1px solid #1f2e3c; border-radius: 3px; display: flex; flex-direction: column; overflow: hidden; font-family: Roboto, sans-serif; color: #c2d2e3; font-size: 13px; transition: border-color 0.15s, transform 0.15s; }
+.gu-card:hover { border-color: #4dacff; transform: translateY(-2px); cursor: pointer; }
+.gu-card.stale { opacity: 0.78; }
+.gu-card.offline { opacity: 0.55; border-color: #5a3014; }
+
+.gu-head { padding: 10px 12px 8px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #1c2733; gap: 8px; }
+.gu-name { font-size: 14px; font-weight: 500; color: #fff; }
+.gu-meta { font-size: 11px; color: #7d92a8; margin-top: 2px; letter-spacing: 0.02em; }
+
+.gu-status { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; padding: 3px 7px; border-radius: 2px; background: #0c151c; flex-shrink: 0; }
+.st-normal { color: #56f000; }
+.st-caution { color: #ffb302; }
+.st-standby { color: #4dacff; }
+.st-serious { color: #ff5252; }
+
+.gu-photo { aspect-ratio: 4 / 3; background: #0a1219 center/cover no-repeat; }
+.gu-photo.no-photo { display: flex; align-items: center; justify-content: center; color: #4a5d72; font-size: 12px; }
+
+.gu-stats { padding: 10px 12px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; align-items: end; border-bottom: 1px solid #1c2733; }
+.gu-stat .v { font-size: 18px; font-weight: 500; color: #fff; line-height: 1; }
+.gu-stat .v.warn { color: #ffb302; }
+.gu-stat .l { font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: #7d92a8; margin-top: 4px; }
+
+.gu-foot { padding: 8px 12px; display: flex; align-items: center; justify-content: space-between; background: #0e1722; gap: 8px; }
+.gu-lastseen { font-size: 10px; color: #7d92a8; letter-spacing: 0.04em; }
+.gu-actions { display: flex; gap: 6px; }
+.gu-btn { background: transparent; border: 1px solid #2a3d50; color: #c2d2e3; padding: 4px 9px; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; border-radius: 2px; font-family: Roboto, sans-serif; text-decoration: none; }
+.gu-btn:hover { border-color: #4dacff; color: #4dacff; }
