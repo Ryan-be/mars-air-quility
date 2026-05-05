@@ -7,6 +7,10 @@ from datetime import datetime
 from typing import Literal
 from pydantic import BaseModel, Field
 
+from mlss_contracts.enums import EventKind, CommandName, Phase
+from mlss_contracts.capabilities import Capability
+from mlss_contracts.plant_profiles import LightWindow, WateringConfig
+
 MessageType = Literal[
     "telemetry", "event", "capabilities",
     "command", "config", "ack",
@@ -34,3 +38,43 @@ class TelemetryPayload(BaseModel):
     air_temp_c: float | None = None
     air_humidity_pct: float | None = None
     reservoir_level_pct: float | None = None
+
+
+class EventPayload(BaseModel):
+    """Discrete event the unit reports — watering pulse, sensor degraded, etc."""
+    kind: EventKind
+    details: dict = Field(default_factory=dict)
+
+
+class CapabilitiesPayload(BaseModel):
+    """Sent by unit on WS handshake; declares all detected sensors and actuators."""
+    capabilities: list[Capability]
+    firmware_version: str
+    hardware_serial: str
+
+
+class CommandPayload(BaseModel):
+    """MLSS → unit command, e.g. {name: 'identify', args: {duration_s: 10}}."""
+    name: CommandName
+    args: dict | None = None
+
+
+class ConfigPayload(BaseModel):
+    """Full config push from MLSS to unit. Resolved values (no NULLs)."""
+    plant_type: str
+    current_phase: Phase
+    light_windows: list[LightWindow]
+    watering: WateringConfig
+    photo_interval_min: int = Field(ge=1, le=1440)
+    photo_active_hours: tuple[int, int] | None = None  # (start_hour, end_hour)
+    soil_dry_raw: int | None = None
+    soil_wet_raw: int | None = None
+    buffer_retention_days: int = Field(default=7, ge=1)
+
+
+class AckPayload(BaseModel):
+    """Unit → MLSS acknowledgement of a received command."""
+    in_reply_to_command: str
+    success: bool
+    error: str | None = None
+    extra: dict | None = None
