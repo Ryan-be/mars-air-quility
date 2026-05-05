@@ -29,6 +29,15 @@ def test_within_deadband_no_pulse():
     assert d.pulse_s == 0
 
 
+def test_error_exactly_at_deadband_does_not_fire():
+    """Boundary: soil at 50%, target 55, deadband 5 → error == 5 → still within deadband.
+    Pins the `<=` semantics so a future change to `<` would surface as a test failure."""
+    state = PIDState(last_pulse_at=datetime(2026, 1, 1), last_error=0, error_integral=0)
+    d = pid_decide(current_pct=50, config=_cfg(), state=state, now=datetime(2026, 5, 3))
+    assert d.pulse_s == 0
+    assert d.reason == "within_deadband"
+
+
 def test_dry_with_p_only_pulses_proportional():
     """Soil at 40%, target 55, error=15, deadband=5 → past deadband. P-only Kp=0.4
     → pulse = 0.4 * 15 = 6s. min/max [2, 8] doesn't clamp."""
