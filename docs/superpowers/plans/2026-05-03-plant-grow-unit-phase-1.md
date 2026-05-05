@@ -296,6 +296,16 @@ mlss-contracts = {path = "../contracts", develop = true}
 pytest = "^8.0"
 pytest-asyncio = "^0.24"
 
+[tool.pytest.ini_options]
+# Scope pytest to the grow_unit test tree only. The repo-root tests/conftest.py
+# imports MLSS server modules (database, mlss_monitor.hot_tier, authlib, ...)
+# that aren't installed in this isolated venv — without --noconftest pytest
+# explodes during conftest collection.
+# Same pattern applied to contracts/pyproject.toml — see Task 0.1's fix commit.
+testpaths = ["../tests/grow_unit"]
+addopts = "--noconftest"
+asyncio_mode = "auto"
+
 [tool.poetry.scripts]
 mlss-grow = "mlss_grow.service:main"
 
