@@ -76,6 +76,9 @@ mics6814 = None
 hot_tier = None
 feature_vector = None
 
+# Plant Grow Unit WS registry (set by app.py at startup)
+grow_ws_registry = None
+
 # API clients
 open_meteo = None
 

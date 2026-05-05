@@ -722,6 +722,11 @@ def _start_background_services():
     Thread(target=_weather_log_loop, daemon=True).start()
     Thread(target=_sensor_read_loop, daemon=True).start()
 
+    from mlss_monitor.grow.ws_registry import WSRegistry
+    from mlss_monitor.routes.api_grow_ws import start_ws_listener
+    state.grow_ws_registry = WSRegistry()
+    start_ws_listener(host="0.0.0.0", port=5001, registry=state.grow_ws_registry)
+
     from mlss_monitor.incident_grouper import start_grouper
     state.incident_grouper = start_grouper(DB_FILE, event_bus=state.event_bus)
 
