@@ -102,3 +102,95 @@ def create_grow_schema(cur):
         "CREATE INDEX IF NOT EXISTS idx_grow_watering_unit_time "
         "ON grow_watering_events(unit_id, timestamp_utc DESC)"
     )
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS grow_photos (
+      id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+      unit_id                  INTEGER NOT NULL REFERENCES grow_units(id) ON DELETE CASCADE,
+      taken_at                 DATETIME NOT NULL,
+      file_path                TEXT NOT NULL,
+      width_px                 INTEGER NOT NULL,
+      height_px                INTEGER NOT NULL,
+      size_bytes               INTEGER NOT NULL,
+      jpeg_quality             INTEGER,
+      shutter_us               INTEGER,
+      iso                      INTEGER,
+      white_balance            TEXT,
+      classified_phase         TEXT,
+      classifier_confidence    REAL,
+      classified_at            DATETIME,
+      telemetry_id             INTEGER REFERENCES grow_telemetry(id)
+    );
+    """)
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_grow_photos_unit_time "
+        "ON grow_photos(unit_id, taken_at DESC)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_grow_photos_telemetry "
+        "ON grow_photos(telemetry_id)"
+    )
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS grow_plant_profiles (
+      id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+      plant_type            TEXT NOT NULL,
+      phase                 TEXT NOT NULL,
+      target_moisture_pct   REAL NOT NULL,
+      deadband_pct          REAL NOT NULL DEFAULT 5,
+      kp                    REAL NOT NULL DEFAULT 0.4,
+      ki                    REAL NOT NULL DEFAULT 0,
+      kd                    REAL NOT NULL DEFAULT 0,
+      min_pulse_s           REAL NOT NULL DEFAULT 2,
+      max_pulse_s           REAL NOT NULL DEFAULT 8,
+      soak_window_min       INTEGER,
+      default_light_hours   REAL NOT NULL DEFAULT 16,
+      is_shipped            INTEGER NOT NULL DEFAULT 0,
+      notes                 TEXT,
+      UNIQUE(plant_type, phase)
+    );
+    """)
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS grow_light_windows (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      unit_id      INTEGER NOT NULL REFERENCES grow_units(id) ON DELETE CASCADE,
+      phase        TEXT NOT NULL,
+      start_hh_mm  TEXT NOT NULL,
+      end_hh_mm    TEXT NOT NULL,
+      sort_order   INTEGER NOT NULL DEFAULT 0
+    );
+    """)
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_glw_unit_phase "
+        "ON grow_light_windows(unit_id, phase)"
+    )
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS grow_medium_defaults (
+      medium_type TEXT PRIMARY KEY,
+      dry_raw     INTEGER NOT NULL,
+      wet_raw     INTEGER NOT NULL
+    );
+    """)
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS grow_errors (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      unit_id       INTEGER REFERENCES grow_units(id) ON DELETE CASCADE,
+      timestamp_utc DATETIME NOT NULL,
+      severity      TEXT NOT NULL CHECK(severity IN ('info','warning','critical')),
+      kind          TEXT NOT NULL,
+      message       TEXT NOT NULL,
+      details_json  TEXT,
+      resolved_at   DATETIME
+    );
+    """)
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_grow_errors_unit_time "
+        "ON grow_errors(unit_id, timestamp_utc DESC)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_grow_errors_unresolved "
+        "ON grow_errors(resolved_at) WHERE resolved_at IS NULL"
+    )
