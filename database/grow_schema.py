@@ -4,6 +4,9 @@ Called from database.init_db.create_db() so table creation happens in the
 same transaction as the existing MLSS schema.
 """
 
+import secrets
+from hashlib import sha256
+
 
 def create_grow_schema(cur):
     """Create all grow_* tables. Idempotent (uses CREATE TABLE IF NOT EXISTS)."""
@@ -194,3 +197,80 @@ def create_grow_schema(cur):
         "CREATE INDEX IF NOT EXISTS idx_grow_errors_unresolved "
         "ON grow_errors(resolved_at) WHERE resolved_at IS NULL"
     )
+
+    _seed_grow_data(cur)
+
+
+_SHIPPED_PROFILES = [
+    # (plant_type, phase, target%, deadband, kp, ki, kd, min_pulse, max_pulse, soak, light_h)
+    ("tomato",      "seedling",   60, 5, 0.3, 0, 0, 1, 4, 30, 16),
+    ("tomato",      "vegetative", 55, 5, 0.4, 0, 0, 2, 8, 30, 16),
+    ("tomato",      "flowering",  50, 5, 0.4, 0, 0, 2, 8, 60, 12),
+    ("tomato",      "fruiting",   50, 5, 0.4, 0, 0, 2, 8, 60, 12),
+    ("basil",       "vegetative", 60, 5, 0.4, 0, 0, 2, 6, 30, 14),
+    ("lettuce",     "vegetative", 65, 5, 0.3, 0, 0, 2, 6, 30, 14),
+    ("microgreens", "seedling",   70, 3, 0.3, 0, 0, 1, 4, 20, 16),
+    ("pepper",      "vegetative", 55, 5, 0.4, 0, 0, 2, 8, 45, 16),
+    ("generic",     "seedling",   60, 5, 0.3, 0, 0, 1, 4, 45, 16),
+    ("generic",     "vegetative", 55, 5, 0.4, 0, 0, 2, 8, 45, 16),
+    ("generic",     "flowering",  50, 5, 0.4, 0, 0, 2, 8, 60, 12),
+]
+
+_SHIPPED_MEDIUMS = [
+    ("soil",     200, 1500),
+    ("coco",     250, 1700),
+    ("rockwool", 300, 1900),
+]
+
+
+def _seed_grow_data(cur):
+    """Idempotent: only inserts if rows are missing."""
+    # Plant profiles (only seed if no shipped profiles yet)
+    cur.execute("SELECT COUNT(*) FROM grow_plant_profiles WHERE is_shipped=1")
+    if cur.fetchone()[0] == 0:
+        for row in _SHIPPED_PROFILES:
+            cur.execute(
+                "INSERT INTO grow_plant_profiles "
+                "(plant_type, phase, target_moisture_pct, deadband_pct, "
+                " kp, ki, kd, min_pulse_s, max_pulse_s, soak_window_min, "
+                " default_light_hours, is_shipped) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)",
+                row,
+            )
+
+    # Medium calibration defaults
+    for mt, dry, wet in _SHIPPED_MEDIUMS:
+        cur.execute(
+            "INSERT OR IGNORE INTO grow_medium_defaults (medium_type, dry_raw, wet_raw) "
+            "VALUES (?, ?, ?)",
+            (mt, dry, wet),
+        )
+
+    # app_settings keys
+    defaults = {
+        "grow_default_soak_window_min": "30",
+        "grow_default_buffer_retention_days": "7",
+        "grow_disk_warn_pct": "90",
+        "grow_holiday_mode": "0",
+        "grow_images_dir": "",  # empty = use env var or built-in default
+    }
+    for k, v in defaults.items():
+        cur.execute(
+            "INSERT OR IGNORE INTO app_settings (key, value) VALUES (?, ?)",
+            (k, v),
+        )
+
+    # Enrollment key — generate once, store sha256-hashed (argon2 in Task 3.1)
+    cur.execute("SELECT COUNT(*) FROM app_settings WHERE key='grow_enrollment_key_hash'")
+    if cur.fetchone()[0] == 0:
+        raw_key = secrets.token_urlsafe(32)
+        key_hash = sha256(raw_key.encode()).hexdigest()
+        cur.execute(
+            "INSERT INTO app_settings (key, value) VALUES (?, ?)",
+            ("grow_enrollment_key_hash", key_hash),
+        )
+        # Stash raw key so the install UI can show it once.
+        cur.execute(
+            "INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)",
+            ("grow_enrollment_key_raw_pending_reveal", raw_key),
+        )
