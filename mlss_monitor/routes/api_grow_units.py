@@ -1,14 +1,18 @@
 """REST endpoints for the browser to read grow unit state.
 
-GET /api/grow/units            — fleet view, list
-GET /api/grow/units/<id>       — detail
+GET  /api/grow/units                        — fleet view, list
+GET  /api/grow/units/<id>                   — detail
+POST /api/grow/units/<id>/identify          — push identify command via WS
+POST /api/grow/units/<id>/water-now         — push manual watering command via WS
 """
+import asyncio
 import json
 import sqlite3
 from datetime import datetime, timedelta
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, request
 
 from database.init_db import DB_FILE
+from mlss_monitor import state
 
 api_grow_units_bp = Blueprint("api_grow_units", __name__)
 
@@ -93,3 +97,44 @@ def get_unit(unit_id):
         for c in caps
     ]
     return jsonify(body)
+
+
+def _push_command_blocking(unit_id: int, command: dict) -> tuple[int, dict]:
+    """Send a command to a unit via the WS registry. Returns (status, body)."""
+    registry = state.grow_ws_registry
+    if registry is None or not registry.is_connected(unit_id):
+        return 503, {"error": "unit_not_connected"}
+    msg = json.dumps({
+        "type": "command",
+        "ts": datetime.utcnow().isoformat() + "Z",
+        "payload": command,
+    })
+    # The WS listener runs on its own loop on another thread — schedule there
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(registry.send_to_unit(unit_id, msg))
+        loop.close()
+    except KeyError:
+        return 503, {"error": "unit_not_connected"}
+    return 202, {"queued": True}
+
+
+@api_grow_units_bp.route("/api/grow/units/<int:unit_id>/identify", methods=["POST"])
+def identify(unit_id):
+    status, body = _push_command_blocking(unit_id, {
+        "name": "identify",
+        "args": {"duration_s": 10},
+    })
+    return jsonify(body), status
+
+
+@api_grow_units_bp.route("/api/grow/units/<int:unit_id>/water-now", methods=["POST"])
+def water_now(unit_id):
+    body_in = request.get_json(silent=True) or {}
+    duration_s = max(1, min(30, int(body_in.get("duration_s", 5))))  # safety cap
+    status, body = _push_command_blocking(unit_id, {
+        "name": "water_now",
+        "args": {"duration_s": duration_s},
+    })
+    return jsonify(body), status
