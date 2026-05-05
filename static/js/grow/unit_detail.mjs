@@ -124,6 +124,26 @@ export function renderLiveReadings(unit, doc = document) {
 }
 
 
+export function renderPhotoPanel(unit, doc = document) {
+  const wrap = doc.createElement("div");
+  wrap.className = "du-panel";
+  const head = doc.createElement("div");
+  head.className = "du-panel-head";
+  head.innerHTML = "<span>📷 Latest photo</span>";
+  wrap.appendChild(head);
+
+  const photo = doc.createElement("div");
+  photo.className = "du-photo-hero";
+  // Cache-bust to refresh on poll
+  const url = `/api/grow/units/${unit.id}/photo/latest?ts=${Date.now()}`;
+  photo.style.backgroundImage = `url(${url})`;
+  photo.style.backgroundSize = "cover";
+  photo.style.backgroundPosition = "center";
+  wrap.appendChild(photo);
+  return wrap;
+}
+
+
 export function computeWaterLockedUntil(lastPulseAt, soakWindowMin, now = new Date()) {
   if (!lastPulseAt) return null;
   const last = lastPulseAt instanceof Date ? lastPulseAt : new Date(lastPulseAt);
@@ -204,6 +224,7 @@ async function init() {
   document.getElementById("du-tabs").appendChild(renderSubTabs("live"));
 
   const body = document.getElementById("du-body");
+  body.appendChild(renderPhotoPanel(unit));
   body.appendChild(renderLiveReadings(unit));
 
   // Compute water-lock from unit.last_known_state.last_pulse_at + unit.soak_window_min_resolved

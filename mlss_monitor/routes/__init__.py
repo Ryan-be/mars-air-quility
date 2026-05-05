@@ -18,6 +18,7 @@ from .api_incidents import api_incidents_bp
 from .api_grow_enroll import api_grow_enroll_bp
 from .api_grow_units import api_grow_units_bp
 from .api_grow_dist import api_grow_dist_bp
+from .api_grow_photos import api_grow_photos_bp
 
 
 def register_routes(app):
@@ -39,3 +40,4 @@ def register_routes(app):
     app.register_blueprint(api_grow_enroll_bp)
     app.register_blueprint(api_grow_units_bp)
     app.register_blueprint(api_grow_dist_bp)
+    app.register_blueprint(api_grow_photos_bp)
