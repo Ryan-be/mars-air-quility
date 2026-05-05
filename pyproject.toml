@@ -30,6 +30,7 @@ mlss-contracts = {path = "contracts", develop = true}
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0"
+pytest-asyncio = "^0.24"
 beautifulsoup4 = "^4.12"
 
 [tool.poetry.group.visualization]
@@ -46,6 +47,9 @@ priority = "supplemental"
 
 [tool.poetry.scripts]
 mlss-monitor = "app:main"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
 
 [build-system]
 requires = ["poetry-core"]
