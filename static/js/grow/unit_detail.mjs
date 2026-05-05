@@ -1,4 +1,5 @@
 import { renderStatusPill } from "./components/status-pill.mjs";
+import { renderStatTile } from "./components/stat-tile.mjs";
 
 const SUBTABS = [
   { id: "live", label: "● Live", enabled: true },
@@ -60,6 +61,66 @@ export function renderSubTabs(activeTab, doc = document) {
     nav.appendChild(el);
   }
   return nav;
+}
+
+
+const CHANNEL_DISPLAY = {
+  soil_moisture: { label: "Moisture", format: (v) => `${Math.round(v)}%`,
+                   stateKey: "soil_moisture_pct" },
+  soil_temp_c: { label: "Soil temp", format: (v) => `${v.toFixed(1)}°C`,
+                 stateKey: "soil_temp_c" },
+  ambient_lux: { label: "Ambient lux", format: (v) => v.toLocaleString(),
+                 stateKey: "ambient_lux" },
+  air_temp_c: { label: "Air temp", format: (v) => `${v.toFixed(1)}°C`,
+                stateKey: "air_temp_c" },
+  air_humidity_pct: { label: "Air humidity", format: (v) => `${Math.round(v)}%`,
+                      stateKey: "air_humidity_pct" },
+  reservoir_level_pct: { label: "Reservoir", format: (v) => `${Math.round(v)}%`,
+                         stateKey: "reservoir_level_pct" },
+  light: { label: "Grow light", format: () => "",  // handled specially below
+           stateKey: "light_state" },
+};
+
+
+export function renderLiveReadings(unit, doc = document) {
+  const wrap = doc.createElement("div");
+  wrap.className = "du-panel";
+  const head = doc.createElement("div");
+  head.className = "du-panel-head";
+  head.innerHTML = "<span>📊 Live readings</span>";
+  wrap.appendChild(head);
+
+  const grid = doc.createElement("div");
+  grid.className = "du-stat-grid";
+
+  for (const cap of unit.capabilities || []) {
+    const meta = CHANNEL_DISPLAY[cap.channel];
+    if (!meta) continue;
+    const value = unit.last_known_state?.[meta.stateKey];
+    if (value == null && cap.channel !== "light") continue;
+
+    let tile;
+    if (cap.channel === "light") {
+      tile = renderStatTile({
+        value: value ? "💡 ON" : "💡 OFF",
+        label: meta.label, isRequired: cap.is_required,
+        ownerDocument: doc,
+      });
+    } else {
+      const variant = (cap.channel === "soil_moisture" && value < 35) ? "warn" : "normal";
+      tile = renderStatTile({
+        value: meta.format(value),
+        label: meta.label,
+        isRequired: cap.is_required,
+        variant,
+        ownerDocument: doc,
+      });
+    }
+    grid.appendChild(tile);
+  }
+
+  wrap.appendChild(grid);
+  return wrap;
 }
 
 
