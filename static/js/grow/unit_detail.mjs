@@ -124,6 +124,73 @@ export function renderLiveReadings(unit, doc = document) {
 }
 
 
+export function computeWaterLockedUntil(lastPulseAt, soakWindowMin, now = new Date()) {
+  if (!lastPulseAt) return null;
+  const last = lastPulseAt instanceof Date ? lastPulseAt : new Date(lastPulseAt);
+  const unlock = new Date(last.getTime() + soakWindowMin * 60 * 1000);
+  return unlock > now ? unlock : null;
+}
+
+
+export function renderQuickControls(unit, doc = document) {
+  const panel = doc.createElement("div");
+  panel.className = "du-panel";
+  const head = doc.createElement("div");
+  head.className = "du-panel-head";
+  head.innerHTML = "<span>⚡ Quick controls</span>";
+  panel.appendChild(head);
+
+  const body = doc.createElement("div");
+  body.className = "du-quick";
+
+  const lockedUntil = unit._waterLockedUntil ?? null;
+  const isLocked = lockedUntil !== null;
+
+  const buttons = [
+    { action: "identify", label: "⚡ Identify",
+      enabled: true, primary: true },
+    { action: "water-now", label: isLocked ? `🔒 Water (locked)` : "💧 Water 5s",
+      enabled: !isLocked,
+      tooltip: isLocked ? `Locked until ${lockedUntil.toLocaleTimeString()}` : "Pulse pump for 5s" },
+    { action: "light-toggle", label: "💡 Toggle light", enabled: true },
+    { action: "snap-photo", label: "📷 Snap photo", enabled: true },
+  ];
+
+  for (const b of buttons) {
+    const btn = doc.createElement("button");
+    btn.className = "du-act-btn" + (b.primary ? " primary" : "")
+                  + (!b.enabled ? " locked" : "");
+    btn.dataset.action = b.action;
+    btn.dataset.unitId = unit.id;
+    btn.disabled = !b.enabled;
+    btn.textContent = b.label;
+    if (b.tooltip) btn.title = b.tooltip;
+    body.appendChild(btn);
+  }
+
+  panel.appendChild(body);
+
+  // Wire click handlers
+  panel.addEventListener("click", async (ev) => {
+    const btn = ev.target.closest("button[data-action]");
+    if (!btn || btn.disabled) return;
+    const url = `/api/grow/units/${unit.id}/${btn.dataset.action}`;
+    const old = btn.textContent;
+    btn.disabled = true; btn.textContent = "Sending…";
+    try {
+      const r = await fetch(url, { method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}) });
+      btn.textContent = r.ok ? "✓ Sent" : "✗ Failed";
+    } finally {
+      setTimeout(() => { btn.disabled = false; btn.textContent = old; }, 2000);
+    }
+  });
+
+  return panel;
+}
+
+
 async function init() {
   const root = document.querySelector("[data-unit-id]");
   const unitId = root.dataset.unitId;
@@ -135,7 +202,16 @@ async function init() {
   const unit = await r.json();
   document.getElementById("du-header").appendChild(renderDetailHeader(unit));
   document.getElementById("du-tabs").appendChild(renderSubTabs("live"));
-  // Body is rendered by Task 11.2+
+
+  const body = document.getElementById("du-body");
+  body.appendChild(renderLiveReadings(unit));
+
+  // Compute water-lock from unit.last_known_state.last_pulse_at + unit.soak_window_min_resolved
+  const lastPulse = unit.last_known_state?.last_pulse_at || null;
+  const soakMin = unit.soak_window_min_resolved || 30;  // server should send this
+  unit._waterLockedUntil = computeWaterLockedUntil(lastPulse, soakMin);
+
+  body.appendChild(renderQuickControls(unit));
 }
 
 // Only run init() in a real browser context where the page root is mounted.

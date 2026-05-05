@@ -63,3 +63,9 @@
 .du-tab:hover:not(.disabled) { color: #c2d2e3; }
 .du-tab.active { color: #4dacff; border-bottom-color: #4dacff; }
 .du-tab.disabled { opacity: 0.4; cursor: not-allowed; }
+
+.du-quick { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; padding: 12px; }
+.du-act-btn { background: transparent; border: 1px solid #2a3d50; color: #c2d2e3; padding: 9px 10px; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; border-radius: 2px; font-family: Roboto, sans-serif; }
+.du-act-btn:hover:not(:disabled) { border-color: #4dacff; color: #4dacff; }
+.du-act-btn.primary { background: #4dacff; color: #001028; border-color: #4dacff; }
+.du-act-btn.locked, .du-act-btn:disabled { background: #0e1722; color: #4a5d72; border-color: #1f2e3c; cursor: not-allowed; opacity: 0.85; }
