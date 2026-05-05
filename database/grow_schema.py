@@ -5,7 +5,9 @@ same transaction as the existing MLSS schema.
 """
 
 import secrets
-from hashlib import sha256
+from argon2 import PasswordHasher
+
+_seed_hasher = PasswordHasher()
 
 
 def create_grow_schema(cur):
@@ -260,11 +262,13 @@ def _seed_grow_data(cur):
             (k, v),
         )
 
-    # Enrollment key — generate once, store sha256-hashed (argon2 in Task 3.1)
+    # Enrollment key — generate once, argon2-hashed so verify_enrollment_key
+    # (mlss_monitor.grow.auth) can validate it. argon2-cffi is available since
+    # Task 3.1 added the dep to pyproject.toml.
     cur.execute("SELECT COUNT(*) FROM app_settings WHERE key='grow_enrollment_key_hash'")
     if cur.fetchone()[0] == 0:
         raw_key = secrets.token_urlsafe(32)
-        key_hash = sha256(raw_key.encode()).hexdigest()
+        key_hash = _seed_hasher.hash(raw_key)
         cur.execute(
             "INSERT INTO app_settings (key, value) VALUES (?, ?)",
             ("grow_enrollment_key_hash", key_hash),
