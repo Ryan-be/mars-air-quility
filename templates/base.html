@@ -135,6 +135,14 @@
       <span>Incidents</span>
     </a>
 
+    <!-- Grow -->
+    <a href="{{ url_for('pages.grow_fleet') }}"
+       data-tab="grow"
+       class="{{ 'active' if active and active.startswith('pages.grow') else '' }}">
+      <rux-icon icon="add-photo-alternate" size="extra-small"></rux-icon>
+      <span>Grow</span>
+    </a>
+
     <!-- Controls -->
     <a href="{{ url_for('pages.controls_page') }}"
        data-tab="controls"

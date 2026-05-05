@@ -23,6 +23,16 @@ def incidents_page():
     return render_template("incidents.html")
 
 
+@pages_bp.route("/grow")
+def grow_fleet():
+    return render_template("grow_fleet.html")
+
+
+@pages_bp.route("/grow/<int:unit_id>")
+def grow_unit_detail(unit_id):
+    return render_template("grow_unit_detail.html", unit_id=unit_id)
+
+
 @pages_bp.route("/controls")
 def controls_page():
     return render_template("controls.html")

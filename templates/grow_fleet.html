@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}MLSS · Grow{% endblock %}
+{% block extra_css %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/grow.css') }}">
+{% endblock %}
+
+{% block content %}
+  <section class="grow-fleet" id="grow-fleet">
+    <header class="grow-pageheader">
+      <div class="grow-summary" id="grow-summary"></div>
+      <button class="px-btn primary" id="grow-add-btn">+ Add Unit</button>
+    </header>
+
+    <div class="grow-grid" id="grow-grid">
+      <!-- Populated by static/js/grow/fleet.mjs -->
+    </div>
+  </section>
+{% endblock %}
+
+{% block scripts %}
+  <script type="module" src="{{ url_for('static', filename='js/grow/fleet.mjs') }}"></script>
+{% endblock %}
