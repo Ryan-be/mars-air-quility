@@ -103,3 +103,94 @@ def handle_telemetry(unit_id: int, ts: datetime, payload: dict) -> int:
         return inserted_id
     finally:
         conn.close()
+
+
+def handle_capabilities(unit_id: int, ts: datetime, payload: dict) -> None:
+    """Replace the unit's full capability set with what was just declared.
+
+    Caller (the WS listener in Task 4.5) is expected to have validated the
+    payload via pydantic. Idempotent: a re-pushed identical payload simply
+    rewrites the same rows. A removed sensor disappears on next push.
+    """
+    conn = sqlite3.connect(DB_FILE, timeout=10)
+    try:
+        conn.execute("DELETE FROM grow_unit_capabilities WHERE unit_id=?", (unit_id,))
+        for cap in payload["capabilities"]:
+            conn.execute(
+                "INSERT INTO grow_unit_capabilities "
+                "(unit_id, channel, hardware, is_required, unit_label, "
+                " installed_at, details_json) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (unit_id, cap["channel"], cap.get("hardware"),
+                 int(cap["is_required"]), cap.get("unit_label"), ts,
+                 json.dumps(cap["details"]) if cap.get("details") else None),
+            )
+        conn.execute(
+            "UPDATE grow_units SET last_seen_at=? WHERE id=?",
+            (ts, unit_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def handle_event(unit_id: int, ts: datetime, payload: dict) -> None:
+    """Dispatch by event kind.
+
+    Watering events → grow_watering_events; sensor_*/safety_* and other
+    diagnostic events → grow_errors. sensor_recovered closes any matching
+    open sensor_degraded row for the same sensor. Unknown kinds are
+    log-only (no DB row in Phase 1).
+
+    Caller (the WS listener in Task 4.5) is expected to have validated the
+    payload via pydantic.
+    """
+    kind = payload["kind"]
+    details = payload.get("details") or {}
+    conn = sqlite3.connect(DB_FILE, timeout=10)
+    try:
+        if kind == "watering_pulse":
+            conn.execute(
+                "INSERT INTO grow_watering_events "
+                "(unit_id, timestamp_utc, trigger, duration_s, soil_pct_before, "
+                " triggered_by, pid_error, pid_p_term, pid_i_term, pid_d_term) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (unit_id, ts, details.get("trigger", "pid"),
+                 details["duration_s"], details.get("soil_pct_before"),
+                 details.get("triggered_by", "system"), details.get("pid_error"),
+                 details.get("pid_p_term"), details.get("pid_i_term"),
+                 details.get("pid_d_term")),
+            )
+        elif kind == "sensor_degraded":
+            sensor = details.get("sensor", "unknown")
+            conn.execute(
+                "INSERT INTO grow_errors "
+                "(unit_id, timestamp_utc, severity, kind, message, details_json) "
+                "VALUES (?, ?, 'warning', 'sensor_degraded', ?, ?)",
+                (unit_id, ts, f"Sensor {sensor} reporting bad reads",
+                 json.dumps(details)),
+            )
+        elif kind == "sensor_recovered":
+            sensor = details.get("sensor", "unknown")
+            conn.execute(
+                "UPDATE grow_errors SET resolved_at=? "
+                "WHERE unit_id=? AND kind='sensor_degraded' AND resolved_at IS NULL "
+                "AND details_json LIKE ?",
+                (ts, unit_id, f'%"sensor": "{sensor}"%'),
+            )
+        elif kind == "safety_cap_hit":
+            conn.execute(
+                "INSERT INTO grow_errors "
+                "(unit_id, timestamp_utc, severity, kind, message, details_json) "
+                "VALUES (?, ?, 'warning', 'safety_cap_hit', ?, ?)",
+                (unit_id, ts, f"Safety cap hit: {details.get('cap', '')}",
+                 json.dumps(details)),
+            )
+        # Other event kinds (startup, shutdown, identify_complete, etc.) are
+        # logged-only — no DB row needed in Phase 1.
+        conn.execute(
+            "UPDATE grow_units SET last_seen_at=? WHERE id=?", (ts, unit_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
