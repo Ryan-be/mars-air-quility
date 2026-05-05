@@ -8,6 +8,15 @@ _hw_mocks = [
     "mics6814",
     "authlib", "authlib.integrations", "authlib.integrations.flask_client",
 ]
+
+# Stub river (online ML lib) on platforms where its compiled DLL fails to load
+# (Windows path-too-long is the recurring offender). The anomaly_detector module
+# pulls it in transitively via the routes package, breaking unrelated tests.
+try:  # pragma: no cover - environmental
+    import river.anomaly  # noqa: F401
+except Exception:  # pylint: disable=broad-except
+    _hw_mocks.append("river")
+    _hw_mocks.append("river.anomaly")
 for _mod in _hw_mocks:
     sys.modules[_mod] = MagicMock()
 
