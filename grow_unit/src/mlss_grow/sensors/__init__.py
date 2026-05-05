@@ -6,8 +6,11 @@ that succeeded. Add a new sensor by writing a Sensor subclass and adding
 it to REGISTERED_SENSORS.
 """
 from mlss_grow.sensors.base import Sensor
+from mlss_grow.sensors.seesaw import SeesawSoilSensor
 
-REGISTERED_SENSORS: list[type[Sensor]] = []
+REGISTERED_SENSORS: list[type[Sensor]] = [
+    SeesawSoilSensor,
+]
 
 
 def auto_detect(i2c_bus) -> list[Sensor]:
