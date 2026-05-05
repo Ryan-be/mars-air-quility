@@ -7,8 +7,11 @@ canonical source (created in Task 9.2).
 """
 import os
 import re
+import sqlite3
 from pathlib import Path
 from flask import Blueprint, send_from_directory, jsonify, abort
+
+from database.init_db import DB_FILE
 
 api_grow_dist_bp = Blueprint("api_grow_dist", __name__)
 
@@ -62,3 +65,29 @@ def _latest_versions():
             if pkg not in out or ver > out[pkg]:
                 out[pkg] = ver
     return jsonify(out)
+
+
+@api_grow_dist_bp.route("/api/grow/enrollment-key/peek-once", methods=["GET"])
+def peek_enrollment_key():
+    """Return the raw enrollment key once. Deletes it from app_settings after.
+
+    Used by the empty-state UI on first visit. After viewing, key is gone —
+    rotation is a separate flow (Phase 2 Settings → Grow page).
+    """
+    conn = sqlite3.connect(DB_FILE, timeout=5)
+    try:
+        row = conn.execute(
+            "SELECT value FROM app_settings "
+            "WHERE key='grow_enrollment_key_raw_pending_reveal'",
+        ).fetchone()
+        if row is None or not row[0]:
+            return jsonify({"error": "already_revealed"}), 410
+        raw_key = row[0]
+        conn.execute(
+            "DELETE FROM app_settings "
+            "WHERE key='grow_enrollment_key_raw_pending_reveal'",
+        )
+        conn.commit()
+        return jsonify({"key": raw_key})
+    finally:
+        conn.close()
