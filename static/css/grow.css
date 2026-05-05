@@ -47,3 +47,19 @@
 .gu-actions { display: flex; gap: 6px; }
 .gu-btn { background: transparent; border: 1px solid #2a3d50; color: #c2d2e3; padding: 4px 9px; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; border-radius: 2px; font-family: Roboto, sans-serif; text-decoration: none; }
 .gu-btn:hover { border-color: #4dacff; color: #4dacff; }
+
+/* Per-unit detail page */
+.du-page { font-family: Roboto, sans-serif; color: #c2d2e3; background: #080c11; min-height: 100vh; }
+.du-header { padding: 14px 20px; border-bottom: 1px solid #1c2733; background: linear-gradient(180deg, #0e1722, #0a1219); }
+.du-back { color: #7d92a8; font-size: 12px; letter-spacing: 0.05em; text-decoration: none; text-transform: uppercase; display: inline-block; margin-bottom: 10px; }
+.du-back:hover { color: #4dacff; }
+.du-title { display: flex; align-items: baseline; gap: 12px; }
+.du-title h2 { color: #fff; font-size: 22px; font-weight: 500; margin: 0; }
+.du-pill { background: rgba(77, 172, 255, 0.12); color: #4dacff; padding: 3px 9px; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; border-radius: 2px; }
+.du-pill.phase { background: rgba(86, 240, 0, 0.1); color: #56f000; }
+
+.du-tabs { display: flex; gap: 0; padding: 0 20px; background: #0a1219; border-bottom: 1px solid #1c2733; }
+.du-tab { padding: 12px 18px; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: #7d92a8; cursor: pointer; border-bottom: 2px solid transparent; background: none; border-left: none; border-right: none; border-top: none; font-family: Roboto, sans-serif; }
+.du-tab:hover:not(.disabled) { color: #c2d2e3; }
+.du-tab.active { color: #4dacff; border-bottom-color: #4dacff; }
+.du-tab.disabled { opacity: 0.4; cursor: not-allowed; }

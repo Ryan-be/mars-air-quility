@@ -1,0 +1,85 @@
+import { renderStatusPill } from "./components/status-pill.mjs";
+
+const SUBTABS = [
+  { id: "live", label: "● Live", enabled: true },
+  { id: "history", label: "📈 History", enabled: false, deferred: "Phase 2" },
+  { id: "configure", label: "⚙ Configure", enabled: false, deferred: "Phase 2" },
+  { id: "diagnostics", label: "🩺 Diagnostics", enabled: false, deferred: "Phase 3" },
+];
+
+
+export function renderDetailHeader(unit, doc = document) {
+  const wrap = doc.createElement("div");
+  wrap.className = "du-header";
+
+  const back = doc.createElement("a");
+  back.className = "du-back";
+  back.href = "/grow";
+  back.textContent = "← Grow units";
+  wrap.appendChild(back);
+
+  const title = doc.createElement("div");
+  title.className = "du-title";
+  const h = doc.createElement("h2");
+  h.textContent = unit.label;
+  title.appendChild(h);
+
+  const phasePill = doc.createElement("span");
+  phasePill.className = "du-pill phase";
+  phasePill.textContent = (unit.current_phase || "").toUpperCase();
+  title.appendChild(phasePill);
+
+  const mediumPill = doc.createElement("span");
+  mediumPill.className = "du-pill";
+  const dayCount = unit.sown_at
+    ? Math.floor((Date.now() - new Date(unit.sown_at).getTime()) / 86400000)
+    : null;
+  mediumPill.textContent = `${(unit.medium_type || "").toUpperCase()}` +
+    (dayCount !== null ? ` · day ${dayCount}` : "");
+  title.appendChild(mediumPill);
+
+  title.appendChild(renderStatusPill(unit.status, { ownerDocument: doc }));
+  wrap.appendChild(title);
+  return wrap;
+}
+
+
+export function renderSubTabs(activeTab, doc = document) {
+  const nav = doc.createElement("div");
+  nav.className = "du-tabs";
+  for (const t of SUBTABS) {
+    const el = doc.createElement("button");
+    el.className = "du-tab" + (t.id === activeTab ? " active" : "")
+                  + (!t.enabled ? " disabled" : "");
+    el.dataset.tab = t.id;
+    el.textContent = t.label;
+    if (!t.enabled) {
+      el.disabled = true;
+      el.title = `Coming in ${t.deferred}`;
+    }
+    nav.appendChild(el);
+  }
+  return nav;
+}
+
+
+async function init() {
+  const root = document.querySelector("[data-unit-id]");
+  const unitId = root.dataset.unitId;
+  const r = await fetch(`/api/grow/units/${unitId}`);
+  if (!r.ok) {
+    document.getElementById("du-body").textContent = "Failed to load unit";
+    return;
+  }
+  const unit = await r.json();
+  document.getElementById("du-header").appendChild(renderDetailHeader(unit));
+  document.getElementById("du-tabs").appendChild(renderSubTabs("live"));
+  // Body is rendered by Task 11.2+
+}
+
+// Only run init() in a real browser context where the page root is mounted.
+// Tests import the module without a [data-unit-id] root present, so guard
+// against null dereference on root.dataset.
+if (typeof document !== "undefined" && document.querySelector("[data-unit-id]")) {
+  init();
+}

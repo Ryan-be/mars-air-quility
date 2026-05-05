@@ -1,5 +1,15 @@
 {% extends "base.html" %}
 {% block title %}MLSS · Grow · Unit {{ unit_id }}{% endblock %}
+{% block extra_css %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/grow.css') }}">
+{% endblock %}
 {% block content %}
-<div id="grow-unit-detail" data-unit-id="{{ unit_id }}">Loading…</div>
+<div class="du-page" data-unit-id="{{ unit_id }}">
+  <header id="du-header"></header>
+  <nav id="du-tabs"></nav>
+  <main id="du-body"></main>
+</div>
+{% endblock %}
+{% block scripts %}
+  <script type="module" src="{{ url_for('static', filename='js/grow/unit_detail.mjs') }}"></script>
 {% endblock %}
