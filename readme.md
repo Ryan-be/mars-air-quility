@@ -113,6 +113,7 @@ The Pimoroni MICS6814 breakout uses I2C and can be daisy-chained with the AHT20 
 - Real-time Server-Sent Events (SSE) -- sensor readings, fan status, inference alerts, and weather updates are pushed to the browser instantly via an in-process event bus, replacing most polling
 - **AstroUXDS** web-component design system -- dashboard, history, controls, admin, login, and inference-engine config pages all use NASA / Lockheed Martin's [Astro UXDS](https://astrouxds.com) for a consistent dark space-mission look (deep navy / charcoal background, cyan accents, Roboto typography)
 - Per-event sparkline panels -- each detected event on the history page opens a slide-in inference panel with a Plotly sparkline showing the relevant channels around the event timestamp (range events get a shaded "Tagged range" rectangle; point events get a dashed "Event" line)
+- **Plant Grow Units** — remote Pi Zero W satellites, each managing one growing area (single plant, microgreens tray, etc.) with soil moisture sensing, PID-driven watering, configurable light schedule, and timelapse photography. See [PLANT_GROW_UNIT_HARDWARE.md](docs/PLANT_GROW_UNIT_HARDWARE.md), [PLANT_GROW_UNIT_SETUP.md](docs/PLANT_GROW_UNIT_SETUP.md), and the [system design spec](docs/superpowers/specs/2026-05-03-plant-grow-unit-system-design.md).
 
 ---
 

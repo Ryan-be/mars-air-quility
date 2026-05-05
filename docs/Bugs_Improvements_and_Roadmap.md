@@ -316,3 +316,36 @@ To generate explanations like:
 > “This event was likely caused by cooking because PM2.5 and TVOC rose together by 2.3× baseline, matching previous tagged cooking events.”
 
 
+---
+
+## Plant Grow Unit roadmap
+
+### Phase 2 (next)
+- Filter / sort row on Grow tab fleet view
+- Per-unit Configure tab (light windows editor, plant profile picker, PID tunables, calibration two-step, soak-window override, intentional-friction safety override)
+- Per-unit History tab (long-range moisture chart, photo timelapse scrubber)
+- Settings → Grow page (enrollment key rotation UI, default tunables, holiday mode)
+- Photo lightbox on click
+
+### Phase 3
+- Per-unit Diagnostics tab (WS connection log, sensor sanity, firmware version, danger zone)
+- grow_errors UI surfacing (separate from the air-quality Incidents tab)
+- Buffered-message replay UI
+- Storage warning UI
+
+### Phase 4 (smarts)
+- Image-based phase classifier
+- Plant-stage-aware PID adjustments
+- Cross-unit anomaly detection
+- Reservoir / water budget tracking
+
+### Phase 5 (polish)
+- Custom Pi SD-card .img for one-step provisioning
+- Public PyPI release of `mlss-grow`
+- Mobile-optimised fleet view
+- Plant journal / annotations on the History tab
+- Time-lapse video generation
+
+### Hardware/reliability deferred
+- **Hardware watchdog (`/dev/watchdog`)** on Pi Zero — designed in but not wired up due to risk of misconfigured timer rebooting healthy Pi mid-write. Re-evaluate if a unit silently wedges in production despite systemd watchdog.
+
