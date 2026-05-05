@@ -76,3 +76,22 @@
 .du-schedule-on { position: absolute; top: 0; bottom: 0; background: linear-gradient(180deg, #4dacff, #2476b8); opacity: 0.7; }
 .du-schedule-now { position: absolute; top: -4px; bottom: -4px; width: 2px; background: #56f000; box-shadow: 0 0 8px #56f000; }
 .du-schedule-now .lbl { position: absolute; top: -16px; left: 4px; font-size: 9px; color: #56f000; letter-spacing: 0.08em; white-space: nowrap; }
+
+/* Empty-state onboarding panel (shown when zero units enrolled) */
+.empty-wrap { padding: 40px 20px; display: flex; align-items: center; justify-content: center; min-height: 480px; font-family: Roboto, sans-serif; }
+.empty-card { background: #142028; border: 1px solid #1f2e3c; border-radius: 4px; max-width: 720px; width: 100%; padding: 32px; }
+.empty-card .hero { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid #1c2733; }
+.empty-card .icon { width: 56px; height: 56px; border-radius: 4px; background: linear-gradient(135deg, #1f3a1c, #2d5429); display: flex; align-items: center; justify-content: center; font-size: 28px; }
+.empty-card h3 { color: #fff; margin: 0 0 4px; font-size: 20px; font-weight: 500; }
+.empty-card .sub { color: #7d92a8; font-size: 13px; margin: 0; }
+.steps { display: flex; flex-direction: column; gap: 18px; margin-top: 20px; }
+.step { display: flex; gap: 14px; align-items: flex-start; }
+.step-num { width: 28px; height: 28px; border-radius: 50%; background: rgba(77, 172, 255, 0.15); color: #4dacff; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 500; flex-shrink: 0; }
+.step-body { flex: 1; color: #c2d2e3; font-size: 13px; line-height: 1.55; }
+.step-body strong { color: #fff; font-weight: 500; }
+.step-body pre { background: #0a1219; padding: 8px 12px; border-radius: 2px; border: 1px solid #1c2733; overflow-x: auto; font-size: 11px; }
+.step-body pre code { color: #56f000; font-family: 'SFMono-Regular', Consolas, monospace; }
+.key-display { background: #0a1219; border: 1px solid #1c2733; padding: 8px 12px; border-radius: 2px; font-family: monospace; font-size: 11px; color: #ffb302; margin-top: 6px; display: flex; justify-content: space-between; align-items: center; }
+.copy-btn { color: #4dacff; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; background: none; border: none; }
+.empty-foot { margin-top: 24px; padding-top: 18px; border-top: 1px solid #1c2733; }
+.doc-link { color: #4dacff; font-size: 12px; text-decoration: none; }

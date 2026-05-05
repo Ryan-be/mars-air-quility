@@ -1,6 +1,27 @@
 import { renderGrowCard } from "./components/grow-card.mjs";
+import { renderEmptyState } from "./components/empty-state.mjs";
 
 const STATE = { units: [] };
+
+
+async function _fetchEnrollmentKey() {
+  try {
+    const r = await fetch("/api/grow/enrollment-key/peek-once");
+    if (r.ok) return (await r.json()).key;
+  } catch (_) {}
+  return null;
+}
+
+
+async function refreshEmpty() {
+  const grid = document.getElementById("grow-grid");
+  grid.innerHTML = "";
+  const key = await _fetchEnrollmentKey();
+  grid.appendChild(renderEmptyState({
+    enrollmentKey: key,
+    mlssHost: window.location.hostname,
+  }));
+}
 
 async function fetchUnits() {
   const r = await fetch("/api/grow/units");
@@ -32,11 +53,11 @@ function renderSummary(units) {
 function renderGrid(units) {
   const grid = document.getElementById("grow-grid");
   grid.innerHTML = "";
-  for (const u of units) grid.appendChild(renderGrowCard(u));
-  // Empty-state placeholder
   if (units.length === 0) {
-    grid.innerHTML = "<p style='padding:40px;color:#7d92a8'>No grow units enrolled yet — go to Settings → Grow for instructions.</p>";
+    refreshEmpty();
+    return;
   }
+  for (const u of units) grid.appendChild(renderGrowCard(u));
 }
 
 async function refresh() {
