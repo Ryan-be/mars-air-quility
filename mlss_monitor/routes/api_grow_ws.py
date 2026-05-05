@@ -137,6 +137,11 @@ def start_ws_listener(host: str, port: int, registry):
         try:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
+            # Expose the loop so cross-thread callers (Flask request handlers in
+            # api_grow_units.py) can schedule coroutines on it via
+            # asyncio.run_coroutine_threadsafe.
+            from mlss_monitor import state
+            state.grow_ws_loop = loop
 
             async def _serve():
                 srv = await websockets.serve(

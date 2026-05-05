@@ -78,6 +78,7 @@ feature_vector = None
 
 # Plant Grow Unit WS registry (set by app.py at startup)
 grow_ws_registry = None
+grow_ws_loop = None       # set by api_grow_ws._run on listener startup
 
 # API clients
 open_meteo = None

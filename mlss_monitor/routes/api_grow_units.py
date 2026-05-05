@@ -6,6 +6,7 @@ POST /api/grow/units/<id>/identify          — push identify command via WS
 POST /api/grow/units/<id>/water-now         — push manual watering command via WS
 """
 import asyncio
+import concurrent.futures
 import json
 import sqlite3
 from datetime import datetime, timedelta
@@ -15,6 +16,8 @@ from database.init_db import DB_FILE
 from mlss_monitor import state
 
 api_grow_units_bp = Blueprint("api_grow_units", __name__)
+
+_PUSH_TIMEOUT_S = 5
 
 _STALE_AFTER = timedelta(seconds=30)
 _OFFLINE_AFTER = timedelta(minutes=5)
@@ -100,23 +103,44 @@ def get_unit(unit_id):
 
 
 def _push_command_blocking(unit_id: int, command: dict) -> tuple[int, dict]:
-    """Send a command to a unit via the WS registry. Returns (status, body)."""
+    """Send a command to a unit via the WS registry.
+
+    Schedules `registry.send_to_unit` on the listener thread's event loop
+    (where the WebSocket connection objects live) using
+    `asyncio.run_coroutine_threadsafe`. Blocks the Flask request thread up
+    to _PUSH_TIMEOUT_S seconds for the send to complete.
+
+    Returns (status, body):
+      - (503, {"error": "unit_not_connected"}) if registry empty / unit
+        disconnected before-or-during the send (KeyError race)
+      - (503, {"error": "send_failed"})        if the underlying ws.send
+        raised (e.g. ConnectionClosed) — peer dropped between lookup and send
+      - (504, {"error": "send_timeout"})       if the listener didn't
+        complete the send within _PUSH_TIMEOUT_S
+      - (202, {"queued": True})                on successful send
+    """
     registry = state.grow_ws_registry
-    if registry is None or not registry.is_connected(unit_id):
+    listener_loop = state.grow_ws_loop
+    if registry is None or listener_loop is None or not registry.is_connected(unit_id):
         return 503, {"error": "unit_not_connected"}
     msg = json.dumps({
         "type": "command",
         "ts": datetime.utcnow().isoformat() + "Z",
         "payload": command,
     })
-    # The WS listener runs on its own loop on another thread — schedule there
     try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(registry.send_to_unit(unit_id, msg))
-        loop.close()
+        future = asyncio.run_coroutine_threadsafe(
+            registry.send_to_unit(unit_id, msg), listener_loop
+        )
+        future.result(timeout=_PUSH_TIMEOUT_S)
     except KeyError:
         return 503, {"error": "unit_not_connected"}
+    except concurrent.futures.TimeoutError:
+        return 504, {"error": "send_timeout"}
+    except Exception:
+        # ws.send may raise ConnectionClosed or other transport errors if the
+        # peer dropped between is_connected() and send. Treat as 503.
+        return 503, {"error": "send_failed"}
     return 202, {"queued": True}
 
 
