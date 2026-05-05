@@ -49,6 +49,28 @@ For documentation tasks, the "test" is a markdown lint + spec-coverage review (d
 
 ---
 
+## Cross-platform notes (apply to every task)
+
+These are real gotchas surfaced during execution of early tasks. Patch existing task code as you go — don't follow the plan's literal text if it contradicts these:
+
+1. **`tempfile.NamedTemporaryFile` doesn't work on Windows for SQLite tests.** The `with` block holds an exclusive Windows file handle; SQLite then can't open the file. **Always use the pytest `tmp_path` fixture instead.** Pattern:
+   ```python
+   def test_something(monkeypatch, tmp_path):  # add tmp_path to signature
+       db_path = str(tmp_path / "test.db")
+       monkeypatch.setattr("database.init_db.DB_FILE", db_path)
+       create_db()
+       # ... assertions
+   ```
+   This pattern appears in ~20 task tests in the plan — apply the swap each time.
+
+2. **Poetry isn't on `PATH`** on the dev Windows machine. Use `python -m poetry ...` instead of bare `poetry ...`. Functionally identical.
+
+3. **Pytest invocations for isolated per-package venvs** (`contracts/`, `grow_unit/`) — invoke pytest from inside the package directory **without explicit path arguments**. The package's `pyproject.toml` `[tool.pytest.ini_options]` block (with `testpaths` + `addopts = "--noconftest"`) handles discovery and skips the parent `tests/conftest.py` (which imports MLSS-only modules). Plan steps may show `python -m pytest path/to/test.py -v` — this won't work for per-package venvs because pytest walks up to the wrong rootdir. Use `cd <package> && python -m poetry run python -m pytest -v` instead.
+
+4. **Poetry 2.x requires `poetry lock` before `poetry install` after `pyproject.toml` changes.** Run `python -m poetry lock` first if `poetry install` complains.
+
+---
+
 ## File structure (where new code lives)
 
 ```
