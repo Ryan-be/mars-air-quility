@@ -25,6 +25,7 @@ numpy = "^1.26"
 pyyaml = "^6.0"
 gunicorn = "^25.3.0"
 websockets = "^12.0"
+argon2-cffi = "^23.1"
 mlss-contracts = {path = "contracts", develop = true}
 
 [tool.poetry.group.dev.dependencies]
