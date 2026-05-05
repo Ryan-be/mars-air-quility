@@ -123,27 +123,49 @@ async def _connection_handler(ws, path: str, registry):
 
 
 def start_ws_listener(host: str, port: int, registry):
-    """Boot the WS listener on its own thread + event loop. Returns the server obj."""
+    """Boot the WS listener on its own thread + event loop. Returns the server obj.
+
+    Raises RuntimeError if the server fails to bind within 5 seconds (e.g. port
+    already in use). Otherwise returns the websockets.WebSocketServer so callers
+    can inspect the bound port (`server.sockets[0].getsockname()[1]`) when the
+    caller passed `port=0` to let the OS assign one.
+    """
     server_holder = {}
     ready = threading.Event()
 
     def _run():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
 
-        async def _serve():
-            srv = await websockets.serve(
-                lambda ws, path: _connection_handler(ws, path, registry),
-                host, port,
-                process_request=_process_request,
-                max_size=8 * 1024 * 1024,  # 8 MB max frame
-            )
-            server_holder["srv"] = srv
-            ready.set()
-            await srv.wait_closed()
+            async def _serve():
+                srv = await websockets.serve(
+                    lambda ws, path: _connection_handler(ws, path, registry),
+                    host, port,
+                    process_request=_process_request,
+                    max_size=8 * 1024 * 1024,  # 8 MB max frame
+                )
+                server_holder["srv"] = srv
+                ready.set()
+                await srv.wait_closed()
 
-        loop.run_until_complete(_serve())
+            loop.run_until_complete(_serve())
+        except Exception as exc:
+            # Anything raised during bind/serve dies in this thread otherwise —
+            # log it so the parent thread's RuntimeError isn't the only signal.
+            log.exception("grow WS listener thread crashed: %s", exc)
+            ready.set()  # wake the parent so it surfaces a RuntimeError
 
     threading.Thread(target=_run, daemon=True, name="grow-ws-listener").start()
-    ready.wait(timeout=5)
-    return server_holder["srv"]
+    if not ready.wait(timeout=5):
+        raise RuntimeError(
+            f"grow WS listener failed to bind {host}:{port} within 5s"
+        )
+    srv = server_holder.get("srv")
+    if srv is None:
+        # Thread set `ready` from the except branch; the real cause was logged.
+        raise RuntimeError(
+            f"grow WS listener thread crashed during startup (see log for cause); "
+            f"could not bind {host}:{port}"
+        )
+    return srv
