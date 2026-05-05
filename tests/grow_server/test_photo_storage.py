@@ -80,7 +80,7 @@ def test_handle_photo_writes_file_and_db_row(setup):
     assert row[4] == 100  # joined to the telemetry row inserted in fixture
 
 
-def test_handle_photo_no_telemetry_match_leaves_telemetry_id_null(setup, tmp_path):
+def test_handle_photo_no_telemetry_match_leaves_telemetry_id_null(setup):
     """If no telemetry row within ±60s, telemetry_id stays NULL (will not break ML join — just absent)."""
     db_path, images_dir = setup
     from mlss_monitor.grow.photo_storage import handle_photo_frame

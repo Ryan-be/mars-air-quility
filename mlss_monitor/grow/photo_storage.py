@@ -43,7 +43,22 @@ def _resolve_images_dir() -> str:
 
 
 def handle_photo_frame(unit_id: int, frame: bytes) -> None:
-    """Parse a binary photo frame and persist file + metadata."""
+    """Parse a binary photo frame and persist file + metadata.
+
+    Caller (the WS listener in Task 4.5) is expected to have authenticated
+    the unit via bearer token before invoking. The frame body itself is
+    only structurally validated here (header length, JSON parseability,
+    non-empty JPEG body); the JSON header fields (`taken_at`, `width`,
+    `height`, ...) are trusted to have been validated upstream by pydantic.
+    Missing required header fields surface as `KeyError`.
+
+    Known limitations (tracked for post-Phase-1):
+    - Two photos with the same second-precision `taken_at` overwrite the
+      file silently; only one DB row's `file_path` will then point to
+      correct bytes. Camera cadence makes this rare but not impossible.
+    - File is written before the DB row is inserted; if the INSERT raises,
+      the JPEG remains on disk with no DB reference.
+    """
     if len(frame) < 4:
         raise ValueError("photo frame too short for header length")
     (h_len,) = struct.unpack(">I", frame[:4])
