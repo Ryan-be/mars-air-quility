@@ -187,3 +187,35 @@ def test_pull_unit_config_passes_timeout():
             timeout=2.5,
         )
         assert mock_get.call_args.kwargs["timeout"] == 2.5
+
+
+def test_pull_unit_config_warns_only_once_for_missing_cert(caplog):
+    """C2 reconnect-pull + the existing config_changed push mean
+    pull_unit_config runs many times per dispatcher lifetime. Logging the
+    insecure-fallback WARNING on every call would spam the journal in
+    dev/test, so the warning is latched to fire once per process."""
+    import logging
+    import mlss_grow.config_sync as cs
+
+    # Test isolation: reset the module-level latch.
+    cs._warned_missing_cert = False
+    caplog.set_level(logging.WARNING, logger="mlss_grow.config_sync")
+
+    with patch("mlss_grow.config_sync.requests.get") as mock_get:
+        mock_get.return_value = _ok_response(_FULL_PAYLOAD)
+        for _ in range(3):
+            pull_unit_config(
+                server_url="https://mlss.local:5000",
+                unit_id=1,
+                token="t",
+                server_cert_path="/nonexistent/path/server.crt",
+            )
+
+    cert_warnings = [
+        rec for rec in caplog.records
+        if rec.levelno == logging.WARNING and "cert not found" in rec.getMessage()
+    ]
+    assert len(cert_warnings) == 1, (
+        f"expected exactly one cert-missing warning across 3 calls, "
+        f"got {len(cert_warnings)}: {[r.getMessage() for r in cert_warnings]}"
+    )

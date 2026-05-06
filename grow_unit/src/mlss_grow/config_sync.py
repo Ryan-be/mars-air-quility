@@ -32,6 +32,12 @@ from mlss_grow.safety_loop import LoopConfig
 
 log = logging.getLogger(__name__)
 
+# pull_unit_config is called on every config_changed push and on every
+# WS reconnect, so a per-call WARNING for a missing TLS cert would spam
+# the journal in dev/test setups. Latch a process-level flag so we log
+# the warning exactly once per dispatcher lifetime.
+_warned_missing_cert = False
+
 
 @dataclass
 class UnitConfig:
@@ -71,11 +77,14 @@ def pull_unit_config(server_url: str, unit_id: int, token: str,
     if server_cert_path and os.path.isfile(server_cert_path):
         verify: "bool | str" = server_cert_path
     else:
-        log.warning(
-            "MLSS server cert not found at %s — pulling config with "
-            "verify=False. INSECURE on a hostile LAN; fine for dev/test.",
-            server_cert_path,
-        )
+        global _warned_missing_cert
+        if not _warned_missing_cert:
+            log.warning(
+                "MLSS server cert not found at %s — pulling config with "
+                "verify=False. INSECURE on a hostile LAN; fine for dev/test.",
+                server_cert_path,
+            )
+            _warned_missing_cert = True
         verify = False
     headers = {"Authorization": f"Bearer {token}"}
     r = requests.get(url, headers=headers, verify=verify, timeout=timeout)
