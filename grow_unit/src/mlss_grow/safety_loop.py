@@ -1,10 +1,13 @@
 """Top-level orchestration: sensors → PID → actuators every tick."""
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Callable, Optional
 
 from mlss_grow.pid import PIDConfig, PIDState, pid_decide
 from mlss_grow.light_schedule import is_light_on
+
+log = logging.getLogger(__name__)
 
 
 def _moisture_pct(raw: int, calibration: tuple[int, int] | None) -> float | None:
@@ -52,8 +55,16 @@ class SafetyLoop:
             try:
                 vals = s.read()
                 readings.update(vals)
-            except Exception:
-                pass
+            except Exception as exc:
+                # Hide-the-bug avoidance: surface the failure to the operator
+                # via the log. The loop continues — a bad read on one sensor
+                # shouldn't abort the whole tick — but the failure must not
+                # be silent or the operator has no way to notice the unit is
+                # half-blind.
+                log.warning(
+                    "sensor %s read failed: %s",
+                    type(s).__name__, exc,
+                )
             if not s.healthy():
                 any_degraded = True
 
@@ -92,8 +103,12 @@ class SafetyLoop:
                 meta["taken_at"] = now.isoformat() + "Z"
                 self._emit("photo", {"meta": meta, "jpeg_bytes": jpeg})
                 self._last_photo_at = now
-            except Exception:
-                pass
+            except Exception as exc:
+                # Same reasoning as the sensor block above — surface the
+                # failure rather than swallowing it. Photos can fail for
+                # mundane reasons (libcamera busy mid-exposure, brief CSI
+                # glitch) but a persistent failure should be visible.
+                log.warning("camera capture failed: %s", exc)
 
         # 5. Telemetry — always last, includes everything we just did
         self._emit("telemetry", {
