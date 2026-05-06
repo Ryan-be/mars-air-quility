@@ -181,8 +181,31 @@ state.open_meteo = OpenMeteoClient()
 
 # ── Auth middleware ────────────────────────────────────────────────────────────
 
+# Endpoints that bypass the OAuth gate.
+#
+# The auth.* + static set covers the human-user login flow and assets the
+# login page needs. The api_grow_* set is the firmware-callable surface: a
+# Plant Grow Unit on a Pi Zero has no GitHub identity and cannot authenticate
+# as a user, so these endpoints carry their own auth posture instead:
+#   * api_grow_enroll.enroll       — requires the shared enrollment_key in
+#                                     the JSON body (see grow.auth).
+#   * api_grow_dist.install_sh     — public installer script; integrity is
+#                                     established by the SHA256 verification
+#                                     install.sh runs on every wheel and the
+#                                     systemd unit it downloads.
+#   * api_grow_dist.serve_wheel    — serves wheels and the systemd unit; the
+#                                     manifest at /api/grow/dist/latest
+#                                     publishes a sha256 the installer pins
+#                                     against.
+#
+# Note: WS callbacks at /api/grow/<unit_id>/ws run on a separate port-5001
+# listener (not Flask), so they're not affected by this set; they auth via a
+# bearer token issued at enroll time.
 _PUBLIC_ENDPOINTS = {"auth.login", "auth.logout", "auth.github_login",
-                     "auth.github_callback", "static"}
+                     "auth.github_callback", "static",
+                     "api_grow_enroll.enroll",
+                     "api_grow_dist.install_sh",
+                     "api_grow_dist.serve_wheel"}
 
 
 def _auth_configured():
