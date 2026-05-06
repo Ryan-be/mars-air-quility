@@ -255,3 +255,185 @@ async def test_incoming_command_dispatched_to_handler(tmp_path):
     assert len(received) == 1
     assert received[0]["name"] == "identify"
     assert received[0]["args"]["duration_s"] == 10
+
+
+# ----------------------------------------------------------------------------
+# on_reconnect_sync — pull-on-reconnect bug fix.
+#
+# The server's `config_changed` WS push silently no-ops while a unit is
+# disconnected (the registry has no entry for the unit). Without a pull
+# on reconnect, a config edit made while the unit is offline would leave
+# the firmware running stale config until the *next* online edit. The
+# fix wires WSClient to call an optional sync callback between the
+# outbound buffer drain and the receive loop, on every reconnect.
+# ----------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_run_forever_calls_on_reconnect_sync_after_replay_before_receive(
+    tmp_path,
+):
+    """Reconnect order: connect -> replay outbound -> on_reconnect_sync ->
+    receive. Without this, configure-while-offline-then-reconnect leaves
+    the unit running stale config until the next online config change."""
+    fake_ws = FakeWSConnection()
+    call_log: list[str] = []
+
+    def record_sync():
+        call_log.append("on_reconnect_sync")
+
+    received = []
+
+    def record_command(cmd):
+        call_log.append("on_command")
+        received.append(cmd)
+
+    # Pre-populate buffer so _replay_buffer has rows to send. Each send
+    # appends to fake_ws.sent — we'll read that list below to confirm
+    # ordering: every replay-related send happened before on_reconnect_sync.
+    client = WSClient(
+        url="ws://test", token="t",
+        buffer_db_path=str(tmp_path / "b.sqlite"),
+        on_command=record_command,
+        connect_fn=AsyncMock(return_value=fake_ws),
+        on_reconnect_sync=record_sync,
+        backoff_base=0.0,  # don't waste time sleeping in run_forever
+    )
+    client._buffer.append(
+        "telemetry",
+        json.dumps({"i": 0, "soil_moisture_raw": 600,
+                    "light_state": True, "pump_state": False}),
+        ts=datetime(2026, 1, 1),
+    )
+
+    # Drive run_forever for one connect cycle, then push an incoming
+    # command frame so the receive loop has something to dispatch, then
+    # cancel.
+    runner = asyncio.create_task(client.run_forever())
+    # Wait until the buffer has been drained AND on_reconnect_sync has
+    # been called (i.e. the runner has reached the receive loop).
+    for _ in range(50):
+        if "on_reconnect_sync" in call_log and client._buffer.size() == 0:
+            break
+        await asyncio.sleep(0.02)
+
+    # Now push a command frame so we can confirm receive happens AFTER sync.
+    await fake_ws.push_incoming(json.dumps({
+        "type": "command", "ts": "2026-05-06T12:00:00Z",
+        "payload": {"name": "identify", "args": {"duration_s": 5}},
+    }))
+    for _ in range(50):
+        if "on_command" in call_log:
+            break
+        await asyncio.sleep(0.02)
+
+    runner.cancel()
+    try:
+        await runner
+    except asyncio.CancelledError:
+        pass
+
+    # 1. Sync was called exactly once for the single reconnect cycle.
+    assert call_log.count("on_reconnect_sync") == 1, call_log
+    # 2. The incoming command was dispatched.
+    assert call_log.count("on_command") == 1, call_log
+    # 3. Critical ordering: sync runs BEFORE the first command dispatch.
+    #    If the firmware received and dispatched a command before the
+    #    fresh config landed, that command might run against stale
+    #    config (e.g. an old PID gain).
+    assert call_log.index("on_reconnect_sync") < call_log.index("on_command"), (
+        f"on_reconnect_sync must run before any command is dispatched; got {call_log}"
+    )
+    # 4. The buffered telemetry made it onto the wire, proving sync ran
+    #    AFTER replay (otherwise an exception in sync would have
+    #    short-circuited; see next test for that case).
+    assert client._buffer.size() == 0
+
+
+@pytest.mark.asyncio
+async def test_run_forever_continues_when_on_reconnect_sync_raises(tmp_path):
+    """A failed config pull must log and proceed — do NOT tear down the
+    WS or skip the receive loop. Firmware runs stale config until the
+    next config_changed push, but stays online and keeps dispatching
+    incoming commands."""
+    fake_ws = FakeWSConnection()
+    received: list[dict] = []
+
+    def boom():
+        raise RuntimeError("simulated config pull failure")
+
+    client = WSClient(
+        url="ws://test", token="t",
+        buffer_db_path=str(tmp_path / "b.sqlite"),
+        on_command=lambda cmd: received.append(cmd),
+        connect_fn=AsyncMock(return_value=fake_ws),
+        on_reconnect_sync=boom,
+        backoff_base=0.0,
+    )
+
+    runner = asyncio.create_task(client.run_forever())
+    # Give the runner time to connect, replay, hit the failing sync, and
+    # then proceed into the receive loop.
+    await asyncio.sleep(0.1)
+
+    # Receive loop must still be running — push a command and confirm it
+    # reaches the handler.
+    await fake_ws.push_incoming(json.dumps({
+        "type": "command", "ts": "2026-05-06T12:00:00Z",
+        "payload": {"name": "identify", "args": {"duration_s": 5}},
+    }))
+    for _ in range(50):
+        if received:
+            break
+        await asyncio.sleep(0.02)
+
+    runner.cancel()
+    try:
+        await runner
+    except asyncio.CancelledError:
+        pass
+
+    assert len(received) == 1, (
+        "WS receive loop must continue after on_reconnect_sync raises — "
+        "a failed config pull is best-effort, not a connection-killer"
+    )
+    assert received[0]["name"] == "identify"
+
+
+@pytest.mark.asyncio
+async def test_on_reconnect_sync_optional_default_none_keeps_old_behavior(
+    tmp_path,
+):
+    """Existing call sites that don't pass on_reconnect_sync must keep
+    working unchanged — the parameter is optional with default None."""
+    fake_ws = FakeWSConnection()
+    received: list[dict] = []
+    client = WSClient(
+        url="ws://test", token="t",
+        buffer_db_path=str(tmp_path / "b.sqlite"),
+        on_command=lambda cmd: received.append(cmd),
+        connect_fn=AsyncMock(return_value=fake_ws),
+        backoff_base=0.0,
+        # NB: no on_reconnect_sync — should default to None and the
+        # run_forever loop must skip the call without erroring.
+    )
+    assert client._on_reconnect_sync is None
+
+    runner = asyncio.create_task(client.run_forever())
+    await asyncio.sleep(0.1)
+    await fake_ws.push_incoming(json.dumps({
+        "type": "command", "ts": "2026-05-06T12:00:00Z",
+        "payload": {"name": "identify", "args": {"duration_s": 5}},
+    }))
+    for _ in range(50):
+        if received:
+            break
+        await asyncio.sleep(0.02)
+
+    runner.cancel()
+    try:
+        await runner
+    except asyncio.CancelledError:
+        pass
+
+    assert len(received) == 1

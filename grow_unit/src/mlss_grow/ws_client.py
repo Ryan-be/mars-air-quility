@@ -12,7 +12,7 @@ import os
 import random
 import ssl
 from datetime import datetime
-from typing import Callable
+from typing import Callable, Optional
 
 from mlss_grow.buffer import LocalBuffer
 from mlss_grow.ws_protocol import encode_text_message, encode_photo_frame
@@ -73,7 +73,8 @@ class WSClient:
                  on_command: Callable[[dict], None],
                  connect_fn=_default_connect,
                  backoff_base: float = 1.0, backoff_max: float = 60.0,
-                 server_cert_path: "str | None" = None) -> None:
+                 server_cert_path: "str | None" = None,
+                 on_reconnect_sync: Optional[Callable[[], None]] = None) -> None:
         self._url = url
         self._token = token
         self._buffer = LocalBuffer(buffer_db_path)
@@ -82,6 +83,12 @@ class WSClient:
         self._backoff_base = backoff_base
         self._backoff_max = backoff_max
         self._server_cert_path = server_cert_path
+        # Optional callback invoked once per successful reconnect, between
+        # outbound buffer drain and the receive loop. Used by service.py
+        # to re-pull + apply unit config so changes made while offline
+        # take effect on reconnect, not on the next online config push.
+        # Failures are logged and swallowed — they must NOT tear down the WS.
+        self._on_reconnect_sync = on_reconnect_sync
         self._ws = None
 
     async def _connect_once(self) -> bool:
@@ -215,6 +222,20 @@ class WSClient:
             attempt = 0
             try:
                 await self._replay_buffer()
+                # Re-sync config from the server. Config may have changed
+                # while we were offline, and the server's config_changed
+                # WS push silently no-ops while the unit is disconnected
+                # (the registry has no entry for the unit). Without this
+                # pull, the firmware would run stale config until the next
+                # *online* config edit. Failures here must NOT tear down
+                # the WS — log and proceed; we'll fall back to whatever
+                # loop_cfg already holds, and the next config_changed push
+                # while online will re-sync.
+                if self._on_reconnect_sync is not None:
+                    try:
+                        self._on_reconnect_sync()
+                    except Exception as exc:
+                        log.warning("on_reconnect_sync failed: %s", exc)
                 await self._receive_loop()
             finally:
                 self._ws = None

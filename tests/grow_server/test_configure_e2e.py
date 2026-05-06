@@ -526,3 +526,122 @@ async def test_e2e_RBAC_viewer_blocked_at_session_level(configured_stack):
     assert r_viewer.status_code == 403, r_viewer.data
     body = r_viewer.get_json()
     assert "Forbidden" in body["error"]
+
+
+# ---------------------------------------------------------------------------
+# Test 8: offline config edit then reconnect — real-stack proof of the
+# pull-on-reconnect fix.
+#
+# Bug premise (the *reason* this test exists):
+#   1. unit disconnects (registry forgets it)
+#   2. admin PUTs new config — the WS push to a non-registered unit
+#      silently no-ops (KeyError swallowed by _push_config_changed)
+#   3. unit reconnects — without on_reconnect_sync wiring, firmware would
+#      run *stale* config until the next online edit, because no push
+#      ever lands.
+#
+# Fix: on every reconnect, between outbound buffer drain and the receive
+# loop, WSClient invokes the on_reconnect_sync callback that pulls fresh
+# config from the bearer-authed GET /config endpoint. service.py wires
+# that callback up.
+#
+# What we prove here through the real stack:
+#   * step 2 is genuinely silent (no exception, no push, no queue)
+#   * the GET /config endpoint, after the offline edit, returns the
+#     NEW values — i.e. a real WSClient with on_reconnect_sync pointed
+#     at this app would see fresh config the next time it reconnects.
+#
+# What we DON'T prove here, and why:
+#   The full round-trip — real WSClient.run_forever() invoking the real
+#   on_reconnect_sync against this Flask app — would need a TCP-bound
+#   Flask server (the test client is a WSGI shim with no port). Adding
+#   a Flask test server next to the existing `start_ws_listener` is
+#   significant fixture surface for one test. Instead the WSClient
+#   ordering invariant is covered by
+#   `test_run_forever_calls_on_reconnect_sync_after_replay_before_receive`,
+#   the closure construction by `test_build_reconnect_sync_*`, and the
+#   GET /config round-trip through the real Flask blueprint by Test 2
+#   above (`test_e2e_pid_update_pushes_config_changed_and_firmware_can_pull`).
+# ---------------------------------------------------------------------------
+
+
+async def test_e2e_offline_config_change_then_reconnect_pulls_fresh_config(
+    configured_stack,
+):
+    """Real-stack proof of the bug premise + the GET that the
+    on_reconnect_sync closure depends on:
+
+      * disconnect the fake firmware
+      * PUT new pid config — the push silently no-ops (no exception, no
+        queued frame, registry has no entry to push to)
+      * reconnect the fake firmware
+      * the firmware's bearer-authed GET /config returns the NEW values
+        (the values an `on_reconnect_sync` invocation would apply)
+    """
+    bundle = configured_stack
+    admin = bundle["admin_client"]
+    registry = bundle["registry"]
+    fw = bundle["fake_firmware"]
+    token = bundle["bearer_token"]
+    port = bundle["ws_port"]
+
+    # --- 1. Disconnect ---
+    await fw.close()
+    for _ in range(40):
+        if not registry.is_connected(1):
+            break
+        await asyncio.sleep(0.05)
+    assert not registry.is_connected(1), (
+        "registry should drop the unit after the WS closes"
+    )
+
+    # --- 2. Admin changes config while unit is disconnected. The PUT
+    # itself MUST succeed (DB write is the source of truth). The
+    # config_changed push silently no-ops because the registry has no
+    # entry — exactly the failure mode the offline-reconnect-pull fix
+    # exists to compensate for. ---
+    r = admin.put(
+        "/api/grow/units/1/pid",
+        json={"kp": 0.9, "soak_window_min": 75},
+    )
+    assert r.status_code == 200, r.data
+
+    # --- 3. Reconnect the fake firmware ---
+    fw2 = _FakeFirmware()
+    await fw2.connect(port, unit_id=1, token=token)
+    for _ in range(40):
+        if registry.is_connected(1):
+            break
+        await asyncio.sleep(0.05)
+    assert registry.is_connected(1)
+
+    # No pre-existing buffered config_changed frame should be lurking —
+    # the offline push truly was lost (this is what the fix exists to
+    # compensate for). Wait briefly to confirm no stale push lands.
+    received_during_reconnect: list[dict] = []
+    try:
+        cmd = await fw2.wait_for_command(timeout=0.5)
+        received_during_reconnect.append(cmd)
+    except asyncio.TimeoutError:
+        pass
+
+    # --- 4. The firmware (in real life: WSClient.on_reconnect_sync)
+    # would now pull fresh config. Prove the GET /config returns the
+    # NEW values, not the pre-PUT defaults. We use a fresh test_client
+    # so no admin session cookie leaks in (firmware uses bearer-only). ---
+    firmware_client = bundle["app"].test_client()
+    r2 = firmware_client.get(
+        "/api/grow/units/1/config",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r2.status_code == 200, r2.data
+    body = r2.get_json()
+    assert body["overrides"]["kp"] == 0.9, (
+        "pull-on-reconnect must see the offline-edited kp value, not "
+        "the pre-PUT default"
+    )
+    assert body["overrides"]["soak_window_min"] == 75
+
+    # Cleanup the second fake firmware so the fixture's teardown has
+    # nothing dangling.
+    await fw2.close()

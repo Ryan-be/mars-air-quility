@@ -106,6 +106,48 @@ def main() -> None:
     asyncio.run(_run_main_loop(state))
 
 
+def _build_reconnect_sync(server_url: str, unit_id: int, token: str,
+                          server_cert_path: "str | None", loop_cfg) -> "Callable[[], None]":
+    """Build a callback that pulls + applies the latest unit config.
+
+    Used by WSClient on every successful reconnect (after outbound buffer
+    drain, before the receive loop) so config edits made while the unit
+    was offline take effect on reconnect — not on the next online edit.
+
+    The closure binds the same loop_cfg the safety loop reads from, so
+    apply_config's in-place mutation is visible to subsequent ticks
+    without any further plumbing.
+
+    Failures (network blip, server down, malformed response) are logged
+    but do NOT raise — WSClient.run_forever's wrapper turns a raise into
+    a tear-down warning, which is also OK, but logging-then-returning
+    keeps the WS up so we still receive any config_changed push that
+    follows.
+    """
+    from mlss_grow.config_sync import pull_unit_config, apply_config
+
+    def _sync() -> None:
+        try:
+            unit_cfg = pull_unit_config(
+                server_url, unit_id, token,
+                server_cert_path=server_cert_path,
+            )
+            apply_config(unit_cfg, loop_cfg)
+            log.info(
+                "reconnect: pulled fresh config and applied "
+                "(phase=%s, plant_type=%s)",
+                unit_cfg.current_phase, unit_cfg.plant_type,
+            )
+        except Exception as exc:
+            log.warning(
+                "reconnect-pull failed: %s — running stale config until "
+                "next config_changed push",
+                exc,
+            )
+
+    return _sync
+
+
 async def _run_main_loop(state: BootstrappedState) -> None:
     """Wire up sensors, actuators, camera, WS client, safety loop. Run forever.
 
@@ -130,6 +172,22 @@ async def _run_main_loop(state: BootstrappedState) -> None:
     light = AutomationPHATLight()
     camera = Camera.detect()
 
+    # Default config until MLSS sends an explicit one. The first
+    # `config_changed` push (or the first explicit pull) replaces the
+    # PID/light/calibration state in place via apply_config.
+    loop_cfg = LoopConfig(
+        light_windows=[parse_window("06:00", "22:00")],
+        pid=PIDConfig(target_pct=55),
+    )
+
+    # The HTTPS base URL for config pulls. pull_unit_config appends
+    # /api/grow/units/<id>/config itself, so we pass just the scheme +
+    # host + port. Note: the WS uses port 5001, the HTTPS API uses 5000
+    # — same host, different services. Mirrors DispatchContext.server_url
+    # below so the on_reconnect_pull and the config_changed dispatcher
+    # both hit the same endpoint.
+    https_base_url = f"https://{state.mlss_host}:5000"
+
     received_commands = asyncio.Queue()
     ws = WSClient(
         url=f"wss://{state.mlss_host}:5001/api/grow/{state.unit_id}/ws",
@@ -137,14 +195,13 @@ async def _run_main_loop(state: BootstrappedState) -> None:
         buffer_db_path="/var/lib/mlss-grow/buffer.sqlite",
         on_command=lambda cmd: received_commands.put_nowait(cmd),
         server_cert_path=state.server_cert_path,
-    )
-
-    # Default config until MLSS sends an explicit one. The first
-    # `config_changed` push (or the first explicit pull) replaces the
-    # PID/light/calibration state in place via apply_config.
-    loop_cfg = LoopConfig(
-        light_windows=[parse_window("06:00", "22:00")],
-        pid=PIDConfig(target_pct=55),
+        on_reconnect_sync=_build_reconnect_sync(
+            server_url=https_base_url,
+            unit_id=state.unit_id,
+            token=state.token,
+            server_cert_path=state.server_cert_path,
+            loop_cfg=loop_cfg,
+        ),
     )
 
     # Shared state between dispatcher (writer) and safety loop (reader)
@@ -165,12 +222,13 @@ async def _run_main_loop(state: BootstrappedState) -> None:
             emit(k, p), asyncio.get_event_loop()),
     )
 
-    # Bundle of state the dispatcher needs. The server URL is rebuilt
-    # from mlss_host without the wss:// + WS path; pull_unit_config
-    # appends /api/grow/units/<id>/config itself.
+    # Bundle of state the dispatcher needs. Reuses https_base_url so
+    # config_changed pushes and the on_reconnect_sync pull hit the same
+    # endpoint; pull_unit_config appends /api/grow/units/<id>/config
+    # itself.
     dispatch_ctx = DispatchContext(
         unit_id=state.unit_id,
-        server_url=f"https://{state.mlss_host}:5000",
+        server_url=https_base_url,
         token=state.token,
         server_cert_path=state.server_cert_path,
         pump=pump, light=light, camera=camera,
