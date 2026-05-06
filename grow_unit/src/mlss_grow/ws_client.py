@@ -122,26 +122,65 @@ class WSClient:
             self._ws = None
 
     async def _replay_buffer(self) -> None:
-        rows = self._buffer.pop_all()
+        """Drain the local buffer to the WS, deleting each row only after
+        a successful send.
+
+        If a send fails mid-replay (socket drop, server hiccup) the
+        un-sent rows stay in the buffer and the next reconnect picks
+        them up. The previous flow `pop_all()` deleted the entire batch
+        up front, which silently lost rows when the connection died
+        partway through.
+        """
+        rows = self._buffer.peek_all()
         if not rows:
             return
         log.info("replaying %d buffered messages", len(rows))
-        # Notify server we're replaying (ack-target identification)
+        # Notify server we're replaying (ack-target identification). If the
+        # marker itself fails to send, bail out before deleting anything —
+        # the whole batch will be re-attempted on next reconnect.
         start_event = encode_text_message(
             "event", datetime.utcnow(),
             {"kind": "buffer_replay_started", "details": {"count": len(rows)}},
         )
         try:
             await self._ws.send(start_event)
-            for row in rows:
-                await self._ws.send(row.body)
-            done_event = encode_text_message(
-                "event", datetime.utcnow(),
-                {"kind": "buffer_replay_complete", "details": {}},
+        except Exception as exc:
+            log.warning(
+                "buffer replay start failed: %s; %d rows preserved",
+                exc, len(rows),
             )
+            self._ws = None
+            return
+
+        sent = 0
+        for row in rows:
+            try:
+                await self._ws.send(row.body)
+            except Exception as exc:
+                remaining = len(rows) - sent
+                log.warning(
+                    "buffer replay interrupted after %d/%d rows: %s; "
+                    "%d rows preserved for next reconnect",
+                    sent, len(rows), exc, remaining,
+                )
+                self._ws = None
+                return
+            # Delete only after the send succeeded — this is the whole
+            # point of the peek-then-delete protocol.
+            self._buffer.delete(row.id)
+            sent += 1
+
+        # All rows acknowledged; emit the completion marker. Failure of
+        # the marker itself is non-fatal — the data has already been
+        # delivered.
+        done_event = encode_text_message(
+            "event", datetime.utcnow(),
+            {"kind": "buffer_replay_complete", "details": {}},
+        )
+        try:
             await self._ws.send(done_event)
         except Exception as exc:
-            log.warning("buffer replay failed: %s; rows already removed from buffer", exc)
+            log.warning("buffer replay completion marker failed: %s", exc)
             self._ws = None
 
     async def _receive_loop(self) -> None:
