@@ -60,9 +60,10 @@ def test_handle_photo_writes_file_and_db_row(setup):
 
     handle_photo_frame(unit_id=1, frame=frame)
 
-    # File on disk
+    # File on disk (filename now includes millisecond suffix; microsecond=0
+    # for an ISO timestamp without fractional seconds → "_000")
     expected_path = os.path.join(
-        images_dir, "unit_001", "2026-05-03", "123418.jpg")
+        images_dir, "unit_001", "2026-05-03", "123418_000.jpg")
     assert os.path.exists(expected_path)
     with open(expected_path, "rb") as f:
         assert f.read() == fake_jpeg
@@ -73,7 +74,7 @@ def test_handle_photo_writes_file_and_db_row(setup):
         "SELECT file_path, width_px, height_px, size_bytes, telemetry_id "
         "FROM grow_photos WHERE unit_id=1"
     ).fetchone()
-    assert row[0] == "unit_001/2026-05-03/123418.jpg"  # relative
+    assert row[0] == "unit_001/2026-05-03/123418_000.jpg"  # relative
     assert row[1] == 1920
     assert row[2] == 1080
     assert row[3] == len(fake_jpeg)
@@ -94,3 +95,41 @@ def test_handle_photo_no_telemetry_match_leaves_telemetry_id_null(setup):
         "SELECT telemetry_id FROM grow_photos WHERE size_bytes=?", (len(fake),)
     ).fetchone()[0]
     assert tid is None
+
+
+def test_same_second_photos_with_distinct_ms_create_distinct_files(setup):
+    """Two photos at 12:34:18.100 and 12:34:18.900 → two distinct files + rows."""
+    db_path, images_dir = setup
+    from mlss_monitor.grow.photo_storage import handle_photo_frame
+    fake1 = b"\xff\xd8AAA"
+    fake2 = b"\xff\xd8BBB"
+    f1 = _frame({"taken_at": "2026-05-03T12:34:18.100Z",
+                 "width": 100, "height": 100}, fake1)
+    f2 = _frame({"taken_at": "2026-05-03T12:34:18.900Z",
+                 "width": 100, "height": 100}, fake2)
+    handle_photo_frame(unit_id=1, frame=f1)
+    handle_photo_frame(unit_id=1, frame=f2)
+
+    # Two distinct file paths on disk
+    assert os.path.exists(os.path.join(
+        images_dir, "unit_001", "2026-05-03", "123418_100.jpg"))
+    assert os.path.exists(os.path.join(
+        images_dir, "unit_001", "2026-05-03", "123418_900.jpg"))
+    # Two distinct DB rows
+    conn = sqlite3.connect(db_path)
+    rows = conn.execute(
+        "SELECT file_path FROM grow_photos WHERE unit_id=1 ORDER BY file_path"
+    ).fetchall()
+    assert len(rows) == 2
+
+
+def test_exact_same_taken_at_raises_integrity_error(setup):
+    """Identical (unit_id, taken_at) → IntegrityError thanks to UNIQUE constraint."""
+    import sqlite3 as sq
+    from mlss_monitor.grow.photo_storage import handle_photo_frame
+    fake = b"\xff\xd8AAA"
+    same = _frame({"taken_at": "2026-05-03T12:34:18.500Z",
+                   "width": 100, "height": 100}, fake)
+    handle_photo_frame(unit_id=1, frame=same)
+    with pytest.raises(sq.IntegrityError):
+        handle_photo_frame(unit_id=1, frame=same)

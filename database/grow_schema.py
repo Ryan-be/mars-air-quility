@@ -124,7 +124,8 @@ def create_grow_schema(cur):
       classified_phase         TEXT,
       classifier_confidence    REAL,
       classified_at            DATETIME,
-      telemetry_id             INTEGER REFERENCES grow_telemetry(id)
+      telemetry_id             INTEGER REFERENCES grow_telemetry(id),
+      UNIQUE(unit_id, taken_at)
     );
     """)
     cur.execute(

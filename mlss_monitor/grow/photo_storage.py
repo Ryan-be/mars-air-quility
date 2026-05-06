@@ -52,12 +52,16 @@ def handle_photo_frame(unit_id: int, frame: bytes) -> None:
     `height`, ...) are trusted to have been validated upstream by pydantic.
     Missing required header fields surface as `KeyError`.
 
-    Known limitations (tracked for post-Phase-1):
-    - Two photos with the same second-precision `taken_at` overwrite the
-      file silently; only one DB row's `file_path` will then point to
-      correct bytes. Camera cadence makes this rare but not impossible.
-    - File is written before the DB row is inserted; if the INSERT raises,
-      the JPEG remains on disk with no DB reference.
+    Atomicity: INSERT is staged before the file write. If the file write
+    fails, the row is rolled back. If the commit fails after the file
+    write, the file is unlinked. This bounds the orphan-window to the
+    (much rarer) sqlite-commit failure case.
+
+    Same-second collisions: filename includes millisecond precision
+    (`HHMMSS_mmm.jpg`) and the grow_photos table has
+    `UNIQUE(unit_id, taken_at)`, so two photos at the same exact
+    `taken_at` raise `sqlite3.IntegrityError` rather than silently
+    corrupting.
     """
     if len(frame) < 4:
         raise ValueError("photo frame too short for header length")
@@ -77,13 +81,11 @@ def handle_photo_frame(unit_id: int, frame: bytes) -> None:
 
     images_dir = _resolve_images_dir()
     rel_dir = f"unit_{unit_id:03d}/{taken_at_utc.strftime('%Y-%m-%d')}"
-    rel_path = f"{rel_dir}/{taken_at_utc.strftime('%H%M%S')}.jpg"
+    rel_path = f"{rel_dir}/{taken_at_utc.strftime('%H%M%S_%f')[:-3]}.jpg"
     abs_dir = os.path.join(images_dir, rel_dir)
     abs_path = os.path.join(images_dir, rel_path)
 
     Path(abs_dir).mkdir(parents=True, exist_ok=True)
-    with open(abs_path, "wb") as f:
-        f.write(jpeg_bytes)
 
     conn = sqlite3.connect(DB_FILE, timeout=10)
     try:
@@ -98,6 +100,9 @@ def handle_photo_frame(unit_id: int, frame: bytes) -> None:
         ).fetchone()
         telemetry_id = join_row[0] if join_row else None
 
+        # Stage the INSERT before writing the file so a failed insert
+        # (e.g. UNIQUE violation, OperationalError) rolls back cleanly
+        # without leaving an orphan JPEG on disk.
         conn.execute(
             "INSERT INTO grow_photos "
             "(unit_id, taken_at, file_path, width_px, height_px, size_bytes, "
@@ -108,6 +113,24 @@ def handle_photo_frame(unit_id: int, frame: bytes) -> None:
              header.get("jpeg_quality"), header.get("shutter_us"),
              header.get("iso"), header.get("white_balance"), telemetry_id),
         )
+
+        # Write the file. If this fails we rollback the staged row.
+        with open(abs_path, "wb") as f:
+            f.write(jpeg_bytes)
+
+        # Commit only after both the row and the file are in place. If
+        # the commit fails, the outer except will rollback and unlink.
         conn.commit()
+    except Exception:
+        conn.rollback()
+        # File may have been written before the failure (file-write
+        # error mid-write, or commit failure after a successful write).
+        # Unlink so we don't leave an orphan JPEG on disk.
+        try:
+            if os.path.exists(abs_path):
+                os.unlink(abs_path)
+        except OSError:
+            pass
+        raise
     finally:
         conn.close()
