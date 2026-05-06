@@ -1,0 +1,173 @@
+"""Service-level command dispatch.
+
+`dispatch_command` is the single switchboard for incoming WS `command`
+messages. It accepts the payload dict (the `payload` field of the
+{type: "command", payload: ...} envelope) and routes by `kind` (new
+config_changed/safety_override commands) OR `name` (legacy
+identify/water_now/snap_photo). Both are accepted because the server
+code uses both spellings — see api_grow_units.identify (sends `name`)
+vs api_grow_config._push_config_changed (sends `kind`).
+
+Tests cover:
+  * legacy commands still dispatch correctly (no regression)
+  * config_changed triggers a pull + apply
+  * safety_override drives the actuator via the override module
+  * unknown commands are dropped without raising
+"""
+import asyncio
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from mlss_grow.dispatch import (
+    DispatchContext,
+    dispatch_command,
+)
+
+
+def _basic_context():
+    """A DispatchContext with all-MagicMock collaborators."""
+    return DispatchContext(
+        unit_id=1,
+        server_url="https://mlss.local:5000",
+        token="t",
+        server_cert_path=None,
+        pump=MagicMock(state=MagicMock(return_value=False)),
+        light=MagicMock(state=MagicMock(return_value=False)),
+        camera=MagicMock(),
+        loop_cfg=MagicMock(),
+        ws=MagicMock(),
+        override_state=None,  # filled per-test if needed
+    )
+
+
+# ----------------------------------------------------------------------------
+# Legacy `name`-keyed commands — must keep working unchanged.
+# ----------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_dispatch_identify_calls_blink_pattern():
+    ctx = _basic_context()
+    await dispatch_command({"name": "identify", "args": {"duration_s": 7}}, ctx)
+    ctx.light.blink_pattern.assert_called_once_with(duration_s=7)
+
+
+@pytest.mark.asyncio
+async def test_dispatch_identify_uses_default_duration_when_missing():
+    """No args.duration_s → fall back to 10s (matches the legacy behavior
+    in the original service.py)."""
+    ctx = _basic_context()
+    await dispatch_command({"name": "identify"}, ctx)
+    ctx.light.blink_pattern.assert_called_once_with(duration_s=10)
+
+
+@pytest.mark.asyncio
+async def test_dispatch_water_now_calls_pump_pulse():
+    ctx = _basic_context()
+    await dispatch_command({"name": "water_now", "args": {"duration_s": 4}}, ctx)
+    ctx.pump.pulse.assert_called_once_with(4)
+
+
+# ----------------------------------------------------------------------------
+# New `kind`-keyed commands — Task 8 wiring.
+# ----------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_dispatch_config_changed_pulls_and_applies():
+    """config_changed → pull fresh config from server, then apply to
+    loop_cfg. Both calls must happen in order; if pull raises, no apply
+    runs (and the dispatcher keeps going)."""
+    ctx = _basic_context()
+    fake_unit_cfg = MagicMock()
+    with patch("mlss_grow.dispatch.pull_unit_config",
+                return_value=fake_unit_cfg) as mock_pull, \
+         patch("mlss_grow.dispatch.apply_config") as mock_apply:
+        await dispatch_command(
+            {"kind": "config_changed", "section": "pid"}, ctx,
+        )
+    mock_pull.assert_called_once_with(
+        ctx.server_url, ctx.unit_id, ctx.token, ctx.server_cert_path,
+    )
+    mock_apply.assert_called_once_with(fake_unit_cfg, ctx.loop_cfg)
+
+
+@pytest.mark.asyncio
+async def test_dispatch_config_changed_swallows_pull_failure():
+    """If pull_unit_config raises (network blip, server down), the
+    dispatcher must log + continue — config_changed is best-effort.
+    The next reconnect will re-pull."""
+    ctx = _basic_context()
+    with patch("mlss_grow.dispatch.pull_unit_config",
+                side_effect=ConnectionError("server down")), \
+         patch("mlss_grow.dispatch.apply_config") as mock_apply:
+        # Must NOT raise:
+        await dispatch_command(
+            {"kind": "config_changed", "section": "pid"}, ctx,
+        )
+    mock_apply.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_dispatch_safety_override_calls_invoke_safety_override():
+    """safety_override → forwards the action+duration to
+    invoke_safety_override (which manages the Timer + actuator drive)."""
+    from mlss_grow.safety_override import SafetyOverrideState
+    ctx = _basic_context()
+    ctx.override_state = SafetyOverrideState()
+    with patch("mlss_grow.dispatch.invoke_safety_override") as mock_invoke:
+        await dispatch_command(
+            {"kind": "safety_override",
+             "action": "force_pump_on", "duration_s": 5}, ctx,
+        )
+    mock_invoke.assert_called_once_with(
+        "force_pump_on", 5.0, pump=ctx.pump, light=ctx.light,
+        state=ctx.override_state,
+    )
+
+
+@pytest.mark.asyncio
+async def test_dispatch_safety_override_coerces_duration_to_float():
+    """duration_s arrives as either int or float over JSON — coerce so
+    invoke_safety_override always sees a float."""
+    from mlss_grow.safety_override import SafetyOverrideState
+    ctx = _basic_context()
+    ctx.override_state = SafetyOverrideState()
+    with patch("mlss_grow.dispatch.invoke_safety_override") as mock_invoke:
+        await dispatch_command(
+            {"kind": "safety_override",
+             "action": "force_pump_on", "duration_s": 7}, ctx,
+        )
+    args, kwargs = mock_invoke.call_args
+    assert isinstance(args[1], float)
+    assert args[1] == 7.0
+
+
+# ----------------------------------------------------------------------------
+# Defensive: malformed payloads must NOT crash the dispatcher thread.
+# ----------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_dispatch_unknown_kind_is_no_op():
+    ctx = _basic_context()
+    # Must NOT raise:
+    await dispatch_command({"kind": "fly_to_mars"}, ctx)
+    ctx.pump.on.assert_not_called()
+    ctx.light.on.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_dispatch_unknown_name_is_no_op():
+    ctx = _basic_context()
+    # Must NOT raise:
+    await dispatch_command({"name": "make_coffee"}, ctx)
+
+
+@pytest.mark.asyncio
+async def test_dispatch_payload_missing_both_keys_is_no_op():
+    """Empty payload → log + drop. Should never happen in practice
+    (server always sets one key) but the dispatcher mustn't crash."""
+    ctx = _basic_context()
+    await dispatch_command({}, ctx)

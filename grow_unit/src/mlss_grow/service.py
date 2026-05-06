@@ -119,6 +119,8 @@ async def _run_main_loop(state: BootstrappedState) -> None:
     from mlss_grow.safety_loop import SafetyLoop, LoopConfig
     from mlss_grow.pid import PIDConfig
     from mlss_grow.light_schedule import parse_window
+    from mlss_grow.dispatch import DispatchContext, dispatch_command
+    from mlss_grow.safety_override import SafetyOverrideState
     import board, busio
     from datetime import datetime
 
@@ -137,11 +139,18 @@ async def _run_main_loop(state: BootstrappedState) -> None:
         server_cert_path=state.server_cert_path,
     )
 
-    # Default config until MLSS sends an explicit one
+    # Default config until MLSS sends an explicit one. The first
+    # `config_changed` push (or the first explicit pull) replaces the
+    # PID/light/calibration state in place via apply_config.
     loop_cfg = LoopConfig(
         light_windows=[parse_window("06:00", "22:00")],
         pid=PIDConfig(target_pct=55),
     )
+
+    # Shared state between dispatcher (writer) and safety loop (reader)
+    # for safety_override. The safety loop polls
+    # override_state.consume_skip_next_soak each tick.
+    override_state = SafetyOverrideState()
 
     async def emit(kind: str, payload: dict):
         if kind == "photo":
@@ -156,6 +165,19 @@ async def _run_main_loop(state: BootstrappedState) -> None:
             emit(k, p), asyncio.get_event_loop()),
     )
 
+    # Bundle of state the dispatcher needs. The server URL is rebuilt
+    # from mlss_host without the wss:// + WS path; pull_unit_config
+    # appends /api/grow/units/<id>/config itself.
+    dispatch_ctx = DispatchContext(
+        unit_id=state.unit_id,
+        server_url=f"https://{state.mlss_host}:5000",
+        token=state.token,
+        server_cert_path=state.server_cert_path,
+        pump=pump, light=light, camera=camera,
+        loop_cfg=loop_cfg, ws=ws,
+        override_state=override_state,
+    )
+
     async def safety_ticker():
         while True:
             try:
@@ -167,17 +189,7 @@ async def _run_main_loop(state: BootstrappedState) -> None:
     async def command_handler():
         while True:
             cmd = await received_commands.get()
-            try:
-                if cmd["name"] == "identify":
-                    light.blink_pattern(duration_s=cmd.get("args", {}).get("duration_s", 10))
-                elif cmd["name"] == "water_now":
-                    pump.pulse(cmd.get("args", {}).get("duration_s", 5))
-                elif cmd["name"] == "snap_photo" and camera:
-                    jpeg, meta = camera.capture()
-                    meta["taken_at"] = datetime.utcnow().isoformat() + "Z"
-                    await ws.send_photo(meta, jpeg)
-            except Exception as exc:
-                log.exception("command failed: %s", exc)
+            await dispatch_command(cmd, dispatch_ctx)
 
     await asyncio.gather(
         ws.run_forever(),
