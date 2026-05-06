@@ -8,11 +8,9 @@ Two credentials:
 """
 import secrets
 import sqlite3
-from functools import wraps
 
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError, InvalidHashError
-from flask import request, jsonify, g
 
 from database.init_db import DB_FILE
 
@@ -56,41 +54,10 @@ def verify_enrollment_key(raw_key: str) -> bool:
     return verify_secret(raw_key, row[0])
 
 
-def bearer_required(view_func):
-    """Decorator: validates Authorization: Bearer <token> against grow_units.
-
-    On success, sets g.grow_unit_id to the validated unit's id. On failure
-    returns 401 (missing/invalid token) or 403 (token valid but unit inactive).
-    The path's <int:unit_id> is matched against the token's owning unit_id —
-    a token for unit 5 can't access /api/grow/units/7/...
-    """
-    @wraps(view_func)
-    def wrapped(*args, **kwargs):
-        auth_header = request.headers.get("Authorization", "")
-        if not auth_header.startswith("Bearer "):
-            return jsonify({"error": "missing_bearer"}), 401
-        token = auth_header[7:].strip()
-
-        path_unit_id = kwargs.get("unit_id")
-        if path_unit_id is None:
-            return jsonify({"error": "no_unit_id_in_path"}), 400
-
-        conn = sqlite3.connect(DB_FILE, timeout=5)
-        row = conn.execute(
-            "SELECT id, bearer_token_hash, is_active FROM grow_units WHERE id=?",
-            (path_unit_id,),
-        ).fetchone()
-        conn.close()
-        if row is None:
-            return jsonify({"error": "unit_not_found"}), 401
-
-        unit_id, token_hash, is_active = row
-        if not verify_secret(token, token_hash):
-            return jsonify({"error": "invalid_token"}), 401
-        if not is_active:
-            return jsonify({"error": "unit_inactive"}), 403
-
-        g.grow_unit_id = unit_id
-        return view_func(*args, **kwargs)
-
-    return wrapped
+# NOTE: An earlier version of this module exposed a `bearer_required`
+# Flask decorator. It became dead code once the WS listener moved bearer
+# validation into `mlss_monitor.routes.api_grow_ws._validate_bearer`
+# (which has its own length pre-filter + 60s cache to defend against
+# argon2-CPU-pinning attacks). HTTP routes that need per-unit auth should
+# use the WS-side flow rather than reintroducing a decorator with no
+# call sites.
