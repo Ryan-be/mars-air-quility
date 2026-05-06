@@ -68,7 +68,7 @@ async def dispatch_command(payload: dict, ctx: DispatchContext) -> None:
         kind = payload.get("kind")
         name = payload.get("name")
         if kind == "config_changed":
-            await _handle_config_changed(ctx)
+            await _handle_config_changed(payload, ctx)
         elif kind == "safety_override":
             _handle_safety_override(payload, ctx)
         elif name == "identify":
@@ -90,13 +90,18 @@ async def dispatch_command(payload: dict, ctx: DispatchContext) -> None:
         log.exception("dispatcher: command failed: %s", exc)
 
 
-async def _handle_config_changed(ctx: DispatchContext) -> None:
+async def _handle_config_changed(payload: dict, ctx: DispatchContext) -> None:
     """Pull fresh config and apply to the running loop_cfg.
 
     Best-effort: a network/auth/server failure is logged but does NOT
     abort the dispatcher. The firmware will re-pull on its next
     config_changed (or, in the future, on each WS reconnect).
     """
+    section = payload.get("section", "<unknown>")
+    log.info(
+        "dispatcher: config_changed (section=%s) - pulling fresh config",
+        section,
+    )
     try:
         unit_cfg = pull_unit_config(
             ctx.server_url, ctx.unit_id, ctx.token, ctx.server_cert_path,

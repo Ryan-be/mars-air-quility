@@ -15,6 +15,7 @@ Tests cover:
   * unknown commands are dropped without raising
 """
 import asyncio
+import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -91,6 +92,20 @@ async def test_dispatch_config_changed_pulls_and_applies():
         ctx.server_url, ctx.unit_id, ctx.token, ctx.server_cert_path,
     )
     mock_apply.assert_called_once_with(fake_unit_cfg, ctx.loop_cfg)
+
+
+@pytest.mark.asyncio
+async def test_config_changed_logs_section(caplog):
+    """Section field should appear in the log line so ops can see what changed."""
+    caplog.set_level(logging.INFO)
+    ctx = _basic_context()
+    with patch("mlss_grow.dispatch.pull_unit_config",
+                return_value=MagicMock()), \
+         patch("mlss_grow.dispatch.apply_config"):
+        await dispatch_command(
+            {"kind": "config_changed", "section": "pid"}, ctx,
+        )
+    assert "section=pid" in caplog.text
 
 
 @pytest.mark.asyncio
