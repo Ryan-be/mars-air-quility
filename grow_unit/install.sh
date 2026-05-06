@@ -11,9 +11,10 @@
 #   2. Creates dedicated mlss-grow system user
 #   3. Creates required directories with correct ownership
 #   4. Downloads wheels (mlss_contracts + mlss_grow) from MLSS server
-#   5. Creates a venv at /opt/mlss-grow/.venv and pip-installs both wheels
-#   6. Drops the systemd service unit
-#   7. Enables and starts the service
+#   5. Pins MLSS server cert at /etc/mlss/server.crt (TOFU at install time)
+#   6. Creates a venv at /opt/mlss-grow/.venv and pip-installs both wheels
+#   7. Drops the systemd service unit
+#   8. Enables and starts the service
 
 set -euo pipefail
 
@@ -41,7 +42,8 @@ apt-get update -y
 apt-get install -y --no-install-recommends \
     python3 python3-venv python3-pip python3-dev \
     libcamera-apps i2c-tools \
-    build-essential libffi-dev
+    build-essential libffi-dev \
+    openssl
 
 # ── 2. Dedicated user
 if ! id mlss-grow >/dev/null 2>&1; then
@@ -116,7 +118,37 @@ sudo -u mlss-grow /opt/mlss-grow/.venv/bin/pip install \
     "mlss_grow==${GROW_VER}" \
     "mlss_contracts==${CONTRACTS_VER}"
 
-# ── 6. systemd unit
+# ── 6. Pin MLSS server cert at /etc/mlss/server.crt
+# The MLSS server presents a self-signed cert on the LAN (matches the
+# threat model in docs/superpowers/specs/2026-05-03-plant-grow-unit-system-design.md).
+# Without a pinned cert the firmware can't establish wss:// + can't
+# verify enrollment POSTs — the previous `verify=False` posture leaked
+# the enrollment_key (in the request body) to anyone doing LAN MITM.
+#
+# We grab the cert NOW, at install time, via openssl s_client. This is
+# Trust-On-First-Use (TOFU) — the same LAN-trust posture used by the
+# initial `curl -k` that fetched this script. After install, both the
+# enrollment POST (enrol.py) and the persistent WSS (ws_client.py)
+# verify against this pinned cert, so subsequent boots get full TLS
+# verification on every request.
+#
+# Owned by root, mode 0644 — it's a trust anchor; the mlss-grow user
+# only needs to read it (the world-readable bit), never replace it.
+echo "==> Pinning MLSS server cert at /etc/mlss/server.crt (TOFU)"
+TMP_CERT="$TMP/server.crt"
+if ! openssl s_client -servername "$MLSS_HOST" -connect "${MLSS_HOST}:5000" \
+        </dev/null 2>/dev/null \
+        | openssl x509 -outform PEM > "$TMP_CERT"; then
+    echo "ERROR: failed to fetch MLSS server cert from ${MLSS_HOST}:5000" >&2
+    exit 1
+fi
+if [[ ! -s "$TMP_CERT" ]]; then
+    echo "ERROR: extracted cert is empty (openssl s_client returned no PEM)" >&2
+    exit 1
+fi
+install -m 0644 -o root -g root "$TMP_CERT" /etc/mlss/server.crt
+
+# ── 7. systemd unit
 # We already downloaded + SHA256-verified the unit above, so the install
 # step is a plain copy from $TMP. The previous cp-from-package-data
 # fallbacks were removed — the wheel doesn't ship the .service file, so
@@ -129,7 +161,7 @@ install -m 0644 -o root -g root \
 
 systemctl daemon-reload
 
-# ── 7. Enable + start
+# ── 8. Enable + start
 echo "==> Enabling + starting mlss-grow.service"
 systemctl enable mlss-grow.service
 systemctl start mlss-grow.service

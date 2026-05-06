@@ -182,3 +182,90 @@ def test_install_script_aborts_on_service_sha256_mismatch():
         "verify_sha" in content
         and ("SERVICE" in content or "service" in content)
     )
+
+
+# ---------------------------------------------------------------------------
+# Server-cert pinning (C2 + C3 fix)
+#
+# The MLSS server presents a self-signed cert on the LAN. Without pinning,
+# the firmware's enroll POST and WSS connection can't verify the cert and
+# either crash (default ssl context) or trust anything (verify=False — bad,
+# enrollment_key sniffable from the body).
+#
+# install.sh now fetches the cert via openssl s_client at install time
+# (TOFU under the documented LAN-trust posture, same as `curl -k`), writes
+# it to /etc/mlss/server.crt with mode 0644, owned by root (it's the trust
+# anchor — mlss-grow only needs to read it).
+# ---------------------------------------------------------------------------
+
+def test_install_sh_fetches_server_cert_via_openssl_s_client():
+    """The script must extract the live server cert via openssl s_client and
+    write it to /etc/mlss/server.crt. This is the install-time TOFU step
+    that bootstraps secure enroll + WS on every subsequent boot."""
+    content = INSTALL.read_text()
+    assert "openssl s_client" in content, \
+        "install.sh must use openssl s_client to fetch the server cert"
+    assert "/etc/mlss/server.crt" in content, \
+        "install.sh must write the cert to /etc/mlss/server.crt"
+
+
+def test_install_sh_pins_server_cert_via_x509_pem():
+    """openssl s_client outputs the raw TLS handshake; the chain must be
+    piped through `openssl x509 -outform PEM` to extract a clean cert."""
+    content = INSTALL.read_text()
+    assert "openssl x509" in content, \
+        "install.sh must pipe through openssl x509 to extract a clean PEM cert"
+
+
+def test_install_sh_server_cert_uses_correct_mlss_port():
+    """The server cert lives behind the same port that serves wheels +
+    enrollment (5000). Any other port would give us a cert for a different
+    surface (or no cert at all)."""
+    content = INSTALL.read_text()
+    # The exact form is "$MLSS_HOST:5000" or similar — tolerant match.
+    assert ":5000" in content
+    # And the s_client invocation should be near the cert pinning step,
+    # so loosely assert it references MLSS_HOST.
+    assert "MLSS_HOST" in content
+
+
+def test_install_sh_server_cert_has_mode_0644():
+    """The cert is the trust anchor; world-readable is correct (any
+    non-root reader on the system needs to verify against it). 0644 is
+    the canonical posture for /etc/ssl/certs/* style files."""
+    content = INSTALL.read_text()
+    # We expect either an explicit chmod 0644 or an `install -m 0644`
+    # (the script already uses install(1) elsewhere) for the cert.
+    has_install = "install -m 0644" in content and "/etc/mlss/server.crt" in content
+    has_chmod = "chmod 0644 /etc/mlss/server.crt" in content or \
+                "chmod 644 /etc/mlss/server.crt" in content
+    assert has_install or has_chmod, \
+        "the server cert must be installed with mode 0644"
+
+
+def test_install_sh_server_cert_owned_by_root():
+    """The cert is the trust anchor — only root should be able to replace it.
+    mlss-grow needs read access (via the world-readable bit) but must not
+    own it."""
+    content = INSTALL.read_text()
+    # Look for `install -o root -g root .../server.crt` or chown root.
+    has_install_root = (
+        "-o root -g root" in content and "/etc/mlss/server.crt" in content
+    )
+    has_chown_root = "chown root" in content and "/etc/mlss/server.crt" in content
+    assert has_install_root or has_chown_root, \
+        "server.crt must be owned by root, not mlss-grow"
+
+
+def test_install_sh_documents_tofu_posture():
+    """The cert pinning is TOFU at install time — that's the documented LAN
+    trust model, same as `curl -k` for install.sh itself. A code comment
+    near the cert step makes the trade-off explicit so a reviewer knows
+    this isn't an accidental verify=False."""
+    content = INSTALL.read_text()
+    # Loose match — the comment can use TOFU, "trust on first use", or
+    # "first contact" wording.
+    msg = content.lower()
+    assert any(token in msg for token in ("tofu", "trust on first", "first-contact",
+                                           "first contact", "lan trust")), \
+        "the cert-pinning step must have a comment explaining the TOFU/LAN-trust posture"
