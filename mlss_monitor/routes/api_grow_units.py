@@ -14,6 +14,7 @@ from flask import Blueprint, jsonify, request
 
 from database.init_db import DB_FILE
 from mlss_monitor import state
+from mlss_monitor.rbac import require_role
 
 api_grow_units_bp = Blueprint("api_grow_units", __name__)
 
@@ -145,6 +146,7 @@ def _push_command_blocking(unit_id: int, command: dict) -> tuple[int, dict]:
 
 
 @api_grow_units_bp.route("/api/grow/units/<int:unit_id>/identify", methods=["POST"])
+@require_role("controller", "admin")
 def identify(unit_id):
     status, body = _push_command_blocking(unit_id, {
         "name": "identify",
@@ -154,6 +156,7 @@ def identify(unit_id):
 
 
 @api_grow_units_bp.route("/api/grow/units/<int:unit_id>/water-now", methods=["POST"])
+@require_role("controller", "admin")
 def water_now(unit_id):
     body_in = request.get_json(silent=True) or {}
     duration_s = max(1, min(30, int(body_in.get("duration_s", 5))))  # safety cap

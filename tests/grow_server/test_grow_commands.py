@@ -56,9 +56,16 @@ def client(monkeypatch):
     from flask import Flask
     from mlss_monitor.routes.api_grow_units import api_grow_units_bp
     app = Flask(__name__)
+    app.secret_key = "test-secret"   # required for session_transaction
     app.register_blueprint(api_grow_units_bp)
 
-    yield app.test_client(), fake_ws
+    test_client = app.test_client()
+    # Default session: admin (existing tests assume access)
+    with test_client.session_transaction() as sess:
+        sess["logged_in"] = True
+        sess["user_role"] = "admin"
+
+    yield test_client, fake_ws
 
     captured["loop"].call_soon_threadsafe(captured["loop"].stop)
     state.grow_ws_loop = None
@@ -161,11 +168,98 @@ def test_identify_send_failure_returns_503(monkeypatch):
 
     try:
         app = Flask(__name__)
+        app.secret_key = "test-secret"
         app.register_blueprint(api_grow_units_bp)
         c = app.test_client()
+        with c.session_transaction() as sess:
+            sess["logged_in"] = True
+            sess["user_role"] = "admin"
         r = c.post("/api/grow/units/1/identify")
         assert r.status_code == 503
         assert r.get_json()["error"] == "send_failed"
     finally:
         captured["loop"].call_soon_threadsafe(captured["loop"].stop)
         state.grow_ws_loop = None
+
+
+# ---------------------------------------------------------------------------
+# RBAC: identify and water-now must require controller/admin role
+# ---------------------------------------------------------------------------
+
+
+def _set_session(test_client, *, logged_in=True, role="admin"):
+    """Open a session on the test client with given auth state."""
+    with test_client.session_transaction() as sess:
+        sess["logged_in"] = logged_in
+        sess["user_role"] = role
+
+
+def test_identify_rejects_unauthenticated(client):
+    """Anonymous request must be rejected with 401."""
+    c, _ = client
+    _set_session(c, logged_in=False, role="viewer")
+    r = c.post("/api/grow/units/1/identify")
+    assert r.status_code == 401
+    assert r.get_json()["error"] == "Unauthorised"
+
+
+def test_identify_rejects_viewer_role(client):
+    """Viewers cannot actuate hardware - must be forbidden with 403."""
+    c, _ = client
+    _set_session(c, logged_in=True, role="viewer")
+    r = c.post("/api/grow/units/1/identify")
+    assert r.status_code == 403
+    assert "Forbidden" in r.get_json()["error"]
+
+
+def test_identify_allows_controller_role(client):
+    """Controllers (and admins) can call identify."""
+    c, _ = client
+    _set_session(c, logged_in=True, role="controller")
+    r = c.post("/api/grow/units/1/identify")
+    assert r.status_code == 202
+
+
+def test_identify_allows_admin_role(client):
+    """Admin role can call identify."""
+    c, _ = client
+    _set_session(c, logged_in=True, role="admin")
+    r = c.post("/api/grow/units/1/identify")
+    assert r.status_code == 202
+
+
+def test_water_now_rejects_unauthenticated(client):
+    """Anonymous water-now must be rejected with 401 - this is the
+    high-impact vuln (LAN attacker drowning a plant)."""
+    c, _ = client
+    _set_session(c, logged_in=False, role="viewer")
+    r = c.post("/api/grow/units/1/water-now", json={"duration_s": 30})
+    assert r.status_code == 401
+
+
+def test_water_now_rejects_viewer_role(client):
+    """Even authenticated viewers must be forbidden - household member with
+    viewer credentials cannot trigger the pump."""
+    c, _ = client
+    _set_session(c, logged_in=True, role="viewer")
+    r = c.post("/api/grow/units/1/water-now", json={"duration_s": 5})
+    assert r.status_code == 403
+
+
+def test_water_now_allows_controller_role(client):
+    """Controller role can fire water-now."""
+    c, _ = client
+    _set_session(c, logged_in=True, role="controller")
+    r = c.post("/api/grow/units/1/water-now", json={"duration_s": 5})
+    assert r.status_code == 202
+
+
+def test_unauthenticated_request_does_not_reach_command_dispatch(client):
+    """Defence in depth: even if route is hit unauthenticated, the WS registry
+    must NOT have received a command frame (proves the decorator short-circuits
+    BEFORE _push_command_blocking)."""
+    c, fake_ws = client
+    _set_session(c, logged_in=False, role="viewer")
+    fake_ws.sent.clear()
+    c.post("/api/grow/units/1/water-now", json={"duration_s": 30})
+    assert fake_ws.sent == []
