@@ -23,7 +23,15 @@ Before starting:
 
 ### 1. Get your household enrollment key
 
-Open the MLSS dashboard at `https://mlss.local:5000/grow`. Because no units are enrolled yet, you'll see the empty-state onboarding panel with the enrollment key shown once. **Copy it now and save it somewhere safe** — it's only displayed on first visit.
+**Sign in as an admin user first.** The enrollment-key reveal endpoint
+(`/api/grow/enrollment-key/peek-once`) is gated by `require_role("admin")` —
+viewers and controllers will get a 403 and the empty-state panel will not
+display the key. The reason: the enrollment key authorises
+`POST /api/grow/enroll`, which is idempotent by `hardware_serial`. Anyone
+holding the key can re-enroll a known serial and rotate that unit's
+bearer token, so only admins should ever see it.
+
+Open the MLSS dashboard at `https://mlss.local:5000/grow`. Because no units are enrolled yet, you'll see the empty-state onboarding panel with the enrollment key shown once. **Copy it now and save it somewhere safe** — it's only displayed on first visit, and only to admins.
 
 If you missed it (or are setting up after others have already enrolled units), you'll need to rotate the key via Settings → Grow (this is a Phase 2 feature; for now, edit `app_settings.grow_enrollment_key_hash` directly via SQLite or recreate the DB).
 

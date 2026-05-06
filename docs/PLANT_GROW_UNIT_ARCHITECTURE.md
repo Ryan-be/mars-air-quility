@@ -54,7 +54,7 @@ The server listener (`mlss_monitor/routes/api_grow_ws.py`) runs in its own async
 
 Two credentials:
 
-- **Household enrollment key** — argon2-hashed in `app_settings.grow_enrollment_key_hash`. Used once at first-boot to mint the per-unit token. The raw key is shown once in the empty-state UI then deleted from the DB.
+- **Household enrollment key** — argon2-hashed in `app_settings.grow_enrollment_key_hash`. Used once at first-boot to mint the per-unit token. The raw key is shown once in the empty-state UI **to admin sessions only** (`peek_once` is gated by `require_role("admin")` because the key authorises the idempotent `POST /api/grow/enroll`, which lets any holder rotate any unit's bearer token by re-POSTing a known serial), then deleted from the DB.
 - **Per-unit bearer token** — argon2-hashed in `grow_units.bearer_token_hash`. Stored on the unit at `/etc/mlss/grow.token` (mode 0600). Sent in `Authorization: Bearer ...` on every WS upgrade.
 
 Tokens are revocable per-unit (`UPDATE grow_units SET is_active=0`). Rotating the household key doesn't invalidate existing tokens — it only blocks new enrollments with the old key.
