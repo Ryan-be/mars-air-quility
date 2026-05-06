@@ -4,6 +4,9 @@ import { renderScheduleBar } from "./components/schedule-bar.mjs";
 import { renderSensorEventChart } from "./components/sensor-event-chart.mjs";
 import { renderProfileEditor } from "./components/profile-editor.mjs";
 import { renderPIDEditor } from "./components/pid-editor.mjs";
+import { renderLightWindowsEditor } from "./components/light-windows-editor.mjs";
+import { renderCalibrationWizard } from "./components/calibration-wizard.mjs";
+import { renderSafetyOverride } from "./components/safety-override.mjs";
 
 const SUBTABS = [
   { id: "live", label: "● Live", enabled: true },
@@ -275,12 +278,15 @@ async function renderLiveContent(body, unit, doc = document) {
 }
 
 
-/** Render the Configure tab body. Task 6 ships Profile + PID; Task 7 will
- *  layer in light-windows, calibration, and safety_override panels.
+/** Render the Configure tab body — all five panels (Profile, PID,
+ *  Light windows, Calibration, Safety override).
  */
 function renderConfigureContent(body, unit, doc = document) {
   body.appendChild(renderProfileEditor(unit, { ownerDocument: doc }));
   body.appendChild(renderPIDEditor(unit, { ownerDocument: doc }));
+  body.appendChild(renderLightWindowsEditor(unit, { ownerDocument: doc }));
+  body.appendChild(renderCalibrationWizard(unit, { ownerDocument: doc }));
+  body.appendChild(renderSafetyOverride(unit, { ownerDocument: doc }));
 }
 
 
