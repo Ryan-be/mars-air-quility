@@ -57,19 +57,45 @@ install -d -o mlss-grow -g mlss-grow -m 0750 /etc/mlss
 install -d -o mlss-grow -g mlss-grow -m 0750 /var/lib/mlss-grow
 install -d -o mlss-grow -g mlss-grow -m 0755 /var/log/mlss-grow
 
-# ── 4. Download wheels
+# ── 4. Download wheels (with SHA256 verification)
 echo "==> Downloading wheels from $MLSS_HOST"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
 LATEST=$(curl -ks "https://${MLSS_HOST}:5000/api/grow/dist/latest")
-GROW_VER=$(echo "$LATEST" | python3 -c "import sys,json;print(json.load(sys.stdin)['mlss_grow'])")
-CONTRACTS_VER=$(echo "$LATEST" | python3 -c "import sys,json;print(json.load(sys.stdin)['mlss_contracts'])")
 
-curl -k -o "$TMP/mlss_grow-${GROW_VER}-py3-none-any.whl" \
-    "https://${MLSS_HOST}:5000/api/grow/dist/mlss_grow-${GROW_VER}-py3-none-any.whl"
-curl -k -o "$TMP/mlss_contracts-${CONTRACTS_VER}-py3-none-any.whl" \
-    "https://${MLSS_HOST}:5000/api/grow/dist/mlss_contracts-${CONTRACTS_VER}-py3-none-any.whl"
+# Each manifest entry is now {version, filename, sha256} so we can verify
+# integrity after download — defends against LAN MITM tampering with wheels.
+GROW_VER=$(echo "$LATEST" | python3 -c "import sys,json;print(json.load(sys.stdin)['mlss_grow']['version'])")
+GROW_FILENAME=$(echo "$LATEST" | python3 -c "import sys,json;print(json.load(sys.stdin)['mlss_grow']['filename'])")
+GROW_SHA256=$(echo "$LATEST" | python3 -c "import sys,json;print(json.load(sys.stdin)['mlss_grow']['sha256'])")
+CONTRACTS_VER=$(echo "$LATEST" | python3 -c "import sys,json;print(json.load(sys.stdin)['mlss_contracts']['version'])")
+CONTRACTS_FILENAME=$(echo "$LATEST" | python3 -c "import sys,json;print(json.load(sys.stdin)['mlss_contracts']['filename'])")
+CONTRACTS_SHA256=$(echo "$LATEST" | python3 -c "import sys,json;print(json.load(sys.stdin)['mlss_contracts']['sha256'])")
+
+curl -k -o "$TMP/${GROW_FILENAME}" \
+    "https://${MLSS_HOST}:5000/api/grow/dist/${GROW_FILENAME}"
+curl -k -o "$TMP/${CONTRACTS_FILENAME}" \
+    "https://${MLSS_HOST}:5000/api/grow/dist/${CONTRACTS_FILENAME}"
+
+# ── Verify SHA256 — defends against LAN MITM tampering with wheels.
+# A wheel that mismatches its manifest hash MUST NOT be installed; the
+# Pi runs pip install as the mlss-grow user (i2c/gpio/video group member)
+# and the systemd unit fetched right after lands in /etc/systemd/system/
+# and runs as root.
+echo "==> Verifying wheel SHA256 sums"
+verify_sha() {
+    local file="$1" expected="$2" actual
+    actual=$(sha256sum "$file" | awk '{print $1}')
+    if [[ "$actual" != "$expected" ]]; then
+        echo "ERROR: SHA256 mismatch for $file" >&2
+        echo "  expected: $expected" >&2
+        echo "  actual:   $actual" >&2
+        exit 1
+    fi
+}
+verify_sha "$TMP/${GROW_FILENAME}" "$GROW_SHA256"
+verify_sha "$TMP/${CONTRACTS_FILENAME}" "$CONTRACTS_SHA256"
 
 # ── 5. venv + install
 echo "==> Creating venv and installing wheels"

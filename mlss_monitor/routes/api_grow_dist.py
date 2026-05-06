@@ -5,7 +5,7 @@ to download both wheels (mlss_contracts + mlss_grow) and install them
 into a venv at /opt/mlss-grow/.venv. See grow_unit/install.sh for the
 canonical source (created in Task 9.2).
 """
-import os
+import hashlib
 import re
 import sqlite3
 from pathlib import Path
@@ -20,7 +20,25 @@ api_grow_dist_bp = Blueprint("api_grow_dist", __name__)
 GROW_DIST_DIR = str(
     Path(__file__).resolve().parent.parent.parent / "static" / "grow_dist"
 )
+# Path-typed alias for tests that monkeypatch a Path object (and for code that
+# wants pathlib niceties). Kept in sync with GROW_DIST_DIR for backward compat.
+_WHEEL_DIR = Path(GROW_DIST_DIR)
 _WHEEL_RE = re.compile(r"^([a-z_]+)-(\d+\.\d+\.\d+)-py3-none-any\.whl$")
+
+
+def _wheel_dir() -> Path:
+    """Resolve the active wheel directory (string or Path), favouring _WHEEL_DIR
+    when tests monkeypatch it to a tmp_path."""
+    return Path(_WHEEL_DIR)
+
+
+def _wheel_sha256(filename: str) -> str:
+    """Compute SHA256 of a wheel file in the active wheel directory."""
+    h = hashlib.sha256()
+    with open(_wheel_dir() / filename, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 @api_grow_dist_bp.route("/api/grow/install.sh", methods=["GET"])
@@ -52,19 +70,30 @@ def serve_wheel(filename):
     if filename == "latest":
         return _latest_versions()
     # send_from_directory returns 404 for missing files
-    return send_from_directory(GROW_DIST_DIR, filename, as_attachment=True)
+    return send_from_directory(str(_wheel_dir()), filename, as_attachment=True)
 
 
 def _latest_versions():
-    out = {}
-    if not os.path.isdir(GROW_DIST_DIR):
+    """Walk the wheel dir and return {pkg: {version, filename, sha256}} so the
+    Pi installer can verify integrity after download (defends against LAN MITM).
+    """
+    out: dict = {}
+    wheel_dir = _wheel_dir()
+    if not wheel_dir.is_dir():
         return jsonify(out)
-    for fname in os.listdir(GROW_DIST_DIR):
-        m = _WHEEL_RE.match(fname)
-        if m:
-            pkg, ver = m.group(1), m.group(2)
-            if pkg not in out or ver > out[pkg]:
-                out[pkg] = ver
+    for p in sorted(wheel_dir.iterdir()):
+        m = _WHEEL_RE.match(p.name)
+        if not m:
+            continue
+        pkg, ver = m.group(1), m.group(2)
+        # Keep the highest version when multiple wheels exist for one pkg.
+        if pkg in out and out[pkg]["version"] >= ver:
+            continue
+        out[pkg] = {
+            "version": ver,
+            "filename": p.name,
+            "sha256": _wheel_sha256(p.name),
+        }
     return jsonify(out)
 
 

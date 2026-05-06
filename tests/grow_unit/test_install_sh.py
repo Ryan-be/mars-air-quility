@@ -55,3 +55,33 @@ def test_install_script_passes_shellcheck_when_available():
         pytest.skip("shellcheck not installed")
     r = subprocess.run(["shellcheck", str(INSTALL)], capture_output=True, text=True)
     assert r.returncode == 0, f"shellcheck:\n{r.stdout}\n{r.stderr}"
+
+
+# ---------------------------------------------------------------------------
+# SHA256 verification (Vuln 4 — defends against LAN MITM tampering)
+# ---------------------------------------------------------------------------
+
+def test_install_script_verifies_wheel_sha256():
+    """The script must compute and check sha256 of every wheel before pip install."""
+    content = INSTALL.read_text()
+    # Must read sha256 from the manifest
+    assert "sha256" in content
+    # Must use sha256sum (or equivalent) to compute
+    assert "sha256sum" in content
+    # Must abort on mismatch (set -e + explicit exit, or || exit / || return)
+    assert "exit 1" in content or "exit_code" in content
+
+
+def test_install_script_uses_filename_from_manifest():
+    """The script must use the filename returned by /latest, not hardcode it.
+    This couples the served bytes to the verified hash."""
+    content = INSTALL.read_text()
+    # Should reference filename field from the JSON manifest
+    assert "filename" in content
+
+
+def test_install_script_verifies_both_wheels():
+    """Both mlss_grow and mlss_contracts wheels must be verified."""
+    content = INSTALL.read_text()
+    assert "GROW_SHA256" in content or "grow_sha256" in content.lower()
+    assert "CONTRACTS_SHA256" in content or "contracts_sha256" in content.lower()
