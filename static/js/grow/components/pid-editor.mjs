@@ -168,8 +168,14 @@ export function renderPIDEditor(unit, opts = {}) {
         const inp = wrap.querySelector(`[data-testid='pid-input-${f.id}']`);
         const raw = inp.value.trim();
         if (raw === "") {
-          // User cleared but didn't reset; treat as null (clear override)
-          body[f.id] = null;
+          // User typed and then cleared. If the override was already null,
+          // skip the field entirely (no-op) — sending null would be
+          // indistinguishable from Reset and surprises the user. Only
+          // send an explicit null when blanking an actually-set override.
+          if (s.original !== null && s.original !== undefined) {
+            body[f.id] = null;
+          }
+          // else: no-op, skip field entirely
         } else {
           const num = Number(raw);
           if (Number.isNaN(num)) continue;

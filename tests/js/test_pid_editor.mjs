@@ -198,3 +198,70 @@ test("pid editor: shows success indicator after 200", async () => {
     _setMockFetch(orig);
   }
 });
+
+
+test("test_pid_editor_blank_input_with_null_original_skips_field_in_put_body", async () => {
+  // User types into a (default) field then clears it. Original was null,
+  // so the PUT must NOT include this field at all — sending null would be
+  // indistinguishable from clicking Reset on a field that was already
+  // default. We also ensure another dirty field still gets through.
+  const orig = _origFetch();
+  let captured = null;
+  _setMockFetch(async (url, opts) => {
+    captured = { url, opts };
+    return new Response(JSON.stringify({ ok: true }), { status: 200 });
+  });
+  try {
+    // kp: null (default), ki: null (default). User edits both then clears kp,
+    // and gives ki a real value, so the form actually has a non-empty body.
+    const el = renderPIDEditor(_unit({ kp: null, ki: null }), { ownerDocument: document });
+    const form = el.querySelector("[data-testid='pid-form']");
+    const kpInput = el.querySelector("[data-testid='pid-input-kp']");
+    const kiInput = el.querySelector("[data-testid='pid-input-ki']");
+    // Type into kp then clear it
+    kpInput.value = "0.7";
+    kpInput.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    kpInput.value = "";
+    kpInput.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    // Type into ki and leave it set
+    kiInput.value = "0.3";
+    kiInput.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    form.dispatchEvent(new dom.window.Event("submit", { cancelable: true }));
+    await _flush();
+    await _flush();
+    const body = JSON.parse(captured.opts.body);
+    assert.equal("kp" in body, false,
+      "kp must not appear: original was null and field was blanked, no-op");
+    assert.equal(body.ki, 0.3, "ki still gets sent");
+  } finally {
+    _setMockFetch(orig);
+  }
+});
+
+
+test("test_pid_editor_blank_input_with_set_original_sends_null_to_clear", async () => {
+  // User types into a (custom) field with a real override then clears it.
+  // Original was 0.5, so blanking should send null (== clear the override).
+  const orig = _origFetch();
+  let captured = null;
+  _setMockFetch(async (url, opts) => {
+    captured = { url, opts };
+    return new Response(JSON.stringify({ ok: true }), { status: 200 });
+  });
+  try {
+    const el = renderPIDEditor(_unit({ kp: 0.5 }), { ownerDocument: document });
+    const form = el.querySelector("[data-testid='pid-form']");
+    const kpInput = el.querySelector("[data-testid='pid-input-kp']");
+    // Field starts populated with "0.5". User clears it.
+    kpInput.value = "";
+    kpInput.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    form.dispatchEvent(new dom.window.Event("submit", { cancelable: true }));
+    await _flush();
+    await _flush();
+    const body = JSON.parse(captured.opts.body);
+    assert.ok("kp" in body, "kp must be in body to clear the override");
+    assert.equal(body.kp, null, "kp must be null to clear the override");
+  } finally {
+    _setMockFetch(orig);
+  }
+});
