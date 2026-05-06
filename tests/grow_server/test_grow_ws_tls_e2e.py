@@ -212,7 +212,12 @@ async def test_ws_client_handshakes_with_pinned_cert_against_self_signed_listene
       - FirstbootConfig.server_cert_path carries it through
       - _default_connect builds an SSLContext that loads it as a CA
       - websockets.connect handshakes and passes verification
+
+    Skipped when mlss_grow isn't importable from this env (it lives in a
+    separate poetry env). The grow_unit/ test suite runs the same
+    SSLContext logic in isolation; this is the cross-package proof.
     """
+    pytest.importorskip("mlss_grow")
     from mlss_grow.ws_client import WSClient
 
     port, token, registry, cert_path = tls_server_with_cert_path
@@ -247,7 +252,10 @@ async def test_ws_client_fails_when_pinned_cert_is_for_a_different_host(
     tls_server_with_cert_path, tmp_path,
 ):
     """Negative case: if the pinned cert is unrelated to the server's cert,
-    the handshake must fail. Confirms verification is real, not a no-op."""
+    the handshake must fail. Confirms verification is real, not a no-op.
+
+    Skipped when mlss_grow isn't importable (separate poetry env)."""
+    pytest.importorskip("mlss_grow")
     from cryptography import x509
     from cryptography.hazmat.primitives import hashes, serialization
     from cryptography.hazmat.primitives.asymmetric import rsa
