@@ -280,6 +280,11 @@ def put_light_windows(unit_id):
             return jsonify({"error": "unit_not_found"}), 404
 
         # Replace all windows for this (unit, phase). Other phases untouched.
+        # sqlite3 default isolation_level='' opens an implicit transaction on
+        # the first DML statement — DELETE + INSERTs share one transaction and
+        # roll back together if any INSERT raises (since `finally: conn.close()`
+        # runs without a prior commit). The conn.commit() at the end is what
+        # makes the changes durable.
         conn.execute(
             "DELETE FROM grow_light_windows WHERE unit_id=? AND phase=?",
             (unit_id, payload.phase),
