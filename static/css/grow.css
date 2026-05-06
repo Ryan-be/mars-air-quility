@@ -195,6 +195,46 @@
 .hist-chart-host { padding: 8px 14px 12px; min-height: 240px; }
 .hist-chart-svg { width: 100%; height: auto; display: block; }
 
+/* History tab — photo timelapse scrubber (Task 4) */
+.hist-tlapse { padding-bottom: 12px; }
+.hist-tlapse-body { padding: 8px 14px 12px; min-height: 200px; }
+.hist-tlapse-img {
+  max-width: 100%; height: auto; display: block;
+  border-radius: 2px; border: 1px solid #1c2733; background: #0a1219;
+}
+.hist-tlapse-caption {
+  margin-top: 8px; font-size: 11px; color: #7d92a8;
+  letter-spacing: 0.04em; font-family: 'SFMono-Regular', Consolas, monospace;
+}
+.hist-tlapse-controls { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
+.hist-tlapse-controls button {
+  background: transparent; border: 1px solid #2a3d50; color: #c2d2e3;
+  padding: 5px 14px; font-size: 14px; line-height: 1;
+  cursor: pointer; border-radius: 2px; font-family: Roboto, sans-serif;
+  min-width: 36px;
+}
+.hist-tlapse-controls button:hover { border-color: #4dacff; color: #4dacff; }
+.hist-tlapse-slider {
+  flex: 1; height: 4px; appearance: none; background: #1c2733;
+  border-radius: 2px; outline: none; cursor: pointer;
+}
+.hist-tlapse-slider::-webkit-slider-thumb {
+  appearance: none; width: 14px; height: 14px; border-radius: 50%;
+  background: #4dacff; cursor: pointer; border: none;
+}
+.hist-tlapse-slider::-moz-range-thumb {
+  width: 14px; height: 14px; border-radius: 50%;
+  background: #4dacff; cursor: pointer; border: none;
+}
+.hist-tlapse-empty {
+  padding: 40px 20px; text-align: center; color: #7d92a8;
+  font-size: 12px; letter-spacing: 0.04em;
+}
+.hist-tlapse-loading, .hist-tlapse-error {
+  padding: 40px 20px; text-align: center; color: #7d92a8; font-size: 12px;
+}
+.hist-tlapse-error { color: #ff5252; }
+
 /* Empty-state onboarding panel (shown when zero units enrolled) */
 .empty-wrap { padding: 40px 20px; display: flex; align-items: center; justify-content: center; min-height: 480px; font-family: Roboto, sans-serif; }
 .empty-card { background: #142028; border: 1px solid #1f2e3c; border-radius: 4px; max-width: 720px; width: 100%; padding: 32px; }
