@@ -80,6 +80,11 @@ def get_unit(unit_id):
         "SELECT channel, hardware, is_required, unit_label, details_json "
         "FROM grow_unit_capabilities WHERE unit_id=?", (unit_id,)
     ).fetchall()
+    lw_rows = conn.execute(
+        "SELECT phase, start_hh_mm, end_hh_mm "
+        "FROM grow_light_windows WHERE unit_id=? ORDER BY phase, sort_order",
+        (unit_id,),
+    ).fetchall()
     conn.close()
 
     body = {k: row[k] for k in row.keys()}
@@ -100,6 +105,29 @@ def get_unit(unit_id):
         }
         for c in caps
     ]
+    # Configure-tab Task 5: surface PID/profile overrides + soil calibration +
+    # light_windows so the frontend can render current values + "(default)" vs
+    # "(custom)" indicators without a separate fetch. Field names strip the
+    # `_override` suffix and `soil_` prefix for cleaner client-side access.
+    body["overrides"] = {
+        "watering_target": row["watering_target_override"],
+        "kp": row["watering_kp_override"],
+        "ki": row["watering_ki_override"],
+        "kd": row["watering_kd_override"],
+        "soak_window_min": row["soak_window_min_override"],
+        "min_pulse_s": row["pulse_min_s_override"],
+        "max_pulse_s": row["pulse_max_s_override"],
+    }
+    body["calibration"] = {
+        "dry_raw": row["soil_dry_raw"],
+        "wet_raw": row["soil_wet_raw"],
+    }
+    light_windows: dict[str, list] = {}
+    for r in lw_rows:
+        light_windows.setdefault(r["phase"], []).append(
+            {"start": r["start_hh_mm"], "end": r["end_hh_mm"]}
+        )
+    body["light_windows"] = light_windows
     return jsonify(body)
 
 
