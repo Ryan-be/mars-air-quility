@@ -418,3 +418,211 @@ def test_put_pid_deadband_pct_silently_ignored(client):
     assert r.status_code == 200
     row = _row(db_path, 1)
     assert row["watering_kp_override"] == 0.3
+
+
+# ---------------------------------------------------------------------------
+# /light_windows happy path + edge cases (Task 3)
+# ---------------------------------------------------------------------------
+
+
+def _seed_window(db_path, unit_id, phase, start, end, sort_order):
+    """Seed a row directly into grow_light_windows for setup."""
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "INSERT INTO grow_light_windows "
+        "(unit_id, phase, start_hh_mm, end_hh_mm, sort_order) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (unit_id, phase, start, end, sort_order),
+    )
+    conn.commit()
+    conn.close()
+
+
+def _windows_for(db_path, unit_id, phase):
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        "SELECT * FROM grow_light_windows "
+        "WHERE unit_id=? AND phase=? ORDER BY sort_order",
+        (unit_id, phase),
+    ).fetchall()
+    conn.close()
+    return rows
+
+
+def test_put_light_windows_inserts_windows(client):
+    c, _, db_path = client
+    r = c.put(
+        "/api/grow/units/1/light_windows",
+        json={
+            "phase": "vegetative",
+            "windows": [
+                {"start": "06:00", "end": "10:00"},
+                {"start": "14:00", "end": "20:00"},
+            ],
+        },
+    )
+    assert r.status_code == 200, r.data
+    assert r.get_json() == {"ok": True}
+    rows = _windows_for(db_path, 1, "vegetative")
+    assert len(rows) == 2
+    assert rows[0]["start_hh_mm"] == "06:00"
+    assert rows[0]["end_hh_mm"] == "10:00"
+    assert rows[0]["sort_order"] == 0
+    assert rows[1]["start_hh_mm"] == "14:00"
+    assert rows[1]["end_hh_mm"] == "20:00"
+    assert rows[1]["sort_order"] == 1
+
+
+def test_put_light_windows_replaces_existing(client):
+    c, _, db_path = client
+    # Seed 3 existing windows for vegetative.
+    _seed_window(db_path, 1, "vegetative", "06:00", "08:00", 0)
+    _seed_window(db_path, 1, "vegetative", "10:00", "12:00", 1)
+    _seed_window(db_path, 1, "vegetative", "14:00", "16:00", 2)
+
+    r = c.put(
+        "/api/grow/units/1/light_windows",
+        json={
+            "phase": "vegetative",
+            "windows": [{"start": "07:00", "end": "21:00"}],
+        },
+    )
+    assert r.status_code == 200, r.data
+    rows = _windows_for(db_path, 1, "vegetative")
+    assert len(rows) == 1
+    assert rows[0]["start_hh_mm"] == "07:00"
+    assert rows[0]["end_hh_mm"] == "21:00"
+
+
+def test_put_light_windows_does_not_touch_other_phases(client):
+    c, _, db_path = client
+    # Seed both vegetative AND flowering.
+    _seed_window(db_path, 1, "vegetative", "06:00", "08:00", 0)
+    _seed_window(db_path, 1, "vegetative", "10:00", "12:00", 1)
+    _seed_window(db_path, 1, "flowering", "07:00", "19:00", 0)
+    _seed_window(db_path, 1, "flowering", "20:00", "22:00", 1)
+
+    # PUT new vegetative-only windows.
+    r = c.put(
+        "/api/grow/units/1/light_windows",
+        json={
+            "phase": "vegetative",
+            "windows": [{"start": "09:00", "end": "17:00"}],
+        },
+    )
+    assert r.status_code == 200, r.data
+
+    # Vegetative replaced.
+    veg_rows = _windows_for(db_path, 1, "vegetative")
+    assert len(veg_rows) == 1
+    assert veg_rows[0]["start_hh_mm"] == "09:00"
+
+    # Flowering untouched.
+    flower_rows = _windows_for(db_path, 1, "flowering")
+    assert len(flower_rows) == 2
+    assert flower_rows[0]["start_hh_mm"] == "07:00"
+    assert flower_rows[0]["end_hh_mm"] == "19:00"
+    assert flower_rows[1]["start_hh_mm"] == "20:00"
+    assert flower_rows[1]["end_hh_mm"] == "22:00"
+
+
+def test_put_light_windows_clears_when_empty_list(client):
+    c, _, db_path = client
+    # Seed 2 windows.
+    _seed_window(db_path, 1, "vegetative", "06:00", "08:00", 0)
+    _seed_window(db_path, 1, "vegetative", "10:00", "12:00", 1)
+
+    r = c.put(
+        "/api/grow/units/1/light_windows",
+        json={"phase": "vegetative", "windows": []},
+    )
+    assert r.status_code == 200, r.data
+    rows = _windows_for(db_path, 1, "vegetative")
+    assert len(rows) == 0
+
+
+def test_put_light_windows_validates_hhmm(client):
+    c, _, _ = client
+    r = c.put(
+        "/api/grow/units/1/light_windows",
+        json={
+            "phase": "vegetative",
+            "windows": [{"start": "6am", "end": "10pm"}],
+        },
+    )
+    assert r.status_code == 400
+    body = r.get_json()
+    assert body["error"] == "invalid_payload"
+    assert "detail" in body
+
+
+def test_put_light_windows_rejects_zero_length(client):
+    c, _, _ = client
+    r = c.put(
+        "/api/grow/units/1/light_windows",
+        json={
+            "phase": "vegetative",
+            "windows": [{"start": "06:00", "end": "06:00"}],
+        },
+    )
+    assert r.status_code == 400
+    assert r.get_json()["error"] == "invalid_payload"
+
+
+def test_put_light_windows_returns_404_for_unknown_unit(client):
+    c, _, _ = client
+    r = c.put(
+        "/api/grow/units/99999/light_windows",
+        json={
+            "phase": "vegetative",
+            "windows": [{"start": "06:00", "end": "20:00"}],
+        },
+    )
+    assert r.status_code == 404
+    assert r.get_json()["error"] == "unit_not_found"
+
+
+def test_put_light_windows_pushes_config_changed_via_ws(client):
+    c, fake_ws, _ = client
+    r = c.put(
+        "/api/grow/units/1/light_windows",
+        json={
+            "phase": "vegetative",
+            "windows": [{"start": "06:00", "end": "20:00"}],
+        },
+    )
+    assert r.status_code == 200
+    assert len(fake_ws.sent) == 1
+    cmd = json.loads(fake_ws.sent[0])
+    assert cmd["type"] == "command"
+    assert cmd["payload"]["kind"] == "config_changed"
+    assert cmd["payload"]["section"] == "light_windows"
+
+
+def test_put_light_windows_caps_at_8_windows(client):
+    c, _, _ = client
+    # 9 windows — exceeds max_length=8 from LightWindowsUpdate.
+    nine = [
+        {"start": f"{h:02d}:00", "end": f"{h:02d}:30"}
+        for h in range(9)
+    ]
+    r = c.put(
+        "/api/grow/units/1/light_windows",
+        json={"phase": "vegetative", "windows": nine},
+    )
+    assert r.status_code == 400
+    assert r.get_json()["error"] == "invalid_payload"
+
+
+def test_put_light_windows_rejects_bad_phase(client):
+    c, _, _ = client
+    r = c.put(
+        "/api/grow/units/1/light_windows",
+        json={
+            "phase": "winter",
+            "windows": [{"start": "06:00", "end": "20:00"}],
+        },
+    )
+    assert r.status_code == 400
+    assert r.get_json()["error"] == "invalid_payload"

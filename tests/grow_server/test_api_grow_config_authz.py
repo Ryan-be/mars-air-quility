@@ -151,6 +151,47 @@ def test_pid_put_allows_admin(client):
 
 
 # ---------------------------------------------------------------------------
+# /light_windows RBAC (Task 3)
+# ---------------------------------------------------------------------------
+
+
+_LIGHT_WINDOWS_BODY = {
+    "phase": "vegetative",
+    "windows": [{"start": "06:00", "end": "20:00"}],
+}
+
+
+def test_light_windows_put_denies_anonymous(client):
+    c, _ = client
+    _set_session(c, logged_in=False, role="viewer")
+    r = c.put("/api/grow/units/1/light_windows", json=_LIGHT_WINDOWS_BODY)
+    assert r.status_code == 401
+    assert r.get_json()["error"] == "Unauthorised"
+
+
+def test_light_windows_put_denies_viewer(client):
+    c, _ = client
+    _set_session(c, logged_in=True, role="viewer")
+    r = c.put("/api/grow/units/1/light_windows", json=_LIGHT_WINDOWS_BODY)
+    assert r.status_code == 403
+    assert "Forbidden" in r.get_json()["error"]
+
+
+def test_light_windows_put_allows_controller(client):
+    c, _ = client
+    _set_session(c, logged_in=True, role="controller")
+    r = c.put("/api/grow/units/1/light_windows", json=_LIGHT_WINDOWS_BODY)
+    assert r.status_code == 200
+
+
+def test_light_windows_put_allows_admin(client):
+    c, _ = client
+    _set_session(c, logged_in=True, role="admin")
+    r = c.put("/api/grow/units/1/light_windows", json=_LIGHT_WINDOWS_BODY)
+    assert r.status_code == 200
+
+
+# ---------------------------------------------------------------------------
 # Defence-in-depth: an unauthenticated request must NOT reach the DB.
 # ---------------------------------------------------------------------------
 

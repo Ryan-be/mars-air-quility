@@ -26,7 +26,11 @@ from flask import Blueprint, jsonify, request
 from pydantic import ValidationError
 
 from database.init_db import DB_FILE
-from mlss_contracts.config_payloads import PIDUpdate, ProfileUpdate
+from mlss_contracts.config_payloads import (
+    LightWindowsUpdate,
+    PIDUpdate,
+    ProfileUpdate,
+)
 from mlss_monitor import state
 from mlss_monitor.rbac import require_role
 
@@ -212,4 +216,64 @@ def put_pid(unit_id):
         conn.close()
 
     _push_config_changed(unit_id, "pid")
+    return jsonify({"ok": True})
+
+
+# ---------------------------------------------------------------------------
+# /light_windows
+# ---------------------------------------------------------------------------
+
+
+@api_grow_config_bp.route(
+    "/api/grow/units/<int:unit_id>/light_windows", methods=["PUT"]
+)
+@require_role("controller", "admin")
+def put_light_windows(unit_id):
+    """Replace all light windows for one (unit, phase) pair.
+
+    Strategy is delete-then-insert scoped to (unit_id, phase): the PUT
+    body provides the full set of windows for one phase; the route
+    deletes the existing rows for that phase and inserts the new set.
+    Other phases' windows are untouched.
+
+    Empty `windows` list is valid — it clears all rows for that
+    (unit, phase) pair, which means the unit falls back to the plant
+    profile's default light_hours on the firmware side.
+
+    Each row gets a `sort_order` matching its index in the request so
+    firmware + frontend render windows deterministically.
+    """
+    body = request.get_json(silent=True) or {}
+    try:
+        payload = LightWindowsUpdate(**body)
+    except ValidationError as exc:
+        return jsonify({
+            "error": "invalid_payload",
+            "detail": _serialise_validation_errors(exc.errors()),
+        }), 400
+
+    conn = sqlite3.connect(DB_FILE, timeout=10)
+    try:
+        if not conn.execute(
+            "SELECT 1 FROM grow_units WHERE id=?", (unit_id,),
+        ).fetchone():
+            return jsonify({"error": "unit_not_found"}), 404
+
+        # Replace all windows for this (unit, phase). Other phases untouched.
+        conn.execute(
+            "DELETE FROM grow_light_windows WHERE unit_id=? AND phase=?",
+            (unit_id, payload.phase),
+        )
+        for i, w in enumerate(payload.windows):
+            conn.execute(
+                "INSERT INTO grow_light_windows "
+                "(unit_id, phase, start_hh_mm, end_hh_mm, sort_order) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (unit_id, payload.phase, w.start, w.end, i),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+    _push_config_changed(unit_id, "light_windows")
     return jsonify({"ok": True})
