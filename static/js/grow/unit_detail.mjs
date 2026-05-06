@@ -7,10 +7,11 @@ import { renderPIDEditor } from "./components/pid-editor.mjs";
 import { renderLightWindowsEditor } from "./components/light-windows-editor.mjs";
 import { renderCalibrationWizard } from "./components/calibration-wizard.mjs";
 import { renderSafetyOverride } from "./components/safety-override.mjs";
+import { renderHistoryPanel } from "./components/history-panel.mjs";
 
 const SUBTABS = [
   { id: "live", label: "● Live", enabled: true },
-  { id: "history", label: "📈 History", enabled: false, deferred: "Phase 2" },
+  { id: "history", label: "📈 History", enabled: true },
   { id: "configure", label: "⚙ Configure", enabled: true },
   { id: "diagnostics", label: "🩺 Diagnostics", enabled: false, deferred: "Phase 3" },
 ];
@@ -294,8 +295,13 @@ function renderConfigureContent(body, unit, doc = document) {
  *  rather than caching panels because the panels are cheap to build and
  *  caching invites stale-state bugs (e.g. a pump-pulse happens while the
  *  user is on Configure → the Live water-lock tile would show stale data).
+ *
+ *  Exported for tests — the test mounts a JSDOM page with the three host
+ *  elements and calls switchSubtab directly to assert tab activation
+ *  swaps the body content correctly. The production click handler in
+ *  init() is just a thin wrapper that calls this same function.
  */
-async function switchSubtab(tabId, unit, doc = document) {
+export async function switchSubtab(tabId, unit, doc = document) {
   for (const tab of doc.querySelectorAll(".du-tab")) {
     tab.classList.toggle("active", tab.dataset.tab === tabId);
   }
@@ -303,6 +309,8 @@ async function switchSubtab(tabId, unit, doc = document) {
   body.innerHTML = "";
   if (tabId === "live") {
     await renderLiveContent(body, unit, doc);
+  } else if (tabId === "history") {
+    body.appendChild(renderHistoryPanel(unit, { ownerDocument: doc }));
   } else if (tabId === "configure") {
     renderConfigureContent(body, unit, doc);
   }
