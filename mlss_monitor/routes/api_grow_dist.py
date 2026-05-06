@@ -12,6 +12,7 @@ from pathlib import Path
 from flask import Blueprint, send_from_directory, jsonify, abort
 
 from database.init_db import DB_FILE
+from mlss_monitor.rbac import require_role
 
 api_grow_dist_bp = Blueprint("api_grow_dist", __name__)
 
@@ -68,11 +69,16 @@ def _latest_versions():
 
 
 @api_grow_dist_bp.route("/api/grow/enrollment-key/peek-once", methods=["GET"])
+@require_role("admin")
 def peek_enrollment_key():
     """Return the raw enrollment key once. Deletes it from app_settings after.
 
     Used by the empty-state UI on first visit. After viewing, key is gone —
     rotation is a separate flow (Phase 2 Settings → Grow page).
+
+    Admin-only: the key authorises POST /api/grow/enroll which is idempotent
+    by hardware_serial — meaning anyone with the key can rotate the bearer
+    token of an existing enrolled unit. Only admins should ever see it.
     """
     conn = sqlite3.connect(DB_FILE, timeout=5)
     try:
