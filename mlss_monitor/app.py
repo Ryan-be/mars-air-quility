@@ -725,7 +725,9 @@ def _start_background_services():
     from mlss_monitor.grow.ws_registry import WSRegistry
     from mlss_monitor.routes.api_grow_ws import start_ws_listener
     state.grow_ws_registry = WSRegistry()
-    start_ws_listener(host="0.0.0.0", port=5001, registry=state.grow_ws_registry)
+    state.grow_ws_handle = start_ws_listener(
+        host="0.0.0.0", port=5001, registry=state.grow_ws_registry,
+    )
 
     from mlss_monitor.incident_grouper import start_grouper
     state.incident_grouper = start_grouper(DB_FILE, event_bus=state.event_bus)
@@ -774,6 +776,15 @@ def main():
 
     def _graceful_shutdown(signum, frame):
         log.info("SIGTERM received")
+        # Drain the grow WS listener so in-flight messages from connected
+        # plant units finish processing before the process dies. Stop here
+        # rather than in atexit because atexit runs after sys.exit unwinds
+        # the stack — by then the daemon thread is already gone.
+        try:
+            from mlss_monitor.routes.api_grow_ws import stop_ws_listener
+            stop_ws_listener(state.grow_ws_handle)
+        except Exception as exc:
+            log.warning("grow WS listener shutdown error: %s", exc)
         _sys.exit(0)  # triggers atexit handlers including _save_models_on_exit
 
     _signal.signal(_signal.SIGTERM, _graceful_shutdown)

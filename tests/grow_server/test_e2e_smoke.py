@@ -35,13 +35,16 @@ def setup(tmp_path, monkeypatch):
 
     # Start WS listener
     from mlss_monitor.grow.ws_registry import WSRegistry
-    from mlss_monitor.routes.api_grow_ws import start_ws_listener
+    from mlss_monitor.routes.api_grow_ws import (
+        _clear_auth_cache, start_ws_listener, stop_ws_listener,
+    )
+    _clear_auth_cache()
     registry = WSRegistry()
-    server = start_ws_listener("127.0.0.1", 0, registry)
-    port = server.sockets[0].getsockname()[1]
+    handle = start_ws_listener("127.0.0.1", 0, registry)
+    port = handle.sockets[0].getsockname()[1]
 
     yield raw_key, port, tmp.name, str(img_dir), registry
-    server.close()
+    stop_ws_listener(handle)
 
 
 @pytest.mark.asyncio

@@ -34,15 +34,21 @@ def server(monkeypatch):
     conn.close()
 
     from mlss_monitor.grow.ws_registry import WSRegistry
-    from mlss_monitor.routes.api_grow_ws import start_ws_listener
+    from mlss_monitor.routes.api_grow_ws import (
+        _clear_auth_cache, start_ws_listener, stop_ws_listener,
+    )
 
+    # Drop any cached verifications from a previous test — fresh DB, fresh
+    # tokens, but the cache is keyed on (unit_id, raw_token) which could
+    # collide across runs of the same fixture.
+    _clear_auth_cache()
     registry = WSRegistry()
-    server_obj = start_ws_listener(host="127.0.0.1", port=0, registry=registry)
-    port = server_obj.sockets[0].getsockname()[1]
+    handle = start_ws_listener(host="127.0.0.1", port=0, registry=registry)
+    port = handle.sockets[0].getsockname()[1]
 
     yield port, raw, tmp_db.name, registry
 
-    server_obj.close()
+    stop_ws_listener(handle)
 
 
 @pytest.mark.asyncio
