@@ -1,5 +1,6 @@
 """First-boot enrollment HTTP call to MLSS."""
 import logging
+import os
 import requests
 from mlss_grow.config import FirstbootConfig
 
@@ -36,10 +37,28 @@ def enroll_unit(cfg: FirstbootConfig, hardware_serial: str) -> tuple[int, str]:
             "medium": cfg.medium,
         },
     }
+    # Pinned-cert verification (C3 fix). The previous `verify=False` reasoning
+    # was reversed: the enrollment_key travels in the request body, so an MITM
+    # on the LAN could sniff it and enrol a malicious unit. install.sh fetches
+    # the MLSS server cert at install time (TOFU under the documented LAN
+    # trust model) and writes it to cfg.server_cert_path. When that file
+    # exists, verify against it; otherwise (dev/test, or pre-install) fall
+    # back to verify=False AND log a prominent WARNING so the insecure
+    # posture shows up in operator logs.
+    cert_path = getattr(cfg, "server_cert_path", None)
+    if cert_path and os.path.isfile(cert_path):
+        verify: "bool | str" = cert_path
+    else:
+        log.warning(
+            "MLSS server cert not found at %s — falling back to verify=False. "
+            "This is INSECURE: the enrollment_key in the POST body is "
+            "vulnerable to LAN MITM sniffing. Run install.sh on a Pi to pin "
+            "the cert, or override server_cert_path in /boot/mlss-grow.yaml.",
+            cert_path,
+        )
+        verify = False
     try:
-        # MLSS uses self-signed cert on the LAN — verify=False is safe given
-        # we're already proving identity via the enrollment key
-        resp = requests.post(url, json=body, timeout=30, verify=False)
+        resp = requests.post(url, json=body, timeout=30, verify=verify)
     except requests.RequestException as exc:
         raise EnrollmentError(f"network error contacting {url}: {exc}")
 

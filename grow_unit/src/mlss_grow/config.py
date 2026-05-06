@@ -15,6 +15,13 @@ class FirstbootConfig:
     medium: str = "soil"
     wifi_ssid: str | None = None
     wifi_psk: str | None = None
+    # Path to the pinned MLSS server certificate. install.sh fetches the
+    # cert via openssl s_client at install time (TOFU under the documented
+    # LAN trust model — same posture as `curl -k` for install.sh itself)
+    # and writes it to /etc/mlss/server.crt. enrol + ws_client verify
+    # against this file when present; fall back to verify=False + WARN
+    # when missing (dev/test).
+    server_cert_path: str = "/etc/mlss/server.crt"
 
 
 def load_firstboot_config(path: str) -> "FirstbootConfig | None":
@@ -33,6 +40,7 @@ def load_firstboot_config(path: str) -> "FirstbootConfig | None":
         medium=plant.get("medium", "soil"),
         wifi_ssid=wifi.get("ssid"),
         wifi_psk=wifi.get("psk"),
+        server_cert_path=data.get("server_cert_path", "/etc/mlss/server.crt"),
     )
 
 

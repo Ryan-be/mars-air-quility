@@ -58,3 +58,47 @@ def test_save_token_sets_mode_0600(tmp_path):
     # On Windows the chmod is a no-op; check on POSIX systems only
     if os.name == "posix":
         assert mode == 0o600
+
+
+# ---------------------------------------------------------------------------
+# server_cert_path — pinned-cert TLS for enroll + WS (C2/C3 fix)
+#
+# install.sh fetches the MLSS server cert at install time and writes it to
+# /etc/mlss/server.crt. The firmware uses that as the trust anchor for both
+# the HTTPS enrollment POST and the WSS persistent connection. Tests/dev can
+# override the path via YAML.
+# ---------------------------------------------------------------------------
+
+def test_firstboot_config_default_cert_path_is_etc_mlss(tmp_path):
+    """When the YAML omits server_cert_path, the default points at the
+    install.sh-managed location."""
+    yaml_path = tmp_path / "fb.yaml"
+    yaml_path.write_text(
+        "mlss_host: mlss.local\n"
+        "enrollment_key: k\n"
+        "plant:\n"
+        "  name: P\n"
+    )
+    cfg = load_firstboot_config(str(yaml_path))
+    assert cfg.server_cert_path == "/etc/mlss/server.crt"
+
+
+def test_firstboot_config_yaml_can_override_cert_path(tmp_path):
+    """An operator running on a non-standard path (test rig, custom layout)
+    can override via YAML."""
+    yaml_path = tmp_path / "fb.yaml"
+    yaml_path.write_text(
+        "mlss_host: mlss.local\n"
+        "enrollment_key: k\n"
+        "server_cert_path: /tmp/custom.crt\n"
+        "plant:\n"
+        "  name: P\n"
+    )
+    cfg = load_firstboot_config(str(yaml_path))
+    assert cfg.server_cert_path == "/tmp/custom.crt"
+
+
+def test_firstboot_config_dataclass_default_is_etc_mlss():
+    """Direct construction (not via YAML) still gets the secure default."""
+    cfg = FirstbootConfig(mlss_host="x", enrollment_key="k", plant_name="P")
+    assert cfg.server_cert_path == "/etc/mlss/server.crt"

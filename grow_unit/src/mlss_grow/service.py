@@ -31,6 +31,10 @@ class BootstrappedState:
     plant_name: str | None = None
     plant_type: str = "generic"
     medium: str = "soil"
+    # Path to the pinned MLSS server cert (managed by install.sh). Carried
+    # through here so _run_main_loop can hand it to WSClient for TLS
+    # verification — see C2 fix in ws_client._build_ssl_context.
+    server_cert_path: str = "/etc/mlss/server.crt"
 
 
 def bootstrap_unit_state(
@@ -54,7 +58,14 @@ def bootstrap_unit_state(
                     host = f.read().strip()
             else:
                 raise RuntimeError("token exists but mlss_host unknown")
-        return BootstrappedState(unit_id=unit_id, token=token, mlss_host=host)
+        # Cert path: prefer the YAML override (if firstboot still around),
+        # otherwise the documented default. The cert itself is managed by
+        # install.sh; we just need to know where to look.
+        cert_path = fb.server_cert_path if fb else "/etc/mlss/server.crt"
+        return BootstrappedState(
+            unit_id=unit_id, token=token, mlss_host=host,
+            server_cert_path=cert_path,
+        )
 
     if fb is None:
         raise RuntimeError("no firstboot config and no existing token — cannot enrol")
@@ -76,6 +87,7 @@ def bootstrap_unit_state(
     return BootstrappedState(
         unit_id=unit_id, token=token, mlss_host=fb.mlss_host,
         plant_name=fb.plant_name, plant_type=fb.plant_type, medium=fb.medium,
+        server_cert_path=fb.server_cert_path,
     )
 
 
@@ -122,6 +134,7 @@ async def _run_main_loop(state: BootstrappedState) -> None:
         token=state.token,
         buffer_db_path="/var/lib/mlss-grow/buffer.sqlite",
         on_command=lambda cmd: received_commands.put_nowait(cmd),
+        server_cert_path=state.server_cert_path,
     )
 
     # Default config until MLSS sends an explicit one
