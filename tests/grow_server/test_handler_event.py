@@ -69,3 +69,44 @@ def test_sensor_recovered_resolves_open_sensor_errors(db_with_unit):
         "WHERE unit_id=1 AND kind='sensor_degraded' AND resolved_at IS NULL"
     ).fetchone()[0]
     assert n_open == 0
+
+
+def test_sensor_recovered_with_special_chars_resolves_correctly(db_with_unit):
+    """Sensor names containing % or _ would have caused LIKE wildcard issues."""
+    from mlss_monitor.grow.handlers import handle_event
+    handle_event(unit_id=1, ts=datetime.utcnow(), payload={
+        "kind": "sensor_degraded", "details": {"sensor": "100%_humidity"},
+    })
+    handle_event(unit_id=1, ts=datetime.utcnow(), payload={
+        "kind": "sensor_recovered", "details": {"sensor": "100%_humidity"},
+    })
+    conn = sqlite3.connect(db_with_unit)
+    n_open = conn.execute(
+        "SELECT COUNT(*) FROM grow_errors "
+        "WHERE unit_id=1 AND kind='sensor_degraded' AND resolved_at IS NULL"
+    ).fetchone()[0]
+    assert n_open == 0
+
+
+def test_sensor_recovered_only_resolves_matching_sensor(db_with_unit):
+    """Two different sensors degraded; recover one — the other stays open."""
+    from mlss_monitor.grow.handlers import handle_event
+    handle_event(unit_id=1, ts=datetime.utcnow(), payload={
+        "kind": "sensor_degraded", "details": {"sensor": "Seesaw"},
+    })
+    handle_event(unit_id=1, ts=datetime.utcnow(), payload={
+        "kind": "sensor_degraded", "details": {"sensor": "TSL2591"},
+    })
+    handle_event(unit_id=1, ts=datetime.utcnow(), payload={
+        "kind": "sensor_recovered", "details": {"sensor": "Seesaw"},
+    })
+    conn = sqlite3.connect(db_with_unit)
+    rows = conn.execute(
+        "SELECT subject_sensor, resolved_at FROM grow_errors "
+        "WHERE unit_id=1 AND kind='sensor_degraded' "
+        "ORDER BY subject_sensor"
+    ).fetchall()
+    # Seesaw resolved; TSL2591 still open
+    by_sensor = {r[0]: r[1] for r in rows}
+    assert by_sensor["Seesaw"] is not None
+    assert by_sensor["TSL2591"] is None

@@ -165,18 +165,19 @@ def handle_event(unit_id: int, ts: datetime, payload: dict) -> None:
             sensor = details.get("sensor", "unknown")
             conn.execute(
                 "INSERT INTO grow_errors "
-                "(unit_id, timestamp_utc, severity, kind, message, details_json) "
-                "VALUES (?, ?, 'warning', 'sensor_degraded', ?, ?)",
+                "(unit_id, timestamp_utc, severity, kind, message, details_json, "
+                " subject_sensor) "
+                "VALUES (?, ?, 'warning', 'sensor_degraded', ?, ?, ?)",
                 (unit_id, ts, f"Sensor {sensor} reporting bad reads",
-                 json.dumps(details)),
+                 json.dumps(details), sensor),
             )
         elif kind == "sensor_recovered":
             sensor = details.get("sensor", "unknown")
             conn.execute(
                 "UPDATE grow_errors SET resolved_at=? "
                 "WHERE unit_id=? AND kind='sensor_degraded' AND resolved_at IS NULL "
-                "AND details_json LIKE ?",
-                (ts, unit_id, f'%"sensor": "{sensor}"%'),
+                "AND subject_sensor=?",
+                (ts, unit_id, sensor),
             )
         elif kind == "safety_cap_hit":
             conn.execute(

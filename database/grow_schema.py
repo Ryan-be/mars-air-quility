@@ -182,14 +182,15 @@ def create_grow_schema(cur):
 
     cur.execute("""
     CREATE TABLE IF NOT EXISTS grow_errors (
-      id            INTEGER PRIMARY KEY AUTOINCREMENT,
-      unit_id       INTEGER REFERENCES grow_units(id) ON DELETE CASCADE,
-      timestamp_utc DATETIME NOT NULL,
-      severity      TEXT NOT NULL CHECK(severity IN ('info','warning','critical')),
-      kind          TEXT NOT NULL,
-      message       TEXT NOT NULL,
-      details_json  TEXT,
-      resolved_at   DATETIME
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      unit_id        INTEGER REFERENCES grow_units(id) ON DELETE CASCADE,
+      timestamp_utc  DATETIME NOT NULL,
+      severity       TEXT NOT NULL CHECK(severity IN ('info','warning','critical')),
+      kind           TEXT NOT NULL,
+      message        TEXT NOT NULL,
+      details_json   TEXT,
+      subject_sensor TEXT,  -- populated for sensor_* kinds; NULL otherwise
+      resolved_at    DATETIME
     );
     """)
     cur.execute(
@@ -199,6 +200,10 @@ def create_grow_schema(cur):
     cur.execute(
         "CREATE INDEX IF NOT EXISTS idx_grow_errors_unresolved "
         "ON grow_errors(resolved_at) WHERE resolved_at IS NULL"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_grow_errors_recovery "
+        "ON grow_errors(unit_id, kind, subject_sensor, resolved_at)"
     )
 
     _seed_grow_data(cur)
