@@ -77,6 +77,34 @@
 .du-schedule-now { position: absolute; top: -4px; bottom: -4px; width: 2px; background: #56f000; box-shadow: 0 0 8px #56f000; }
 .du-schedule-now .lbl { position: absolute; top: -16px; left: 4px; font-size: 9px; color: #56f000; letter-spacing: 0.08em; white-space: nowrap; }
 
+/* Configure-tab editor panels (profile + PID; light-windows/calibration in Task 7) */
+.du-panel { background: #142028; border: 1px solid #1f2e3c; border-radius: 3px; margin: 12px 20px; }
+.du-panel-head { padding: 10px 14px; border-bottom: 1px solid #1c2733; color: #fff; font-size: 13px; font-weight: 500; letter-spacing: 0.04em; }
+.cfg-profile, .cfg-pid { padding-bottom: 12px; }
+.cfg-form { padding: 10px 14px; }
+.cfg-row { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+.cfg-row label { min-width: 130px; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: #7d92a8; }
+.cfg-row input[type=text], .cfg-row input[type=date], .cfg-row input[type=number], .cfg-row select, .cfg-row textarea {
+  flex: 1; min-width: 140px;
+  background: #0a1219; color: #c2d2e3; border: 1px solid #2a3d50; border-radius: 2px;
+  padding: 6px 9px; font-size: 12px; font-family: Roboto, sans-serif;
+}
+.cfg-row textarea { resize: vertical; }
+.cfg-row input:focus, .cfg-row select:focus, .cfg-row textarea:focus { outline: none; border-color: #4dacff; }
+.cfg-pid-row input[type=number] { max-width: 120px; flex: 0 0 auto; }
+.cfg-badge { font-size: 10px; padding: 2px 6px; border-radius: 2px; letter-spacing: 0.04em; text-transform: uppercase; flex-shrink: 0; }
+.cfg-badge.default { background: #1c2733; color: #7d92a8; }
+.cfg-badge.custom { background: rgba(255, 179, 2, 0.15); color: #ffb302; }
+.cfg-reset { background: transparent; border: 1px solid #2a3d50; color: #7d92a8; padding: 3px 9px; font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; border-radius: 2px; font-family: Roboto, sans-serif; }
+.cfg-reset:hover:not(:disabled) { border-color: #4dacff; color: #4dacff; }
+.cfg-reset:disabled { opacity: 0.35; cursor: not-allowed; }
+.cfg-actions { margin-top: 12px; padding-top: 10px; border-top: 1px solid #1c2733; }
+.cfg-save { padding: 8px 18px; }
+.cfg-save:disabled { opacity: 0.6; cursor: progress; }
+.cfg-status { font-size: 11px; letter-spacing: 0.04em; }
+.cfg-status.ok { color: #56f000; }
+.cfg-status.err { color: #ff5252; }
+
 /* Empty-state onboarding panel (shown when zero units enrolled) */
 .empty-wrap { padding: 40px 20px; display: flex; align-items: center; justify-content: center; min-height: 480px; font-family: Roboto, sans-serif; }
 .empty-card { background: #142028; border: 1px solid #1f2e3c; border-radius: 4px; max-width: 720px; width: 100%; padding: 32px; }

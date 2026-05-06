@@ -2,11 +2,13 @@ import { renderStatusPill } from "./components/status-pill.mjs";
 import { renderStatTile } from "./components/stat-tile.mjs";
 import { renderScheduleBar } from "./components/schedule-bar.mjs";
 import { renderSensorEventChart } from "./components/sensor-event-chart.mjs";
+import { renderProfileEditor } from "./components/profile-editor.mjs";
+import { renderPIDEditor } from "./components/pid-editor.mjs";
 
 const SUBTABS = [
   { id: "live", label: "● Live", enabled: true },
   { id: "history", label: "📈 History", enabled: false, deferred: "Phase 2" },
-  { id: "configure", label: "⚙ Configure", enabled: false, deferred: "Phase 2" },
+  { id: "configure", label: "⚙ Configure", enabled: true },
   { id: "diagnostics", label: "🩺 Diagnostics", enabled: false, deferred: "Phase 3" },
 ];
 
@@ -251,6 +253,56 @@ export function renderQuickControls(unit, doc = document) {
 }
 
 
+/** Render the Live tab body. Pulled out so the tab-switcher can call it
+ *  without re-fetching the unit. The watering-history fetch is awaited so
+ *  the first paint includes the chart; subsequent tab toggles re-issue
+ *  the fetch (cheap, and keeps state honest if the user dwells on
+ *  Configure for a while).
+ */
+async function renderLiveContent(body, unit, doc = document) {
+  body.appendChild(renderPhotoPanel(unit, doc));
+  body.appendChild(renderLiveReadings(unit, doc));
+  body.appendChild(renderLightSchedulePanel(unit, doc));
+  body.appendChild(await renderWateringHistoryPanel(unit, doc));
+
+  // Compute water-lock from unit.last_known_state.last_pulse_at +
+  // unit.soak_window_min_resolved.
+  const lastPulse = unit.last_known_state?.last_pulse_at || null;
+  const soakMin = unit.soak_window_min_resolved || 30;
+  unit._waterLockedUntil = computeWaterLockedUntil(lastPulse, soakMin);
+
+  body.appendChild(renderQuickControls(unit, doc));
+}
+
+
+/** Render the Configure tab body. Task 6 ships Profile + PID; Task 7 will
+ *  layer in light-windows, calibration, and safety_override panels.
+ */
+function renderConfigureContent(body, unit, doc = document) {
+  body.appendChild(renderProfileEditor(unit, { ownerDocument: doc }));
+  body.appendChild(renderPIDEditor(unit, { ownerDocument: doc }));
+}
+
+
+/** Switch the body content between subtabs. Re-renders the whole body
+ *  rather than caching panels because the panels are cheap to build and
+ *  caching invites stale-state bugs (e.g. a pump-pulse happens while the
+ *  user is on Configure → the Live water-lock tile would show stale data).
+ */
+async function switchSubtab(tabId, unit, doc = document) {
+  for (const tab of doc.querySelectorAll(".du-tab")) {
+    tab.classList.toggle("active", tab.dataset.tab === tabId);
+  }
+  const body = doc.getElementById("du-body");
+  body.innerHTML = "";
+  if (tabId === "live") {
+    await renderLiveContent(body, unit, doc);
+  } else if (tabId === "configure") {
+    renderConfigureContent(body, unit, doc);
+  }
+}
+
+
 async function init() {
   const root = document.querySelector("[data-unit-id]");
   const unitId = root.dataset.unitId;
@@ -261,20 +313,18 @@ async function init() {
   }
   const unit = await r.json();
   document.getElementById("du-header").appendChild(renderDetailHeader(unit));
-  document.getElementById("du-tabs").appendChild(renderSubTabs("live"));
+  const tabsHost = document.getElementById("du-tabs");
+  tabsHost.appendChild(renderSubTabs("live"));
+  // Tab click → switch body. Click events bubble from the rendered
+  // <button data-tab> children up to the host div.
+  tabsHost.addEventListener("click", (ev) => {
+    const btn = ev.target.closest("[data-tab]");
+    if (!btn || btn.disabled) return;
+    switchSubtab(btn.dataset.tab, unit, document);
+  });
 
   const body = document.getElementById("du-body");
-  body.appendChild(renderPhotoPanel(unit));
-  body.appendChild(renderLiveReadings(unit));
-  body.appendChild(renderLightSchedulePanel(unit));
-  body.appendChild(await renderWateringHistoryPanel(unit));
-
-  // Compute water-lock from unit.last_known_state.last_pulse_at + unit.soak_window_min_resolved
-  const lastPulse = unit.last_known_state?.last_pulse_at || null;
-  const soakMin = unit.soak_window_min_resolved || 30;  // server should send this
-  unit._waterLockedUntil = computeWaterLockedUntil(lastPulse, soakMin);
-
-  body.appendChild(renderQuickControls(unit));
+  await renderLiveContent(body, unit, document);
 }
 
 // Only run init() in a real browser context where the page root is mounted.
