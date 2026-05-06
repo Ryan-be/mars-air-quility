@@ -22,8 +22,12 @@ from http import HTTPStatus
 from threading import Lock as _ThreadLock
 
 import websockets
+from pydantic import BaseModel, ValidationError
 
 from database.init_db import DB_FILE
+from mlss_contracts.ws_messages import (
+    TelemetryPayload, CapabilitiesPayload, EventPayload,
+)
 from mlss_monitor.grow.auth import verify_secret
 from mlss_monitor.grow.handlers import (
     handle_telemetry, handle_capabilities, handle_event,
@@ -31,6 +35,49 @@ from mlss_monitor.grow.handlers import (
 from mlss_monitor.grow.photo_storage import handle_photo_frame
 
 log = logging.getLogger(__name__)
+
+
+# ── Inbound payload validation (I1) ─────────────────────────────────────────
+#
+# Each text-frame msg_type maps to its pydantic payload model. Before the
+# listener dispatches to a handler, the payload is validated against the
+# matching model. Invalid payloads are logged and dropped — the handlers
+# trust their inputs (their docstrings have always *claimed* upstream
+# validation; this is what makes that claim true).
+#
+# Message types not in the map (e.g. 'ack' which is log-only) skip
+# validation. Add a new entry whenever a new handler is wired up.
+_PAYLOAD_VALIDATORS: dict[str, type[BaseModel]] = {
+    "telemetry": TelemetryPayload,
+    "capabilities": CapabilitiesPayload,
+    "event": EventPayload,
+}
+
+
+def _validate_payload(msg_type: str, payload: dict) -> bool:
+    """Validate `payload` against the model registered for `msg_type`.
+
+    Returns True if the payload validates (or if no validator is
+    registered for this type — caller decides what to do then). Returns
+    False and emits a WARNING log entry if pydantic rejects the payload.
+
+    Errors are intentionally swallowed (caller continues); throwing here
+    would let one bad frame tear down the whole connection, which the
+    spec explicitly says we don't want — a unit running buggy firmware
+    should keep its session up and just have its bad frames dropped.
+    """
+    validator = _PAYLOAD_VALIDATORS.get(msg_type)
+    if validator is None:
+        return True
+    try:
+        validator.model_validate(payload)
+        return True
+    except ValidationError as exc:
+        log.warning(
+            "rejected invalid %s payload from grow unit: %s",
+            msg_type, exc,
+        )
+        return False
 
 
 # ── Bearer-token auth cache ─────────────────────────────────────────────────
@@ -150,6 +197,13 @@ async def _connection_handler(ws, path: str, registry):
                         msg["ts"].replace("Z", "+00:00")
                     ).replace(tzinfo=None)
                     payload = msg.get("payload") or {}
+                    # I1: Validate against the shared pydantic schema
+                    # BEFORE touching the stateful handlers. A failure
+                    # logs a warning and drops the frame — the
+                    # connection stays up so a unit running buggy
+                    # firmware doesn't get torn down for one bad message.
+                    if not _validate_payload(msg_type, payload):
+                        continue
                     if msg_type == "telemetry":
                         handle_telemetry(unit_id, ts, payload)
                     elif msg_type == "capabilities":
