@@ -13,6 +13,7 @@ import asyncio
 import json
 import logging
 import sqlite3
+import ssl as _ssl
 import threading
 import time
 from collections import namedtuple
@@ -178,8 +179,15 @@ _ListenerHandle = namedtuple("_ListenerHandle", ["server", "loop", "thread"])
 _ListenerHandle.sockets = property(lambda self: self.server.sockets)
 
 
-def start_ws_listener(host: str, port: int, registry):
+def start_ws_listener(host: str, port: int, registry,
+                      ssl_context: "_ssl.SSLContext | None" = None):
     """Boot the WS listener on its own thread + event loop. Returns a handle.
+
+    If ssl_context is provided, the listener binds with TLS — production
+    callers should always pass one (matches the firmware's wss:// URL
+    scheme and the documented threat model in
+    docs/superpowers/specs/2026-05-03-plant-grow-unit-system-design.md).
+    Tests may pass None for plain ws:// loopback connections.
 
     The handle exposes:
       - .sockets   (passthrough to server.sockets, for port discovery)
@@ -207,11 +215,19 @@ def start_ws_listener(host: str, port: int, registry):
             state.grow_ws_loop = loop
 
             async def _serve():
+                # Only forward `ssl=` when a context is actually present —
+                # some websockets versions treat ssl=None differently from
+                # the kwarg being absent entirely.
+                serve_kwargs = {
+                    "process_request": _process_request,
+                    "max_size": 8 * 1024 * 1024,  # 8 MB max frame
+                }
+                if ssl_context is not None:
+                    serve_kwargs["ssl"] = ssl_context
                 srv = await websockets.serve(
                     lambda ws, path: _connection_handler(ws, path, registry),
                     host, port,
-                    process_request=_process_request,
-                    max_size=8 * 1024 * 1024,  # 8 MB max frame
+                    **serve_kwargs,
                 )
                 server_holder["srv"] = srv
                 ready.set()

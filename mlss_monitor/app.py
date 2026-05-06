@@ -725,8 +725,17 @@ def _start_background_services():
     from mlss_monitor.grow.ws_registry import WSRegistry
     from mlss_monitor.routes.api_grow_ws import start_ws_listener
     state.grow_ws_registry = WSRegistry()
+    # Reuse the same SSL context Flask uses on port 5000. _build_ssl_context()
+    # returns None when HTTPS is disabled or certs aren't on disk (dev mode);
+    # listener falls back to plain ws:// in that case so tests + dev iteration
+    # still work. Production deployments ship certs, so the listener binds
+    # wss:// matching the firmware's wss:// URL scheme and the documented
+    # threat model (docs/superpowers/specs/2026-05-03-plant-grow-unit-system-design.md).
+    _ws_ssl_ctx = _build_ssl_context()
     state.grow_ws_handle = start_ws_listener(
-        host="0.0.0.0", port=5001, registry=state.grow_ws_registry,
+        host="0.0.0.0", port=5001,
+        registry=state.grow_ws_registry,
+        ssl_context=_ws_ssl_ctx,
     )
 
     from mlss_monitor.incident_grouper import start_grouper

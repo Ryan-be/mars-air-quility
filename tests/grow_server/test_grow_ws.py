@@ -114,3 +114,88 @@ async def test_binary_frame_dispatched_to_photo_storage(server, tmp_path, monkey
         "SELECT size_bytes FROM grow_photos WHERE unit_id=1"
     ).fetchone()
     assert row[0] == len(fake)
+
+
+def _make_fake_serve(captured):
+    """Build a fake websockets.serve() that captures kwargs and returns a
+    mock server whose wait_closed() blocks forever (until close() fires the
+    event), so the listener's _run() loop doesn't exit prematurely and
+    leak a pending stop_ws_listener task."""
+    from unittest.mock import MagicMock
+
+    async def fake_serve(handler, host, port, **kwargs):
+        captured["kwargs"] = kwargs
+        captured["host"] = host
+        captured["port"] = port
+        closed = asyncio.Event()
+        srv = MagicMock()
+        srv.sockets = []
+        srv.close = lambda: closed.set()
+
+        async def _wait_closed():
+            await closed.wait()
+
+        srv.wait_closed = _wait_closed
+        return srv
+
+    return fake_serve
+
+
+def test_start_ws_listener_passes_ssl_context_to_serve(monkeypatch):
+    """When given an ssl_context, start_ws_listener must forward it to
+    websockets.serve as the ssl= kwarg. Production hardening: this is
+    the bridge between the documented wss:// threat model and the actual
+    listener binding."""
+    import ssl
+    import time
+    import mlss_monitor.routes.api_grow_ws as mod
+
+    captured = {}
+    monkeypatch.setattr(mod.websockets, "serve", _make_fake_serve(captured))
+    fake_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+
+    from mlss_monitor.grow.ws_registry import WSRegistry
+    handle = mod.start_ws_listener(
+        host="127.0.0.1", port=0,
+        registry=WSRegistry(),
+        ssl_context=fake_ctx,
+    )
+
+    # Wait for the listener to call websockets.serve
+    for _ in range(50):
+        if "kwargs" in captured:
+            break
+        time.sleep(0.05)
+
+    assert "kwargs" in captured, "websockets.serve was never called"
+    assert captured["kwargs"].get("ssl") is fake_ctx, \
+        "ssl_context must be forwarded as the ssl= kwarg to websockets.serve"
+    mod.stop_ws_listener(handle)
+
+
+def test_start_ws_listener_omits_ssl_kwarg_when_no_context(monkeypatch):
+    """When no ssl_context provided (dev/test mode), the ssl kwarg must
+    NOT be passed at all (passing ssl=None changes websockets behavior in
+    some versions)."""
+    import time
+    import mlss_monitor.routes.api_grow_ws as mod
+
+    captured = {}
+    monkeypatch.setattr(mod.websockets, "serve", _make_fake_serve(captured))
+
+    from mlss_monitor.grow.ws_registry import WSRegistry
+    handle = mod.start_ws_listener(
+        host="127.0.0.1", port=0,
+        registry=WSRegistry(),
+        # ssl_context omitted (defaults to None)
+    )
+
+    for _ in range(50):
+        if "kwargs" in captured:
+            break
+        time.sleep(0.05)
+
+    assert "kwargs" in captured
+    assert "ssl" not in captured["kwargs"], \
+        "ssl kwarg must be absent when ssl_context is None"
+    mod.stop_ws_listener(handle)
