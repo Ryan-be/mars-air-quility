@@ -159,7 +159,12 @@ export function renderSafetyOverride(unit, opts = {}) {
         status.textContent = `✓ Override sent (${body.duration_s}s)`;
         status.className = "cfg-status ok";
       } else if (r.status === 503) {
-        status.textContent = "✗ Unit offline — try again when reconnected";
+        const err = await r.json().catch(() => ({}));
+        if (err.error === "ws_listener_not_running") {
+          status.textContent = "✗ Server WS listener offline — contact admin";
+        } else {
+          status.textContent = "✗ Unit offline — try again when reconnected";
+        }
         status.className = "cfg-status err";
       } else {
         const err = await r.json().catch(() => ({}));

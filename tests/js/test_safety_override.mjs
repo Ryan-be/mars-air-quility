@@ -33,12 +33,12 @@ function _setMockFetch(fn) { globalThis.fetch = fn; }
 /** Microtask flush. Avoid setTimeout-based flush in tests that enable
  *  t.mock.timers — the mocked setTimeout queues forever and stalls await. */
 async function _flushMicro() {
-  // Two await-Promise.resolve cycles is enough to settle: one for the
-  // fetch mock's `async () => Response(...)`, one for the await chain
-  // inside the panel's _fire() handler.
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
+  // Several await-Promise.resolve cycles to settle: the fetch mock's
+  // `async () => Response(...)`, the await chain inside the panel's
+  // _fire() handler, and the new `await r.json()` in the 503 branch.
+  for (let i = 0; i < 6; i++) {
+    await Promise.resolve();
+  }
 }
 
 
@@ -168,6 +168,32 @@ test("safety override: handles 503 unit-offline gracefully", async (t) => {
     await _flushMicro();
     const status = el.querySelector("[data-testid='safety-status']");
     assert.match(status.textContent, /offline|connect/i);
+    assert.match(status.className, /err/);
+  } finally {
+    _setMockFetch(orig);
+  }
+});
+
+
+test("test_safety_override_distinguishes_listener_not_running_from_unit_offline", async (t) => {
+  // 503 with body {error: "ws_listener_not_running"} indicates the server's
+  // WS listener is down, not the unit. The UI must not blame the unit.
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const orig = _origFetch();
+  _setMockFetch(async () => new Response(
+    JSON.stringify({ error: "ws_listener_not_running" }),
+    { status: 503 },
+  ));
+  try {
+    const el = renderSafetyOverride(_unit(), { ownerDocument: document });
+    const btn = el.querySelector("[data-testid='safety-button']");
+    btn.dispatchEvent(new dom.window.Event("click", { bubbles: true, cancelable: true }));
+    btn.dispatchEvent(new dom.window.Event("click", { bubbles: true, cancelable: true }));
+    btn.dispatchEvent(new dom.window.Event("click", { bubbles: true, cancelable: true }));
+    await _flushMicro();
+    const status = el.querySelector("[data-testid='safety-status']");
+    assert.match(status.textContent, /Server WS listener offline/);
+    assert.doesNotMatch(status.textContent, /Unit offline/);
     assert.match(status.className, /err/);
   } finally {
     _setMockFetch(orig);
