@@ -1,20 +1,25 @@
 """Per-unit Configure-tab PUT endpoints.
 
 Five endpoints under /api/grow/units/<unit_id>/...
-This module holds the first two: /profile and /pid. Calibration,
-light_windows, and safety_override are added in Tasks 3-4.
+  * /profile, /pid, /light_windows, /calibration  — controller+admin,
+    best-effort config_changed WS push (DB-write durable on offline)
+  * /safety_override                              — admin-only,
+    synchronous WS push (202 on confirmed delivery, 503 on offline)
 
 Auth: session-based via the global check_auth middleware in
 mlss_monitor.app. RBAC is enforced via @require_role —
-controller+admin for routine config, admin-only for safety_override
-(Task 4).
+controller+admin for routine config, admin-only for safety_override.
 
-WS push: after a successful DB write, the route schedules a best-effort
-`config_changed` command on the listener loop via
-`asyncio.run_coroutine_threadsafe`. If the unit isn't connected (or the
-underlying send raises), the request still returns 200 — the DB write
-already committed and the firmware will re-pull on its next reconnect
-(Task 8 wires the firmware-side handler).
+WS push for routine config: after a successful DB write, the route
+schedules a best-effort `config_changed` command on the listener loop
+via `asyncio.run_coroutine_threadsafe`. If the unit isn't connected
+(or the underlying send raises), the request still returns 200 — the
+DB write already committed and the firmware will re-pull on its next
+reconnect.
+
+Safety override is the exception: it's intent-to-act-now, so a
+disconnected unit should fail loudly (503) rather than silently. We
+also write an audit row into grow_errors before returning 202.
 """
 import asyncio
 import json
@@ -22,14 +27,16 @@ import logging
 import sqlite3
 from datetime import datetime
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, session
 from pydantic import ValidationError
 
 from database.init_db import DB_FILE
 from mlss_contracts.config_payloads import (
+    CalibrationUpdate,
     LightWindowsUpdate,
     PIDUpdate,
     ProfileUpdate,
+    SafetyOverrideRequest,
 )
 from mlss_monitor import state
 from mlss_monitor.rbac import require_role
@@ -42,6 +49,11 @@ api_grow_config_bp = Blueprint("api_grow_config", __name__)
 # request thread for long. The DB write is already committed by the time
 # we get here — if the push times out, the firmware re-pulls on reconnect.
 _PUSH_TIMEOUT_S = 2
+
+# Safety override push: longer than the best-effort timeout because a
+# 503 here is a real user-visible failure (the action didn't happen).
+# Still bounded so a hung listener can't wedge an admin's browser.
+_SAFETY_PUSH_TIMEOUT_S = 5
 
 
 def _serialise_validation_errors(errors: list) -> list:
@@ -277,3 +289,144 @@ def put_light_windows(unit_id):
 
     _push_config_changed(unit_id, "light_windows")
     return jsonify({"ok": True})
+
+
+# ---------------------------------------------------------------------------
+# /calibration
+# ---------------------------------------------------------------------------
+
+
+@api_grow_config_bp.route(
+    "/api/grow/units/<int:unit_id>/calibration", methods=["PUT"]
+)
+@require_role("controller", "admin")
+def put_calibration(unit_id):
+    """Write soil moisture sensor calibration (dry_raw + wet_raw).
+
+    Both raw values are written together; the contracts model rejects an
+    inverted (dry >= wet) pair, so the route only has to UPDATE and
+    confirm the unit existed.
+    """
+    body = request.get_json(silent=True) or {}
+    try:
+        payload = CalibrationUpdate(**body)
+    except ValidationError as exc:
+        return jsonify({
+            "error": "invalid_payload",
+            "detail": _serialise_validation_errors(exc.errors()),
+        }), 400
+
+    conn = sqlite3.connect(DB_FILE, timeout=10)
+    try:
+        cur = conn.execute(
+            "UPDATE grow_units SET soil_dry_raw=?, soil_wet_raw=? WHERE id=?",
+            (payload.dry_raw, payload.wet_raw, unit_id),
+        )
+        if cur.rowcount == 0:
+            conn.rollback()
+            return jsonify({"error": "unit_not_found"}), 404
+        conn.commit()
+    finally:
+        conn.close()
+
+    _push_config_changed(unit_id, "calibration")
+    return jsonify({"ok": True})
+
+
+# ---------------------------------------------------------------------------
+# /safety_override (admin-only, synchronous push)
+# ---------------------------------------------------------------------------
+
+
+@api_grow_config_bp.route(
+    "/api/grow/units/<int:unit_id>/safety_override", methods=["POST"]
+)
+@require_role("admin")  # admin-only — stricter than the others
+def post_safety_override(unit_id):
+    """Push a safety_override command and audit-trail it.
+
+    Unlike the other Configure-tab endpoints, this is intent-to-act-now:
+    the unit must be online for the action to actually happen, so we
+    push synchronously and surface a 503 if the unit isn't connected.
+    Every successful invocation lands in grow_errors with severity=info,
+    kind=safety_override_invoked, including the action, duration,
+    acknowledged warnings, and the user who triggered it — so the
+    bypass-PID path always leaves an audit trail.
+    """
+    body = request.get_json(silent=True) or {}
+    try:
+        payload = SafetyOverrideRequest(**body)
+    except ValidationError as exc:
+        return jsonify({
+            "error": "invalid_payload",
+            "detail": _serialise_validation_errors(exc.errors()),
+        }), 400
+
+    # Verify unit exists before pushing — keeps a 404 from masquerading as
+    # a 503 when the unit_id is wrong (different from a real-but-offline unit).
+    conn = sqlite3.connect(DB_FILE, timeout=10)
+    try:
+        if not conn.execute(
+            "SELECT 1 FROM grow_units WHERE id=?", (unit_id,),
+        ).fetchone():
+            return jsonify({"error": "unit_not_found"}), 404
+    finally:
+        conn.close()
+
+    triggered_by = session.get("user") or "unknown"
+    command = json.dumps({
+        "type": "command",
+        "ts": datetime.utcnow().isoformat() + "Z",
+        "payload": {
+            "kind": "safety_override",
+            "action": payload.action,
+            "duration_s": payload.duration_s,
+        },
+    })
+
+    # Synchronous push — a 503 here is a real failure (action didn't
+    # happen), so we audit-record only after the push confirms delivery.
+    registry = state.grow_ws_registry
+    listener_loop = state.grow_ws_loop
+    if registry is None or listener_loop is None:
+        return jsonify({"error": "ws_listener_not_running"}), 503
+    try:
+        future = asyncio.run_coroutine_threadsafe(
+            registry.send_to_unit(unit_id, command), listener_loop
+        )
+        future.result(timeout=_SAFETY_PUSH_TIMEOUT_S)
+    except Exception as exc:
+        log.warning(
+            "safety_override push to unit %s failed: %s", unit_id, exc
+        )
+        return jsonify({
+            "error": "unit_not_connected",
+            "detail": str(exc),
+        }), 503
+
+    # Audit trail. Recorded only after the push confirmed — if the unit
+    # never received the command, no action happened and no audit row.
+    conn = sqlite3.connect(DB_FILE, timeout=10)
+    try:
+        conn.execute(
+            "INSERT INTO grow_errors "
+            "(unit_id, timestamp_utc, severity, kind, message, details_json) "
+            "VALUES (?, ?, 'info', 'safety_override_invoked', ?, ?)",
+            (
+                unit_id,
+                datetime.utcnow(),
+                f"safety_override action={payload.action} "
+                f"duration_s={payload.duration_s}",
+                json.dumps({
+                    "action": payload.action,
+                    "duration_s": payload.duration_s,
+                    "acknowledged_warnings": payload.acknowledged_warnings,
+                    "triggered_by": triggered_by,
+                }),
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    return jsonify({"ok": True}), 202

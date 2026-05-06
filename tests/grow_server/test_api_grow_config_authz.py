@@ -212,3 +212,85 @@ def test_unauthenticated_pid_does_not_persist(client):
     ).fetchone()
     conn.close()
     assert row[0] is None
+
+
+# ---------------------------------------------------------------------------
+# /calibration RBAC (Task 4 — controller+admin)
+# ---------------------------------------------------------------------------
+
+
+_CALIBRATION_BODY = {"dry_raw": 300, "wet_raw": 1500}
+
+
+def test_calibration_put_denies_anonymous(client):
+    c, _ = client
+    _set_session(c, logged_in=False, role="viewer")
+    r = c.put("/api/grow/units/1/calibration", json=_CALIBRATION_BODY)
+    assert r.status_code == 401
+    assert r.get_json()["error"] == "Unauthorised"
+
+
+def test_calibration_put_denies_viewer(client):
+    c, _ = client
+    _set_session(c, logged_in=True, role="viewer")
+    r = c.put("/api/grow/units/1/calibration", json=_CALIBRATION_BODY)
+    assert r.status_code == 403
+    assert "Forbidden" in r.get_json()["error"]
+
+
+def test_calibration_put_allows_controller(client):
+    c, _ = client
+    _set_session(c, logged_in=True, role="controller")
+    r = c.put("/api/grow/units/1/calibration", json=_CALIBRATION_BODY)
+    assert r.status_code == 200
+
+
+def test_calibration_put_allows_admin(client):
+    c, _ = client
+    _set_session(c, logged_in=True, role="admin")
+    r = c.put("/api/grow/units/1/calibration", json=_CALIBRATION_BODY)
+    assert r.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# /safety_override RBAC (Task 4 — admin-only, stricter than the others)
+# ---------------------------------------------------------------------------
+
+
+_SAFETY_OVERRIDE_BODY = {"action": "force_pump_on", "duration_s": 10}
+
+
+def test_safety_override_post_denies_anonymous(client):
+    c, _ = client
+    _set_session(c, logged_in=False, role="viewer")
+    r = c.post("/api/grow/units/1/safety_override", json=_SAFETY_OVERRIDE_BODY)
+    assert r.status_code == 401
+    assert r.get_json()["error"] == "Unauthorised"
+
+
+def test_safety_override_post_denies_viewer(client):
+    c, _ = client
+    _set_session(c, logged_in=True, role="viewer")
+    r = c.post("/api/grow/units/1/safety_override", json=_SAFETY_OVERRIDE_BODY)
+    assert r.status_code == 403
+    assert "Forbidden" in r.get_json()["error"]
+
+
+def test_safety_override_post_DENIES_controller(client):
+    """Safety override is admin-only — stricter than profile/pid/calibration.
+    A controller (which has write access for routine config) is denied.
+    """
+    c, _ = client
+    _set_session(c, logged_in=True, role="controller")
+    r = c.post("/api/grow/units/1/safety_override", json=_SAFETY_OVERRIDE_BODY)
+    assert r.status_code == 403
+    assert "Forbidden" in r.get_json()["error"]
+
+
+def test_safety_override_post_allows_admin(client):
+    c, _ = client
+    _set_session(c, logged_in=True, role="admin")
+    r = c.post("/api/grow/units/1/safety_override", json=_SAFETY_OVERRIDE_BODY)
+    # Admin authorised: gets through RBAC. The push should succeed (FakeWS
+    # is registered in the fixture). Expect 202.
+    assert r.status_code == 202

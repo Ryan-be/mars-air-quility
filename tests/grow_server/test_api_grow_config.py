@@ -626,3 +626,302 @@ def test_put_light_windows_rejects_bad_phase(client):
     )
     assert r.status_code == 400
     assert r.get_json()["error"] == "invalid_payload"
+
+
+# ---------------------------------------------------------------------------
+# /calibration happy path + edge cases (Task 4)
+# ---------------------------------------------------------------------------
+
+
+def test_put_calibration_writes_dry_and_wet_raw(client):
+    c, _, db_path = client
+    r = c.put(
+        "/api/grow/units/1/calibration",
+        json={"dry_raw": 300, "wet_raw": 1500},
+    )
+    assert r.status_code == 200, r.data
+    assert r.get_json() == {"ok": True}
+    row = _row(db_path, 1)
+    assert row["soil_dry_raw"] == 300
+    assert row["soil_wet_raw"] == 1500
+
+
+def test_put_calibration_rejects_dry_ge_wet(client):
+    c, _, _ = client
+    r = c.put(
+        "/api/grow/units/1/calibration",
+        json={"dry_raw": 1500, "wet_raw": 300},
+    )
+    assert r.status_code == 400
+    body = r.get_json()
+    assert body["error"] == "invalid_payload"
+    assert "detail" in body
+
+
+def test_put_calibration_rejects_out_of_range(client):
+    c, _, _ = client
+    r = c.put(
+        "/api/grow/units/1/calibration",
+        json={"dry_raw": -1, "wet_raw": 5000},
+    )
+    assert r.status_code == 400
+    assert r.get_json()["error"] == "invalid_payload"
+
+
+def test_put_calibration_returns_404_for_unknown_unit(client):
+    c, _, _ = client
+    r = c.put(
+        "/api/grow/units/99999/calibration",
+        json={"dry_raw": 300, "wet_raw": 1500},
+    )
+    assert r.status_code == 404
+    assert r.get_json()["error"] == "unit_not_found"
+
+
+def test_put_calibration_pushes_config_changed_via_ws(client):
+    c, fake_ws, _ = client
+    r = c.put(
+        "/api/grow/units/1/calibration",
+        json={"dry_raw": 300, "wet_raw": 1500},
+    )
+    assert r.status_code == 200
+    assert len(fake_ws.sent) == 1
+    cmd = json.loads(fake_ws.sent[0])
+    assert cmd["type"] == "command"
+    assert cmd["payload"]["kind"] == "config_changed"
+    assert cmd["payload"]["section"] == "calibration"
+
+
+def test_put_calibration_succeeds_when_unit_not_connected(monkeypatch):
+    """Best-effort: calibration write is durable even if the unit is offline."""
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp.close()
+    import database.init_db as init_db
+    init_db.DB_FILE = tmp.name
+    monkeypatch.setattr("mlss_monitor.grow.auth.DB_FILE", tmp.name)
+    init_db.create_db()
+    conn = sqlite3.connect(tmp.name)
+    conn.execute(
+        "INSERT INTO grow_units (id, hardware_serial, label, enrolled_at, "
+        "bearer_token_hash, phase_set_at) VALUES (1, 'hw1', 'X', ?, 'h', ?)",
+        (datetime.utcnow(), datetime.utcnow()),
+    )
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(
+        "mlss_monitor.routes.api_grow_config.DB_FILE", tmp.name
+    )
+
+    # No registry/loop wired up — _push_config_changed should silently no-op.
+    from mlss_monitor import state
+    state.grow_ws_registry = None
+    state.grow_ws_loop = None
+
+    from flask import Flask
+    from mlss_monitor.routes.api_grow_config import api_grow_config_bp
+    app = Flask(__name__)
+    app.secret_key = "test-secret"
+    app.register_blueprint(api_grow_config_bp)
+    tc = app.test_client()
+    with tc.session_transaction() as sess:
+        sess["logged_in"] = True
+        sess["user_role"] = "admin"
+
+    r = tc.put(
+        "/api/grow/units/1/calibration",
+        json={"dry_raw": 250, "wet_raw": 1700},
+    )
+    assert r.status_code == 200
+    # DB was still updated even though no WS push was possible.
+    conn = sqlite3.connect(tmp.name)
+    row = conn.execute(
+        "SELECT soil_dry_raw, soil_wet_raw FROM grow_units WHERE id=1"
+    ).fetchone()
+    conn.close()
+    assert row[0] == 250
+    assert row[1] == 1700
+
+
+# ---------------------------------------------------------------------------
+# /safety_override happy path + edge cases (Task 4, admin-only)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def admin_user_client(client):
+    """Client with an explicit `user` in session for triggered_by audit."""
+    c, fake_ws, db_path = client
+    with c.session_transaction() as sess:
+        sess["user"] = "test-admin"
+        # role already 'admin' from the parent fixture
+    return c, fake_ws, db_path
+
+
+def test_post_safety_override_returns_202_on_successful_push(admin_user_client):
+    c, _, _ = admin_user_client
+    r = c.post(
+        "/api/grow/units/1/safety_override",
+        json={
+            "action": "force_pump_on",
+            "duration_s": 10,
+            "acknowledged_warnings": ["wont_overwater"],
+        },
+    )
+    assert r.status_code == 202, r.data
+    assert r.get_json() == {"ok": True}
+
+
+def test_post_safety_override_returns_503_when_unit_not_connected(monkeypatch):
+    """If the listener loop/registry isn't wired up (e.g. unit not online),
+    safety_override returns 503 — unlike best-effort config_changed pushes,
+    a safety override is intent-to-act-now and a missed push is a real fail.
+    """
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp.close()
+    import database.init_db as init_db
+    init_db.DB_FILE = tmp.name
+    monkeypatch.setattr("mlss_monitor.grow.auth.DB_FILE", tmp.name)
+    init_db.create_db()
+    conn = sqlite3.connect(tmp.name)
+    conn.execute(
+        "INSERT INTO grow_units (id, hardware_serial, label, enrolled_at, "
+        "bearer_token_hash, phase_set_at) VALUES (1, 'hw1', 'X', ?, 'h', ?)",
+        (datetime.utcnow(), datetime.utcnow()),
+    )
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(
+        "mlss_monitor.routes.api_grow_config.DB_FILE", tmp.name
+    )
+
+    from mlss_monitor import state
+    state.grow_ws_registry = None
+    state.grow_ws_loop = None
+
+    from flask import Flask
+    from mlss_monitor.routes.api_grow_config import api_grow_config_bp
+    app = Flask(__name__)
+    app.secret_key = "test-secret"
+    app.register_blueprint(api_grow_config_bp)
+    tc = app.test_client()
+    with tc.session_transaction() as sess:
+        sess["logged_in"] = True
+        sess["user_role"] = "admin"
+        sess["user"] = "test-admin"
+
+    r = tc.post(
+        "/api/grow/units/1/safety_override",
+        json={"action": "force_pump_on", "duration_s": 5},
+    )
+    assert r.status_code == 503
+    body = r.get_json()
+    assert "error" in body
+    # Audit row must NOT be written when the push fails (safety: action didn't
+    # actually happen, so no audit trail entry).
+    conn = sqlite3.connect(tmp.name)
+    row_count = conn.execute(
+        "SELECT COUNT(*) FROM grow_errors WHERE unit_id=1"
+    ).fetchone()[0]
+    conn.close()
+    assert row_count == 0
+
+
+def test_post_safety_override_pushes_command_payload_with_action_and_duration(
+    admin_user_client,
+):
+    c, fake_ws, _ = admin_user_client
+    r = c.post(
+        "/api/grow/units/1/safety_override",
+        json={
+            "action": "force_pump_on",
+            "duration_s": 10,
+            "acknowledged_warnings": ["wont_overwater"],
+        },
+    )
+    assert r.status_code == 202, r.data
+    assert len(fake_ws.sent) == 1
+    cmd = json.loads(fake_ws.sent[0])
+    assert cmd["type"] == "command"
+    assert "ts" in cmd
+    payload = cmd["payload"]
+    assert payload["kind"] == "safety_override"
+    assert payload["action"] == "force_pump_on"
+    assert payload["duration_s"] == 10
+
+
+def test_post_safety_override_records_audit_row_in_grow_errors(
+    admin_user_client,
+):
+    c, _, db_path = admin_user_client
+    r = c.post(
+        "/api/grow/units/1/safety_override",
+        json={
+            "action": "force_pump_on",
+            "duration_s": 10,
+            "acknowledged_warnings": ["wont_overwater", "user_present"],
+        },
+    )
+    assert r.status_code == 202, r.data
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        "SELECT * FROM grow_errors WHERE unit_id=1 AND kind='safety_override_invoked'"
+    ).fetchall()
+    conn.close()
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["severity"] == "info"
+    details = json.loads(row["details_json"])
+    assert details["action"] == "force_pump_on"
+    assert details["duration_s"] == 10
+    assert details["acknowledged_warnings"] == ["wont_overwater", "user_present"]
+
+
+def test_post_safety_override_rejects_excessive_duration(admin_user_client):
+    c, _, _ = admin_user_client
+    r = c.post(
+        "/api/grow/units/1/safety_override",
+        json={"action": "force_pump_on", "duration_s": 600},
+    )
+    assert r.status_code == 400
+    assert r.get_json()["error"] == "invalid_payload"
+
+
+def test_post_safety_override_rejects_unknown_action(admin_user_client):
+    c, _, _ = admin_user_client
+    r = c.post(
+        "/api/grow/units/1/safety_override",
+        json={"action": "nuke_plant", "duration_s": 10},
+    )
+    assert r.status_code == 400
+    assert r.get_json()["error"] == "invalid_payload"
+
+
+def test_post_safety_override_returns_404_for_unknown_unit(admin_user_client):
+    c, _, _ = admin_user_client
+    r = c.post(
+        "/api/grow/units/99999/safety_override",
+        json={"action": "force_pump_on", "duration_s": 10},
+    )
+    assert r.status_code == 404
+    assert r.get_json()["error"] == "unit_not_found"
+
+
+def test_post_safety_override_audit_row_records_user(admin_user_client):
+    c, _, db_path = admin_user_client
+    r = c.post(
+        "/api/grow/units/1/safety_override",
+        json={"action": "force_pump_on", "duration_s": 10},
+    )
+    assert r.status_code == 202, r.data
+
+    conn = sqlite3.connect(db_path)
+    row = conn.execute(
+        "SELECT details_json FROM grow_errors "
+        "WHERE unit_id=1 AND kind='safety_override_invoked'"
+    ).fetchone()
+    conn.close()
+    assert row is not None
+    details = json.loads(row[0])
+    assert details["triggered_by"] == "test-admin"
