@@ -180,6 +180,21 @@
   50% { box-shadow: 0 0 20px rgba(255, 138, 0, 0.85); }
 }
 
+/* History tab — moisture history chart (Task 3) */
+.hist-chart { padding-bottom: 12px; }
+.hist-range-selector {
+  display: flex; gap: 6px; padding: 10px 14px 4px;
+}
+.hist-range-selector button {
+  background: transparent; border: 1px solid #2a3d50; color: #7d92a8;
+  padding: 5px 12px; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+  cursor: pointer; border-radius: 2px; font-family: Roboto, sans-serif;
+}
+.hist-range-selector button:hover:not(.active) { border-color: #4dacff; color: #4dacff; }
+.hist-range-selector button.active { background: #4dacff; color: #001028; border-color: #4dacff; }
+.hist-chart-host { padding: 8px 14px 12px; min-height: 240px; }
+.hist-chart-svg { width: 100%; height: auto; display: block; }
+
 /* Empty-state onboarding panel (shown when zero units enrolled) */
 .empty-wrap { padding: 40px 20px; display: flex; align-items: center; justify-content: center; min-height: 480px; font-family: Roboto, sans-serif; }
 .empty-card { background: #142028; border: 1px solid #1f2e3c; border-radius: 4px; max-width: 720px; width: 100%; padding: 32px; }
