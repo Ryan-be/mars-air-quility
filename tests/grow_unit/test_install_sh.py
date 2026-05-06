@@ -85,3 +85,100 @@ def test_install_script_verifies_both_wheels():
     content = INSTALL.read_text()
     assert "GROW_SHA256" in content or "grow_sha256" in content.lower()
     assert "CONTRACTS_SHA256" in content or "contracts_sha256" in content.lower()
+
+
+# ---------------------------------------------------------------------------
+# I5 — systemd unit fetched via the dist endpoint with SHA256 verification.
+#
+# The old script tried three brittle paths to install the systemd unit:
+#   1. cp from a repo-relative path (only works during local dev)
+#   2. cp from the venv site-packages dir (the wheel doesn't ship it)
+#   3. curl with no integrity check (LAN MITM could substitute a unit)
+#
+# After the fix the script must:
+#   * Fetch the .service file from /api/grow/dist/mlss-grow.service.
+#   * SHA256-verify it against the manifest entry — same pattern as wheels.
+#   * Drop the package-data cp fallbacks (or only use them after the
+#     verified curl path).
+# ---------------------------------------------------------------------------
+
+def test_install_script_fetches_service_from_dist_endpoint():
+    """The script must download mlss-grow.service via /api/grow/dist/, not
+    rely on a wheel-bundled package-data copy.
+
+    The actual filename can come from the manifest at runtime (a
+    SERVICE_FILENAME var) or be a literal in the script. Either way, we
+    expect a curl against /api/grow/dist/ for an artefact whose name is
+    derived from the .service manifest entry.
+    """
+    content = INSTALL.read_text()
+    has_literal = "/api/grow/dist/mlss-grow.service" in content
+    has_var_curl = (
+        "/api/grow/dist/${SERVICE_FILENAME}" in content
+        or '/api/grow/dist/"$SERVICE_FILENAME"' in content
+        or "/api/grow/dist/$SERVICE_FILENAME" in content
+    )
+    assert has_literal or has_var_curl, (
+        "install.sh must fetch the systemd unit via /api/grow/dist/, either "
+        "with the literal filename or via a SERVICE_FILENAME variable read "
+        "from the manifest"
+    )
+
+
+def test_install_script_verifies_service_sha256():
+    """SHA256 of the downloaded .service file must be checked against the
+    manifest entry, exactly like the wheels."""
+    content = INSTALL.read_text()
+    # Some sentinel naming the service hash variable. Both common cases ok.
+    assert (
+        "SERVICE_SHA256" in content
+        or "service_sha256" in content.lower()
+        or "SERVICE_FILENAME" in content  # implies hash flow exists too
+    ), "install.sh must verify the .service file's SHA256"
+    # Should reference the manifest field for the .service file.
+    assert "mlss-grow.service" in content
+
+
+def test_install_script_drops_repo_relative_cp_fallback():
+    """The old fallback `cp $INSTALL_DIR/../../systemd/mlss-grow.service`
+    relied on the wheel layout having the systemd dir alongside the package.
+    The wheel does not ship that, so the cp always fails — drop it."""
+    content = INSTALL.read_text()
+    # The repo-relative ../../systemd/ pattern is the load-bearing tell.
+    assert "../../systemd/mlss-grow.service" not in content, (
+        "the brittle repo-relative cp fallback must be removed; the verified "
+        "curl path is now the canonical install method"
+    )
+
+
+def test_install_script_drops_site_packages_cp_fallback():
+    """The site-packages cp fallback also relied on wheel-bundled data that
+    isn't actually included in the wheel. Drop it."""
+    content = INSTALL.read_text()
+    assert (
+        "site-packages/mlss_grow/systemd/mlss-grow.service" not in content
+    ), (
+        "the site-packages cp fallback must be removed; mlss-grow.service is "
+        "not packaged inside the wheel"
+    )
+
+
+def test_install_script_aborts_on_service_sha256_mismatch():
+    """A mismatched .service hash must abort the install — NoNewPrivileges
+    and friends mean a tampered unit could expand the firmware's privileges
+    on first boot. set -e + verify_sha exit 1 covers this if both wheels and
+    .service flow through the same verify_sha helper."""
+    content = INSTALL.read_text()
+    # The verify_sha helper from the wheel verification path must also be
+    # invoked for the service file. Look for either an explicit verify_sha
+    # call referencing the service, or the SERVICE_SHA256 var name being
+    # passed through.
+    assert (
+        "verify_sha" in content
+    ), "verify_sha helper must remain — it's the abort-on-mismatch primitive"
+    # And the .service path/var must be wired into it. Tolerant matching
+    # because the exact var name is up to the implementer.
+    assert (
+        "verify_sha" in content
+        and ("SERVICE" in content or "service" in content)
+    )

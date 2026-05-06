@@ -72,18 +72,27 @@ GROW_SHA256=$(echo "$LATEST" | python3 -c "import sys,json;print(json.load(sys.s
 CONTRACTS_VER=$(echo "$LATEST" | python3 -c "import sys,json;print(json.load(sys.stdin)['mlss_contracts']['version'])")
 CONTRACTS_FILENAME=$(echo "$LATEST" | python3 -c "import sys,json;print(json.load(sys.stdin)['mlss_contracts']['filename'])")
 CONTRACTS_SHA256=$(echo "$LATEST" | python3 -c "import sys,json;print(json.load(sys.stdin)['mlss_contracts']['sha256'])")
+# Systemd unit ships through the same dist endpoint with its own sha256.
+# It is NOT bundled in the mlss_grow wheel — keeps the wheel pure-Python
+# and lets us update the unit without re-cutting a wheel.
+SERVICE_FILENAME=$(echo "$LATEST" | python3 -c "import sys,json;print(json.load(sys.stdin)['mlss-grow.service']['filename'])")
+SERVICE_SHA256=$(echo "$LATEST" | python3 -c "import sys,json;print(json.load(sys.stdin)['mlss-grow.service']['sha256'])")
 
 curl -k -o "$TMP/${GROW_FILENAME}" \
     "https://${MLSS_HOST}:5000/api/grow/dist/${GROW_FILENAME}"
 curl -k -o "$TMP/${CONTRACTS_FILENAME}" \
     "https://${MLSS_HOST}:5000/api/grow/dist/${CONTRACTS_FILENAME}"
+curl -k -o "$TMP/${SERVICE_FILENAME}" \
+    "https://${MLSS_HOST}:5000/api/grow/dist/${SERVICE_FILENAME}"
 
-# ── Verify SHA256 — defends against LAN MITM tampering with wheels.
-# A wheel that mismatches its manifest hash MUST NOT be installed; the
-# Pi runs pip install as the mlss-grow user (i2c/gpio/video group member)
-# and the systemd unit fetched right after lands in /etc/systemd/system/
-# and runs as root.
-echo "==> Verifying wheel SHA256 sums"
+# ── Verify SHA256 — defends against LAN MITM tampering with the wheels
+# AND with the systemd unit. Both surfaces matter: the wheel runs as the
+# mlss-grow user (i2c/gpio/video group member) and the systemd unit lands
+# in /etc/systemd/system/ where systemd reads it as root. A tampered unit
+# could expand the firmware's privileges (drop NoNewPrivileges, add
+# CapabilityBoundingSet, run as root, etc.) so we treat both with equal
+# care: download, hash, abort on mismatch.
+echo "==> Verifying SHA256 sums"
 verify_sha() {
     local file="$1" expected="$2" actual
     actual=$(sha256sum "$file" | awk '{print $1}')
@@ -96,6 +105,7 @@ verify_sha() {
 }
 verify_sha "$TMP/${GROW_FILENAME}" "$GROW_SHA256"
 verify_sha "$TMP/${CONTRACTS_FILENAME}" "$CONTRACTS_SHA256"
+verify_sha "$TMP/${SERVICE_FILENAME}" "$SERVICE_SHA256"
 
 # ── 5. venv + install
 echo "==> Creating venv and installing wheels"
@@ -107,15 +117,15 @@ sudo -u mlss-grow /opt/mlss-grow/.venv/bin/pip install \
     "mlss_contracts==${CONTRACTS_VER}"
 
 # ── 6. systemd unit
+# We already downloaded + SHA256-verified the unit above, so the install
+# step is a plain copy from $TMP. The previous cp-from-package-data
+# fallbacks were removed — the wheel doesn't ship the .service file, so
+# they always failed silently and left the third (unverified curl)
+# fallback as the actual install method. The verified-curl path is now
+# canonical.
 echo "==> Installing systemd unit"
-INSTALL_DIR=$(/opt/mlss-grow/.venv/bin/python -c \
-    "import mlss_grow, os; print(os.path.dirname(mlss_grow.__file__))")
-cp "$INSTALL_DIR/../../systemd/mlss-grow.service" /etc/systemd/system/mlss-grow.service 2>/dev/null \
-    || cp /opt/mlss-grow/.venv/lib/python*/site-packages/mlss_grow/systemd/mlss-grow.service \
-        /etc/systemd/system/mlss-grow.service 2>/dev/null \
-    || curl -k -o /etc/systemd/system/mlss-grow.service \
-        "https://${MLSS_HOST}:5000/api/grow/dist/mlss-grow.service"
-chmod 644 /etc/systemd/system/mlss-grow.service
+install -m 0644 -o root -g root \
+    "$TMP/${SERVICE_FILENAME}" /etc/systemd/system/mlss-grow.service
 
 systemctl daemon-reload
 

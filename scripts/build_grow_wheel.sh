@@ -24,5 +24,11 @@ echo "==> Building mlss_grow wheel"
 ( cd "$REPO_ROOT/grow_unit" && poetry build -f wheel )
 cp "$REPO_ROOT/grow_unit/dist"/*.whl "$DIST_DIR/"
 
-echo "==> Wheels in $DIST_DIR:"
-ls -la "$DIST_DIR"/*.whl
+# The systemd unit isn't packaged in the wheel; ship it through the dist
+# endpoint so install.sh can fetch + SHA256-verify it the same way it does
+# for the wheels (defends against LAN MITM substituting a hostile unit).
+echo "==> Copying systemd unit to dist"
+cp "$REPO_ROOT/grow_unit/systemd/mlss-grow.service" "$DIST_DIR/"
+
+echo "==> Files in $DIST_DIR:"
+ls -la "$DIST_DIR"/

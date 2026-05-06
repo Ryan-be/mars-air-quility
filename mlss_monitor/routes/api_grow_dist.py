@@ -24,6 +24,14 @@ GROW_DIST_DIR = str(
 # wants pathlib niceties). Kept in sync with GROW_DIST_DIR for backward compat.
 _WHEEL_DIR = Path(GROW_DIST_DIR)
 _WHEEL_RE = re.compile(r"^([a-z_]+)-(\d+\.\d+\.\d+)-py3-none-any\.whl$")
+# Non-wheel artifacts shipped through the dist endpoint that install.sh
+# downloads + SHA256-verifies. Each entry is (filename, manifest_key);
+# the manifest_key is what the installer reads from /api/grow/dist/latest.
+# Currently just the systemd unit — keeping the list explicit so we never
+# accidentally serve random files dropped into the dist dir.
+_NON_WHEEL_ARTIFACTS: tuple[tuple[str, str], ...] = (
+    ("mlss-grow.service", "mlss-grow.service"),
+)
 
 
 def _wheel_dir() -> Path:
@@ -76,6 +84,11 @@ def serve_wheel(filename):
 def _latest_versions():
     """Walk the wheel dir and return {pkg: {version, filename, sha256}} so the
     Pi installer can verify integrity after download (defends against LAN MITM).
+
+    Wheels are matched by ``_WHEEL_RE`` and keyed by their package name. The
+    systemd unit (and any future non-wheel artifact in
+    ``_NON_WHEEL_ARTIFACTS``) is added under its own filename-as-key so the
+    installer can fetch it via the same code path as the wheels.
     """
     out: dict = {}
     wheel_dir = _wheel_dir()
@@ -93,6 +106,18 @@ def _latest_versions():
             "version": ver,
             "filename": p.name,
             "sha256": _wheel_sha256(p.name),
+        }
+    # Second pass: explicit non-wheel artifacts (currently just the systemd
+    # unit). Skipped if the file isn't present — manifest stays valid for
+    # partial deployments.
+    for filename, key in _NON_WHEEL_ARTIFACTS:
+        artifact_path = wheel_dir / filename
+        if not artifact_path.is_file():
+            continue
+        out[key] = {
+            "version": None,  # not semver-versioned; pinned by sha256 only
+            "filename": filename,
+            "sha256": _wheel_sha256(filename),
         }
     return jsonify(out)
 

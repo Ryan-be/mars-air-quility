@@ -145,3 +145,112 @@ def test_latest_handles_missing_wheel_dir_gracefully(monkeypatch):
     r = app.test_client().get("/api/grow/dist/latest")
     assert r.status_code == 200
     assert r.get_json() == {}
+
+
+# ---------------------------------------------------------------------------
+# I5 — systemd .service shipped via /api/grow/dist/.
+#
+# install.sh used to look for the systemd unit in three brittle places (a
+# repo-relative cp, a venv site-packages cp, and a curl as last resort).
+# The fix is to ship the .service file through the same dist endpoint the
+# wheels use, exposed via the manifest with its sha256 so install.sh can
+# verify integrity exactly like it already does for wheels.
+# ---------------------------------------------------------------------------
+
+def test_latest_includes_systemd_service_when_present(tmp_path, monkeypatch):
+    """/latest must include the mlss-grow.service entry when the file is in
+    the dist dir, alongside the wheel entries."""
+    dist_dir = tmp_path / "wheels"
+    dist_dir.mkdir()
+    (dist_dir / "mlss_grow-0.1.0-py3-none-any.whl").write_bytes(b"WHEEL")
+    service_bytes = b"[Unit]\nDescription=MLSS Plant Grow Unit\n"
+    (dist_dir / "mlss-grow.service").write_bytes(service_bytes)
+    monkeypatch.setattr(
+        "mlss_monitor.routes.api_grow_dist._WHEEL_DIR", dist_dir)
+
+    from flask import Flask
+    from mlss_monitor.routes.api_grow_dist import api_grow_dist_bp
+    app = Flask(__name__)
+    app.register_blueprint(api_grow_dist_bp)
+
+    r = app.test_client().get("/api/grow/dist/latest")
+    assert r.status_code == 200
+    body = r.get_json()
+    assert "mlss-grow.service" in body, (
+        f"manifest missing systemd unit entry; got keys={list(body)!r}"
+    )
+    entry = body["mlss-grow.service"]
+    assert entry["filename"] == "mlss-grow.service"
+    assert entry["sha256"] == hashlib.sha256(service_bytes).hexdigest()
+    # Wheels carry a real semver version; the .service file isn't versioned
+    # the same way. Either null or a sentinel string is acceptable, but the
+    # KEY must exist so installers don't have to special-case its absence.
+    assert "version" in entry
+
+
+def test_latest_omits_service_when_not_in_dist(tmp_path, monkeypatch):
+    """If the .service file isn't in the dist dir, the manifest must not
+    fabricate an entry for it."""
+    dist_dir = tmp_path / "wheels"
+    dist_dir.mkdir()
+    (dist_dir / "mlss_grow-0.1.0-py3-none-any.whl").write_bytes(b"WHEEL")
+    monkeypatch.setattr(
+        "mlss_monitor.routes.api_grow_dist._WHEEL_DIR", dist_dir)
+
+    from flask import Flask
+    from mlss_monitor.routes.api_grow_dist import api_grow_dist_bp
+    app = Flask(__name__)
+    app.register_blueprint(api_grow_dist_bp)
+
+    r = app.test_client().get("/api/grow/dist/latest")
+    body = r.get_json()
+    assert "mlss-grow.service" not in body
+    # And wheel entries still work.
+    assert "mlss_grow" in body
+
+
+def test_serve_wheel_route_serves_systemd_unit(tmp_path, monkeypatch):
+    """GET /api/grow/dist/mlss-grow.service must return the actual file bytes."""
+    dist_dir = tmp_path / "wheels"
+    dist_dir.mkdir()
+    service_bytes = b"[Unit]\nDescription=MLSS Plant Grow Unit firmware\n"
+    (dist_dir / "mlss-grow.service").write_bytes(service_bytes)
+    monkeypatch.setattr(
+        "mlss_monitor.routes.api_grow_dist._WHEEL_DIR", dist_dir)
+    monkeypatch.setattr(
+        "mlss_monitor.routes.api_grow_dist.GROW_DIST_DIR", str(dist_dir))
+
+    from flask import Flask
+    from mlss_monitor.routes.api_grow_dist import api_grow_dist_bp
+    app = Flask(__name__)
+    app.register_blueprint(api_grow_dist_bp)
+
+    r = app.test_client().get("/api/grow/dist/mlss-grow.service")
+    assert r.status_code == 200
+    assert r.data == service_bytes
+
+
+def test_service_sha256_matches_actual_bytes_after_install_flow(
+    tmp_path, monkeypatch
+):
+    """Stack-level: the manifest hash for mlss-grow.service must match the
+    bytes returned by GET /api/grow/dist/mlss-grow.service. This is the
+    exact contract install.sh relies on."""
+    dist_dir = tmp_path / "wheels"
+    dist_dir.mkdir()
+    service_bytes = b"[Unit]\nDescription=MLSS\n[Service]\nExecStart=/x\n"
+    (dist_dir / "mlss-grow.service").write_bytes(service_bytes)
+    monkeypatch.setattr(
+        "mlss_monitor.routes.api_grow_dist._WHEEL_DIR", dist_dir)
+    monkeypatch.setattr(
+        "mlss_monitor.routes.api_grow_dist.GROW_DIST_DIR", str(dist_dir))
+
+    from flask import Flask
+    from mlss_monitor.routes.api_grow_dist import api_grow_dist_bp
+    app = Flask(__name__)
+    app.register_blueprint(api_grow_dist_bp)
+    client = app.test_client()
+
+    manifest = client.get("/api/grow/dist/latest").get_json()
+    served = client.get("/api/grow/dist/mlss-grow.service").data
+    assert manifest["mlss-grow.service"]["sha256"] == hashlib.sha256(served).hexdigest()
