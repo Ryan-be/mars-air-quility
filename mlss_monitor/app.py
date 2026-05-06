@@ -205,7 +205,11 @@ _PUBLIC_ENDPOINTS = {"auth.login", "auth.logout", "auth.github_login",
                      "auth.github_callback", "static",
                      "api_grow_enroll.enroll",
                      "api_grow_dist.install_sh",
-                     "api_grow_dist.serve_wheel"}
+                     "api_grow_dist.serve_wheel",
+                     # Firmware pulls fresh config on `config_changed`; uses
+                     # bearer-token auth (not session). See
+                     # mlss_monitor/routes/api_grow_config.py:get_unit_config.
+                     "api_grow_config.get_unit_config"}
 
 
 def _auth_configured():

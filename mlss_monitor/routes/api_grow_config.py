@@ -6,9 +6,16 @@ Five endpoints under /api/grow/units/<unit_id>/...
   * /safety_override                              — admin-only,
     synchronous WS push (202 on confirmed delivery, 503 on offline)
 
+Plus one bearer-authenticated firmware pull endpoint:
+  * GET /api/grow/units/<unit_id>/config          — bearer-token auth
+    (firmware pulls fresh config after a `config_changed` push;
+    no Flask session required, since the firmware has none).
+
 Auth: session-based via the global check_auth middleware in
-mlss_monitor.app. RBAC is enforced via @require_role —
-controller+admin for routine config, admin-only for safety_override.
+mlss_monitor.app — except for the GET /config endpoint, which auths
+via the per-unit bearer token (same secret used to authenticate the
+WS upgrade). RBAC is enforced via @require_role — controller+admin
+for routine config, admin-only for safety_override.
 
 WS push for routine config: after a successful DB write, the route
 schedules a best-effort `config_changed` command on the listener loop
@@ -40,6 +47,7 @@ from mlss_contracts.config_payloads import (
 )
 from mlss_monitor import state
 from mlss_monitor.rbac import require_role
+from mlss_monitor.routes.api_grow_ws import _validate_bearer
 
 log = logging.getLogger(__name__)
 
@@ -430,3 +438,146 @@ def post_safety_override(unit_id):
         conn.close()
 
     return jsonify({"ok": True}), 202
+
+
+# ---------------------------------------------------------------------------
+# GET /config (firmware pull, bearer-authenticated)
+# ---------------------------------------------------------------------------
+
+
+# Mirror of _PID_COLUMN_MAP keyed for the pull-side response. Field order is
+# the canonical order the firmware expects in UnitConfig.overrides.
+_PID_RESPONSE_FIELDS = (
+    "watering_target", "kp", "ki", "kd",
+    "soak_window_min", "min_pulse_s", "max_pulse_s",
+)
+
+# DB column name for each response key (overrides table → response).
+_OVERRIDE_COLUMN_FOR_RESPONSE = {
+    "watering_target":  "watering_target_override",
+    "kp":               "watering_kp_override",
+    "ki":               "watering_ki_override",
+    "kd":               "watering_kd_override",
+    "soak_window_min":  "soak_window_min_override",
+    "min_pulse_s":      "pulse_min_s_override",
+    "max_pulse_s":      "pulse_max_s_override",
+}
+
+# Plant profile column name for each response key (used to fill nulls).
+# Note: target_moisture_pct is the profile column for `watering_target`.
+_PROFILE_COLUMN_FOR_RESPONSE = {
+    "watering_target":  "target_moisture_pct",
+    "kp":               "kp",
+    "ki":               "ki",
+    "kd":               "kd",
+    "soak_window_min":  "soak_window_min",
+    "min_pulse_s":      "min_pulse_s",
+    "max_pulse_s":      "max_pulse_s",
+}
+
+
+def _resolve_overrides(unit_row, profile_row) -> dict:
+    """Combine unit overrides with plant profile defaults.
+
+    For each response key, prefer the unit's `*_override` column when it
+    is non-NULL, else fall back to the matching plant profile column.
+    Returns a dict with concrete (never-null) values for every key in
+    _PID_RESPONSE_FIELDS — plant_profiles has NOT NULL constraints on
+    every column we read from, so the fallback is always defined.
+    """
+    out = {}
+    for key in _PID_RESPONSE_FIELDS:
+        override_col = _OVERRIDE_COLUMN_FOR_RESPONSE[key]
+        override_val = unit_row[override_col]
+        if override_val is not None:
+            out[key] = override_val
+            continue
+        if profile_row is None:
+            # Defensive: shouldn't happen because we seed a 'generic'
+            # profile per phase, but if a unit's plant_type points to a
+            # row that doesn't exist, surface NULL rather than crashing.
+            out[key] = None
+            continue
+        out[key] = profile_row[_PROFILE_COLUMN_FOR_RESPONSE[key]]
+    return out
+
+
+@api_grow_config_bp.route(
+    "/api/grow/units/<int:unit_id>/config", methods=["GET"]
+)
+def get_unit_config(unit_id):
+    """Bearer-authenticated firmware pull of the latest config.
+
+    Auth: per-unit bearer token in `Authorization: Bearer <token>`. The
+    Flask session check_auth middleware is bypassed because this
+    endpoint is registered in `_PUBLIC_ENDPOINTS` (mlss_monitor/app.py);
+    the firmware has no GitHub OAuth identity, so session-based auth is
+    not an option here.
+
+    Response shape: same five top-level keys the Configure-tab GET on
+    /api/grow/units/<id> introduced in Task 5, plus current_phase +
+    plant_type so the firmware knows which phase's light_windows to
+    apply. Override fields are RESOLVED inline against the matching
+    grow_plant_profiles row before responding — this means firmware
+    never sees a `null` field and doesn't have to maintain its own
+    profile lookup table.
+    """
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return jsonify({"error": "missing_bearer"}), 401
+    token = auth_header[7:].strip()
+    if not _validate_bearer(unit_id, token):
+        return jsonify({"error": "invalid_token"}), 401
+
+    conn = sqlite3.connect(DB_FILE, timeout=10)
+    conn.row_factory = sqlite3.Row
+    try:
+        unit_row = conn.execute(
+            "SELECT * FROM grow_units WHERE id=? AND is_active=1",
+            (unit_id,),
+        ).fetchone()
+        if unit_row is None:
+            # Bearer validated against the DB row, so this would only
+            # happen on a deactivate-between-validate-and-fetch race.
+            return jsonify({"error": "unit_not_found"}), 404
+
+        # Plant profile defaults for null overrides. (plant_type, current_phase)
+        # is UNIQUE; a missing row falls back to the seeded 'generic' for the
+        # same phase, then NULL.
+        profile_row = conn.execute(
+            "SELECT * FROM grow_plant_profiles "
+            "WHERE plant_type=? AND phase=?",
+            (unit_row["plant_type"], unit_row["current_phase"]),
+        ).fetchone()
+        if profile_row is None:
+            profile_row = conn.execute(
+                "SELECT * FROM grow_plant_profiles "
+                "WHERE plant_type='generic' AND phase=?",
+                (unit_row["current_phase"],),
+            ).fetchone()
+
+        lw_rows = conn.execute(
+            "SELECT phase, start_hh_mm, end_hh_mm "
+            "FROM grow_light_windows WHERE unit_id=? "
+            "ORDER BY phase, sort_order",
+            (unit_id,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    light_windows: dict[str, list] = {}
+    for r in lw_rows:
+        light_windows.setdefault(r["phase"], []).append(
+            {"start": r["start_hh_mm"], "end": r["end_hh_mm"]}
+        )
+
+    return jsonify({
+        "overrides":     _resolve_overrides(unit_row, profile_row),
+        "calibration":   {
+            "dry_raw": unit_row["soil_dry_raw"],
+            "wet_raw": unit_row["soil_wet_raw"],
+        },
+        "light_windows": light_windows,
+        "current_phase": unit_row["current_phase"],
+        "plant_type":    unit_row["plant_type"],
+    })

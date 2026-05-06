@@ -925,3 +925,267 @@ def test_post_safety_override_audit_row_records_user(admin_user_client):
     assert row is not None
     details = json.loads(row[0])
     assert details["triggered_by"] == "test-admin"
+
+
+# ---------------------------------------------------------------------------
+# GET /api/grow/units/<id>/config — bearer-authenticated firmware pull endpoint
+#
+# Task 8 introduces this endpoint so a Plant Grow Unit firmware (which has
+# no GitHub OAuth identity) can pull the latest overrides + calibration +
+# light_windows after the server pushes a `config_changed` command. Auth
+# uses the per-unit bearer token (same secret used to authenticate the WS
+# upgrade) — NOT a session cookie.
+#
+# Plant-profile resolution: the route resolves null override fields against
+# the seeded `grow_plant_profiles` row matching (plant_type, current_phase)
+# BEFORE responding, so the firmware always sees concrete numbers rather
+# than having to maintain its own profile table. This is the "easier path"
+# documented in the Task 8 plan.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def bearer_client(monkeypatch):
+    """Mirror the `client` fixture but mint a real bearer token + hash so
+    the bearer-auth flow can be exercised end-to-end. Yields
+    (test_client, bearer_token_raw, db_path).
+    """
+    # Capture the PRODUCTION value of api_grow_ws.DB_FILE before any
+    # mutation. Importing api_grow_ws now (pre-mutation) ensures the
+    # module's snapshot is the production value. We hold this for an
+    # explicit reset at teardown — monkeypatch's "restore to value at
+    # patch time" isn't sufficient because earlier tests may have
+    # imported api_grow_ws AFTER mutating init_db.DB_FILE, leaving
+    # api_grow_ws.DB_FILE pointing at a now-deleted tempfile.
+    from database.init_db import DB_FILE as _PROD_DB_FILE
+    import mlss_monitor.routes.api_grow_ws as _api_grow_ws
+
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp.close()
+    import database.init_db as init_db
+    # Use monkeypatch (not direct assignment) so init_db.DB_FILE is
+    # restored at teardown — pollutes downstream tests otherwise.
+    monkeypatch.setattr(init_db, "DB_FILE", tmp.name)
+    monkeypatch.setattr("mlss_monitor.grow.auth.DB_FILE", tmp.name)
+    init_db.create_db()
+
+    # Mint a real token + argon2 hash so _validate_bearer can verify it.
+    from mlss_monitor.grow.auth import generate_token, hash_secret
+    raw_token = generate_token()
+    token_hash = hash_secret(raw_token)
+
+    conn = sqlite3.connect(tmp.name)
+    conn.execute(
+        "INSERT INTO grow_units (id, hardware_serial, label, enrolled_at, "
+        "bearer_token_hash, phase_set_at, current_phase, plant_type, "
+        "medium_type, watering_kp_override, soak_window_min_override, "
+        "soil_dry_raw, soil_wet_raw) "
+        "VALUES (1, 'hw1', 'Tom 1', ?, ?, ?, "
+        "'vegetative', 'tomato', 'soil', 0.5, 60, 220, 1600)",
+        (datetime.utcnow(), token_hash, datetime.utcnow()),
+    )
+    # Seed two light windows for vegetative phase.
+    conn.execute(
+        "INSERT INTO grow_light_windows "
+        "(unit_id, phase, start_hh_mm, end_hh_mm, sort_order) "
+        "VALUES (1, 'vegetative', '06:00', '12:00', 0)"
+    )
+    conn.execute(
+        "INSERT INTO grow_light_windows "
+        "(unit_id, phase, start_hh_mm, end_hh_mm, sort_order) "
+        "VALUES (1, 'vegetative', '14:00', '20:00', 1)"
+    )
+    conn.commit()
+    conn.close()
+
+    # Patch the route's DB_FILE — same pattern as the parent fixture.
+    monkeypatch.setattr(
+        "mlss_monitor.routes.api_grow_config.DB_FILE", tmp.name
+    )
+    # _validate_bearer (in api_grow_ws.py) imported DB_FILE at module load
+    # time; patch its module-local copy so the bearer lookup hits the test
+    # DB rather than the production path.
+    monkeypatch.setattr(
+        "mlss_monitor.routes.api_grow_ws.DB_FILE", tmp.name
+    )
+    # ws_registry/loop irrelevant for the GET path — null is fine.
+    from mlss_monitor import state
+    state.grow_ws_registry = None
+    state.grow_ws_loop = None
+
+    # Drop any cached bearer-validations from earlier tests so a fresh
+    # token doesn't get rejected by a stale cache entry.
+    from mlss_monitor.routes.api_grow_ws import _clear_auth_cache
+    _clear_auth_cache()
+
+    from flask import Flask
+    from mlss_monitor.routes.api_grow_config import api_grow_config_bp
+    app = Flask(__name__)
+    app.secret_key = "test-secret"
+    app.register_blueprint(api_grow_config_bp)
+    yield app.test_client(), raw_token, tmp.name
+
+    # Teardown:
+    # 1. Drop the bearer-cache so the next test that mints a new token
+    #    under a previously-cached unit_id doesn't fail on a stale entry.
+    _clear_auth_cache()
+    # 2. Force-reset api_grow_ws.DB_FILE to the production default. See
+    #    fixture preamble — monkeypatch can't reliably restore this on
+    #    its own because the snapshot at patch-time may itself be a
+    #    tempfile leaked from an earlier fixture.
+    _api_grow_ws.DB_FILE = _PROD_DB_FILE
+
+
+def test_get_unit_config_returns_overrides_calibration_light_windows(bearer_client):
+    """Happy path: with a valid bearer header, the endpoint returns the
+    five top-level keys and the override values from the DB."""
+    c, token, _ = bearer_client
+    r = c.get(
+        "/api/grow/units/1/config",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200, r.data
+    body = r.get_json()
+    # Required top-level keys.
+    assert "overrides" in body
+    assert "calibration" in body
+    assert "light_windows" in body
+    assert body["current_phase"] == "vegetative"
+    assert body["plant_type"] == "tomato"
+
+    # Overrides came from the seeded grow_units row. Resolved numbers (not
+    # null) — null fields are filled from grow_plant_profiles defaults.
+    overrides = body["overrides"]
+    assert overrides["kp"] == 0.5                    # explicit override
+    assert overrides["soak_window_min"] == 60        # explicit override
+    # ki/kd had no override → resolved to seeded tomato/vegetative defaults
+    # (ki=0, kd=0 per _SHIPPED_PROFILES).
+    assert overrides["ki"] == 0
+    assert overrides["kd"] == 0
+    # watering_target had no override → resolved to 55 (tomato/vegetative).
+    assert overrides["watering_target"] == 55
+
+    # Calibration: explicit raw values from the seeded row.
+    assert body["calibration"]["dry_raw"] == 220
+    assert body["calibration"]["wet_raw"] == 1600
+
+    # Light windows: dict keyed by phase, list of {start, end} per phase.
+    assert "vegetative" in body["light_windows"]
+    veg = body["light_windows"]["vegetative"]
+    assert len(veg) == 2
+    assert veg[0]["start"] == "06:00"
+    assert veg[1]["end"] == "20:00"
+
+
+def test_get_unit_config_resolves_plant_profile_defaults_for_null_overrides(
+    monkeypatch
+):
+    """When override fields are NULL, the response substitutes values from
+    grow_plant_profiles for (plant_type, current_phase). The firmware can
+    then apply the result directly without its own profile lookup table."""
+    import mlss_monitor.routes.api_grow_ws  # noqa: F401  warm-up; see fixture comment
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp.close()
+    import database.init_db as init_db
+    monkeypatch.setattr(init_db, "DB_FILE", tmp.name)
+    monkeypatch.setattr("mlss_monitor.grow.auth.DB_FILE", tmp.name)
+    init_db.create_db()
+
+    from mlss_monitor.grow.auth import generate_token, hash_secret
+    raw_token = generate_token()
+    conn = sqlite3.connect(tmp.name)
+    # Unit with NO overrides set — every override column is NULL. The
+    # response should fall back to plant_profile (basil/vegetative).
+    conn.execute(
+        "INSERT INTO grow_units (id, hardware_serial, label, enrolled_at, "
+        "bearer_token_hash, phase_set_at, current_phase, plant_type) "
+        "VALUES (1, 'hw1', 'Basil 1', ?, ?, ?, 'vegetative', 'basil')",
+        (datetime.utcnow(), hash_secret(raw_token), datetime.utcnow()),
+    )
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(
+        "mlss_monitor.routes.api_grow_config.DB_FILE", tmp.name
+    )
+    monkeypatch.setattr(
+        "mlss_monitor.routes.api_grow_ws.DB_FILE", tmp.name
+    )
+    from mlss_monitor.routes.api_grow_ws import _clear_auth_cache
+    _clear_auth_cache()
+
+    from flask import Flask
+    from mlss_monitor.routes.api_grow_config import api_grow_config_bp
+    app = Flask(__name__)
+    app.secret_key = "test-secret"
+    app.register_blueprint(api_grow_config_bp)
+    tc = app.test_client()
+
+    r = tc.get(
+        "/api/grow/units/1/config",
+        headers={"Authorization": f"Bearer {raw_token}"},
+    )
+    assert r.status_code == 200, r.data
+    body = r.get_json()
+    overrides = body["overrides"]
+    # basil/vegetative profile: target=60, kp=0.4, ki=0, kd=0,
+    # min_pulse=2, max_pulse=6, soak=30
+    assert overrides["watering_target"] == 60
+    assert overrides["kp"] == 0.4
+    assert overrides["min_pulse_s"] == 2
+    assert overrides["max_pulse_s"] == 6
+    assert overrides["soak_window_min"] == 30
+
+
+def test_get_unit_config_requires_bearer_token(bearer_client):
+    """No Authorization header → 401 missing_bearer."""
+    c, _, _ = bearer_client
+    r = c.get("/api/grow/units/1/config")
+    assert r.status_code == 401
+    body = r.get_json()
+    assert body["error"] == "missing_bearer"
+
+
+def test_get_unit_config_invalid_bearer_returns_401(bearer_client):
+    """Bearer header present but token doesn't match the unit → 401."""
+    c, _, _ = bearer_client
+    r = c.get(
+        "/api/grow/units/1/config",
+        headers={"Authorization": "Bearer not-the-real-token-just-43-chars-padded-x"},
+    )
+    assert r.status_code == 401
+    body = r.get_json()
+    assert body["error"] == "invalid_token"
+
+
+def test_get_unit_config_wrong_unit_id_returns_401(bearer_client):
+    """A valid token for unit 1 must NOT validate against unit 99 — the
+    cache key is (unit_id, token), so cross-unit reuse fails verification.
+    """
+    c, token, _ = bearer_client
+    r = c.get(
+        "/api/grow/units/99/config",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 401
+
+
+def test_get_unit_config_works_without_session(bearer_client):
+    """Proves the endpoint is reachable without a Flask session (firmware
+    only ever has its bearer token, no session cookie)."""
+    c, token, _ = bearer_client
+    # Explicitly do NOT call session_transaction — no logged_in flag set.
+    r = c.get(
+        "/api/grow/units/1/config",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200, (
+        f"GET /config must work without a session (firmware has none); "
+        f"got status={r.status_code}, body={r.data!r}"
+    )
+
+
+def test_get_unit_config_endpoint_is_in_public_endpoints():
+    """Anchor the public-endpoints set so a future renamer flags here too."""
+    from mlss_monitor.app import _PUBLIC_ENDPOINTS
+    assert "api_grow_config.get_unit_config" in _PUBLIC_ENDPOINTS

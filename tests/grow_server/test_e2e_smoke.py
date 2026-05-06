@@ -15,10 +15,14 @@ def setup(tmp_path, monkeypatch):
     img_dir = tmp_path / "images"
     import database.init_db as init_db
     init_db.DB_FILE = tmp.name
+    # api_grow_ws is also patched so the bearer-validation reads the test
+    # DB even if some earlier test imported the module under a polluted
+    # init_db.DB_FILE (snapshotting the wrong path at module load).
     for mod in ["mlss_monitor.grow.auth", "mlss_monitor.grow.handlers",
                 "mlss_monitor.grow.photo_storage", "mlss_monitor.routes.api_grow_enroll",
                 "mlss_monitor.routes.api_grow_units", "mlss_monitor.routes.api_grow_dist",
-                "mlss_monitor.routes.api_grow_history", "mlss_monitor.routes.api_grow_photos"]:
+                "mlss_monitor.routes.api_grow_history", "mlss_monitor.routes.api_grow_photos",
+                "mlss_monitor.routes.api_grow_ws"]:
         try:
             monkeypatch.setattr(f"{mod}.DB_FILE", tmp.name)
         except AttributeError:
