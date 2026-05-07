@@ -24,6 +24,15 @@ echo "==> Building mlss_grow wheel"
 ( cd "$REPO_ROOT/grow_unit" && poetry build -f wheel )
 cp "$REPO_ROOT/grow_unit/dist"/*.whl "$DIST_DIR/"
 
+# poetry build of a package with a {path=..., develop=true} dep bakes
+# the absolute path of the build host into the wheel's METADATA. That
+# fails on the Pi during pip install ("No such file or directory:
+# /home/<build-user>/.../contracts"). Strip the path-dep + replace with
+# a normal version constraint so pip resolves mlss-contracts from
+# --find-links (where the contracts wheel also lives) instead.
+echo "==> Stripping path-dep from mlss_grow wheel METADATA"
+python3 "$SCRIPT_DIR/_strip_pathdep.py" "$DIST_DIR"/mlss_grow-*.whl
+
 # The systemd unit isn't packaged in the wheel; ship it through the dist
 # endpoint so install.sh can fetch + SHA256-verify it the same way it does
 # for the wheels (defends against LAN MITM substituting a hostile unit).
