@@ -476,6 +476,7 @@ classic foot-gun).
 | `NO_CERTIFICATE_OR_CRL_FOUND` | Pi's `/etc/mlss/server.crt` is empty/corrupt | Re-pin on the Pi (above). Common cause: re-pinned BEFORE the server was restarted with the new cert |
 | `ModuleNotFoundError: No module named 'board'` | Adafruit Blinka wasn't installed (old marker missed armv6l) | `git pull` on the server, rebuild wheels, full reinstall on the Pi: `sudo rm -rf /opt/mlss-grow && curl -k <install-url> \| sudo bash` |
 | `ModuleNotFoundError: No module named 'picamera2'` | apt missed it OR venv lacks `--system-site-packages` | `git pull`, rebuild, full reinstall (the install.sh now does both) |
+| `ValueError: No Hardware I2C on (scl,sda)=(3, 2). Make sure I2C is enabled.` | Pi's I2C interface not enabled in raspi-config | `sudo raspi-config nonint do_i2c 0 && sudo reboot`. install.sh does this automatically on a fresh install but pre-existing Pis may have skipped it. |
 | Unit doesn't appear in dashboard after install | WiFi not joined | `journalctl -u mlss-grow -f` on the Pi; check for connect errors |
 | Card shows "Offline" with no recent telemetry | WS connection dropped | Restart the service: `sudo systemctl restart mlss-grow`. Check WiFi signal. |
 | Soil sensor not detected at boot | I2C cable polarity or address conflict | `sudo i2cdetect -y 1` should show `36`. Swap red/black at JST connector if missing. |

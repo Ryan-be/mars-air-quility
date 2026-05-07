@@ -305,11 +305,47 @@ async def _run_main_loop(state: BootstrappedState) -> None:
     import busio
     from datetime import datetime
 
-    i2c = busio.I2C(board.SCL, board.SDA)
-    sensors = auto_detect(i2c)
-    pump = AutomationPHATPump()
-    light = AutomationPHATLight()
-    camera = Camera.detect()
+    # Hardware init — each piece is independently fallible. A missing
+    # I2C driver, an unwired pHAT, a disabled camera should NOT crash the
+    # whole service; the sense-only-mode design says each capability
+    # registers its own health (untested / no_hardware / connected) and
+    # the UI greys out controls for hardware that didn't come up. The
+    # firmware is happy to run with just a camera, just a soil sensor,
+    # just actuators, or any subset.
+    try:
+        i2c = busio.I2C(board.SCL, board.SDA)
+    except Exception as exc:
+        log.warning("I2C bus init failed (%s) — sensors disabled. "
+                    "Run `sudo raspi-config nonint do_i2c 0 && sudo reboot` "
+                    "to enable I2C.", exc)
+        i2c = None
+
+    if i2c is not None:
+        try:
+            sensors = auto_detect(i2c)
+        except Exception as exc:
+            log.warning("sensor auto-detect failed: %s — no sensors active", exc)
+            sensors = []
+    else:
+        sensors = []
+
+    try:
+        pump = AutomationPHATPump()
+    except Exception as exc:
+        log.warning("pump init failed: %s — pump unavailable", exc)
+        pump = None
+
+    try:
+        light = AutomationPHATLight()
+    except Exception as exc:
+        log.warning("light init failed: %s — light unavailable", exc)
+        light = None
+
+    try:
+        camera = Camera.detect()
+    except Exception as exc:
+        log.warning("camera init failed: %s — photos disabled", exc)
+        camera = None
 
     # Default config until MLSS sends an explicit one. The first
     # `config_changed` push (or the first explicit pull) replaces the

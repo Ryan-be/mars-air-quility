@@ -57,6 +57,35 @@ if ! id mlss-grow >/dev/null 2>&1; then
     usermod -aG i2c,gpio,video mlss-grow || true
 fi
 
+# ── 2.5. Enable I2C interface (for the soil moisture sensor) and the
+# camera. Both are off by default on Pi OS Lite; the firmware crashes
+# with "No Hardware I2C" / "no camera" if these aren't enabled.
+# raspi-config writes to /boot/config.txt and /etc/modules; `0` means
+# enable for the do_i2c / do_camera commands. A reboot is required for
+# the kernel modules to pick them up — install.sh prints a reminder
+# at the end if either was newly enabled.
+echo "==> Enabling I2C and camera interfaces"
+NEED_REBOOT=0
+if command -v raspi-config >/dev/null 2>&1; then
+    if ! raspi-config nonint get_i2c | grep -q '^0$'; then
+        raspi-config nonint do_i2c 0
+        NEED_REBOOT=1
+        echo "    I2C: newly enabled (reboot required)"
+    else
+        echo "    I2C: already enabled"
+    fi
+    # Camera: do_camera was deprecated on Bookworm+ in favour of libcamera
+    # (which doesn't need a raspi-config flag — works out-of-the-box if
+    # the ribbon is wired). Try do_camera anyway for older Pi OS, ignore
+    # failure on newer ones.
+    if raspi-config nonint do_camera 0 2>/dev/null; then
+        echo "    Camera (legacy do_camera): newly enabled"
+        NEED_REBOOT=1
+    fi
+else
+    echo "    raspi-config not found — skip (assume manual setup)"
+fi
+
 # ── 3. Directories
 echo "==> Creating directories"
 install -d -o mlss-grow -g mlss-grow -m 0755 /opt/mlss-grow
@@ -221,6 +250,17 @@ systemctl daemon-reload
 # ── 8. Enable + start
 echo "==> Enabling + starting mlss-grow.service"
 systemctl enable mlss-grow.service
-systemctl start mlss-grow.service
 
-echo "==> Done. Tail logs with: journalctl -u mlss-grow -f"
+if [[ "$NEED_REBOOT" -eq 1 ]]; then
+    echo ""
+    echo "==> I2C / camera was newly enabled — REBOOT REQUIRED before the"
+    echo "    sensors will work. The service is enabled and will start"
+    echo "    automatically after reboot. Run:"
+    echo ""
+    echo "      sudo reboot"
+    echo ""
+    echo "    Then watch the logs with: journalctl -u mlss-grow -f"
+else
+    systemctl start mlss-grow.service
+    echo "==> Done. Tail logs with: journalctl -u mlss-grow -f"
+fi
