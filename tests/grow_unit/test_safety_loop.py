@@ -90,6 +90,7 @@ def test_tick_fires_pid_pulse_when_dry_and_emits_watering_event(tmp_path):
         config=cfg, emit=lambda k, p: emitted.append((k, p)),
         now_fn=lambda: datetime(2026, 5, 3, 12, 0),
         pid_state=PIDState(last_pulse_at=datetime(2025, 1, 1)),  # past soak
+        state_path=str(tmp_path / "watering_state.json"),
     )
     loop.tick()
     pump.pulse.assert_called_once()
@@ -318,7 +319,7 @@ def test_light_budget_recovers_after_midnight_utc():
     light.on.assert_called_once()
 
 
-def test_pump_pulse_hard_capped_at_30s_regardless_of_config():
+def test_pump_pulse_hard_capped_at_30s_regardless_of_config(tmp_path):
     """Spec §7: pump pulse is hard-capped at 30s on the unit, even if
     config.max_pulse_s is bigger and the PID wants a longer pulse.
     The cap is a hardware-protection invariant — not a tunable.
@@ -343,6 +344,7 @@ def test_pump_pulse_hard_capped_at_30s_regardless_of_config():
         config=cfg, emit=lambda k, p: emitted.append((k, p)),
         now_fn=lambda: datetime(2026, 5, 3, 12, 0),
         pid_state=PIDState(last_pulse_at=datetime(2025, 1, 1)),
+        state_path=str(tmp_path / "watering_state.json"),
     )
     loop.tick()
     pump.pulse.assert_called_once()
@@ -360,7 +362,7 @@ def test_pump_pulse_hard_capped_at_30s_regardless_of_config():
     assert cap_events[0]["details"]["cap"] == "pump_30s_max_pulse"
 
 
-def test_pump_cooldown_after_hard_cap_blocks_subsequent_pulses():
+def test_pump_cooldown_after_hard_cap_blocks_subsequent_pulses(tmp_path):
     """After a hard-capped pulse, the next 5 minutes are cooldown — even
     if PID wants to fire and the soak window has elapsed (which it
     won't normally, but a future config change could shorten soak)."""
@@ -384,6 +386,7 @@ def test_pump_cooldown_after_hard_cap_blocks_subsequent_pulses():
         config=cfg, emit=lambda *a, **k: None,
         now_fn=lambda: now_holder[0],
         pid_state=state,
+        state_path=str(tmp_path / "watering_state.json"),
     )
     # First tick: hard cap fires, cooldown is armed.
     loop.tick()
@@ -398,7 +401,7 @@ def test_pump_cooldown_after_hard_cap_blocks_subsequent_pulses():
     pump.pulse.assert_not_called()
 
 
-def test_pump_cooldown_clears_after_5_minutes():
+def test_pump_cooldown_clears_after_5_minutes(tmp_path):
     """After 5 minutes + a tick, the cooldown lifts. PID can fire again
     (and may hit the cap again, re-arming the cooldown)."""
     sensor = MagicMock(channels=lambda: ["soil_moisture"],
@@ -421,6 +424,7 @@ def test_pump_cooldown_clears_after_5_minutes():
         config=cfg, emit=lambda *a, **k: None,
         now_fn=lambda: now_holder[0],
         pid_state=state,
+        state_path=str(tmp_path / "watering_state.json"),
     )
     loop.tick()  # Hard cap, cooldown armed
     pump.pulse.reset_mock()
@@ -431,7 +435,7 @@ def test_pump_cooldown_clears_after_5_minutes():
     pump.pulse.assert_called_once()
 
 
-def test_pump_normal_pulse_not_clamped_when_under_30s():
+def test_pump_normal_pulse_not_clamped_when_under_30s(tmp_path):
     """Sanity: a PID-decided pulse of 8s passes through unchanged (no
     cooldown armed, no cap event). The cap only fires when PID actually
     asks for >30s."""
@@ -452,6 +456,7 @@ def test_pump_normal_pulse_not_clamped_when_under_30s():
         config=cfg, emit=lambda k, p: emitted.append((k, p)),
         now_fn=lambda: datetime(2026, 5, 3, 12, 0),
         pid_state=state,
+        state_path=str(tmp_path / "watering_state.json"),
     )
     loop.tick()
     pump.pulse.assert_called_once()
@@ -565,3 +570,123 @@ def test_tick_telemetry_omits_diagnostics_fields_when_not_wired():
     tel = next(p for k, p in emitted if k == "telemetry")
     assert "uptime_s" not in tel
     assert "buffer_size" not in tel
+
+
+# ----------------------------------------------------------------------
+# Phase 3 Task 7: watering_state.json firmware persistence.
+# These tests pin the integration between SafetyLoop and the
+# state_persistence module: hydrate on init, save after each pulse.
+# ----------------------------------------------------------------------
+
+
+def test_safety_loop_loads_pid_state_on_init(tmp_path):
+    """Hydrate PID state from disk on SafetyLoop construction. Without
+    this, a service restart cold-starts the integral — at Ki=0 it's
+    invisible but at higher Ki it'd briefly mis-shape pulses."""
+    import json
+
+    state_path = tmp_path / "watering_state.json"
+    persisted = {
+        "error_integral": 17.5,
+        "last_error": -2.25,
+        "last_pulse_at_iso": "2026-05-06T10:00:00",
+    }
+    state_path.write_text(json.dumps(persisted))
+
+    sensor = MagicMock(channels=lambda: ["soil_moisture"],
+                       read=lambda: {"soil_moisture": 612},
+                       healthy=lambda: True)
+    pump = MagicMock(state=lambda: False)
+    light = MagicMock(state=lambda: False)
+
+    pid_state = PIDState(last_pulse_at=datetime(2000, 1, 1))
+    loop = SafetyLoop(
+        sensors=[sensor], pump=pump, light=light, camera=None,
+        config=_basic_config(),
+        emit=lambda *a, **k: None,
+        now_fn=lambda: datetime(2026, 5, 6, 12, 0),
+        pid_state=pid_state,
+        state_path=str(state_path),
+    )
+    # Hydration: the in-memory PIDState now reflects the file.
+    assert loop._pid_state.error_integral == 17.5
+    assert loop._pid_state.last_error == -2.25
+    assert loop._pid_state.last_pulse_at == datetime(2026, 5, 6, 10, 0, 0)
+
+
+def test_safety_loop_saves_pid_state_after_pulse_decision(tmp_path):
+    """A tick that fires a pulse must persist the new last_pulse_at +
+    integral so a restart picks up where we left off (no integral
+    cold-start, no skipped soak window)."""
+    import json
+
+    state_path = tmp_path / "watering_state.json"
+    assert not state_path.exists()
+
+    sensor = MagicMock(channels=lambda: ["soil_moisture"],
+                       read=lambda: {"soil_moisture": 612},
+                       healthy=lambda: True)
+    pump = MagicMock(state=lambda: False)
+    light = MagicMock(state=lambda: False)
+
+    cfg = _basic_config()
+    cfg.soil_calibration = (200, 1500)  # raw 612 → ~31.7%, fires PID
+
+    fire_time = datetime(2026, 5, 6, 12, 0)
+    loop = SafetyLoop(
+        sensors=[sensor], pump=pump, light=light, camera=None,
+        config=cfg, emit=lambda *a, **k: None,
+        now_fn=lambda: fire_time,
+        pid_state=PIDState(last_pulse_at=datetime(2025, 1, 1)),  # past soak
+        state_path=str(state_path),
+    )
+    loop.tick()
+
+    pump.pulse.assert_called_once()  # sanity: tick actually fired
+    assert state_path.exists(), "save_state must persist after a fire"
+    on_disk = json.loads(state_path.read_text())
+    # last_pulse_at_iso reflects the fire time, not the pre-fire default
+    assert on_disk["last_pulse_at_iso"] == fire_time.isoformat()
+
+
+def test_safety_loop_does_not_save_when_in_deadband(tmp_path):
+    """A read-only tick (soil already wet → in deadband) must NOT
+    rewrite the state file. Pinning this keeps SD-card write churn
+    minimal: pulses are infrequent, so persisting only on fires is
+    enough to survive restarts without hammering the card every 30s.
+    """
+    import json
+
+    # Pre-seed a state file we can detect mutation against.
+    state_path = tmp_path / "watering_state.json"
+    seed = {
+        "error_integral": 99.0,
+        "last_error": 88.0,
+        "last_pulse_at_iso": "2025-12-31T23:59:59",
+    }
+    state_path.write_text(json.dumps(seed))
+    mtime_before = state_path.stat().st_mtime_ns
+
+    # Soil at target (55%) → error 0 → in deadband, no fire.
+    sensor = MagicMock(channels=lambda: ["soil_moisture"],
+                       read=lambda: {"soil_moisture": 915},  # raw 915 → ~55%
+                       healthy=lambda: True)
+    pump = MagicMock(state=lambda: False)
+    light = MagicMock(state=lambda: False)
+
+    cfg = _basic_config()
+    cfg.soil_calibration = (200, 1500)  # raw 915 → ~55%, in deadband
+
+    loop = SafetyLoop(
+        sensors=[sensor], pump=pump, light=light, camera=None,
+        config=cfg, emit=lambda *a, **k: None,
+        now_fn=lambda: datetime(2026, 5, 6, 12, 0),
+        pid_state=PIDState(last_pulse_at=datetime(2025, 1, 1)),
+        state_path=str(state_path),
+    )
+    loop.tick()
+
+    pump.pulse.assert_not_called()  # sanity: deadband = no fire
+    # File still has the seeded values — no rewrite happened.
+    on_disk = json.loads(state_path.read_text())
+    assert on_disk == seed

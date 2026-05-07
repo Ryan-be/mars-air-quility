@@ -1,5 +1,6 @@
 """Top-level orchestration: sensors → PID → actuators every tick."""
 import logging
+import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Callable, Optional
@@ -7,6 +8,9 @@ from typing import Any, Callable, Optional
 from mlss_grow.pid import PIDConfig, PIDState, pid_decide
 from mlss_grow.light_schedule import is_light_on
 from mlss_grow.light_budget import LightBudget
+from mlss_grow.state_persistence import (
+    PersistedState, load_state, save_state, DEFAULT_PATH as _STATE_DEFAULT_PATH,
+)
 
 log = logging.getLogger(__name__)
 
@@ -50,7 +54,8 @@ class SafetyLoop:
                  pid_state: PIDState | None = None,
                  light_budget: LightBudget | None = None,
                  uptime_provider: Optional[Callable[[], float]] = None,
-                 buffer: Optional[Any] = None) -> None:
+                 buffer: Optional[Any] = None,
+                 state_path: Optional[str] = None) -> None:
         self._sensors = sensors
         self._pump = pump
         self._light = light
@@ -60,6 +65,34 @@ class SafetyLoop:
         self._now = now_fn
         self._pid_state = pid_state or PIDState(
             last_pulse_at=datetime(2000, 1, 1))
+        # Phase 3 Task 7: persist PID integral + last_pulse_at across
+        # service restarts. Path resolves: explicit kwarg → env var
+        # MLSS_GROW_STATE_PATH → /var/lib/mlss-grow/watering_state.json
+        # On boot, hydrate the PID state from disk (a fresh state on
+        # missing/corrupt file is acceptable — load_state handles that).
+        # We save after each tick that produces a pulse so the integral
+        # + last_pulse_at survive a restart. With Ki=0 (current default)
+        # the integral hydration is invisible but with higher Ki future
+        # tuning it would briefly mis-shape pulses on every restart.
+        self._state_path = (
+            state_path
+            or os.environ.get("MLSS_GROW_STATE_PATH")
+            or _STATE_DEFAULT_PATH
+        )
+        persisted = load_state(self._state_path)
+        self._pid_state.error_integral = persisted.error_integral
+        self._pid_state.last_error = persisted.last_error
+        if persisted.last_pulse_at_iso:
+            try:
+                self._pid_state.last_pulse_at = datetime.fromisoformat(
+                    persisted.last_pulse_at_iso,
+                )
+            except (TypeError, ValueError) as exc:
+                log.warning(
+                    "persisted last_pulse_at_iso=%r unparseable (%s); "
+                    "keeping in-memory default",
+                    persisted.last_pulse_at_iso, exc,
+                )
         # The 20h/24h light budget lives on the SafetyLoop (not in
         # config) because it's an enforced invariant, not a tunable.
         # Constructor-injectable for tests so they can pre-populate
@@ -73,6 +106,17 @@ class SafetyLoop:
         # poking at module-level globals.
         self._uptime_provider = uptime_provider
         self._buffer = buffer
+
+    def _persist_pid_state(self) -> None:
+        """Snapshot current PID state to disk. Best-effort, never raises."""
+        save_state(
+            PersistedState(
+                error_integral=self._pid_state.error_integral,
+                last_error=self._pid_state.last_error,
+                last_pulse_at_iso=self._pid_state.last_pulse_at.isoformat(),
+            ),
+            self._state_path,
+        )
 
     def tick(self) -> None:
         now = self._now()
@@ -190,6 +234,15 @@ class SafetyLoop:
                             })
                         self._pump.pulse(clamped)
                         self._pid_state.last_pulse_at = now
+                        # Phase 3 Task 7: snapshot integral + last_pulse_at
+                        # to disk after each fire so a service restart
+                        # picks up where we left off (no integral cold-start,
+                        # no skipped soak window). Save is best-effort —
+                        # save_state swallows write errors. We only persist
+                        # on actual fires (not deadband/soak-window ticks)
+                        # because pulses are infrequent: this keeps SD-card
+                        # write churn minimal.
+                        self._persist_pid_state()
                         self._emit("event", {
                             "kind": "watering_pulse",
                             "details": {
