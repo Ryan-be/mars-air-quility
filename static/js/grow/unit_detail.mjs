@@ -3,6 +3,7 @@ import { renderStatTile } from "./components/stat-tile.mjs";
 import { renderScheduleBar } from "./components/schedule-bar.mjs";
 import { renderSensorEventChart } from "./components/sensor-event-chart.mjs";
 import { renderProfileEditor } from "./components/profile-editor.mjs";
+import { renderTokenRotator } from "./components/token-rotator.mjs";
 import { renderPIDEditor } from "./components/pid-editor.mjs";
 import { renderLightWindowsEditor } from "./components/light-windows-editor.mjs";
 import { renderCalibrationWizard } from "./components/calibration-wizard.mjs";
@@ -355,10 +356,14 @@ async function renderLiveContent(body, unit, doc = document) {
 
 
 /** Render the Configure tab body — all five panels (Profile, PID,
- *  Light windows, Calibration, Safety override).
+ *  Light windows, Calibration, Safety override) plus a per-unit
+ *  token-rotator slotted under the profile editor for v1. When Phase 3
+ *  ships the Diagnostics tab Danger Zone, the rotator can be moved
+ *  there with no changes (it owns its own confirm + reveal flow).
  */
 function renderConfigureContent(body, unit, doc = document) {
   body.appendChild(renderProfileEditor(unit, { ownerDocument: doc }));
+  body.appendChild(renderTokenRotator(unit, { ownerDocument: doc }));
   body.appendChild(renderPIDEditor(unit, { ownerDocument: doc }));
   body.appendChild(renderLightWindowsEditor(unit, { ownerDocument: doc }));
   body.appendChild(renderCalibrationWizard(unit, { ownerDocument: doc }));

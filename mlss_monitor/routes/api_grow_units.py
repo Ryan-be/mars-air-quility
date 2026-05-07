@@ -1,13 +1,16 @@
 """REST endpoints for the browser to read grow unit state.
 
-GET  /api/grow/units                        — fleet view, list
-GET  /api/grow/units/<id>                   — detail
-POST /api/grow/units/<id>/identify          — push identify command via WS
-POST /api/grow/units/<id>/water-now         — push manual watering command via WS
+GET  /api/grow/units                                   — fleet view, list
+GET  /api/grow/units/<id>                              — detail
+POST /api/grow/units/<id>/identify                     — push identify cmd via WS
+POST /api/grow/units/<id>/water-now                    — push manual watering cmd via WS
+POST /api/grow/units/<id>/rotate-token                 — admin: rotate bearer token
+GET  /api/grow/units/<id>/token/peek-once              — admin: one-shot reveal
 """
 import asyncio
 import concurrent.futures
 import json
+import secrets
 import sqlite3
 from datetime import datetime, timedelta
 from flask import Blueprint, jsonify, request
@@ -15,7 +18,9 @@ from flask import Blueprint, jsonify, request
 from database.init_db import DB_FILE
 from mlss_monitor import state
 from mlss_monitor.grow import health_watchdog
+from mlss_monitor.grow.auth import hash_secret
 from mlss_monitor.rbac import require_role
+from mlss_monitor.routes.api_grow_ws import _invalidate_auth_cache_for_unit
 
 api_grow_units_bp = Blueprint("api_grow_units", __name__)
 
@@ -257,3 +262,109 @@ def water_now(unit_id):
     if status == 202:
         health_watchdog.record_command_sent(unit_id, "pump")
     return jsonify(body), status
+
+
+# ---------------------------------------------------------------------------
+# Per-unit bearer-token rotation (Phase 1 spec §5)
+# ---------------------------------------------------------------------------
+#
+# When the operator suspects a unit's bearer token has leaked (or just on
+# scheduled rotation), POST /api/grow/units/<id>/rotate-token mints a fresh
+# token, replaces the argon2 hash on grow_units, stashes the raw value for
+# one-shot reveal, and invalidates any cached bearer-verifications for the
+# unit (otherwise the old token could survive its 60s TTL after rotation,
+# defeating "immediate" invalidation).
+#
+# The response body's `token` field gives the operator the new raw value
+# directly, so they can copy it onto /etc/mlss-grow/token.json on the Pi
+# without a second round-trip. The peek-once GET mirrors the
+# enrollment-key reveal flow for UI consistency — the operator can hit
+# rotate, navigate away, come back, and still pick up the token once.
+
+
+def _stash_token_key(unit_id: int) -> str:
+    """app_settings key under which a freshly-rotated raw token is stashed
+    for one-shot reveal. Keyed per-unit so rotating unit 1 doesn't blow
+    away a still-pending reveal for unit 2."""
+    return f"grow_unit_{unit_id}_token_pending_reveal"
+
+
+@api_grow_units_bp.route(
+    "/api/grow/units/<int:unit_id>/rotate-token", methods=["POST"]
+)
+@require_role("admin")
+def rotate_unit_token(unit_id):
+    """Mint a fresh bearer token for one unit and replace the stored hash.
+
+    Atomic per-unit: the new hash, the raw stash, and the cache eviction
+    all happen before the response returns, so a unit holding the old
+    token cannot succeed at bearer-auth on its next reconnect (the stale
+    cache entry is gone; the new hash won't match the old raw).
+
+    Returns the raw token in the response body — admins copy it onto
+    /etc/mlss-grow/token.json on the Pi. The same value is also stashed
+    for one peek via GET /api/grow/units/<id>/token/peek-once, so the
+    "click rotate → navigate to reveal panel" UX matches the enrollment
+    key flow.
+
+    404 if the unit doesn't exist (or is_active=0). The cache eviction
+    runs only after a successful UPDATE — a missing-unit POST must not
+    silently nuke a peer unit's cache through a typo.
+    """
+    raw_token = secrets.token_urlsafe(32)
+    new_hash = hash_secret(raw_token)
+
+    conn = sqlite3.connect(DB_FILE, timeout=10)
+    try:
+        cur = conn.execute(
+            "UPDATE grow_units SET bearer_token_hash=? "
+            "WHERE id=? AND is_active=1",
+            (new_hash, unit_id),
+        )
+        if cur.rowcount == 0:
+            return jsonify({"error": "unit_not_found"}), 404
+        conn.execute(
+            "INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)",
+            (_stash_token_key(unit_id), raw_token),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    # Drop any cached (unit_id, old_token) entries so the previous token
+    # can't survive its 60s TTL after rotation. Other units' entries are
+    # untouched.
+    _invalidate_auth_cache_for_unit(unit_id)
+
+    return jsonify({"token": raw_token}), 201
+
+
+@api_grow_units_bp.route(
+    "/api/grow/units/<int:unit_id>/token/peek-once", methods=["GET"]
+)
+@require_role("admin")
+def peek_unit_token(unit_id):
+    """Return the freshly-rotated raw bearer token once, then delete the stash.
+
+    Mirror of api_grow_dist.peek_enrollment_key. Admin-only — exposing the
+    raw token to anyone but admin would let them pose as the unit on the
+    WS endpoint. 410 Gone if no rotation is pending reveal (or it was
+    already consumed by an earlier peek).
+    """
+    conn = sqlite3.connect(DB_FILE, timeout=5)
+    try:
+        row = conn.execute(
+            "SELECT value FROM app_settings WHERE key=?",
+            (_stash_token_key(unit_id),),
+        ).fetchone()
+        if row is None or not row[0]:
+            return jsonify({"error": "already_revealed"}), 410
+        raw_token = row[0]
+        conn.execute(
+            "DELETE FROM app_settings WHERE key=?",
+            (_stash_token_key(unit_id),),
+        )
+        conn.commit()
+        return jsonify({"token": raw_token})
+    finally:
+        conn.close()

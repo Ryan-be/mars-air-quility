@@ -101,6 +101,25 @@ def _clear_auth_cache() -> None:
         _auth_cache.clear()
 
 
+def _invalidate_auth_cache_for_unit(unit_id: int) -> None:
+    """Drop cached bearer verifications for a single unit.
+
+    Called by the per-unit token rotation endpoint so that the previous
+    token can't survive its 60s TTL window after we've replaced the hash
+    in the database. Without this, a unit holding the old token could
+    keep reconnecting (verified by cache) for up to a minute after
+    rotation — defeating the point of "rotation invalidates the old
+    token immediately".
+
+    O(N) over cache entries (the cache is small, and rotation is rare).
+    Other units' entries are left intact.
+    """
+    with _auth_cache_lock:
+        keys_to_drop = [k for k in _auth_cache if k[0] == unit_id]
+        for k in keys_to_drop:
+            del _auth_cache[k]
+
+
 def _validate_bearer(unit_id: int, token: str) -> bool:
     """Return True iff the bearer token matches an active unit's hash.
 

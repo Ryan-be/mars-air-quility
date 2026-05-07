@@ -153,6 +153,50 @@
 .cfg-status.ok { color: #56f000; }
 .cfg-status.err { color: #ff5252; }
 
+/* Per-unit bearer-token rotator (Phase 1 spec §5) — mounted in the
+   Configure tab below the profile editor. State machine: idle → armed
+   (confirm modal) → reveal (one-shot token field) → done. Phase 3 will
+   re-host this in the Diagnostics tab Danger Zone — keep selectors
+   parented to .cfg-token-rotator so a future move doesn't disturb the
+   surrounding .du-panel layout. */
+.cfg-token-rotator { padding-bottom: 12px; }
+.tr-body { padding: 10px 14px; }
+.tr-blurb { color: #c2d2e3; font-size: 12px; line-height: 1.5; margin: 0 0 10px; }
+.tr-arm-row { display: flex; gap: 10px; align-items: center; }
+.px-btn.danger {
+  background: linear-gradient(180deg, #b22020, #7a1414);
+  color: #fff; border: 1px solid #8a1818;
+}
+.px-btn.danger:hover:not(:disabled) {
+  background: linear-gradient(180deg, #c92626, #8e1818);
+  box-shadow: 0 0 12px rgba(255, 82, 82, 0.5);
+}
+.px-btn.danger:disabled { opacity: 0.6; cursor: progress; }
+.tr-rotate-btn { padding: 9px 18px; }
+.tr-confirm-group {
+  margin-top: 10px; padding: 12px; border-radius: 2px;
+  background: rgba(255, 82, 82, 0.08); border: 1px solid #8a1818;
+}
+.tr-warn { color: #ffb302; font-size: 12px; line-height: 1.5; margin: 0 0 10px; }
+.tr-confirm-row { display: flex; gap: 10px; }
+.tr-reveal {
+  margin-top: 12px; padding: 12px; border-radius: 2px;
+  background: rgba(86, 240, 0, 0.08); border: 1px solid #2a6618;
+}
+.tr-reveal-head { color: #c2d2e3; font-size: 12px; margin-bottom: 8px; }
+.tr-token-row { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+.tr-token-input {
+  flex: 1; min-width: 200px;
+  background: #0a1219; color: #ffb302; border: 1px solid #2a3d50; border-radius: 2px;
+  padding: 6px 9px; font-size: 12px;
+  font-family: 'SFMono-Regular', Consolas, monospace;
+}
+.tr-token-input:focus { outline: none; border-color: #4dacff; }
+.tr-error {
+  margin-top: 10px; color: #ff5252; font-size: 12px;
+  padding: 8px 10px; border-radius: 2px; background: rgba(255, 82, 82, 0.1);
+}
+
 /* Light-windows editor (Task 7) — per-phase grouping with rows of HH:MM ranges */
 .cfg-light-windows { padding-bottom: 12px; }
 .cfg-lw-phase { margin: 8px 14px; padding: 10px; border: 1px solid #1c2733; border-radius: 2px; background: #0e1722; }
