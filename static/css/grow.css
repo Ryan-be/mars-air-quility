@@ -393,3 +393,57 @@
 .copy-btn { color: #4dacff; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; background: none; border: none; }
 .empty-foot { margin-top: 24px; padding-top: 18px; border-top: 1px solid #1c2733; }
 .doc-link { color: #4dacff; font-size: 12px; text-decoration: none; }
+
+/* ── Diagnostics tab (Phase 3 Task 4) ────────────────────────────────── */
+
+/* Firmware info card — three-up grid */
+.diag-firmware { padding-bottom: 12px; }
+.diag-firmware-grid { padding: 12px 14px; display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+.diag-firmware-cell { background: #0e1722; border: 1px solid #1c2733; border-radius: 2px; padding: 10px 12px; }
+.diag-firmware-label { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: #7d92a8; margin-bottom: 4px; }
+.diag-firmware-value { font-size: 14px; color: #fff; font-family: 'SFMono-Regular', Consolas, monospace; }
+
+/* Connection log table */
+.diag-connection-log { padding-bottom: 12px; }
+.diag-table-body { padding: 8px 14px 12px; }
+.diag-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.diag-table th { text-align: left; padding: 6px 8px; color: #7d92a8; font-weight: 500; border-bottom: 1px solid #1c2733; letter-spacing: 0.04em; text-transform: uppercase; font-size: 10px; }
+.diag-table td { padding: 6px 8px; color: #c2d2e3; border-bottom: 1px solid #14202c; font-family: 'SFMono-Regular', Consolas, monospace; }
+.diag-table tr:last-child td { border-bottom: none; }
+.diag-event { font-family: Roboto, sans-serif; text-transform: uppercase; letter-spacing: 0.08em; font-size: 10px; }
+.diag-event-online { color: #56f000; }
+.diag-event-offline { color: #ff5252; }
+.diag-duration-ongoing { color: #ffb302; font-style: italic; }
+.diag-empty { padding: 8px 14px; color: #7d92a8; font-style: italic; font-size: 12px; }
+
+/* Sensor sanity list */
+.diag-sensor-sanity { padding-bottom: 12px; }
+.diag-sanity-body { padding: 8px 14px 12px; }
+.diag-sanity-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.diag-sanity-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 12px; color: #c2d2e3; }
+.diag-sanity-row[data-severity="stale"] { color: #ffb302; }
+.diag-sanity-row[data-severity="never_seen"] { color: #ff5252; }
+.diag-sanity-icon { font-size: 14px; width: 22px; flex-shrink: 0; text-align: center; }
+.diag-sanity-channel { font-family: 'SFMono-Regular', Consolas, monospace; min-width: 140px; }
+.diag-sanity-detail { color: #7d92a8; font-size: 11px; }
+
+/* Danger zone wrapper */
+.diag-danger-zone { padding-bottom: 12px; border: 1px solid #8a1818; background: rgba(255, 82, 82, 0.04); }
+.diag-danger-head { color: #ff8585; border-bottom: 1px solid #4a1818; }
+.diag-danger-body { padding: 12px 14px; display: flex; flex-direction: column; gap: 16px; }
+.diag-danger-blurb { color: #c2d2e3; font-size: 12px; line-height: 1.5; margin: 0; }
+.diag-danger-action { padding: 12px; border: 1px solid #2a1818; border-radius: 2px; background: rgba(255, 82, 82, 0.05); }
+.diag-danger-title { color: #fff; font-size: 13px; font-weight: 500; margin: 0 0 6px; letter-spacing: 0.04em; }
+.diag-danger-desc { color: #c2d2e3; font-size: 12px; line-height: 1.5; margin: 0 0 10px; }
+.diag-danger-row { display: flex; gap: 10px; align-items: center; }
+.diag-danger-confirm { margin-top: 10px; padding: 12px; border-radius: 2px; background: rgba(255, 82, 82, 0.08); border: 1px solid #8a1818; }
+.diag-danger-warn { color: #ffb302; font-size: 12px; line-height: 1.5; margin: 0 0 10px; }
+.diag-danger-confirm-row { display: flex; gap: 10px; }
+.diag-decom-label-input { width: 100%; max-width: 280px; padding: 6px 9px; font-size: 12px; background: #0a1219; color: #c2d2e3; border: 1px solid #2a3d50; border-radius: 2px; margin-bottom: 10px; font-family: 'SFMono-Regular', Consolas, monospace; }
+.diag-decom-label-input:focus { outline: none; border-color: #4dacff; }
+.diag-danger-status { margin-top: 8px; font-size: 11px; letter-spacing: 0.04em; }
+.diag-danger-status.ok { color: #56f000; }
+.diag-danger-status.err { color: #ff5252; }
+
+/* Diagnostics fetch failure */
+.diag-error { padding: 16px; color: #ff5252; font-size: 13px; text-align: center; }

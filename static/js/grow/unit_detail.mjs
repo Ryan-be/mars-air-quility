@@ -3,19 +3,19 @@ import { renderStatTile } from "./components/stat-tile.mjs";
 import { renderScheduleBar } from "./components/schedule-bar.mjs";
 import { renderSensorEventChart } from "./components/sensor-event-chart.mjs";
 import { renderProfileEditor } from "./components/profile-editor.mjs";
-import { renderTokenRotator } from "./components/token-rotator.mjs";
 import { renderPIDEditor } from "./components/pid-editor.mjs";
 import { renderLightWindowsEditor } from "./components/light-windows-editor.mjs";
 import { renderCalibrationWizard } from "./components/calibration-wizard.mjs";
 import { renderSafetyOverride } from "./components/safety-override.mjs";
 import { renderHistoryPanel } from "./components/history-panel.mjs";
+import { renderDiagnosticsPanel } from "./components/diagnostics-panel.mjs";
 import { openLightbox } from "./components/photo-lightbox.mjs";
 
 const SUBTABS = [
   { id: "live", label: "● Live", enabled: true },
   { id: "history", label: "📈 History", enabled: true },
   { id: "configure", label: "⚙ Configure", enabled: true },
-  { id: "diagnostics", label: "🩺 Diagnostics", enabled: false, deferred: "Phase 3" },
+  { id: "diagnostics", label: "🩺 Diagnostics", enabled: true },
 ];
 
 
@@ -355,15 +355,16 @@ async function renderLiveContent(body, unit, doc = document) {
 }
 
 
-/** Render the Configure tab body — all five panels (Profile, PID,
- *  Light windows, Calibration, Safety override) plus a per-unit
- *  token-rotator slotted under the profile editor for v1. When Phase 3
- *  ships the Diagnostics tab Danger Zone, the rotator can be moved
- *  there with no changes (it owns its own confirm + reveal flow).
+/** Render the Configure tab body — five panels (Profile, PID, Light
+ *  windows, Calibration, Safety override). Phase 3 Task 4 moved the
+ *  per-unit token rotator to the Diagnostics tab Danger Zone where
+ *  the rest of the operational/admin actions live. Token rotation is
+ *  not "configuration" — it's an operations action with operational
+ *  side-effects (the unit goes offline) — so co-locating it with
+ *  decommission + clear-buffer makes the mental model cleaner.
  */
 function renderConfigureContent(body, unit, doc = document) {
   body.appendChild(renderProfileEditor(unit, { ownerDocument: doc }));
-  body.appendChild(renderTokenRotator(unit, { ownerDocument: doc }));
   body.appendChild(renderPIDEditor(unit, { ownerDocument: doc }));
   body.appendChild(renderLightWindowsEditor(unit, { ownerDocument: doc }));
   body.appendChild(renderCalibrationWizard(unit, { ownerDocument: doc }));
@@ -393,6 +394,10 @@ export async function switchSubtab(tabId, unit, doc = document) {
     body.appendChild(renderHistoryPanel(unit, { ownerDocument: doc }));
   } else if (tabId === "configure") {
     renderConfigureContent(body, unit, doc);
+  } else if (tabId === "diagnostics") {
+    // Async like History: the orchestrator does the consolidated
+    // /diagnostics fetch before mount so the panel paints fully-built.
+    body.appendChild(await renderDiagnosticsPanel(unit, { ownerDocument: doc }));
   }
 }
 

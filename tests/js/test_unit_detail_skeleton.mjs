@@ -70,13 +70,21 @@ test("detail header includes back link to /grow", () => {
   assert.equal(back.getAttribute("href"), "/grow");
 });
 
-test("sub-tabs: Live is the active tab; Diagnostics still deferred", () => {
+test("sub-tabs: Live is the active tab", () => {
   const el = renderSubTabs("live", document);
   const live = el.querySelector("[data-tab='live']");
   assert.match(live.className, /active/);
-  // After History-tab Task 5, Diagnostics is the only remaining deferred tab.
+});
+
+
+test("sub-tabs: Diagnostics is enabled (Phase 3 Task 4)", () => {
+  // Phase 3 Task 4 activated the Diagnostics subtab. Asserts Live is
+  // active AND Diagnostics is no longer disabled — replaces the older
+  // test that pinned the deferred state.
+  const el = renderSubTabs("live", document);
   const diag = el.querySelector("[data-tab='diagnostics']");
-  assert.ok(diag.disabled || diag.classList.contains("disabled"));
+  assert.equal(diag.disabled, false);
+  assert.ok(!diag.classList.contains("disabled"));
 });
 
 
@@ -116,6 +124,39 @@ test("switchSubtab: clicking History renders moisture-chart + photo-timelapse", 
     // The History tab should now be flagged active.
     const historyTab = doc.querySelector(".du-tab[data-tab='history']");
     assert.match(historyTab.className, /active/);
+  } finally {
+    _setMockFetch(orig);
+  }
+});
+
+
+test("switchSubtab: clicking Diagnostics renders the diagnostics panel", async () => {
+  // Phase 3 Task 4 — Diagnostics is now activatable. The orchestrator
+  // does a single fetch to /diagnostics; mock that + assert the panel
+  // mounts under du-body with all four child sections present.
+  const orig = _origFetch();
+  _setMockFetch(async (url) => {
+    if (String(url).includes("/diagnostics")) {
+      return _ok({
+        firmware_version: "0.3.1", uptime_s: 100, buffer_size: 0,
+        connection_log: [], sensor_sanity: [], open_errors: [],
+      });
+    }
+    return _ok({});
+  });
+  try {
+    const doc = _mountPage();
+    await switchSubtab("diagnostics", sampleUnit, doc);
+    await _flushMicro();
+    const body = doc.getElementById("du-body");
+    assert.ok(body.querySelector("[data-testid='diagnostics-panel']"),
+      "diagnostics panel mounted in du-body");
+    assert.ok(body.querySelector("[data-testid='diag-firmware']"),
+      "firmware-info child present");
+    assert.ok(body.querySelector("[data-testid='diag-danger-zone']"),
+      "danger-zone child present");
+    const diagTab = doc.querySelector(".du-tab[data-tab='diagnostics']");
+    assert.match(diagTab.className, /active/);
   } finally {
     _setMockFetch(orig);
   }

@@ -245,5 +245,18 @@ class LocalBuffer:
         self._conn.execute("DELETE FROM buffer WHERE timestamp_utc < ?", (cutoff,))
         self._conn.commit()
 
+    def clear(self) -> None:
+        """Empty the buffer entirely. Destructive — caller must confirm.
+
+        Driven by the server's POST /api/grow/units/<id>/clear-buffer →
+        WS `clear_buffer` command path. Idempotent: clearing an already-
+        empty buffer is a no-op (no error). Any un-replayed telemetry is
+        permanently lost — operators must understand the consequence
+        before invoking, which is why the Diagnostics tab gates this with
+        a confirmation modal.
+        """
+        self._conn.execute("DELETE FROM buffer")
+        self._conn.commit()
+
     def close(self) -> None:
         self._conn.close()

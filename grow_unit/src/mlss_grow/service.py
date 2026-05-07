@@ -374,7 +374,8 @@ async def _run_main_loop(state: BootstrappedState) -> None:
     # Bundle of state the dispatcher needs. Reuses https_base_url so
     # config_changed pushes and the on_reconnect_sync pull hit the same
     # endpoint; pull_unit_config appends /api/grow/units/<id>/config
-    # itself.
+    # itself. Phase 3 Task 4: pass the buffer through so the
+    # `clear_buffer` command (Diagnostics tab Danger Zone) can empty it.
     dispatch_ctx = DispatchContext(
         unit_id=state.unit_id,
         server_url=https_base_url,
@@ -383,6 +384,7 @@ async def _run_main_loop(state: BootstrappedState) -> None:
         pump=pump, light=light, camera=camera,
         loop_cfg=loop_cfg, ws=ws,
         override_state=override_state,
+        buffer=ws._buffer,
     )
 
     async def safety_ticker():

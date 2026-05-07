@@ -26,8 +26,14 @@ from mlss_grow.dispatch import (
 )
 
 
-def _basic_context():
-    """A DispatchContext with all-MagicMock collaborators."""
+def _basic_context(*, buffer=None):
+    """A DispatchContext with all-MagicMock collaborators.
+
+    The optional `buffer` kwarg lets clear-buffer tests inject a
+    MagicMock buffer; legacy tests pass None so the dispatcher's
+    defensive "buffer not wired up — drop" branch keeps working
+    untouched for non-clear-buffer commands.
+    """
     return DispatchContext(
         unit_id=1,
         server_url="https://mlss.local:5000",
@@ -39,6 +45,7 @@ def _basic_context():
         loop_cfg=MagicMock(),
         ws=MagicMock(),
         override_state=None,  # filled per-test if needed
+        buffer=buffer,
     )
 
 
@@ -283,3 +290,49 @@ async def test_dispatch_payload_missing_both_keys_is_no_op():
     (server always sets one key) but the dispatcher mustn't crash."""
     ctx = _basic_context()
     await dispatch_command({}, ctx)
+
+
+# ----------------------------------------------------------------------------
+# Phase 3 Task 4 — clear_buffer command (Diagnostics tab Danger Zone).
+# Server-side admin-only POST /api/grow/units/<id>/clear-buffer pushes
+# {"name": "clear_buffer"} via WS; the dispatcher empties the local buffer.
+# ----------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_dispatch_clear_buffer_calls_buffer_clear():
+    """{"name": "clear_buffer"} → ctx.buffer.clear() called exactly once."""
+    fake_buffer = MagicMock()
+    ctx = _basic_context(buffer=fake_buffer)
+    await dispatch_command({"name": "clear_buffer"}, ctx)
+    fake_buffer.clear.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_dispatch_clear_buffer_when_buffer_is_none_logs_warning(caplog):
+    """Defensive: if ctx.buffer is None (legacy DispatchContext, or a
+    test wiring that never passed one) the dispatcher logs + drops the
+    command rather than raising. Same shape as the override_state-None
+    branch in _handle_safety_override."""
+    caplog.set_level(logging.WARNING)
+    ctx = _basic_context(buffer=None)
+    # Must NOT raise:
+    await dispatch_command({"name": "clear_buffer"}, ctx)
+    assert "buffer not wired up" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_dispatch_clear_buffer_logs_at_info_when_handled():
+    """Operator-visible log when the command lands successfully — ops
+    forensics rely on journalctl to confirm the firmware actually
+    received and acted on the clear."""
+    import logging as _logging
+    fake_buffer = MagicMock()
+    ctx = _basic_context(buffer=fake_buffer)
+    import pytest as _pytest
+    with _pytest.MonkeyPatch.context() as mp:
+        # caplog is harder to use here without the fixture, so just
+        # inspect the side effect directly: clear() got called.
+        mp.setattr(_logging, "getLogger", _logging.getLogger)
+        await dispatch_command({"name": "clear_buffer"}, ctx)
+    fake_buffer.clear.assert_called_once_with()

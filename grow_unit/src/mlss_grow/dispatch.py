@@ -62,6 +62,11 @@ class DispatchContext:
     loop_cfg: Any       # safety_loop.LoopConfig — apply_config mutates this
     ws: Any             # WSClient — for snap_photo response
     override_state: Optional[SafetyOverrideState] = None
+    # Phase 3 Task 4: buffer reference so the `clear_buffer` command can
+    # empty the local SQLite buffer on operator request. Optional because
+    # legacy tests construct DispatchContext without one — the handler
+    # logs + drops the command if buffer is None.
+    buffer: Any = None  # LocalBuffer or None
 
 
 async def dispatch_command(payload: dict, ctx: DispatchContext) -> None:
@@ -98,6 +103,8 @@ async def dispatch_command(payload: dict, ctx: DispatchContext) -> None:
             )
         elif name == "reboot":
             _handle_reboot()
+        elif name == "clear_buffer":
+            _handle_clear_buffer(ctx)
         else:
             log.warning(
                 "dispatcher: unknown command (kind=%r, name=%r) — dropping",
@@ -193,6 +200,28 @@ def _handle_light_override(payload: dict, ctx: DispatchContext) -> None:
         log.warning(
             "dispatcher: light_override unknown state=%r — dropping", state,
         )
+
+
+def _handle_clear_buffer(ctx: DispatchContext) -> None:
+    """Spec §6 (Phase 3 Task 4) `clear_buffer` command.
+
+    Empties the local SQLite buffer.sqlite — destructive, but the server
+    has already gated the action behind a confirm modal, so by the time
+    we receive it the operator has consciously chosen to drop un-replayed
+    telemetry. We just clear and log.
+
+    Defensive: if `ctx.buffer` is None (legacy DispatchContext, or a test
+    wiring) log + drop rather than raising — same pattern as
+    `_handle_safety_override` when override_state is unset.
+    """
+    if ctx.buffer is None:
+        log.warning(
+            "dispatcher: clear_buffer received but buffer not wired up — "
+            "dropping command",
+        )
+        return
+    log.info("dispatcher: clear_buffer command received — emptying local buffer")
+    ctx.buffer.clear()
 
 
 def _handle_reboot() -> None:

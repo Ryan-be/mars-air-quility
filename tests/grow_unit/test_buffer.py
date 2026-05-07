@@ -308,6 +308,54 @@ def test_buffer_byte_cap_only_checked_every_100_inserts(tmp_path):
     )
 
 
+# ---------------------------------------------------------------------------
+# Phase 3 Task 4: clear() — destructive emptying driven by the server's
+# `clear_buffer` WS command. Operator confirms in the Diagnostics tab
+# Danger Zone before this is invoked.
+# ---------------------------------------------------------------------------
+
+
+def test_buffer_clear_empties_table(tmp_path):
+    """append a few rows, then clear() — peek_all() must return [] and
+    size() must be 0. Pins the basic destructive contract."""
+    buf = LocalBuffer(db_path=str(tmp_path / "buf.sqlite"))
+    for i in range(5):
+        buf.append(
+            "telemetry",
+            f'{{"i":{i}}}',
+            ts=datetime(2026, 1, 1) + timedelta(seconds=i),
+        )
+    assert buf.size() == 5
+
+    buf.clear()
+
+    assert buf.size() == 0
+    assert buf.peek_all() == []
+
+
+def test_buffer_clear_idempotent_on_empty_buffer(tmp_path):
+    """Calling clear() on an already-empty buffer must NOT raise — same
+    idempotency contract as delete(unknown_id). Lets the server retry
+    a clear-buffer command without creating an error."""
+    buf = LocalBuffer(db_path=str(tmp_path / "buf.sqlite"))
+    assert buf.size() == 0
+    buf.clear()  # must not raise
+    assert buf.size() == 0
+
+
+def test_buffer_clear_persists_across_close_reopen(tmp_path):
+    """clear() commits the DELETE — closing + reopening must show 0 rows
+    (proves we're not just clearing an in-memory cache)."""
+    path = str(tmp_path / "buf.sqlite")
+    b1 = LocalBuffer(db_path=path)
+    b1.append("telemetry", '{"persist":true}', ts=datetime(2026, 1, 1))
+    b1.clear()
+    b1.close()
+
+    b2 = LocalBuffer(db_path=path)
+    assert b2.size() == 0
+
+
 def test_buffer_eviction_does_not_recurse_when_callback_appends(tmp_path):
     """The on_eviction callback typically appends an event row back into
     the buffer (so the server eventually sees the eviction). That append

@@ -1,11 +1,13 @@
 """REST endpoints for the browser to read grow unit state.
 
-GET  /api/grow/units                                   — fleet view, list
-GET  /api/grow/units/<id>                              — detail
-POST /api/grow/units/<id>/identify                     — push identify cmd via WS
-POST /api/grow/units/<id>/water-now                    — push manual watering cmd via WS
-POST /api/grow/units/<id>/rotate-token                 — admin: rotate bearer token
-GET  /api/grow/units/<id>/token/peek-once              — admin: one-shot reveal
+GET    /api/grow/units                                 — fleet view, list
+GET    /api/grow/units/<id>                            — detail
+POST   /api/grow/units/<id>/identify                   — push identify cmd via WS
+POST   /api/grow/units/<id>/water-now                  — push manual watering cmd via WS
+POST   /api/grow/units/<id>/rotate-token               — admin: rotate bearer token
+GET    /api/grow/units/<id>/token/peek-once            — admin: one-shot reveal
+DELETE /api/grow/units/<id>                            — admin: soft-delete unit
+POST   /api/grow/units/<id>/clear-buffer               — admin: WS push clear_buffer
 """
 import asyncio
 import concurrent.futures
@@ -337,6 +339,90 @@ def rotate_unit_token(unit_id):
     _invalidate_auth_cache_for_unit(unit_id)
 
     return jsonify({"token": raw_token}), 201
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 Task 4 — Diagnostics tab "Danger Zone" actions
+# ---------------------------------------------------------------------------
+#
+# Two admin-only endpoints sit alongside the rotate-token mint above:
+#
+#   * DELETE /api/grow/units/<id>          — soft-delete (is_active=0). Telemetry
+#                                            history + grow_photos are preserved
+#                                            so we don't lose audit data, but the
+#                                            unit drops out of the fleet view and
+#                                            the WS bearer-validate now refuses
+#                                            its connection.
+#   * POST /api/grow/units/<id>/clear-buffer — synchronous WS push of a
+#                                            {"name": "clear_buffer"} command.
+#                                            Mirrors safety_override semantics
+#                                            (202 on confirmed delivery, 503 if
+#                                            disconnected). No audit row needed
+#                                            — clear-buffer doesn't drive a
+#                                            physical actuator, so the safety-
+#                                            override audit-trail rationale
+#                                            doesn't apply.
+
+
+@api_grow_units_bp.route(
+    "/api/grow/units/<int:unit_id>", methods=["DELETE"]
+)
+@require_role("admin")
+def delete_unit(unit_id):
+    """Soft-delete a grow unit.
+
+    Sets `is_active=0` rather than DELETEing the row so telemetry history
+    and grow_photos remain intact for audit / forensic purposes. The fleet
+    list endpoint already filters on `WHERE is_active=1`, so the unit
+    disappears from the UI immediately. A future operator can revive a
+    soft-deleted unit only via a manual DB UPDATE — there's no in-product
+    "undecommission" flow because the friction is intentional (the
+    Diagnostics tab confirm-modal asks the operator to type the unit's
+    label before firing the DELETE).
+
+    The WS bearer-auth check (api_grow_ws._validate_bearer) verifies
+    `is_active=1`, so a unit holding the old token can't reconnect after
+    the soft-delete lands.
+
+    Returns:
+        200 with {"ok": True} on success
+        404 if no active unit with that id (already soft-deleted, or never
+            existed)
+    """
+    conn = sqlite3.connect(DB_FILE, timeout=10)
+    try:
+        cur = conn.execute(
+            "UPDATE grow_units SET is_active=0 WHERE id=? AND is_active=1",
+            (unit_id,),
+        )
+        if cur.rowcount == 0:
+            return jsonify({"error": "unit_not_found"}), 404
+        conn.commit()
+    finally:
+        conn.close()
+    return jsonify({"ok": True})
+
+
+@api_grow_units_bp.route(
+    "/api/grow/units/<int:unit_id>/clear-buffer", methods=["POST"]
+)
+@require_role("admin")
+def clear_buffer(unit_id):
+    """Push a clear_buffer command to the unit synchronously.
+
+    Mirrors safety_override semantics: synchronous WS push that returns
+    202 on confirmed delivery or 503 if the unit is disconnected. The
+    payload uses the legacy `name`-keyed shape (same as identify /
+    water_now) since clear_buffer is firmware-side state-only — it
+    doesn't share the safety-override audit-trail concern.
+
+    No audit row written: clearing a remote buffer doesn't drive a
+    physical actuator, so the safety-override "every fire leaves a
+    trail" rationale doesn't apply here. The WS push itself is logged
+    by the registry, which is enough for ops forensics.
+    """
+    status, body = _push_command_blocking(unit_id, {"name": "clear_buffer"})
+    return jsonify(body), status
 
 
 @api_grow_units_bp.route(
