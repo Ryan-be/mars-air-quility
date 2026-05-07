@@ -60,7 +60,21 @@ class Camera:
         if self._driver is None:
             raise CameraNotAvailable("camera driver not initialised")
         array = self._driver.capture_array()
-        meta = self._driver.metadata()
+        # picamera2's actual method is `capture_metadata()` — `metadata()`
+        # alone doesn't exist on the Picamera2 class. Returns the most
+        # recent frame's metadata; close enough to the array we just
+        # captured for shutter/ISO logging purposes (a stricter
+        # capture_request() round-trip would be needed to guarantee the
+        # metadata is for THIS exact frame).
+        try:
+            meta = self._driver.capture_metadata()
+        except Exception as exc:
+            # Camera metadata is nice-to-have for ML training joins, not
+            # critical for the basic capture-and-store flow. Log and
+            # continue with empty metadata so a buggy picamera2 version
+            # doesn't break photo capture entirely.
+            log.warning("capture_metadata failed (%s) — continuing with empty meta", exc)
+            meta = {}
         jpeg_bytes = _encode_jpeg(array, self.DEFAULT_QUALITY)
         width, height = self._driver.camera_properties.get(
             "PixelArraySize", (0, 0))
