@@ -15,6 +15,7 @@ from datetime import datetime
 from typing import Callable, Optional
 
 from mlss_grow.buffer import LocalBuffer
+from mlss_grow.photo_buffer import PhotoBuffer
 from mlss_grow.ws_protocol import encode_text_message, encode_photo_frame
 
 log = logging.getLogger(__name__)
@@ -77,7 +78,8 @@ class WSClient:
                  on_reconnect_sync: Optional[Callable[[], None]] = None,
                  buffer_retention_days_provider: Optional[
                      Callable[[], "int | None"]
-                 ] = None) -> None:
+                 ] = None,
+                 photo_buffer: Optional[PhotoBuffer] = None) -> None:
         self._url = url
         self._token = token
         # Wire eviction events from the buffer to a grow_errors-shaped
@@ -111,6 +113,13 @@ class WSClient:
             if buffer_retention_days_provider is not None
             else (lambda: None)
         )
+        # Optional disk-backed buffer for photos taken while the WS is
+        # down. Default None for backward compat with tests + callers
+        # that don't care about photo persistence; service.py passes one
+        # in production. Reverses the C2 deferral that dropped photos
+        # outright (see photo_buffer.py docstring + spec §8 for why we
+        # ship it now).
+        self._photo_buffer = photo_buffer
         self._ws = None
 
     def _handle_buffer_eviction(self, *, reason: str, evicted_count: int) -> None:
@@ -167,14 +176,32 @@ class WSClient:
             self._ws = None
 
     async def send_photo(self, metadata: dict, jpeg_bytes: bytes) -> None:
+        """Send a photo frame, buffering to disk when the WS is down.
+
+        Reverses the C2 "drop on outage" behaviour. When the WS is
+        unreachable (or send fails mid-flight) the photo is written to
+        the disk-backed PhotoBuffer if one is wired, then uploaded
+        oldest-first by _replay_photos on the next reconnect. If no
+        buffer is wired (test paths), behaviour falls back to the prior
+        drop-on-failure semantics.
+        """
         if self._ws is None:
-            log.info("WS down; dropping photo (not buffered to save SD wear)")
+            if self._photo_buffer is not None:
+                self._photo_buffer.append(metadata, jpeg_bytes)
+                log.info(
+                    "WS down; buffered photo to disk (size=%d)",
+                    self._photo_buffer.size(),
+                )
+            else:
+                log.info("WS down; dropping photo (no buffer wired)")
             return
         try:
             frame = encode_photo_frame(metadata, jpeg_bytes)
             await self._ws.send(frame)
         except Exception as exc:
-            log.warning("WS photo send failed: %s", exc)
+            log.warning("WS photo send failed: %s; buffering", exc)
+            if self._photo_buffer is not None:
+                self._photo_buffer.append(metadata, jpeg_bytes)
             self._ws = None
 
     async def _replay_buffer(self) -> None:
@@ -239,6 +266,44 @@ class WSClient:
             log.warning("buffer replay completion marker failed: %s", exc)
             self._ws = None
 
+    async def _replay_photos(self) -> None:
+        """Upload all buffered photos in oldest-first order.
+
+        Per-photo delete only after a successful send (mirrors the
+        text-buffer protocol in _replay_buffer). A mid-replay
+        disconnect leaves the un-sent tail on disk for the next
+        reconnect. No-op if no photo buffer is wired or the buffer is
+        empty.
+        """
+        if self._photo_buffer is None:
+            return
+        photos = self._photo_buffer.peek_all()
+        if not photos:
+            return
+        log.info("uploading %d buffered photos", len(photos))
+        for index, photo in enumerate(photos):
+            if self._ws is None:
+                log.info(
+                    "WS dropped during photo replay; %d photos remain",
+                    len(photos) - index,
+                )
+                return
+            try:
+                with open(photo.jpeg_path, "rb") as f:
+                    jpeg_bytes = f.read()
+                frame = encode_photo_frame(photo.metadata, jpeg_bytes)
+                await self._ws.send(frame)
+            except Exception as exc:
+                log.warning(
+                    "photo upload failed for %s: %s; will retry next reconnect",
+                    photo.jpeg_path, exc,
+                )
+                self._ws = None
+                return
+            # Delete only after the send succeeded — the per-photo
+            # durability guarantee. Same as the text-buffer protocol.
+            self._photo_buffer.delete(photo)
+
     async def _receive_loop(self) -> None:
         if self._ws is None:
             return
@@ -299,6 +364,17 @@ class WSClient:
                         self._buffer.prune(retention_days)
                 except Exception as exc:
                     log.warning("buffer prune failed: %s", exc)
+                # Drain buffered photos after the text buffer + config
+                # sync. Order matters: text messages first so server-side
+                # time-series gaps are filled before binary frames start
+                # competing for the same socket. _replay_photos is no-op
+                # if the photo buffer isn't wired (tests) or empty.
+                # Failure inside _replay_photos clears self._ws and
+                # returns; we still want to fall through to the receive
+                # loop to handle that — but receive loop will exit
+                # immediately if _ws is None and run_forever loops back
+                # to reconnect. That's the right cycle.
+                await self._replay_photos()
                 await self._receive_loop()
             finally:
                 self._ws = None

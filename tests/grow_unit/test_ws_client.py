@@ -4,6 +4,7 @@ import json
 from datetime import datetime
 from unittest.mock import AsyncMock
 import pytest
+from mlss_grow.photo_buffer import PhotoBuffer
 from mlss_grow.ws_client import WSClient
 
 
@@ -670,3 +671,204 @@ async def test_buffer_eviction_emits_event_on_buffer(tmp_path):
         f"expected at least one buffer_eviction event row in the buffer "
         f"after eviction; got bodies={bodies}"
     )
+
+
+# ----------------------------------------------------------------------------
+# Photo offline buffering — reverses the C2 "drop on outage" deferral.
+# Photos taken while the WS is down go to the disk-backed PhotoBuffer and
+# upload oldest-first on reconnect. Per-photo delete after success means a
+# mid-replay disconnect leaves the un-sent tail in place.
+# ----------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_send_photo_writes_to_buffer_when_ws_down(tmp_path):
+    """When the WS is down and a PhotoBuffer is wired, send_photo must
+    write the photo to disk rather than silently dropping it. This is
+    the core behaviour the spec amendment promises."""
+    photo_buf = PhotoBuffer(root_dir=str(tmp_path / "photos"))
+    client = WSClient(
+        url="ws://test", token="t",
+        buffer_db_path=str(tmp_path / "b.sqlite"),
+        on_command=lambda cmd: None,
+        # connect_fn that's never actually called — we want WS to stay None
+        connect_fn=AsyncMock(side_effect=ConnectionError("never connects")),
+        photo_buffer=photo_buf,
+    )
+    # ws is None at this point
+    assert client._ws is None
+
+    await client.send_photo(
+        {"taken_at": "2026-05-06T12:00:00Z"},
+        b"\xff\xd8\xff\xe0fake-jpeg",
+    )
+
+    # Photo must be on disk
+    assert photo_buf.size() == 1
+    photo = photo_buf.peek_all()[0]
+    assert photo.metadata == {"taken_at": "2026-05-06T12:00:00Z"}
+    assert photo.jpeg_path.read_bytes() == b"\xff\xd8\xff\xe0fake-jpeg"
+
+
+@pytest.mark.asyncio
+async def test_send_photo_writes_to_buffer_when_send_fails(tmp_path):
+    """If ws.send() raises (transient socket error mid-flight) the photo
+    must still end up in the buffer — and self._ws must be cleared so
+    run_forever's reconnect cycle takes over."""
+    class FailingWS:
+        async def send(self, msg):
+            raise ConnectionError("simulated mid-flight drop")
+
+    fake_ws = FailingWS()
+    photo_buf = PhotoBuffer(root_dir=str(tmp_path / "photos"))
+    client = WSClient(
+        url="ws://test", token="t",
+        buffer_db_path=str(tmp_path / "b.sqlite"),
+        on_command=lambda cmd: None,
+        connect_fn=AsyncMock(return_value=fake_ws),
+        photo_buffer=photo_buf,
+    )
+    await client._connect_once()
+    assert client._ws is fake_ws
+
+    await client.send_photo(
+        {"taken_at": "2026-05-06T12:00:00Z"},
+        b"\xff\xd8\xff\xe0fake-jpeg",
+    )
+
+    # ws cleared (so run_forever loops back to reconnect)
+    assert client._ws is None
+    # Photo buffered for replay
+    assert photo_buf.size() == 1
+
+
+@pytest.mark.asyncio
+async def test_run_forever_replays_buffered_photos_after_reconnect(tmp_path):
+    """Pre-populate the photo buffer, drive a single reconnect cycle,
+    and assert all photos are sent + the buffer is empty. End-to-end
+    proof of the on-reconnect drain path."""
+    fake_ws = FakeWSConnection()
+    photo_buf = PhotoBuffer(root_dir=str(tmp_path / "photos"))
+    # Pre-populate 3 photos with distinguishable bodies
+    photo_buf.append({"i": 0}, b"\xff\xd8\xff\xe0jpeg-0")
+    await asyncio.sleep(0.005)  # ensure distinct ms timestamps
+    photo_buf.append({"i": 1}, b"\xff\xd8\xff\xe0jpeg-1")
+    await asyncio.sleep(0.005)
+    photo_buf.append({"i": 2}, b"\xff\xd8\xff\xe0jpeg-2")
+    assert photo_buf.size() == 3
+
+    client = WSClient(
+        url="ws://test", token="t",
+        buffer_db_path=str(tmp_path / "b.sqlite"),
+        on_command=lambda cmd: None,
+        connect_fn=AsyncMock(return_value=fake_ws),
+        photo_buffer=photo_buf,
+        backoff_base=0.0,
+    )
+
+    runner = asyncio.create_task(client.run_forever())
+    # Wait for the photo buffer to drain
+    for _ in range(50):
+        if photo_buf.size() == 0:
+            break
+        await asyncio.sleep(0.02)
+
+    runner.cancel()
+    try:
+        await runner
+    except asyncio.CancelledError:
+        pass
+
+    assert photo_buf.size() == 0
+    # Three binary photo frames must have been sent. Photo frames are
+    # bytes (binary), text replay frames are str — filter accordingly.
+    binary_sent = [m for m in fake_ws.sent if isinstance(m, (bytes, bytearray))]
+    assert len(binary_sent) == 3, (
+        f"expected 3 photo frames on the wire; got {len(binary_sent)}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_replay_photos_per_photo_delete_after_success(tmp_path):
+    """Each photo must be deleted from the buffer only AFTER its send
+    succeeds — not before. Same durability protocol as the text
+    buffer's peek-then-delete-each-success."""
+    sent_count = [0]
+    delete_seen_at_send = []
+
+    photo_buf = PhotoBuffer(root_dir=str(tmp_path / "photos"))
+    photo_buf.append({"i": 0}, b"jpeg-0")
+    await asyncio.sleep(0.005)
+    photo_buf.append({"i": 1}, b"jpeg-1")
+
+    class SpyWS:
+        async def send(self, msg):
+            # At this moment, the buffer should still contain the photo
+            # we're about to send (delete happens AFTER this call returns)
+            delete_seen_at_send.append(photo_buf.size())
+            sent_count[0] += 1
+
+    client = WSClient(
+        url="ws://test", token="t",
+        buffer_db_path=str(tmp_path / "b.sqlite"),
+        on_command=lambda cmd: None,
+        connect_fn=AsyncMock(return_value=SpyWS()),
+        photo_buffer=photo_buf,
+    )
+    await client._connect_once()
+    await client._replay_photos()
+
+    # Both photos delivered
+    assert sent_count[0] == 2
+    # When we observed the buffer mid-send, both photos were still there
+    # for the first send (size=2), and one for the second (size=1).
+    # If delete had happened *before* send, sizes would have been 1, 0.
+    assert delete_seen_at_send == [2, 1], (
+        f"buffer.delete must run AFTER each successful send, not before; "
+        f"observed sizes during send: {delete_seen_at_send}"
+    )
+    assert photo_buf.size() == 0
+
+
+@pytest.mark.asyncio
+async def test_replay_photos_stops_on_send_failure_and_keeps_unsent(tmp_path):
+    """Mid-replay disconnect: first photo delivers, second fails. The
+    second + third must remain on disk for the next reconnect cycle.
+    Mirrors the text-buffer's mid-replay protection."""
+    sent_count = [0]
+
+    class PartialFailWS:
+        async def send(self, msg):
+            if sent_count[0] >= 1:
+                raise ConnectionError("simulated drop on 2nd photo")
+            sent_count[0] += 1
+
+    photo_buf = PhotoBuffer(root_dir=str(tmp_path / "photos"))
+    photo_buf.append({"i": 0}, b"jpeg-0")
+    await asyncio.sleep(0.005)
+    photo_buf.append({"i": 1}, b"jpeg-1")
+    await asyncio.sleep(0.005)
+    photo_buf.append({"i": 2}, b"jpeg-2")
+    assert photo_buf.size() == 3
+
+    client = WSClient(
+        url="ws://test", token="t",
+        buffer_db_path=str(tmp_path / "b.sqlite"),
+        on_command=lambda cmd: None,
+        connect_fn=AsyncMock(return_value=PartialFailWS()),
+        photo_buffer=photo_buf,
+    )
+    await client._connect_once()
+    await client._replay_photos()
+
+    # First photo delivered + deleted; second + third still on disk
+    remaining = photo_buf.peek_all()
+    assert len(remaining) == 2, (
+        f"expected 2 photos preserved after mid-replay failure; got {len(remaining)}"
+    )
+    remaining_is = sorted(p.metadata["i"] for p in remaining)
+    assert remaining_is == [1, 2], (
+        f"only the un-sent photos (i=1, i=2) should remain; got i={remaining_is}"
+    )
+    # WS cleared so run_forever's reconnect cycle takes over
+    assert client._ws is None

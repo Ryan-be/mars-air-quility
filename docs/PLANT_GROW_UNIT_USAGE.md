@@ -205,7 +205,7 @@ The unit's safety loop runs every 30 seconds on the Pi itself, with the last-kno
 
 - Light schedule continues from local config
 - PID watering continues from local config
-- Photos taken during the outage are **dropped, not buffered** (deliberate choice — buffering 2-min-cadence photos through hours/days of outage burns the Pi Zero SD card; you'd lose ~1 photo per 30-min blip and the next on-schedule capture re-discovers what you missed). New photos resume normally on reconnect.
+- Photos taken during the outage are **buffered to disk** at `/var/lib/mlss-grow/photos/` as JPEGs with sidecar JSON metadata, then uploaded oldest-first when the WS reconnects. Bounded by a 1 GB hard size cap (oldest-evicted FIFO when exceeded) and a 7-day age prune that runs on each reconnect — so a multi-day outage won't fill the SD card and an indefinite outage won't accumulate forever. If the byte cap evicts photos a `buffer_eviction` event surfaces in the dashboard.
 - Telemetry is buffered to local SQLite (default 7 days)
 - On reconnect, buffered telemetry replays in original-timestamp order
 

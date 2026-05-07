@@ -295,6 +295,7 @@ async def _run_main_loop(state: BootstrappedState) -> None:
     from mlss_grow.actuators.automation_phat import AutomationPHATPump, AutomationPHATLight
     from mlss_grow.camera import Camera
     from mlss_grow.ws_client import WSClient
+    from mlss_grow.photo_buffer import PhotoBuffer
     from mlss_grow.safety_loop import SafetyLoop, LoopConfig
     from mlss_grow.pid import PIDConfig
     from mlss_grow.light_schedule import parse_window
@@ -338,6 +339,18 @@ async def _run_main_loop(state: BootstrappedState) -> None:
         server_cert_path=state.server_cert_path,
         loop_cfg=loop_cfg,
     )
+    # Disk-backed photo buffer: keeps photos taken while the WS is down,
+    # uploaded oldest-first by ws_client._replay_photos on the next
+    # successful reconnect. Reverses the C2 deferral that dropped photos
+    # outright. Path overridable via env var so test/dev runs don't
+    # collide with the production /var/lib path. Defaults match
+    # photo_buffer.py: 1GB byte cap + 7-day age prune.
+    photo_buffer = PhotoBuffer(
+        root_dir=os.environ.get(
+            "MLSS_GROW_PHOTO_BUFFER_DIR",
+            "/var/lib/mlss-grow/photos",
+        ),
+    )
     ws = WSClient(
         url=f"wss://{state.mlss_host}:5001/api/grow/{state.unit_id}/ws",
         token=state.token,
@@ -346,6 +359,7 @@ async def _run_main_loop(state: BootstrappedState) -> None:
         server_cert_path=state.server_cert_path,
         on_reconnect_sync=on_reconnect_sync,
         buffer_retention_days_provider=retention_provider,
+        photo_buffer=photo_buffer,
     )
 
     # Shared state between dispatcher (writer) and safety loop (reader)
