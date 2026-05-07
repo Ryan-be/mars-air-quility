@@ -27,6 +27,8 @@ def test_shipped_plant_profiles_seeded(conn):
         ("lettuce", "vegetative"),
         ("microgreens", "seedling"),
         ("pepper", "vegetative"),
+        ("chili", "seedling"), ("chili", "vegetative"),
+        ("chili", "flowering"), ("chili", "fruiting"),
         ("generic", "seedling"), ("generic", "vegetative"),
         ("generic", "flowering"),
     }
@@ -34,6 +36,30 @@ def test_shipped_plant_profiles_seeded(conn):
     for p in profiles:
         assert p[4] == 0, f"{p[0]} {p[1]} expected Ki=0, got {p[4]}"
         assert p[5] == 0, f"{p[0]} {p[1]} expected Kd=0, got {p[5]}"
+
+
+def test_seed_is_idempotent_per_row(conn, monkeypatch, tmp_path):
+    """A new entry added to _SHIPPED_PROFILES later should land on existing
+    DBs without clobbering already-seeded rows. Pin the per-row INSERT OR
+    IGNORE behaviour so a future change back to bulk-insert-only-when-empty
+    surfaces as a test failure.
+    """
+    # Capture the current chili-seedling row, tweak it locally to confirm
+    # subsequent create_db() does NOT overwrite it (per-row idempotency).
+    conn.execute(
+        "UPDATE grow_plant_profiles SET target_moisture_pct=99 "
+        "WHERE plant_type='chili' AND phase='seedling'"
+    )
+    conn.commit()
+
+    # Re-run create_db on the same DB (idempotent path)
+    create_db()
+
+    new_pct = conn.execute(
+        "SELECT target_moisture_pct FROM grow_plant_profiles "
+        "WHERE plant_type='chili' AND phase='seedling'"
+    ).fetchone()[0]
+    assert new_pct == 99, "user-edited row was clobbered by re-seed (should be IGNORE)"
 
 
 def test_medium_defaults_seeded(conn):

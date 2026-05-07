@@ -1,10 +1,28 @@
 """Page routes: dashboard, history, controls, admin."""
 
-from flask import Blueprint, redirect, render_template, session, url_for
+from pathlib import Path
+
+from flask import Blueprint, Response, abort, redirect, render_template, session, url_for
 
 from mlss_monitor import state
 from mlss_monitor.grow.storage_check import get_storage_status
 from mlss_monitor.rbac import require_role
+
+
+# Repo root, used by the docs route below to find the markdown files.
+# pages.py lives at <repo>/mlss_monitor/routes/pages.py — three .parents up.
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+
+# Whitelist of grow-related docs that the in-app links may reference.
+# Anything not in this set gets a 404 from /grow/docs/<name>, so a path-
+# traversal attempt like /grow/docs/../../../../etc/passwd is impossible.
+_GROW_DOCS = {
+    "setup": _REPO_ROOT / "docs" / "PLANT_GROW_UNIT_SETUP.md",
+    "hardware": _REPO_ROOT / "docs" / "PLANT_GROW_UNIT_HARDWARE.md",
+    "usage": _REPO_ROOT / "docs" / "PLANT_GROW_UNIT_USAGE.md",
+    "architecture": _REPO_ROOT / "docs" / "PLANT_GROW_UNIT_ARCHITECTURE.md",
+    "database": _REPO_ROOT / "docs" / "DATABASE.md",
+}
 
 pages_bp = Blueprint("pages", __name__)
 
@@ -83,6 +101,29 @@ def grow_settings_page_legacy():
     on admin via require_role.
     """
     return redirect(url_for("pages.grow_settings_page"), code=302)
+
+
+@pages_bp.route("/grow/docs/<doc_name>")
+def grow_doc(doc_name):
+    """Serve a grow-related markdown doc from the repo's docs/ directory.
+
+    The Flask static handler can't see docs/ (it serves static/ only),
+    so the in-app "Full setup guide" link from the empty-state panel
+    used to 404. This route reads the markdown from disk and returns
+    it as text/markdown — modern browsers render plain text legibly,
+    and any markdown-preview extension renders it nicely. Anyone with
+    GitHub access can also read the same file there.
+
+    Whitelisted doc names only (see _GROW_DOCS) so this can't be
+    abused as a generic file-read endpoint.
+    """
+    path = _GROW_DOCS.get(doc_name)
+    if path is None or not path.is_file():
+        abort(404)
+    return Response(
+        path.read_text(encoding="utf-8"),
+        mimetype="text/markdown; charset=utf-8",
+    )
 
 
 @pages_bp.route("/controls")

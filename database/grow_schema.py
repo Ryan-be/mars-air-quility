@@ -243,6 +243,14 @@ _SHIPPED_PROFILES = [
     ("lettuce",     "vegetative", 65, 5, 0.3, 0, 0, 2, 6, 30, 14),
     ("microgreens", "seedling",   70, 3, 0.3, 0, 0, 1, 4, 20, 16),
     ("pepper",      "vegetative", 55, 5, 0.4, 0, 0, 2, 8, 45, 16),
+    # Chili (Capsicum annuum / chinense / etc.) — same Solanaceae family as
+    # pepper + tomato. Tunables mirror pepper for vegetative; the fruiting
+    # cycle wants slightly drier soil (chilis like a little stress for heat
+    # development) and a longer soak window to discourage shallow roots.
+    ("chili",       "seedling",   58, 5, 0.3, 0, 0, 1, 4, 45, 16),
+    ("chili",       "vegetative", 55, 5, 0.4, 0, 0, 2, 8, 45, 16),
+    ("chili",       "flowering",  50, 5, 0.4, 0, 0, 2, 8, 60, 14),
+    ("chili",       "fruiting",   45, 5, 0.4, 0, 0, 2, 8, 90, 14),
     ("generic",     "seedling",   60, 5, 0.3, 0, 0, 1, 4, 45, 16),
     ("generic",     "vegetative", 55, 5, 0.4, 0, 0, 2, 8, 45, 16),
     ("generic",     "flowering",  50, 5, 0.4, 0, 0, 2, 8, 60, 12),
@@ -256,19 +264,20 @@ _SHIPPED_MEDIUMS = [
 
 
 def _seed_grow_data(cur):
-    """Idempotent: only inserts if rows are missing."""
-    # Plant profiles (only seed if no shipped profiles yet)
-    cur.execute("SELECT COUNT(*) FROM grow_plant_profiles WHERE is_shipped=1")
-    if cur.fetchone()[0] == 0:
-        for row in _SHIPPED_PROFILES:
-            cur.execute(
-                "INSERT INTO grow_plant_profiles "
-                "(plant_type, phase, target_moisture_pct, deadband_pct, "
-                " kp, ki, kd, min_pulse_s, max_pulse_s, soak_window_min, "
-                " default_light_hours, is_shipped) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)",
-                row,
-            )
+    """Idempotent: only inserts rows that aren't already present."""
+    # Plant profiles — INSERT OR IGNORE per row so adding a new entry to
+    # _SHIPPED_PROFILES later (e.g. chili) lands on existing DBs without
+    # clobbering any profile a user has edited (UNIQUE(plant_type, phase)
+    # makes the conflict resolution per-row).
+    for row in _SHIPPED_PROFILES:
+        cur.execute(
+            "INSERT OR IGNORE INTO grow_plant_profiles "
+            "(plant_type, phase, target_moisture_pct, deadband_pct, "
+            " kp, ki, kd, min_pulse_s, max_pulse_s, soak_window_min, "
+            " default_light_hours, is_shipped) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)",
+            row,
+        )
 
     # Medium calibration defaults
     for mt, dry, wet in _SHIPPED_MEDIUMS:

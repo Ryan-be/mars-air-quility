@@ -55,7 +55,7 @@ plant:
       </div>
     </div>
     <div class="empty-foot">
-      <a href="/static/docs/PLANT_GROW_UNIT_SETUP.md" class="doc-link">📖 Full setup guide →</a>
+      <a href="/grow/docs/setup" class="doc-link">📖 Full setup guide →</a>
     </div>
   `;
 

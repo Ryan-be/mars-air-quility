@@ -215,3 +215,34 @@ def test_top_nav_no_longer_includes_grow_settings_link(client):
     # Neither the new path nor the legacy path should appear in the top nav
     assert "/grow/settings" not in nav_block
     assert "/settings/grow" not in nav_block
+
+
+# /grow/docs/<name> — serves grow markdown docs from the repo so the empty-
+# state's "Full setup guide" link works without depending on Flask's
+# static handler (which only serves /static/, not /docs/).
+
+def test_grow_doc_setup_returns_markdown_content(client):
+    r = client.get("/grow/docs/setup")
+    assert r.status_code == 200
+    assert "text/markdown" in r.headers.get("Content-Type", "")
+    body = r.data.decode("utf-8")
+    # Sanity-check: the doc has a recognisable heading + the deployment-
+    # critical install command. If either is removed the doc has lost
+    # its purpose, not a CSS tweak.
+    assert "PLANT_GROW_UNIT_SETUP" in body or "Plant Grow Unit" in body
+    assert "/api/grow/install.sh" in body
+
+
+def test_grow_doc_unknown_name_returns_404(client):
+    r = client.get("/grow/docs/this-doc-does-not-exist")
+    assert r.status_code == 404
+
+
+def test_grow_doc_path_traversal_blocked(client):
+    """A whitelist of allowed doc names — anything else 404s. Defends
+    against /grow/docs/../../../etc/passwd-style abuse even though Flask
+    routing already restricts <doc_name> to a single path segment."""
+    for bad_name in ("..%2F..%2Fetc%2Fpasswd", "../../etc/passwd"):
+        r = client.get(f"/grow/docs/{bad_name}")
+        assert r.status_code in (400, 404), \
+            f"path traversal {bad_name} should not reach a doc"
