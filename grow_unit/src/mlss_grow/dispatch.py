@@ -4,6 +4,10 @@ The server sends commands in two slightly different shapes:
   * Legacy:  {"name": "identify", "args": {...}}
             {"name": "water_now", "args": {...}}
             {"name": "snap_photo"}
+            {"name": "light_override",
+             "args": {"state": "on"|"off", "duration_min": int}}
+            {"name": "reload_config"}    # alias for kind=config_changed
+            {"name": "reboot"}           # systemctl reboot the Pi
   * New:    {"kind": "config_changed", "section": "pid"}
             {"kind": "safety_override", "action": "force_pump_on",
              "duration_s": 10}
@@ -26,6 +30,8 @@ the WS receive task — a propagated exception would tear that down too.
 from __future__ import annotations
 
 import logging
+import subprocess
+import threading
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, Any
@@ -81,6 +87,17 @@ async def dispatch_command(payload: dict, ctx: DispatchContext) -> None:
             jpeg, meta = ctx.camera.capture()
             meta["taken_at"] = datetime.utcnow().isoformat() + "Z"
             await ctx.ws.send_photo(meta, jpeg)
+        elif name == "light_override":
+            _handle_light_override(payload, ctx)
+        elif name == "reload_config":
+            # Spec §6 lists `reload_config` alongside `kind=config_changed`.
+            # Both mean the same thing — pull + apply. Route through the
+            # canonical handler so behaviour stays in lock-step.
+            await _handle_config_changed(
+                {"section": "<reload_config>"}, ctx,
+            )
+        elif name == "reboot":
+            _handle_reboot()
         else:
             log.warning(
                 "dispatcher: unknown command (kind=%r, name=%r) — dropping",
@@ -141,3 +158,65 @@ def _handle_safety_override(payload: dict, ctx: DispatchContext) -> None:
         action, duration_s,
         pump=ctx.pump, light=ctx.light, state=ctx.override_state,
     )
+
+
+def _handle_light_override(payload: dict, ctx: DispatchContext) -> None:
+    """Spec §6 `light_override` legacy command.
+
+    Args: ``{"state": "on"|"off", "duration_min": int}``. We reuse the
+    safety_override plumbing (Timer-scheduled off-flip) so the dispatcher
+    thread doesn't block for `duration_min` minutes — same reasoning as
+    `_handle_safety_override`. For `state=off`, we simply turn the light
+    off immediately (no duration semantics — the regular light schedule
+    will resume on the next safety_loop tick whose schedule asks for on).
+    """
+    if ctx.override_state is None:
+        log.warning(
+            "dispatcher: light_override received but override_state not "
+            "wired up — dropping",
+        )
+        return
+    args = payload.get("args") or {}
+    state = args.get("state")
+    duration_min = float(args.get("duration_min", 0))
+    if state == "on":
+        invoke_safety_override(
+            "force_light_on", duration_min * 60.0,
+            pump=ctx.pump, light=ctx.light, state=ctx.override_state,
+        )
+    elif state == "off":
+        invoke_safety_override(
+            "force_light_off", 0.0,
+            pump=ctx.pump, light=ctx.light, state=ctx.override_state,
+        )
+    else:
+        log.warning(
+            "dispatcher: light_override unknown state=%r — dropping", state,
+        )
+
+
+def _handle_reboot() -> None:
+    """Spec §6 `reboot` command — reboot the host via systemctl.
+
+    Logged at INFO before the call so journalctl shows what triggered
+    the reboot. Run on a daemon thread so the dispatcher (and WS
+    receive coroutine) returns immediately — though by the time the
+    reboot signal hits, both will be torn down anyway.
+
+    The subprocess call is intentionally fire-and-forget; we don't
+    await its exit because the Pi will be rebooting and we don't want
+    to keep a handle in a partially-shutdown state.
+    """
+    log.info("dispatcher: reboot command received — invoking systemctl reboot")
+
+    def _run():
+        try:
+            subprocess.run(
+                ["sudo", "systemctl", "reboot"],
+                check=False,
+            )
+        except Exception as exc:
+            # Most likely sudo not available in dev — log + ignore.
+            log.exception("dispatcher: reboot failed: %s", exc)
+
+    threading.Thread(target=_run, daemon=True).start()

@@ -244,6 +244,226 @@ def test_camera_captured_at_interval(tmp_path):
     assert any(k == "photo" for k, _ in emitted)
 
 
+def test_light_budget_blocks_relay_when_20h_already_used_today():
+    """Spec §7: even if the schedule says light should be on, refuse if
+    >=20h of on-time already accumulated today. Emits safety_cap_hit
+    so the operator sees what happened."""
+    from mlss_grow.light_budget import LightBudget
+
+    sensor = MagicMock(channels=lambda: ["soil_moisture"],
+                       read=lambda: {"soil_moisture": 612},
+                       healthy=lambda: True)
+    pump = MagicMock(state=lambda: False)
+    # Light starts ON — we want to test that the loop opens the relay
+    # because the budget is exhausted.
+    light_state = [True]
+    light = MagicMock(
+        state=lambda: light_state[0],
+        on=MagicMock(),
+        off=MagicMock(side_effect=lambda: light_state.__setitem__(0, False)),
+    )
+    emitted = []
+
+    # Pre-populate budget with 21h of on-time, then point the loop's
+    # clock just before midnight so we're still on day 1.
+    budget = LightBudget()
+    midnight_day1 = datetime(2026, 5, 6, 0, 0)
+    budget.record_on(midnight_day1)
+    budget.record_off(midnight_day1 + timedelta(hours=21))
+
+    loop = SafetyLoop(
+        sensors=[sensor], pump=pump, light=light, camera=None,
+        config=_basic_config(),
+        emit=lambda k, p: emitted.append((k, p)),
+        # 22:00 — within scheduled window 06:00-22:00? Let's test at
+        # 21:00 which is inside the window.
+        now_fn=lambda: datetime(2026, 5, 6, 21, 0),
+        light_budget=budget,
+    )
+    loop.tick()
+    light.off.assert_called_once()
+    light.on.assert_not_called()
+    cap_events = [
+        p for k, p in emitted
+        if k == "event" and p.get("kind") == "safety_cap_hit"
+    ]
+    assert cap_events, "expected safety_cap_hit when light budget exhausted"
+    assert cap_events[0]["details"]["cap"] == "light_20h_per_day"
+
+
+def test_light_budget_recovers_after_midnight_utc():
+    """Cross UTC midnight with the budget exhausted on day 1 → on day 2
+    the schedule turns the light on normally."""
+    from mlss_grow.light_budget import LightBudget
+
+    sensor = MagicMock(channels=lambda: ["soil_moisture"],
+                       read=lambda: {"soil_moisture": 612},
+                       healthy=lambda: True)
+    pump = MagicMock(state=lambda: False)
+    light = MagicMock(state=lambda: False)
+
+    budget = LightBudget()
+    midnight_day1 = datetime(2026, 5, 6, 0, 0)
+    budget.record_on(midnight_day1)
+    budget.record_off(midnight_day1 + timedelta(hours=21))
+
+    # Day 2 at 08:00, well inside scheduled window — fresh budget.
+    loop = SafetyLoop(
+        sensors=[sensor], pump=pump, light=light, camera=None,
+        config=_basic_config(), emit=lambda *a, **k: None,
+        now_fn=lambda: datetime(2026, 5, 7, 8, 0),
+        light_budget=budget,
+    )
+    loop.tick()
+    light.on.assert_called_once()
+
+
+def test_pump_pulse_hard_capped_at_30s_regardless_of_config():
+    """Spec §7: pump pulse is hard-capped at 30s on the unit, even if
+    config.max_pulse_s is bigger and the PID wants a longer pulse.
+    The cap is a hardware-protection invariant — not a tunable.
+
+    Setup: max_pulse_s=60, soil at 0% (huge error), kp=2 → PID wants
+    ~110s clamped to config.max_pulse_s=60. The safety loop must
+    *further* clamp to 30s before calling pump.pulse.
+    """
+    sensor = MagicMock(channels=lambda: ["soil_moisture"],
+                       read=lambda: {"soil_moisture": 200},
+                       healthy=lambda: True)
+    pump = MagicMock(state=lambda: False)
+    light = MagicMock(state=lambda: False)
+    emitted = []
+
+    cfg = _basic_config()
+    cfg.soil_calibration = (200, 1500)  # raw 200 → 0%
+    cfg.pid = PIDConfig(target_pct=55, kp=2.0, max_pulse_s=60)
+
+    loop = SafetyLoop(
+        sensors=[sensor], pump=pump, light=light, camera=None,
+        config=cfg, emit=lambda k, p: emitted.append((k, p)),
+        now_fn=lambda: datetime(2026, 5, 3, 12, 0),
+        pid_state=PIDState(last_pulse_at=datetime(2025, 1, 1)),
+    )
+    loop.tick()
+    pump.pulse.assert_called_once()
+    pulse_arg = pump.pulse.call_args[0][0]
+    assert pulse_arg == 30.0, (
+        f"hard cap broken — pump.pulse called with {pulse_arg}s, "
+        f"expected 30s ceiling per spec §7"
+    )
+    # Cap-hit event surfaces to dashboard
+    cap_events = [
+        p for k, p in emitted
+        if k == "event" and p.get("kind") == "safety_cap_hit"
+    ]
+    assert cap_events, "expected a safety_cap_hit event when pump cap fires"
+    assert cap_events[0]["details"]["cap"] == "pump_30s_max_pulse"
+
+
+def test_pump_cooldown_after_hard_cap_blocks_subsequent_pulses():
+    """After a hard-capped pulse, the next 5 minutes are cooldown — even
+    if PID wants to fire and the soak window has elapsed (which it
+    won't normally, but a future config change could shorten soak)."""
+    sensor = MagicMock(channels=lambda: ["soil_moisture"],
+                       read=lambda: {"soil_moisture": 200},
+                       healthy=lambda: True)
+    pump = MagicMock(state=lambda: False)
+    light = MagicMock(state=lambda: False)
+
+    cfg = _basic_config()
+    cfg.soil_calibration = (200, 1500)
+    cfg.pid = PIDConfig(target_pct=55, kp=2.0, max_pulse_s=60,
+                         soak_window_min=0)  # no soak so we test cooldown alone
+
+    t0 = datetime(2026, 5, 3, 12, 0)
+    state = PIDState(last_pulse_at=datetime(2025, 1, 1))
+    now_holder = [t0]
+
+    loop = SafetyLoop(
+        sensors=[sensor], pump=pump, light=light, camera=None,
+        config=cfg, emit=lambda *a, **k: None,
+        now_fn=lambda: now_holder[0],
+        pid_state=state,
+    )
+    # First tick: hard cap fires, cooldown is armed.
+    loop.tick()
+    assert pump.pulse.call_count == 1
+    assert state.pump_cooldown_until is not None
+
+    # Advance 30s (well within the 5-min cooldown). PID would
+    # otherwise want to fire again (soak=0, error still huge).
+    pump.pulse.reset_mock()
+    now_holder[0] = t0 + timedelta(seconds=30)
+    loop.tick()
+    pump.pulse.assert_not_called()
+
+
+def test_pump_cooldown_clears_after_5_minutes():
+    """After 5 minutes + a tick, the cooldown lifts. PID can fire again
+    (and may hit the cap again, re-arming the cooldown)."""
+    sensor = MagicMock(channels=lambda: ["soil_moisture"],
+                       read=lambda: {"soil_moisture": 200},
+                       healthy=lambda: True)
+    pump = MagicMock(state=lambda: False)
+    light = MagicMock(state=lambda: False)
+
+    cfg = _basic_config()
+    cfg.soil_calibration = (200, 1500)
+    cfg.pid = PIDConfig(target_pct=55, kp=2.0, max_pulse_s=60,
+                         soak_window_min=0)
+
+    t0 = datetime(2026, 5, 3, 12, 0)
+    state = PIDState(last_pulse_at=datetime(2025, 1, 1))
+    now_holder = [t0]
+
+    loop = SafetyLoop(
+        sensors=[sensor], pump=pump, light=light, camera=None,
+        config=cfg, emit=lambda *a, **k: None,
+        now_fn=lambda: now_holder[0],
+        pid_state=state,
+    )
+    loop.tick()  # Hard cap, cooldown armed
+    pump.pulse.reset_mock()
+
+    # Advance past the 5-minute cooldown.
+    now_holder[0] = t0 + timedelta(minutes=5, seconds=1)
+    loop.tick()
+    pump.pulse.assert_called_once()
+
+
+def test_pump_normal_pulse_not_clamped_when_under_30s():
+    """Sanity: a PID-decided pulse of 8s passes through unchanged (no
+    cooldown armed, no cap event). The cap only fires when PID actually
+    asks for >30s."""
+    sensor = MagicMock(channels=lambda: ["soil_moisture"],
+                       read=lambda: {"soil_moisture": 612},
+                       healthy=lambda: True)
+    pump = MagicMock(state=lambda: False)
+    light = MagicMock(state=lambda: False)
+    emitted = []
+
+    cfg = _basic_config()
+    cfg.soil_calibration = (200, 1500)  # ~31.7% → kp=0.4 * (55-31.7) = 9.32
+                                        # clamped to default max=8
+
+    state = PIDState(last_pulse_at=datetime(2025, 1, 1))
+    loop = SafetyLoop(
+        sensors=[sensor], pump=pump, light=light, camera=None,
+        config=cfg, emit=lambda k, p: emitted.append((k, p)),
+        now_fn=lambda: datetime(2026, 5, 3, 12, 0),
+        pid_state=state,
+    )
+    loop.tick()
+    pump.pulse.assert_called_once()
+    assert pump.pulse.call_args[0][0] <= 30.0  # well under cap
+    assert state.pump_cooldown_until is None  # no cooldown armed
+    cap_events = [
+        p for k, p in emitted
+        if k == "event" and p.get("kind") == "safety_cap_hit"
+    ]
+    assert not cap_events
+
+
 def test_holiday_mode_suppresses_pump_pulse_but_still_emits_telemetry():
     """Reproduces the test_tick_fires_pid_pulse setup but with
     holiday_mode=True — pump must NOT pulse, but light decision +

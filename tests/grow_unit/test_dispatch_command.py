@@ -160,6 +160,103 @@ async def test_dispatch_safety_override_coerces_duration_to_float():
 
 
 # ----------------------------------------------------------------------------
+# Spec §6 legacy `name`-keyed commands — light_override / reload_config / reboot.
+# These were missing pre-Commit-C and silently fell to the unknown-command
+# branch.
+# ----------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_dispatch_light_override_on_invokes_safety_override():
+    """light_override with state=on routes through invoke_safety_override
+    (same plumbing as `kind=safety_override` action=force_light_on) so
+    the off-flip is Timer-scheduled and the dispatcher stays responsive."""
+    from mlss_grow.safety_override import SafetyOverrideState
+    ctx = _basic_context()
+    ctx.override_state = SafetyOverrideState()
+    with patch("mlss_grow.dispatch.invoke_safety_override") as mock_invoke:
+        await dispatch_command(
+            {"name": "light_override",
+             "args": {"state": "on", "duration_min": 15}}, ctx,
+        )
+    mock_invoke.assert_called_once()
+    args, kwargs = mock_invoke.call_args
+    assert args[0] == "force_light_on"
+    assert args[1] == 15 * 60.0  # 15 min → 900s
+    assert kwargs["light"] is ctx.light
+
+
+@pytest.mark.asyncio
+async def test_dispatch_light_override_off_invokes_safety_override():
+    """state=off → force_light_off, no duration semantics."""
+    from mlss_grow.safety_override import SafetyOverrideState
+    ctx = _basic_context()
+    ctx.override_state = SafetyOverrideState()
+    with patch("mlss_grow.dispatch.invoke_safety_override") as mock_invoke:
+        await dispatch_command(
+            {"name": "light_override", "args": {"state": "off"}}, ctx,
+        )
+    mock_invoke.assert_called_once()
+    args, kwargs = mock_invoke.call_args
+    assert args[0] == "force_light_off"
+    assert args[1] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_dispatch_light_override_unknown_state_is_no_op():
+    """Defensive: malformed `state` doesn't reach invoke_safety_override."""
+    from mlss_grow.safety_override import SafetyOverrideState
+    ctx = _basic_context()
+    ctx.override_state = SafetyOverrideState()
+    with patch("mlss_grow.dispatch.invoke_safety_override") as mock_invoke:
+        await dispatch_command(
+            {"name": "light_override", "args": {"state": "diagonal"}}, ctx,
+        )
+    mock_invoke.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_dispatch_reload_config_routes_to_config_changed_handler():
+    """reload_config is an alias — it should produce the same pull+apply
+    pair that `kind=config_changed` does."""
+    ctx = _basic_context()
+    fake_unit_cfg = MagicMock()
+    with patch("mlss_grow.dispatch.pull_unit_config",
+                return_value=fake_unit_cfg) as mock_pull, \
+         patch("mlss_grow.dispatch.apply_config") as mock_apply:
+        await dispatch_command({"name": "reload_config"}, ctx)
+    mock_pull.assert_called_once_with(
+        ctx.server_url, ctx.unit_id, ctx.token, ctx.server_cert_path,
+    )
+    mock_apply.assert_called_once_with(fake_unit_cfg, ctx.loop_cfg)
+
+
+@pytest.mark.asyncio
+async def test_dispatch_reboot_invokes_systemctl_reboot(caplog):
+    """reboot → spawns a thread that calls subprocess.run with
+    [sudo, systemctl, reboot]. The thread is daemon so the test
+    doesn't hang at teardown."""
+    import logging
+    caplog.set_level(logging.INFO)
+    ctx = _basic_context()
+    with patch("mlss_grow.dispatch.subprocess.run") as mock_run, \
+         patch("mlss_grow.dispatch.threading.Thread") as mock_thread:
+        # Capture the thread's target and run it synchronously so we
+        # can assert subprocess.run got invoked (otherwise the daemon
+        # thread might not have run before the test exits).
+        def _capture_thread(target=None, daemon=None):
+            t = MagicMock()
+            t.start = lambda: target() if target else None
+            return t
+        mock_thread.side_effect = _capture_thread
+        await dispatch_command({"name": "reboot"}, ctx)
+    mock_run.assert_called_once_with(
+        ["sudo", "systemctl", "reboot"], check=False,
+    )
+    assert "reboot command received" in caplog.text
+
+
+# ----------------------------------------------------------------------------
 # Defensive: malformed payloads must NOT crash the dispatcher thread.
 # ----------------------------------------------------------------------------
 

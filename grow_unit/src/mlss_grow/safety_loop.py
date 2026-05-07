@@ -6,8 +6,16 @@ from typing import Callable, Optional
 
 from mlss_grow.pid import PIDConfig, PIDState, pid_decide
 from mlss_grow.light_schedule import is_light_on
+from mlss_grow.light_budget import LightBudget
 
 log = logging.getLogger(__name__)
+
+# Spec §7 "Failsafe limits" — hardware-protection invariants that
+# override anything the user can set in config. Enforced unconditionally
+# on the unit so a misconfigured server (or a buggy PID tune that wants
+# a 60s pulse) cannot drive the pump past safe limits.
+_HARD_PUMP_CAP_S = 30.0
+_PUMP_COOLDOWN_AFTER_HARD_CAP_S = 5 * 60  # 5 minutes
 
 
 def _moisture_pct(raw: int, calibration: tuple[int, int] | None) -> float | None:
@@ -39,7 +47,8 @@ class SafetyLoop:
     def __init__(self, sensors, pump, light, camera, config: LoopConfig,
                  emit: Callable[[str, dict], None],
                  now_fn: Callable[[], datetime] = datetime.utcnow,
-                 pid_state: PIDState | None = None) -> None:
+                 pid_state: PIDState | None = None,
+                 light_budget: LightBudget | None = None) -> None:
         self._sensors = sensors
         self._pump = pump
         self._light = light
@@ -49,6 +58,11 @@ class SafetyLoop:
         self._now = now_fn
         self._pid_state = pid_state or PIDState(
             last_pulse_at=datetime(2000, 1, 1))
+        # The 20h/24h light budget lives on the SafetyLoop (not in
+        # config) because it's an enforced invariant, not a tunable.
+        # Constructor-injectable for tests so they can pre-populate
+        # cumulative on-time.
+        self._light_budget = light_budget or LightBudget()
         self._last_photo_at: Optional[datetime] = None
 
     def tick(self) -> None:
@@ -77,10 +91,42 @@ class SafetyLoop:
         if any_degraded:
             self._emit("event", {"kind": "sensor_degraded", "details": {}})
 
-        # 2. Light schedule
-        should_be_on = is_light_on(now, self._config.light_windows)
-        if should_be_on != self._light.state():
-            (self._light.on() if should_be_on else self._light.off())
+        # 2. Light schedule.
+        # The decision flows: schedule says ON → also check 20h budget.
+        # If the budget is exhausted we keep the relay open and emit a
+        # one-shot safety_cap_hit so the dashboard surfaces the cap.
+        # Schedule says OFF → just go off (and record the off-edge so
+        # the budget accounts for the on-span that just ended).
+        currently_on = self._light.state()
+        scheduled_on = is_light_on(now, self._config.light_windows)
+        if scheduled_on:
+            if self._light_budget.can_turn_on(now):
+                if not currently_on:
+                    self._light.on()
+                    self._light_budget.record_on(now)
+            else:
+                # Budget exhausted — refuse to (re-)energise. If the
+                # light is currently on (e.g. we crossed the cap mid-on),
+                # turn it off and record the off-edge.
+                if currently_on:
+                    log.warning(
+                        "light budget exhausted (>%d min today) — opening relay",
+                        20 * 60,
+                    )
+                    self._light.off()
+                    self._light_budget.record_off(now)
+                    self._emit("event", {
+                        "kind": "safety_cap_hit",
+                        "details": {"cap": "light_20h_per_day"},
+                    })
+                else:
+                    log.info(
+                        "light schedule says ON but daily 20h budget exhausted; staying off",
+                    )
+        else:
+            if currently_on:
+                self._light.off()
+                self._light_budget.record_off(now)
 
         # 3. PID watering — bypassed entirely when holiday mode is on.
         # Telemetry + lights still run; the operator's plant stays lit and
@@ -90,20 +136,64 @@ class SafetyLoop:
         if raw is not None and not self._config.holiday_mode:
             pct = _moisture_pct(raw, self._config.soil_calibration)
             if pct is not None:
-                d = pid_decide(pct, self._config.pid, self._pid_state, now)
-                if d.pulse_s > 0:
-                    self._pump.pulse(d.pulse_s)
-                    self._pid_state.last_pulse_at = now
-                    self._emit("event", {
-                        "kind": "watering_pulse",
-                        "details": {
-                            "duration_s": d.pulse_s, "trigger": "pid",
-                            "soil_pct_before": pct,
-                            "pid_error": self._config.pid.target_pct - pct,
-                            "pid_p_term": d.p_term, "pid_i_term": d.i_term,
-                            "pid_d_term": d.d_term, "triggered_by": "system",
-                        },
-                    })
+                # Cooldown check — the cap from the last pulse is still
+                # in force. PID still runs (so its integrator advances
+                # honestly) but we do not actuate.
+                in_cooldown = (
+                    self._pid_state.pump_cooldown_until is not None
+                    and now < self._pid_state.pump_cooldown_until
+                )
+                if in_cooldown:
+                    log.info(
+                        "pump in cooldown until %s; skipping any pulse",
+                        self._pid_state.pump_cooldown_until,
+                    )
+                else:
+                    d = pid_decide(
+                        pct, self._config.pid, self._pid_state, now,
+                    )
+                    if d.pulse_s > 0:
+                        # Hard cap regardless of config.max_pulse_s. The
+                        # spec §7 30s ceiling is a hardware-protection
+                        # invariant — if PID asks for more, clamp + arm
+                        # the 5-min cooldown so a runaway controller
+                        # cannot keep pummelling the pump.
+                        clamped = min(d.pulse_s, _HARD_PUMP_CAP_S)
+                        if clamped < d.pulse_s:
+                            log.warning(
+                                "PID requested %.1fs pulse, hard-capping to %.1fs (spec §7); arming %ds cooldown",
+                                d.pulse_s, clamped,
+                                _PUMP_COOLDOWN_AFTER_HARD_CAP_S,
+                            )
+                            self._pid_state.pump_cooldown_until = (
+                                now
+                                + timedelta(
+                                    seconds=_PUMP_COOLDOWN_AFTER_HARD_CAP_S,
+                                )
+                            )
+                            self._emit("event", {
+                                "kind": "safety_cap_hit",
+                                "details": {
+                                    "cap": "pump_30s_max_pulse",
+                                    "requested_s": d.pulse_s,
+                                    "clamped_s": clamped,
+                                },
+                            })
+                        self._pump.pulse(clamped)
+                        self._pid_state.last_pulse_at = now
+                        self._emit("event", {
+                            "kind": "watering_pulse",
+                            "details": {
+                                "duration_s": clamped, "trigger": "pid",
+                                "soil_pct_before": pct,
+                                "pid_error":
+                                    self._config.pid.target_pct - pct,
+                                "pid_p_term": d.p_term,
+                                "pid_i_term": d.i_term,
+                                "pid_d_term": d.d_term,
+                                "triggered_by": "system",
+                            },
+                        })
 
         # 4. Camera at interval
         if self._camera is not None and self._photo_due(now):

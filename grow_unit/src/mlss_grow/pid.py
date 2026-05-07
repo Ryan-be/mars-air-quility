@@ -35,6 +35,12 @@ class PIDState:
     last_pulse_at: datetime
     last_error: float = 0
     error_integral: float = 0
+    # Set when the safety loop hard-caps a pump pulse to the spec §7
+    # 30s ceiling. While now < pump_cooldown_until the safety loop
+    # refuses to issue any further pulses (a runaway PID that just hit
+    # the absolute ceiling needs cool-down before another shot, even if
+    # the soak-window guard would otherwise re-engage).
+    pump_cooldown_until: datetime | None = None
 
 
 @dataclass
