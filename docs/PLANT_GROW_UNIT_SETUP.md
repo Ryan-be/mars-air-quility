@@ -47,6 +47,7 @@ Before starting, check this table:
 
 | What | Why | How to verify |
 |---|---|---|
+| **Wheels built on the MLSS server** | install.sh downloads `mlss_grow` + `mlss_contracts` wheels from the server's `static/grow_dist/`. They're gitignored and rebuilt on the server. | `ls static/grow_dist/*.whl` shows two `.whl` files; `curl -ks https://<mlss>:5000/api/grow/dist/latest` returns JSON with `mlss_grow` + `mlss_contracts` keys. If empty, run `bash scripts/build_grow_wheel.sh` on the MLSS server first. |
 | **MLSS server running** at `https://mlss.local:5000` | Grow unit needs somewhere to enroll, send telemetry, fetch config | Open the dashboard; you should see the existing air-quality view |
 | **Admin login** to the MLSS dashboard | The first-boot enrollment-key reveal is gated by `require_role("admin")` | Sign in; navigate to `/grow` — you should see the empty-state panel rather than a 403 |
 | **Pi Zero W (or Pi Zero 2 W)** flashed with Raspberry Pi OS Lite | Host for the firmware | `cat /etc/os-release` shows Raspberry Pi OS; SSH works |
@@ -64,6 +65,122 @@ This catches wiring errors early, before they're hidden behind the
 ---
 
 ## First unit walkthrough
+
+### Step 0: Build the firmware wheels (one-time, on the MLSS server)
+
+The Pi installer downloads pre-built wheels from `https://<mlss>:5000/api/grow/dist/`. The wheels are gitignored (built artifacts shouldn't be in git) so each MLSS server has to build them once after pulling the code:
+
+```bash
+# On the MLSS server, in the project root:
+bash scripts/build_grow_wheel.sh
+```
+
+Sanity-check:
+
+```bash
+ls -la static/grow_dist/
+# Should show: mlss_contracts-X.Y.Z-py3-none-any.whl, mlss_grow-X.Y.Z-py3-none-any.whl, mlss-grow.service
+```
+
+Re-run this after every `git pull` that touched `grow_unit/` or `contracts/` — `bin/deploy` (see below) handles this for you.
+
+### Step 0.5: Make sure the server's TLS cert covers `mlss.local`
+
+This is the most common foot-gun for first deployments. The firmware
+pins the MLSS cert at install time and verifies hostnames on every
+TLS connection. **The cert MUST include the hostname (or IP) the Pi
+will use to reach the server in its Subject Alternative Name list.**
+
+Check what your current cert covers (on the MLSS server):
+
+```bash
+openssl x509 -in certs/cert.pem -text -noout | grep -A1 "Subject Alternative Name"
+```
+
+You'll see something like:
+
+```
+X509v3 Subject Alternative Name:
+    DNS:mlss-monitor, DNS:localhost, IP:127.0.0.1, IP:192.168.0.203
+```
+
+If `mlss.local` is **not** listed (the default cert doesn't include
+it), regenerate with the hostnames + IPs every Pi will use:
+
+```bash
+poetry run python scripts/generate_certs.py \
+    --hostname mlss.local \
+    --hostname mlss-monitor \
+    --hostname localhost \
+    --ip 192.168.0.203 \
+    --force
+sudo systemctl restart mlss-monitor
+sudo journalctl -u mlss-monitor -n 5  # verify clean startup
+```
+
+(Replace `192.168.0.203` with your MLSS server's actual LAN IP.
+`hostname -I` on the server gives it.)
+
+Re-verify the new cert:
+
+```bash
+openssl x509 -in certs/cert.pem -text -noout | grep -A1 "Subject Alternative Name"
+# Should now show: DNS:mlss.local, DNS:mlss-monitor, DNS:localhost,
+#                  IP:127.0.0.1, IP:192.168.0.203
+```
+
+If you regenerated the cert AFTER Pis were already enrolled, each
+Pi has the OLD pinned cert and needs to re-pin — see
+[Re-pinning the server cert](#re-pinning-the-server-cert) below.
+
+### Step 0.75: Make sure the Pi can resolve `mlss.local`
+
+Pi OS Lite **ships** avahi-daemon (which resolves `.local` hostnames
+via mDNS) but on a fresh install it can take 30+ seconds after boot
+before resolution works, and on some routers/switches IPv4 multicast
+is blocked entirely. If you see `Could not resolve host: mlss.local`
+during install or in `journalctl`, two options:
+
+**Option A (recommended): add an `/etc/hosts` entry on each Pi.**
+Robust against any DNS / mDNS / avahi flakiness.
+
+```bash
+# On the Pi:
+echo "192.168.0.203 mlss.local" | sudo tee -a /etc/hosts
+```
+
+(Substitute your MLSS server's LAN IP. `hostname -I` on the server
+gives it; or `ping mlss.local` from a working machine and read the IP.)
+
+Then update `/boot/mlss-grow.yaml` to use the hostname:
+
+```yaml
+mlss_host: mlss.local              # not 192.168.0.203 directly
+```
+
+Why prefer the hostname over the bare IP: the cert SAN almost
+certainly has `DNS:mlss.local` (after Step 0.5 above) but may not
+have your LAN IP, and that IP can change when your DHCP lease
+rolls over. Hostname stays stable.
+
+**Option B: troubleshoot mDNS on the Pi.** Slower path but avoids
+the hosts-file maintenance burden. Ensure avahi is running:
+
+```bash
+sudo systemctl status avahi-daemon
+sudo apt install -y avahi-daemon avahi-utils libnss-mdns
+
+# Confirm mdns is in the hosts resolution path:
+grep ^hosts /etc/nsswitch.conf
+# Should show: hosts: files mdns4_minimal [NOTFOUND=return] dns
+
+# Test directly:
+avahi-resolve -n mlss.local
+```
+
+If `avahi-resolve` returns the right IP but `getent hosts mlss.local`
+still fails, that's the nsswitch path — fix `nsswitch.conf` so `mdns4_minimal`
+appears before `dns`.
 
 ### 1. Get your household enrollment key
 
@@ -162,6 +279,29 @@ sudo journalctl -u mlss-grow -f
 ## Adding additional units
 
 For unit #2 onwards, repeat steps 2–4 above with the same enrollment key (one key serves all units in your household). About 3 minutes per unit.
+
+---
+
+## Redeploying the MLSS server (after a `git pull`)
+
+Use `bin/deploy` from the project root on the MLSS server:
+
+```bash
+bin/deploy
+```
+
+This is the canonical deploy command. It runs `git pull --ff-only`, refreshes
+production Python deps with `poetry install --without dev`, rebuilds the grow
+firmware wheels (only when `grow_unit/`, `contracts/`, or
+`scripts/build_grow_wheel.sh` changed since the last deploy — or always on the
+first run), restarts `mlss-monitor`, and tails the most recent journal
+entries. `set -euo pipefail` aborts on any step's failure so you don't ship
+a partially-deployed server.
+
+If you skip `bin/deploy` and run `git pull && sudo systemctl restart
+mlss-monitor` by hand, you'll miss the wheel rebuild — Pis enrolling for the
+first time after a grow-firmware change will get the **previous** wheel
+versions until the next time `scripts/build_grow_wheel.sh` runs.
 
 ---
 
@@ -283,14 +423,63 @@ When you're retiring a Pi (broken, repurposed, plant died):
 
 ---
 
+## Re-pinning the server cert
+
+If you regenerate the MLSS server cert (Step 0.5) AFTER Pis were
+already enrolled, each Pi still has the OLD pinned cert at
+`/etc/mlss/server.crt` and will fail TLS verification on every
+connection. Refresh on each Pi:
+
+```bash
+sudo bash -c '
+set -o pipefail
+TLS_DUMP=$(echo | openssl s_client -servername mlss.local -connect mlss.local:5000 2>/dev/null)
+
+if ! echo "$TLS_DUMP" | grep -q "BEGIN CERTIFICATE"; then
+    echo "ERROR: openssl s_client did not return a certificate" >&2
+    echo "$TLS_DUMP" | head -10 >&2
+    exit 1
+fi
+
+NEW_CERT=$(echo "$TLS_DUMP" | openssl x509 -outform PEM)
+
+if [[ -z "$NEW_CERT" ]] || ! echo "$NEW_CERT" | grep -q "BEGIN CERTIFICATE"; then
+    echo "ERROR: openssl x509 extraction failed" >&2
+    exit 1
+fi
+
+echo "$NEW_CERT" > /etc/mlss/server.crt
+chmod 644 /etc/mlss/server.crt
+echo "Pinned new cert. SAN entries:"
+openssl x509 -in /etc/mlss/server.crt -text -noout | grep -A1 "Subject Alternative Name"
+'
+
+sudo systemctl restart mlss-grow
+sudo journalctl -u mlss-grow -f
+```
+
+The script aborts with a clear error if `openssl s_client` returns
+nothing (which silently produces an empty cert file otherwise — a
+classic foot-gun).
+
 ## Troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
+| `curl: (6) Could not resolve host: mlss.local` during install | mDNS not working on the Pi | See [Step 0.75](#step-075-make-sure-the-pi-can-resolve-mlsslocal). Quickest fix: `echo "<server-ip> mlss.local" \| sudo tee -a /etc/hosts` |
+| `KeyError: 'mlss_grow'` from install.sh's python3 step | Wheels not built on the MLSS server | On the server: `bash scripts/build_grow_wheel.sh`, then re-run install on the Pi |
+| `Permission denied: '/tmp/tmp.abcd1234'` (or similar random suffix) during pip install | Old install.sh — TMP dir mode 0700 blocked the unprivileged user | `git pull` on the server, rebuild wheels, retry |
+| `No matching distribution found for Pillow<11.0,>=10.0` | Old install.sh — `--no-index` blocked PyPI for transitive deps | `git pull` on the server, rebuild wheels, retry |
+| `No such file or directory: '/.../contracts'` during pip install | Wheel METADATA had build-host's absolute path baked in | `git pull` on the server, rebuild wheels (the build script now strips this), retry |
+| `IP address mismatch, certificate is not valid for '192.168.0.203'` | Connecting via IP but cert SAN only has DNS names | Use the hostname (`mlss.local`) in `mlss_host`; ensure cert SAN covers it (Step 0.5) |
+| `Hostname mismatch, certificate is not valid for 'mlss.local'` | Cert SAN doesn't include `mlss.local` | Regenerate the cert (Step 0.5) and re-pin on each Pi (above) |
+| `NO_CERTIFICATE_OR_CRL_FOUND` | Pi's `/etc/mlss/server.crt` is empty/corrupt | Re-pin on the Pi (above). Common cause: re-pinned BEFORE the server was restarted with the new cert |
+| `ModuleNotFoundError: No module named 'board'` | Adafruit Blinka wasn't installed (old marker missed armv6l) | `git pull` on the server, rebuild wheels, full reinstall on the Pi: `sudo rm -rf /opt/mlss-grow && curl -k <install-url> \| sudo bash` |
+| `ModuleNotFoundError: No module named 'picamera2'` | apt missed it OR venv lacks `--system-site-packages` | `git pull`, rebuild, full reinstall (the install.sh now does both) |
 | Unit doesn't appear in dashboard after install | WiFi not joined | `journalctl -u mlss-grow -f` on the Pi; check for connect errors |
 | Card shows "Offline" with no recent telemetry | WS connection dropped | Restart the service: `sudo systemctl restart mlss-grow`. Check WiFi signal. |
 | Soil sensor not detected at boot | I2C cable polarity or address conflict | `sudo i2cdetect -y 1` should show `36`. Swap red/black at JST connector if missing. |
-| Photos not appearing | Camera not enabled in raspi-config | `sudo raspi-config` → Interface Options → Camera |
+| Photos not appearing | Camera not enabled in raspi-config OR ribbon cable backwards | `sudo raspi-config` → Interface Options → Camera. Then `libcamera-jpeg -o test.jpg`. The CSI ribbon's blue side faces the USB ports on the Pi. |
 | Pump runs continuously | Wiring backwards (NC instead of NO on relay) | Swap relay output terminal — failsafe is dark/dry, so NO must be open at rest. |
 
 ---
