@@ -332,7 +332,7 @@ disable themselves.
 ### Adding the actuator PSU later
 
 1. Power down the Pi cleanly (`sudo shutdown -h now`).
-2. Wire Port 2 of your wall wart through a USB-A breakout into the
+2. Wire Port 2 of your USB power adapter through a USB-A breakout into the
    load rail terminal block; tie load-rail GND to the pHAT GND
    terminal.
 3. Wire pump red → load-rail +5V via flyback diode → pump black →

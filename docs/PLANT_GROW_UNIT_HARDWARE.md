@@ -42,7 +42,7 @@
 
 ```mermaid
 flowchart TB
-    subgraph PowerBlock["Power — single multi-port USB wall wart"]
+    subgraph PowerBlock["Power — single multi-port USB power adapter"]
         PSU["5V / ≥3A USB-A multi-port charger"]
         PortPi["Port 1 → microUSB cable"]
         PortLoad["Port 2 → spliced via USB-A breakout<br/>to the load rail"]
@@ -90,7 +90,7 @@ flowchart TB
     WiFi <--> MLSS
 ```
 
-> **The key idea:** *one* wall wart, *two* USB-A ports — Port 1 powers the Pi cleanly through its microUSB connector; Port 2 has its +5V and GND wires spliced out (via a small USB-A breakout PCB or a sacrificial cut cable) to feed the load rail. The loads do **not** draw current through the Pi's 5V GPIO rail or polyfuse.
+> **The key idea:** *one* USB power adapter, *two* USB-A ports — Port 1 powers the Pi cleanly through its microUSB connector; Port 2 has its +5V and GND wires spliced out (via a small USB-A breakout PCB or a sacrificial cut cable) to feed the load rail. The loads do **not** draw current through the Pi's 5V GPIO rail or polyfuse.
 
 ---
 
@@ -166,13 +166,13 @@ If the cable colours are non-standard, **measure with a multimeter before connec
 
 ### Step 2 — wire through the relay
 
-The relay switches the **5V supply line**, not the ground. Ground returns directly to the load rail's GND (which is the wall wart's Port 2 GND, spliced out via the USB-A breakout).
+The relay switches the **5V supply line**, not the ground. Ground returns directly to the load rail's GND (which is the USB power adapter's Port 2 GND, spliced out via the USB-A breakout).
 
 | Wire | Connect to | Notes |
 |---|---|---|
 | Light **Red (+5V)** | pHAT **RELAY → COM** terminal | Common contact |
-| pHAT **RELAY → NO** terminal | Load-rail **+5V** (Port 2 of wall wart, via USB-A breakout) | Closed when relay energised → light on |
-| Light **Black (GND)** | Load-rail **GND** (Port 2 of wall wart) | Direct, no switching |
+| pHAT **RELAY → NO** terminal | Load-rail **+5V** (Port 2 of USB power adapter, via USB-A breakout) | Closed when relay energised → light on |
+| Light **Black (GND)** | Load-rail **GND** (Port 2 of USB power adapter) | Direct, no switching |
 
 > **Why NO (Normally Open) and not NC:** when the Pi is off or the service crashes, NO leaves the light **off**. Failsafe-to-dark is the right default — leaving a grow light on indefinitely cooks the plant.
 
@@ -184,18 +184,18 @@ The pHAT's relay is rated for up to **2 A**. The grow light at 96 LEDs nominally
 
 ## Wiring — Water pump (5V, on sinking output)
 
-The pump runs from the load rail's 5V (Port 2 of the wall wart, spliced out via the USB-A breakout); OUT 1 (a sinking output, i.e. open-collector transistor) provides the path to ground when activated. Sinking outputs are well-suited to small DC motor loads.
+The pump runs from the load rail's 5V (Port 2 of the USB power adapter, spliced out via the USB-A breakout); OUT 1 (a sinking output, i.e. open-collector transistor) provides the path to ground when activated. Sinking outputs are well-suited to small DC motor loads.
 
 ### Wiring table
 
 | Wire | Connect to | Notes |
 |---|---|---|
-| Pump **Red (+5V)** | Load-rail **+5V** (Port 2 of wall wart, via USB-A breakout) | Direct |
+| Pump **Red (+5V)** | Load-rail **+5V** (Port 2 of USB power adapter, via USB-A breakout) | Direct |
 | Pump **Black (GND)** | pHAT **OUT 1** terminal | Sinking output pulls this to GND when on |
 | **Flyback diode (1N4007 or similar)** | Cathode (banded end) → Pump red wire; Anode → Pump black wire | **Mandatory** — protects OUT 1 from the inductive back-EMF spike when the pump motor switches off |
 
 ```
-       +5V (load rail — Port 2 of wall wart)
+       +5V (load rail — Port 2 of USB power adapter)
               │
               ├─── Pump (+) ───┐
               │                │
@@ -246,9 +246,9 @@ libcamera-jpeg -o test.jpg        # capture single frame
 
 ## Power
 
-Power is the most common cause of grief in projects like this. The setup is **one wall wart, two physical paths** so loads never draw through the Pi's 5V rail.
+Power is the most common cause of grief in projects like this. The setup is **one USB power adapter, two physical paths** so loads never draw through the Pi's 5V rail.
 
-### The single-wall-wart split-wiring approach
+### The single-adapter split-wiring approach
 
 A standard multi-port USB-A wall charger (the kind that came with your phone, ≥ 2 ports, ≥ 3 A total — Anker / RAVPower / similar quality brands) provides:
 
@@ -265,23 +265,23 @@ The Pi Zero W's 5V GPIO rail is protected by a polyfuse rated ~1.1 A. With the P
 
 | Source | Powers | Wire path |
 |---|---|---|
-| Wall wart **Port 1 (USB-A)** | Pi Zero W | Standard microUSB cable → Pi Zero microUSB-PWR socket |
-| Wall wart **Port 2 (USB-A)** | Pump + Grow light | USB-A breakout PCB (or cut cable) → **+5V** to load-rail terminal → splits to Light(+) and Pump(+); **GND** to load-rail GND terminal → splits to Light(−) return path (via relay) and Pump(−) return path (via OUT 1 sink) |
+| USB power adapter **Port 1 (USB-A)** | Pi Zero W | Standard microUSB cable → Pi Zero microUSB-PWR socket |
+| USB power adapter **Port 2 (USB-A)** | Pump + Grow light | USB-A breakout PCB (or cut cable) → **+5V** to load-rail terminal → splits to Light(+) and Pump(+); **GND** to load-rail GND terminal → splits to Light(−) return path (via relay) and Pump(−) return path (via OUT 1 sink) |
 | **Common ground** between load rail and pHAT | — | One wire from the load-rail GND terminal to the pHAT GND terminal. **Required** — gives the sinking outputs a return path and keeps signal references aligned. The +5V rails (Pi side vs load side) stay separate. |
 
-### Choosing the wall wart
+### Choosing the USB power adapter
 
 - ≥ 3 A total output across all ports, ≥ 2.4 A on a single port (a port that supports "USB BC 1.2" or "USB-PD" can deliver enough)
 - USB-A ports (most common); USB-C is fine if your microUSB-to-USB-A cable + USB-A breakout match
 - Avoid no-name £3 chargers — under-rated cores, poor regulation, dangerous on a 24/7 home appliance
-- Reliable picks: Anker PowerPort, RAVPower, official Raspberry Pi PSU adapter (the white wall wart with a built-in ferrite)
+- Reliable picks: Anker PowerPort, RAVPower, official Raspberry Pi PSU adapter (the white USB power adapter with a built-in ferrite)
 
 ### Safety
 
-- Use a fused or polyfuse-protected wall wart (every quality one is)
-- Mount the wall wart outside the project enclosure; route the USB cables in
+- Use a fused or polyfuse-protected USB power adapter (every quality one is)
+- Mount the USB power adapter outside the project enclosure; route the USB cables in
 - Cable-strain-relief everything that leaves the enclosure (water pump tubing especially)
-- **Water + mains electricity:** the wall wart should be class-II (double-insulated; the symbol is two concentric squares) and ideally on its own RCD/RCBO. Pump tubing should be sized to prevent the pot ever overflowing into the enclosure
+- **Water + mains electricity:** the USB power adapter should be class-II (double-insulated; the symbol is two concentric squares) and ideally on its own RCD/RCBO. Pump tubing should be sized to prevent the pot ever overflowing into the enclosure
 
 ### "What if I haven't wired up Port 2 / the actuator load rail yet?"
 
@@ -316,9 +316,9 @@ Before powering on for the first time:
 - [ ] Soil sensor cable: red→VIN/+5V, black→GND, no swap
 - [ ] Grow light: red→RELAY COM, NO→load-rail +5V (Port 2), black→load-rail GND. **NO terminal, not NC** — failsafe to dark
 - [ ] Pump: red→load-rail +5V (Port 2), black→OUT 1, **flyback diode fitted across pump terminals (cathode to red)**
-- [ ] Wall wart Port 1 → Pi microUSB; Port 2 → USB-A breakout → load rail
+- [ ] USB power adapter Port 1 → Pi microUSB; Port 2 → USB-A breakout → load rail
 - [ ] Load rail **GND tied to pHAT GND** with a single wire (gives sinking outputs a return path; aligns signal reference)
-- [ ] Load rail **+5V NOT tied to Pi 5V** — they share the wall wart but the rails stay separate
+- [ ] Load rail **+5V NOT tied to Pi 5V** — they share the USB power adapter but the rails stay separate
 - [ ] microSD card flashed with Pi OS Lite, WiFi + SSH preconfigured in Imager advanced options
 - [ ] `/boot/mlss-grow.yaml` dropped on SD card boot partition (template in the design spec)
 - [ ] I2C enabled in `raspi-config`
