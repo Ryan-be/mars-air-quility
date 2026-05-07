@@ -2,6 +2,17 @@
 
 All text frames on the per-unit WS are JSON: {type, ts, payload}.
 Binary frames (photo upload) use a different framing (see PhotoFrame docstring).
+
+Note on the "ack" type: an earlier draft of the spec defined an
+AckPayload that the unit would emit after each command. The
+firmware never implemented it because command success is already
+observable via existing channels (the next telemetry frame shows
+the actuator state, watering pulses surface as `event` frames with
+duration_s, safety overrides record audit rows). Adding acks would
+duplicate that signal for marginal benefit. The ack class was
+removed from this module in Commit C2 (2026-05-07). The server
+still accepts (and silently logs) any frame with type=ack so a
+unit running an older firmware that emits them won't be torn down.
 """
 from datetime import datetime
 from typing import Literal
@@ -13,7 +24,7 @@ from mlss_contracts.plant_profiles import LightWindow, WateringConfig
 
 MessageType = Literal[
     "telemetry", "event", "capabilities",
-    "command", "config", "ack",
+    "command", "config",
 ]
 
 
@@ -72,9 +83,6 @@ class ConfigPayload(BaseModel):
     buffer_retention_days: int = Field(default=7, ge=1)
 
 
-class AckPayload(BaseModel):
-    """Unit → MLSS acknowledgement of a received command."""
-    in_reply_to_command: str
-    success: bool
-    error: str | None = None
-    extra: dict | None = None
+# AckPayload was removed in Commit C2 (2026-05-07). See module docstring
+# for the rationale: the firmware never emitted acks, and the existing
+# telemetry/event paths already surface command success.

@@ -1,6 +1,8 @@
+import pytest
+
 from mlss_contracts.ws_messages import (
     EventPayload, CapabilitiesPayload, CommandPayload,
-    ConfigPayload, AckPayload,
+    ConfigPayload,
 )
 from mlss_contracts.enums import EventKind, CommandName, Phase
 from mlss_contracts.capabilities import Capability
@@ -61,15 +63,16 @@ def test_config_payload_round_trip():
     assert parsed == cfg
 
 
-def test_ack_payload():
-    a = AckPayload(in_reply_to_command="identify", success=True,
-                   extra={"actual_duration_s": 9.97})
-    assert a.success is True
-    assert a.extra["actual_duration_s"] == 9.97
+def test_ack_payload_was_removed():
+    """AckPayload existed in an earlier draft but was deleted in Commit C2
+    after the implementation deliberately deviated from spec — see
+    `mlss_contracts.ws_messages` module docstring for the rationale.
 
-
-def test_ack_payload_failure():
-    a = AckPayload(in_reply_to_command="water_now", success=False,
-                   error="locked_in_soak_window")
-    assert a.success is False
-    assert a.error == "locked_in_soak_window"
+    Pinning this in a test stops a "let's add it back" PR from being
+    quietly merged: if there's a legitimate need (e.g. an ML training
+    pipeline that needs reliable per-command callbacks), it should
+    arrive with an updated spec section + a discussion of why the
+    existing telemetry/event channels aren't enough.
+    """
+    with pytest.raises(ImportError):
+        from mlss_contracts.ws_messages import AckPayload  # noqa: F401

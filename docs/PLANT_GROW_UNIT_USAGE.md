@@ -205,7 +205,7 @@ The unit's safety loop runs every 30 seconds on the Pi itself, with the last-kno
 
 - Light schedule continues from local config
 - PID watering continues from local config
-- Photos are captured but **not** buffered (to save SD-card writes); they resume on reconnect
+- Photos taken during the outage are **dropped, not buffered** (deliberate choice — buffering 2-min-cadence photos through hours/days of outage burns the Pi Zero SD card; you'd lose ~1 photo per 30-min blip and the next on-schedule capture re-discovers what you missed). New photos resume normally on reconnect.
 - Telemetry is buffered to local SQLite (default 7 days)
 - On reconnect, buffered telemetry replays in original-timestamp order
 

@@ -601,9 +601,10 @@ class ConfigPayload(BaseModel):
     buffer_retention_days: int
 ```
 
-### Acknowledgements
+### Acknowledgements (NOT IMPLEMENTED — see Commit C2 rationale)
 
-Commands receive an `ack` from the unit:
+The earlier draft of this section defined an `AckPayload` that the
+unit would emit after each command:
 
 ```python
 class AckPayload(BaseModel):
@@ -612,6 +613,34 @@ class AckPayload(BaseModel):
     error: str | None = None
     extra: dict | None = None      # e.g. {"actual_duration_s": 9.97} for identify
 ```
+
+This was deliberately not implemented (and the class was removed from
+`contracts/ws_messages.py` in Commit C2, 2026-05-07) because command
+success is already observable via existing channels:
+
+  - **`identify`**: the next telemetry frame shows the light state, and
+    a `watering_pulse`-style event isn't needed because the operator
+    can see the blink visually (the whole point of the command).
+  - **`water_now`** / **`safety_override force_pump_on`**: produces a
+    `watering_pulse` event with `duration_s`, plus the next telemetry
+    frame shows `pump_state` flipped on then off.
+  - **`config_changed`** / **`reload_config`**: the next telemetry frame
+    reflects the new schedule/PID tunables; if the pull or apply failed
+    the dispatcher logs at WARNING level and `grow_errors` records it.
+  - **`safety_override`**: writes a row to `grow_errors` with kind=
+    `safety_override` for audit, regardless of whether the actuator
+    drive succeeded.
+  - **`reboot`**: the unit going through Stale → Offline → Online is
+    the ack.
+
+Adding acks would duplicate that signal. If a future use case (e.g. an
+ML pipeline that needs per-command success callbacks) makes them
+necessary, re-add `AckPayload` and a corresponding emit path in
+`dispatch_command` after each handler.
+
+The server-side WS handler still tolerates `type=ack` messages (silently
+log-and-drop) so that a unit running an older firmware that emits them
+won't be torn down for an "unknown message type".
 
 ---
 
@@ -732,7 +761,8 @@ Receiving `{type: command, payload: {name: identify, args: {duration_s: 10}}}`:
 1. Suspend the safety loop's light control for `duration_s + 1` seconds
 2. Toggle the light relay every 500 ms (10 cycles in 10 s)
 3. On completion, restore the schedule's intended state
-4. Send `ack` with `extra: {actual_duration_s: 9.97}`
+4. ~~Send `ack` with `extra: {actual_duration_s: 9.97}`~~ — see
+   "Acknowledgements" section above; ack frames are not implemented.
 
 ### Failsafe limits (enforced unconditionally on the unit)
 
@@ -766,7 +796,20 @@ Hardware `/dev/watchdog` is **deferred to the roadmap** — the consensus risk b
 - Telemetry inserted into `buffer.sqlite` instead of sent
 - Buffer retention configurable per unit (default 7 days at 1 reading per 30s ≈ 4 MB)
 - On reconnect: replay buffered rows in timestamp order with original UTC timestamps before resuming live stream
-- Image captures continue at the configured interval; **photos are buffered to disk under `/var/lib/mlss-grow/photos/` if MLSS is unreachable**, uploaded on reconnect (oldest first). Disk-cap: 7 days of images at default cadence ≈ 100 MB on the Pi Zero.
+- **Photos are NOT buffered.** When MLSS is unreachable, photos taken
+  during the outage are dropped (logged at INFO level by `ws_client.send_photo`).
+  This trade-off prioritises SD card lifespan over backfill completeness;
+  at the default 30-min cadence in active hours, a multi-day outage would
+  otherwise mean hundreds of MB of writes-then-reads on a flash medium with
+  limited program/erase cycles. In a typical 30-min blip you'd lose ~1
+  photo, all of which are re-discoverable in the next on-schedule capture
+  cycle. If full backfill becomes a hard requirement (e.g. for an ML
+  training pipeline that can't tolerate gaps), revisit by adding a
+  `MLSS_GROW_PHOTO_RETENTION_HOURS` setting and a separate buffer with
+  disk-cap eviction. The original spec ("photos are buffered to disk
+  under `/var/lib/mlss-grow/photos/`, uploaded on reconnect oldest-first")
+  is preserved here for plan archaeology — the implementation deliberately
+  diverges.
 
 ### Unit unreachable from MLSS
 
