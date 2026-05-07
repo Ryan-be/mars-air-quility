@@ -267,6 +267,60 @@ def water_now(unit_id):
     return jsonify(body), status
 
 
+@api_grow_units_bp.route("/api/grow/units/<int:unit_id>/snap-photo",
+                         methods=["POST"])
+@require_role("controller", "admin")
+def snap_photo(unit_id):
+    """Push a snap_photo command to the unit. The firmware's dispatcher
+    handles `name == "snap_photo"` (see grow_unit/src/mlss_grow/dispatch.py)
+    by capturing a JPEG via picamera2 and sending it back as a binary WS
+    frame. The photo lands in grow_photos a few seconds later (via
+    handle_photo_frame on the WS receive side)."""
+    status, body = _push_command_blocking(unit_id, {
+        "name": "snap_photo",
+        "args": {},
+    })
+    return jsonify(body), status
+
+
+@api_grow_units_bp.route("/api/grow/units/<int:unit_id>/light-toggle",
+                         methods=["POST"])
+@require_role("controller", "admin")
+def light_toggle(unit_id):
+    """Flip the grow light's current state.
+
+    Reads the unit's last-known light_state from grow_telemetry and
+    pushes a `light_override` command with the inverse. The firmware's
+    `_handle_light_override` (grow_unit/src/mlss_grow/dispatch.py) routes
+    state="on" → force_light_on for `duration_min` minutes, state="off"
+    → immediate off (no duration). One-hour override is a sensible
+    operator default; the regular light schedule resumes on the next
+    safety-loop tick whose schedule asks for on (when off) or after the
+    duration elapses (when on).
+
+    Defaults to "on" if no telemetry has arrived yet — clicking Toggle
+    on a fresh unit should make SOMETHING happen visibly.
+    """
+    conn = sqlite3.connect(DB_FILE, timeout=5)
+    try:
+        row = conn.execute(
+            "SELECT light_state FROM grow_telemetry "
+            "WHERE unit_id=? ORDER BY timestamp_utc DESC LIMIT 1",
+            (unit_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+    current_on = bool(row[0]) if row else False
+    new_state = "off" if current_on else "on"
+    status, body = _push_command_blocking(unit_id, {
+        "name": "light_override",
+        "args": {"state": new_state, "duration_min": 60},  # 1h override
+    })
+    if status == 202:
+        health_watchdog.record_command_sent(unit_id, "light")
+    return jsonify(body), status
+
+
 # ---------------------------------------------------------------------------
 # Per-unit bearer-token rotation (Phase 1 spec §5)
 # ---------------------------------------------------------------------------

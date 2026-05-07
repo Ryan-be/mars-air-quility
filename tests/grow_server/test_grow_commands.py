@@ -260,3 +260,84 @@ def test_unauthenticated_request_does_not_reach_command_dispatch(client):
     fake_ws.sent.clear()
     c.post("/api/grow/units/1/water-now", json={"duration_s": 30})
     assert fake_ws.sent == []
+
+
+# ── snap-photo ────────────────────────────────────────────────────────
+
+def test_snap_photo_pushes_command(client):
+    """POST /snap-photo pushes name=snap_photo so the firmware
+    dispatcher's `name == "snap_photo"` branch fires + captures via
+    picamera2 + uploads as a binary WS frame."""
+    c, fake_ws = client
+    r = c.post("/api/grow/units/1/snap-photo")
+    assert r.status_code == 202
+    cmd = json.loads(fake_ws.sent[0])
+    assert cmd["type"] == "command"
+    assert cmd["payload"]["name"] == "snap_photo"
+
+
+def test_snap_photo_offline_unit_returns_503(client):
+    c, _ = client
+    r = c.post("/api/grow/units/9999/snap-photo")
+    assert r.status_code == 503
+
+
+def test_snap_photo_viewer_denied(client):
+    c, _ = client
+    _set_session(c, logged_in=True, role="viewer")
+    r = c.post("/api/grow/units/1/snap-photo")
+    assert r.status_code == 403
+
+
+# ── light-toggle ──────────────────────────────────────────────────────
+
+def test_light_toggle_pushes_on_when_no_telemetry(client):
+    """No telemetry yet → defaults to turning the light ON. Operator
+    clicked Toggle, SOMETHING should happen."""
+    c, fake_ws = client
+    r = c.post("/api/grow/units/1/light-toggle")
+    assert r.status_code == 202
+    cmd = json.loads(fake_ws.sent[0])
+    assert cmd["payload"]["name"] == "light_override"
+    assert cmd["payload"]["args"]["state"] == "on"
+    assert cmd["payload"]["args"]["duration_min"] == 60
+
+
+def test_light_toggle_pushes_off_when_light_is_on(client, monkeypatch):
+    """Light currently on per latest telemetry → toggle to off.
+
+    The light-toggle route reads grow_telemetry from DB_FILE. The
+    `client` fixture patches init_db.DB_FILE but api_grow_units imports
+    DB_FILE at module load (a separate binding) so we need to patch it
+    there too AND seed telemetry into THAT path.
+    """
+    import sqlite3
+    from datetime import datetime
+    import mlss_monitor.routes.api_grow_units as api_grow_units
+    c, fake_ws = client
+    # Reach into the route module to find which DB it'll read
+    db_path = api_grow_units.DB_FILE  # bound at module load — typically prod
+    # Patch BOTH bindings so the route reads from the same tmp DB the
+    # client fixture seeded the unit row into.
+    import database.init_db as init_db
+    monkeypatch.setattr(api_grow_units, "DB_FILE", init_db.DB_FILE)
+    db_path = init_db.DB_FILE
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "INSERT INTO grow_telemetry "
+        "(unit_id, timestamp_utc, soil_moisture_raw, light_state, pump_state) "
+        "VALUES (1, ?, 500, 1, 0)", (datetime.utcnow(),),
+    )
+    conn.commit()
+    conn.close()
+    r = c.post("/api/grow/units/1/light-toggle")
+    assert r.status_code == 202
+    cmd = json.loads(fake_ws.sent[0])
+    assert cmd["payload"]["args"]["state"] == "off"
+
+
+def test_light_toggle_viewer_denied(client):
+    c, _ = client
+    _set_session(c, logged_in=True, role="viewer")
+    r = c.post("/api/grow/units/1/light-toggle")
+    assert r.status_code == 403
