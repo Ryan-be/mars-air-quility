@@ -1,6 +1,28 @@
 /* Plant Grow Unit styles — Grow tab + per-unit detail page */
 .grow-fleet { padding: 0; }
 
+/* ============================================================
+   Storage-low warning banner (Phase 3 Task 6)
+   ============================================================
+   Rendered above the fleet view + grow settings page when the
+   grow_images mount point is at/over the configured threshold
+   (default 90% — see app_settings.grow_disk_warn_pct). Amber
+   palette to match the rest of the warn-tier UI without escalating
+   to the red of an active fault. */
+.storage-warning {
+  margin: 14px 20px;
+  padding: 12px 16px;
+  background: rgba(255, 179, 2, 0.12);
+  border: 1px solid #c97f00;
+  border-left: 4px solid #ffb302;
+  border-radius: 3px;
+  color: #ffd779;
+  font-family: Roboto, sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  letter-spacing: 0.02em;
+}
+
 /* Grow tab fleet view */
 .grow-pageheader {
   display: flex; align-items: center; justify-content: space-between;
@@ -67,6 +89,18 @@
 .st-caution { color: #ffb302; }
 .st-standby { color: #4dacff; }
 .st-serious { color: #ff5252; }
+/* Group the status pill and (optional) buffered badge stacked on the
+   right of the card header. Phase 3 Task 6: buffered badge surfaces
+   `last_buffer_size` so operators see at a glance which units had a
+   recent connection drop and are still draining their queue. */
+.gu-head-right { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; }
+.gu-card-buffered-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10px; letter-spacing: 0.04em;
+  padding: 2px 6px; border-radius: 2px;
+  background: rgba(255, 179, 2, 0.12); color: #ffb302;
+  font-family: Roboto, sans-serif;
+}
 
 .gu-photo { aspect-ratio: 4 / 3; background: #0a1219 center/cover no-repeat; }
 .gu-photo.no-photo { display: flex; align-items: center; justify-content: center; color: #4a5d72; font-size: 12px; }

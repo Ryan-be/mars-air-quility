@@ -33,7 +33,20 @@ export function renderGrowCard(unit, doc = document) {
   titleBlock.appendChild(name);
   titleBlock.appendChild(meta);
   head.appendChild(titleBlock);
-  head.appendChild(renderStatusPill(unit.status, { ownerDocument: doc }));
+  // Status pill + (optional) buffered-message badge sit together on the
+  // right of the header. Badge only renders when last_buffer_size > 0
+  // — healthy units (buffer=0) get no chrome so the card stays clean.
+  const headRight = doc.createElement("div");
+  headRight.className = "gu-head-right";
+  headRight.appendChild(renderStatusPill(unit.status, { ownerDocument: doc }));
+  const buffered = unit.last_buffer_size;
+  if (typeof buffered === "number" && buffered > 0) {
+    const badge = doc.createElement("span");
+    badge.className = "gu-card-buffered-badge";
+    badge.textContent = `📦 ${buffered} buffered`;
+    headRight.appendChild(badge);
+  }
+  head.appendChild(headRight);
   card.appendChild(head);
 
   // Photo

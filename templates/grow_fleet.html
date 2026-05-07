@@ -5,6 +5,14 @@
 {% endblock %}
 
 {% block content %}
+  {% if storage_status and storage_status.is_warning %}
+  <div class="storage-warning" role="alert">
+    ⚠️ Photo storage is at {{ "%.1f"|format(storage_status.used_pct) }}%
+    ({{ (storage_status.used_bytes / 1024**3) | round(1) }} GB of
+     {{ (storage_status.total_bytes / 1024**3) | round(1) }} GB).
+     Consider archiving old photos under {{ storage_status.images_dir }}.
+  </div>
+  {% endif %}
   <section class="grow-fleet" id="grow-fleet">
     <header class="grow-pageheader">
       <div class="grow-summary" id="grow-summary"></div>

@@ -70,3 +70,27 @@ test("grow card: shows 'No photo yet' when no recent photo", () => {
   const card = renderGrowCard(newUnit, document);
   assert.match(card.textContent, /No photo|—/);
 });
+
+test("grow card: shows buffered badge when buffer_size positive", () => {
+  // Phase 3 Task 6: surface last_buffer_size as a "📦 N buffered" badge
+  // next to the status pill so operators see at-a-glance which units
+  // had a recent connection drop and are still draining their queue.
+  const buffered = { ...sampleUnit, last_buffer_size: 7 };
+  const card = renderGrowCard(buffered, document);
+  const badge = card.querySelector(".gu-card-buffered-badge");
+  assert.ok(badge, "badge should render when buffer > 0");
+  assert.match(badge.textContent, /7 buffered/);
+});
+
+test("grow card: omits buffered badge when zero or null", () => {
+  // Healthy units (buffer=0) and pre-Phase-3 firmware (buffer=null)
+  // get no badge — keeps cards uncluttered for the common case.
+  for (const value of [0, null, undefined]) {
+    const u = { ...sampleUnit, last_buffer_size: value };
+    const card = renderGrowCard(u, document);
+    assert.equal(
+      card.querySelector(".gu-card-buffered-badge"), null,
+      `badge should be absent for last_buffer_size=${value}`,
+    );
+  }
+});

@@ -97,7 +97,7 @@ def list_units():
     conn.row_factory = sqlite3.Row
     rows = conn.execute(
         "SELECT id, label, plant_type, medium_type, current_phase, "
-        "       sown_at, enrolled_at, last_seen_at "
+        "       sown_at, enrolled_at, last_seen_at, last_buffer_size "
         "FROM grow_units WHERE is_active=1 ORDER BY label"
     ).fetchall()
 
@@ -112,6 +112,7 @@ def list_units():
             "sown_at": r["sown_at"],
             "enrolled_at": r["enrolled_at"],
             "last_seen_at": r["last_seen_at"],
+            "last_buffer_size": r["last_buffer_size"],
             "status": _classify_status(r["last_seen_at"]),
             "last_known_state": _last_known_state(conn, r["id"]),
         })

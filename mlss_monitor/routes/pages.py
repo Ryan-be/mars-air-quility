@@ -3,6 +3,7 @@
 from flask import Blueprint, redirect, render_template, session, url_for
 
 from mlss_monitor import state
+from mlss_monitor.grow.storage_check import get_storage_status
 from mlss_monitor.rbac import current_role, require_role
 
 pages_bp = Blueprint("pages", __name__)
@@ -25,7 +26,13 @@ def incidents_page():
 
 @pages_bp.route("/grow")
 def grow_fleet():
-    return render_template("grow_fleet.html")
+    # Phase 3 Task 6: pass disk-usage info so the template can surface a
+    # "storage almost full" banner when the grow_images mount point is
+    # at/over the configured threshold. None on any check failure → the
+    # template renders nothing (best-effort; never crashes the page).
+    return render_template(
+        "grow_fleet.html", storage_status=get_storage_status()
+    )
 
 
 @pages_bp.route("/grow/<int:unit_id>")
@@ -51,8 +58,14 @@ def grow_errors_page():
 def grow_settings_page():
     """Settings → Grow. Admin-only at the page level even though the
     individual API endpoints have their own RBAC — defence in depth.
+
+    Phase 3 Task 6: also surfaces the same disk-usage banner as /grow,
+    so admins reviewing settings see the warning without having to
+    bounce back to the fleet page.
     """
-    return render_template("grow_settings.html")
+    return render_template(
+        "grow_settings.html", storage_status=get_storage_status()
+    )
 
 
 @pages_bp.route("/controls")
