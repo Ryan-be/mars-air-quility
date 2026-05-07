@@ -33,6 +33,15 @@ def grow_unit_detail(unit_id):
     return render_template("grow_unit_detail.html", unit_id=unit_id)
 
 
+@pages_bp.route("/settings/grow")
+@require_role("admin")
+def grow_settings_page():
+    """Settings → Grow. Admin-only at the page level even though the
+    individual API endpoints have their own RBAC — defence in depth.
+    """
+    return render_template("grow_settings.html")
+
+
 @pages_bp.route("/controls")
 def controls_page():
     return render_template("controls.html")

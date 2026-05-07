@@ -159,6 +159,12 @@
       <rux-icon icon="settings" size="extra-small"></rux-icon>
       <span>Settings</span>
     </a>
+    <a href="{{ url_for('pages.grow_settings_page') }}"
+       data-tab="grow-settings"
+       class="{{ 'active' if active == 'pages.grow_settings_page' else '' }}">
+      <rux-icon icon="local-florist" size="extra-small"></rux-icon>
+      <span>Grow Settings</span>
+    </a>
     {% endif %}
 
   </nav>

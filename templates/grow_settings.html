@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}MLSS · Settings · Grow{% endblock %}
+{% block extra_css %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/grow.css') }}">
+{% endblock %}
+
+{% block content %}
+  <section class="settings-page grow-settings-page">
+    <header class="grow-pageheader">
+      <h2>Grow unit settings</h2>
+      <p class="settings-blurb">
+        Household-wide controls for the Plant Grow Units. Per-unit config
+        lives on the unit's Configure tab.
+      </p>
+    </header>
+    <div class="settings-sections">
+      <section id="grow-settings-key" class="settings-section"></section>
+      <section id="grow-settings-profiles" class="settings-section"></section>
+      <section id="grow-settings-holiday" class="settings-section"></section>
+    </div>
+  </section>
+{% endblock %}
+
+{% block scripts %}
+  <script type="module" src="{{ url_for('static', filename='js/grow/settings.mjs') }}"></script>
+{% endblock %}
