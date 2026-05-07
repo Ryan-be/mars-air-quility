@@ -1,7 +1,7 @@
 /**
  * Danger Zone — fourth section of the Diagnostics tab panel.
  *
- * Three actions with progressively-stronger confirmation friction:
+ * Four actions with progressively-stronger confirmation friction:
  *
  *   1. Rotate bearer token  — relocated from the Configure tab. The
  *                             token-rotator component owns its own
@@ -23,6 +23,15 @@
  *                             abstract; the unit keeps running normally).
  *                             Returns 202 on confirmed delivery, 503 if
  *                             the unit is disconnected.
+ *
+ *   4. Clear all photos     — DELETE /api/grow/units/<id>/photos. Wipes
+ *                             every photo (DB rows + JPEG files on disk)
+ *                             for this unit. Use case: clearing test-
+ *                             data slate before the unit goes live with
+ *                             a real plant. Friction: single OK/Cancel
+ *                             (same level as clear-buffer) — the worst
+ *                             case is "lose your test photos", which is
+ *                             cheap to re-take.
  *
  * Styling: lives inside a single .diag-danger-zone container with a red
  * border + warning header, so the whole block reads visually as "danger
@@ -76,6 +85,9 @@ export function renderDangerZone(unit, opts = {}) {
 
   // 3) Clear remote buffer
   body.appendChild(_renderClearBuffer(unit, doc, fetchFn));
+
+  // 4) Clear all photos
+  body.appendChild(_renderClearPhotos(unit, doc, fetchFn));
 
   return wrap;
 }
@@ -350,6 +362,152 @@ function _renderClearBuffer(unit, doc, fetchFn) {
       confirmBtn.disabled = false;
       cancelBtn.disabled = false;
       confirmBtn.textContent = "Yes, clear it";
+    }
+  }
+
+  armBtn.addEventListener("click", _arm);
+  cancelBtn.addEventListener("click", _disarm);
+  confirmBtn.addEventListener("click", _fire);
+
+  return panel;
+}
+
+
+/** Clear all photos action — DELETE with single OK/Cancel modal.
+ *
+ * Uses the same friction level as clear-buffer (single OK/Cancel, no
+ * type-the-label) because the worst-case outcome is "lose your test
+ * photos" — easily re-taken with a Snap-photo click. The decommission
+ * action's type-to-confirm gate is reserved for things that can't be
+ * undone from the UI at all.
+ *
+ * Status surface mirrors clear-buffer: 200 + {deleted_count: N} →
+ * "✓ Deleted N photos."; 403 → admin-only; network/other errors →
+ * inline message with .err styling. The arm button does NOT auto-hide
+ * after success because the operator may want to wipe again later
+ * (e.g. after re-testing) without a page refresh.
+ */
+function _renderClearPhotos(unit, doc, fetchFn) {
+  const panel = doc.createElement("div");
+  panel.className = "diag-danger-action";
+  panel.dataset.testid = "clear-photos-action";
+
+  const title = doc.createElement("h4");
+  title.className = "diag-danger-title";
+  title.textContent = "🗑 Clear all photos";
+  panel.appendChild(title);
+
+  const desc = doc.createElement("p");
+  desc.className = "diag-danger-desc";
+  desc.textContent =
+    "Delete every photo for this unit. Both the DB rows and the JPEG " +
+    "files on disk are removed. Useful for wiping the test-data slate " +
+    "before the unit goes live with a real plant. Telemetry, watering " +
+    "history, and unit configuration are NOT affected — only photos.";
+  panel.appendChild(desc);
+
+  const armRow = doc.createElement("div");
+  armRow.className = "diag-danger-row";
+  panel.appendChild(armRow);
+
+  const armBtn = doc.createElement("button");
+  armBtn.type = "button";
+  armBtn.className = "px-btn danger diag-cp-arm";
+  armBtn.textContent = "🗑 Clear all photos";
+  armBtn.dataset.testid = "clear-photos-arm-btn";
+  armRow.appendChild(armBtn);
+
+  // Confirm pane
+  const confirmPane = doc.createElement("div");
+  confirmPane.className = "diag-danger-confirm";
+  confirmPane.style.display = "none";
+  confirmPane.dataset.testid = "clear-photos-confirm";
+
+  const warn = doc.createElement("p");
+  warn.className = "diag-danger-warn";
+  warn.textContent =
+    `This will permanently delete every photo for ${unit.label}. ` +
+    `JPEG files on disk and DB rows will both be removed. Continue?`;
+  confirmPane.appendChild(warn);
+
+  const confirmRow = doc.createElement("div");
+  confirmRow.className = "diag-danger-confirm-row";
+
+  const confirmBtn = doc.createElement("button");
+  confirmBtn.type = "button";
+  confirmBtn.className = "px-btn danger diag-cp-confirm";
+  confirmBtn.textContent = "Yes, delete all photos";
+  confirmBtn.dataset.testid = "clear-photos-confirm-btn";
+  confirmRow.appendChild(confirmBtn);
+
+  const cancelBtn = doc.createElement("button");
+  cancelBtn.type = "button";
+  cancelBtn.className = "px-btn diag-cp-cancel";
+  cancelBtn.textContent = "Cancel";
+  cancelBtn.dataset.testid = "clear-photos-cancel-btn";
+  confirmRow.appendChild(cancelBtn);
+
+  confirmPane.appendChild(confirmRow);
+  panel.appendChild(confirmPane);
+
+  const statusEl = doc.createElement("div");
+  statusEl.className = "diag-danger-status";
+  statusEl.dataset.testid = "clear-photos-status";
+  panel.appendChild(statusEl);
+
+  function _arm() {
+    armBtn.style.display = "none";
+    confirmPane.style.display = "";
+    statusEl.textContent = "";
+    statusEl.className = "diag-danger-status";
+  }
+
+  function _disarm() {
+    armBtn.style.display = "";
+    confirmPane.style.display = "none";
+    confirmBtn.disabled = false;
+    cancelBtn.disabled = false;
+    confirmBtn.textContent = "Yes, delete all photos";
+  }
+
+  async function _fire() {
+    confirmBtn.disabled = true;
+    cancelBtn.disabled = true;
+    confirmBtn.textContent = "Deleting…";
+    try {
+      const r = await fetchFn(`/api/grow/units/${unit.id}/photos`, {
+        method: "DELETE",
+      });
+      if (r.ok) {
+        const body = await r.json().catch(() => ({}));
+        const n = body.deleted_count ?? 0;
+        statusEl.textContent = n === 0
+          ? "✓ No photos to delete."
+          : `✓ Deleted ${n} photo${n === 1 ? "" : "s"}.`;
+        statusEl.className = "diag-danger-status ok";
+        _disarm();
+        return;
+      }
+      let msg;
+      if (r.status === 403) {
+        msg = "Forbidden — admin role required.";
+      } else if (r.status === 404) {
+        msg = "Unit not found — it may have been decommissioned.";
+      } else {
+        const err = await r.json().catch(() => ({}));
+        msg = err.error || r.statusText || "Clear photos failed";
+      }
+      statusEl.textContent = `✗ ${msg}`;
+      statusEl.className = "diag-danger-status err";
+      confirmBtn.disabled = false;
+      cancelBtn.disabled = false;
+      confirmBtn.textContent = "Yes, delete all photos";
+    } catch (exc) {
+      statusEl.textContent = `✗ ${exc.message || "Network error"}`;
+      statusEl.className = "diag-danger-status err";
+      confirmBtn.disabled = false;
+      cancelBtn.disabled = false;
+      confirmBtn.textContent = "Yes, delete all photos";
     }
   }
 

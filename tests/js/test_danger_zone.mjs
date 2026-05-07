@@ -222,3 +222,140 @@ async () => {
   const confirmPane = el.querySelector("[data-testid='clear-buffer-confirm']");
   assert.equal(confirmPane.style.display, "none");
 });
+
+
+// ---------------------------------------------------------------------
+// Clear all photos
+// ---------------------------------------------------------------------
+
+
+test("clear photos: section is mounted in danger zone", () => {
+  const el = renderDangerZone(_unit(), { ownerDocument: document });
+  const action = el.querySelector("[data-testid='clear-photos-action']");
+  assert.ok(action, "clear-photos action mounted");
+  const armBtn = el.querySelector("[data-testid='clear-photos-arm-btn']");
+  assert.ok(armBtn, "clear-photos arm button rendered");
+  // Description mentions photos + going-live use case so the operator
+  // knows what they're about to delete.
+  assert.match(action.textContent.toLowerCase(),
+    /photo|test.data|live|jpeg|disk/);
+});
+
+
+test("clear photos: clicking arm shows confirm pane (no DELETE yet)",
+async () => {
+  let called = false;
+  const fetchFn = async () => { called = true; return new Response("{}"); };
+  const el = renderDangerZone(_unit({ label: "Tom 1" }), {
+    ownerDocument: document, fetchFn,
+  });
+  el.querySelector("[data-testid='clear-photos-arm-btn']")
+    .dispatchEvent(new dom.window.Event("click", { bubbles: true }));
+  await _flushMicro();
+  assert.equal(called, false, "DELETE must not fire on arm click alone");
+  const confirmPane = el.querySelector("[data-testid='clear-photos-confirm']");
+  assert.notEqual(confirmPane.style.display, "none");
+  // Warning copy mentions the unit by label (so the operator can't
+  // confuse it with a different one).
+  const warn = confirmPane.querySelector(".diag-danger-warn");
+  assert.match(warn.textContent, /Tom 1/);
+});
+
+
+test("clear photos: confirm fires DELETE to /photos and shows count",
+async () => {
+  let capturedUrl = null;
+  let capturedMethod = null;
+  const fetchFn = async (url, opts) => {
+    capturedUrl = String(url);
+    capturedMethod = opts && opts.method;
+    return new Response(JSON.stringify({ deleted_count: 7 }), { status: 200 });
+  };
+  const el = renderDangerZone(_unit({ id: 42 }), {
+    ownerDocument: document, fetchFn,
+  });
+  el.querySelector("[data-testid='clear-photos-arm-btn']")
+    .dispatchEvent(new dom.window.Event("click", { bubbles: true }));
+  el.querySelector("[data-testid='clear-photos-confirm-btn']")
+    .dispatchEvent(new dom.window.Event("click", { bubbles: true }));
+  await _flushMicro();
+  assert.equal(capturedUrl, "/api/grow/units/42/photos");
+  assert.equal(capturedMethod, "DELETE");
+  const status = el.querySelector("[data-testid='clear-photos-status']");
+  assert.match(status.textContent, /Deleted 7 photos/);
+  assert.match(status.className, /ok/);
+});
+
+
+test("clear photos: zero count shows specialised message", async () => {
+  const fetchFn = async () => new Response(
+    JSON.stringify({ deleted_count: 0 }), { status: 200 },
+  );
+  const el = renderDangerZone(_unit(), {
+    ownerDocument: document, fetchFn,
+  });
+  el.querySelector("[data-testid='clear-photos-arm-btn']")
+    .dispatchEvent(new dom.window.Event("click", { bubbles: true }));
+  el.querySelector("[data-testid='clear-photos-confirm-btn']")
+    .dispatchEvent(new dom.window.Event("click", { bubbles: true }));
+  await _flushMicro();
+  const status = el.querySelector("[data-testid='clear-photos-status']");
+  assert.match(status.textContent.toLowerCase(),
+    /no photos|nothing to delete/);
+  assert.match(status.className, /ok/);
+});
+
+
+test("clear photos: 1 deleted uses singular form", async () => {
+  const fetchFn = async () => new Response(
+    JSON.stringify({ deleted_count: 1 }), { status: 200 },
+  );
+  const el = renderDangerZone(_unit(), {
+    ownerDocument: document, fetchFn,
+  });
+  el.querySelector("[data-testid='clear-photos-arm-btn']")
+    .dispatchEvent(new dom.window.Event("click", { bubbles: true }));
+  el.querySelector("[data-testid='clear-photos-confirm-btn']")
+    .dispatchEvent(new dom.window.Event("click", { bubbles: true }));
+  await _flushMicro();
+  const status = el.querySelector("[data-testid='clear-photos-status']");
+  assert.match(status.textContent, /Deleted 1 photo\./);
+  // No trailing 's' — singular form.
+  assert.doesNotMatch(status.textContent, /Deleted 1 photos/);
+});
+
+
+test("clear photos: 403 surfaces admin-only message", async () => {
+  const fetchFn = async () => new Response(
+    JSON.stringify({ error: "forbidden" }), { status: 403 },
+  );
+  const el = renderDangerZone(_unit(), {
+    ownerDocument: document, fetchFn,
+  });
+  el.querySelector("[data-testid='clear-photos-arm-btn']")
+    .dispatchEvent(new dom.window.Event("click", { bubbles: true }));
+  el.querySelector("[data-testid='clear-photos-confirm-btn']")
+    .dispatchEvent(new dom.window.Event("click", { bubbles: true }));
+  await _flushMicro();
+  const status = el.querySelector("[data-testid='clear-photos-status']");
+  assert.match(status.textContent.toLowerCase(), /admin|forbidden/);
+  assert.match(status.className, /err/);
+});
+
+
+test("clear photos: cancel returns to idle without firing DELETE",
+async () => {
+  let called = false;
+  const fetchFn = async () => { called = true; return new Response("{}"); };
+  const el = renderDangerZone(_unit(), { ownerDocument: document, fetchFn });
+  el.querySelector("[data-testid='clear-photos-arm-btn']")
+    .dispatchEvent(new dom.window.Event("click", { bubbles: true }));
+  el.querySelector("[data-testid='clear-photos-cancel-btn']")
+    .dispatchEvent(new dom.window.Event("click", { bubbles: true }));
+  await _flushMicro();
+  assert.equal(called, false, "DELETE must not fire on cancel");
+  const armBtn = el.querySelector("[data-testid='clear-photos-arm-btn']");
+  assert.notEqual(armBtn.style.display, "none");
+  const confirmPane = el.querySelector("[data-testid='clear-photos-confirm']");
+  assert.equal(confirmPane.style.display, "none");
+});

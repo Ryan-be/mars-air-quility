@@ -8,10 +8,13 @@ POST   /api/grow/units/<id>/rotate-token               — admin: rotate bearer 
 GET    /api/grow/units/<id>/token/peek-once            — admin: one-shot reveal
 DELETE /api/grow/units/<id>                            — admin: soft-delete unit
 POST   /api/grow/units/<id>/clear-buffer               — admin: WS push clear_buffer
+DELETE /api/grow/units/<id>/photos                     — admin: wipe photos (DB + disk)
 """
 import asyncio
 import concurrent.futures
 import json
+import logging
+import os
 import secrets
 import sqlite3
 from datetime import datetime, timedelta
@@ -21,8 +24,11 @@ from database.init_db import DB_FILE
 from mlss_monitor import state
 from mlss_monitor.grow import health_watchdog
 from mlss_monitor.grow.auth import hash_secret
+from mlss_monitor.grow.photo_storage import _resolve_images_dir
 from mlss_monitor.rbac import require_role
 from mlss_monitor.routes.api_grow_ws import _invalidate_auth_cache_for_unit
+
+log = logging.getLogger(__name__)
 
 api_grow_units_bp = Blueprint("api_grow_units", __name__)
 
@@ -478,6 +484,91 @@ def clear_buffer(unit_id):
     """
     status, body = _push_command_blocking(unit_id, {"name": "clear_buffer"})
     return jsonify(body), status
+
+
+@api_grow_units_bp.route(
+    "/api/grow/units/<int:unit_id>/photos", methods=["DELETE"]
+)
+@require_role("admin")
+def clear_photos(unit_id):
+    """Delete every photo (DB rows + JPEG files on disk) for one unit.
+
+    Use case: wiping the test-data slate before going live with a real
+    plant. Surfaced in the Diagnostics tab Danger Zone next to
+    decommission + clear-buffer.
+
+    Resilient to partial state:
+      * DB rows whose JPEG file is already missing on disk are still
+        deleted from the table — the row reflects the absence-of-file,
+        not the cause.
+      * If the JPEG unlink raises (permission denied, disk error), we
+        log + continue. The DB row still gets deleted; an orphaned JPEG
+        is the lesser evil vs a partial wipe that leaves stale rows
+        pointing at deleted files (the latter looks "broken" in the
+        timelapse with 404 scrubbing slots).
+      * Empty unit (zero photos) returns 200 + {"deleted_count": 0}.
+
+    Returns:
+        200 with {"deleted_count": N} on success
+        404 if no active unit with that id (matches the rest of the
+            danger-zone endpoints)
+    """
+    conn = sqlite3.connect(DB_FILE, timeout=10)
+    try:
+        # Verify the unit exists + is active (matches DELETE/<id> contract).
+        # Refusing a wipe on a soft-deleted unit avoids confusing the audit
+        # trail — the unit is gone from the UI; if you want its photos
+        # cleaned up you'd do that as part of decommission, not after.
+        unit_row = conn.execute(
+            "SELECT id FROM grow_units WHERE id=? AND is_active=1", (unit_id,)
+        ).fetchone()
+        if unit_row is None:
+            return jsonify({"error": "unit_not_found"}), 404
+
+        # Snapshot file paths BEFORE the DELETE so we have something to
+        # unlink even if the transaction commits mid-way through file
+        # cleanup. (We could do file-then-row instead, but then a failed
+        # row-delete would leave us with rows pointing at unlinked files,
+        # which the timelapse renders as broken slots.)
+        rows = conn.execute(
+            "SELECT file_path FROM grow_photos WHERE unit_id=?", (unit_id,)
+        ).fetchall()
+        file_paths = [r[0] for r in rows]
+
+        cur = conn.execute(
+            "DELETE FROM grow_photos WHERE unit_id=?", (unit_id,)
+        )
+        deleted_count = cur.rowcount
+        conn.commit()
+    finally:
+        conn.close()
+
+    # Files: best-effort. We've already committed the DB delete, so an
+    # unlink failure is logged but doesn't fail the request — the
+    # alternative (rolling back the DB on a single bad unlink) would
+    # leave the operator unable to recover from a half-orphaned state.
+    images_dir = _resolve_images_dir()
+    unlinked = 0
+    for rel_path in file_paths:
+        abs_path = os.path.join(images_dir, rel_path)
+        try:
+            os.unlink(abs_path)
+            unlinked += 1
+        except FileNotFoundError:
+            # Already gone — count as success since the desired end-state
+            # (file absent) holds.
+            unlinked += 1
+        except OSError as exc:
+            log.warning(
+                "clear_photos: failed to unlink %s for unit %d: %s",
+                abs_path, unit_id, exc,
+            )
+
+    log.info(
+        "clear_photos: unit=%d deleted_rows=%d files_unlinked=%d files_attempted=%d",
+        unit_id, deleted_count, unlinked, len(file_paths),
+    )
+    return jsonify({"deleted_count": deleted_count})
 
 
 @api_grow_units_bp.route(
