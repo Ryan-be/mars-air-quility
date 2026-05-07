@@ -333,19 +333,26 @@ To generate explanations like:
 - Buffered-message replay UI
 - Storage warning UI
 
-### Phase 4 (smarts)
-- Image-based phase classifier
-- Plant-stage-aware PID adjustments
-- Cross-unit anomaly detection
-- Reservoir / water budget tracking
+### Phase 4 (polish)
 
-### Phase 5 (polish)
+> **Reordered from Phase 5 → Phase 4.** First physical deployment surfaced enough rough edges (SD-card failure mid-deploy, opaque deploy command, no-thumbnail fleet view, "wall wart" terminology, no on-Pi diagnostics) that polish should land before any ML work. Smarts moved to Phase 5.
+>
+> **Already landed in this overnight session:** `bin/deploy` script + readme; "wall wart" → "USB power adapter" sweep across `PLANT_GROW_UNIT_HARDWARE.md` and `PLANT_GROW_UNIT_SETUP.md`.
+
+- **Server-side photo thumbnail/resize endpoint** — e.g. `GET /api/grow/units/<id>/photo/latest?size=thumb` returns a 320px-wide JPEG, vs the full ~2MB camera capture. Fleet view currently can't show photo thumbnails efficiently because every card would have to fetch the full-res image. Recommended impl: Pillow resize on first request, cache to `data/grow_thumbnails/<unit_id>/<filename>.jpg`, set long `Cache-Control` on response, invalidate on new photo write. Pairs naturally with the fleet-card photo enhancement.
+- **USB SSD boot guide for MLSS server and grow units** — discovered as a real gap during first physical deployment when the MLSS server's SD card developed I/O errors mid-deployment and took the whole stack offline (couldn't even `sudo reboot` — `/usr/bin/sudo` itself was unreadable; required physical power cycle). SD cards have a finite write-cycle budget that a 24/7 sqlite-WAL workload chews through; USB SSDs are dramatically more reliable. Doc should cover: `rpi-imager` flashing to SSD, `raspi-config` boot-order change (Advanced Options → Boot Order → USB Boot first), the live-migration recipe (`rsync -aAXv --exclude=/dev --exclude=/proc --exclude=/sys --exclude=/tmp --exclude=/run / /mnt/ssd/` then swap), and the smaller question of whether grow units (Pi Zero W, 2 photos/min, occasional sensor writes) are write-light enough that SD is fine for them.
 - Custom Pi SD-card .img for one-step provisioning
 - Public PyPI release of `mlss-grow`
 - Mobile-optimised fleet view
 - **Local read-only status UI on the grow unit itself** — tiny Flask app on a separate port (e.g. `http://<pi-ip>:8080/`) so an operator can SSH-free check the unit's health when MLSS is unreachable. Surfaces: live sensor readings, buffered-message + buffered-photo counts, last successful WS connect time, last 50 log lines, WiFi RSSI. **Read-only — no actuator controls** (those route via MLSS so audit/RBAC stays consistent). No auth (LAN-only by definition; same trust model as MLSS). Particularly useful for diagnosing "is the Pi alive when MLSS is down?" scenarios — the firmware design tolerates MLSS outages (buffer + replay) but currently you need SSH + journalctl to verify. Discovered as a real gap during the first physical deployment when the MLSS server's SD card failed mid-deployment and the operator had no quick way to verify the Pi was still capturing.
 - Plant journal / annotations on the History tab
 - Time-lapse video generation
+
+### Phase 5 (smarts)
+- Image-based phase classifier
+- Plant-stage-aware PID adjustments
+- Cross-unit anomaly detection
+- Reservoir / water budget tracking
 
 ### Hardware/reliability deferred
 - **Hardware watchdog (`/dev/watchdog`)** on Pi Zero — designed in but not wired up due to risk of misconfigured timer rebooting healthy Pi mid-write. Re-evaluate if a unit silently wedges in production despite systemd watchdog.
