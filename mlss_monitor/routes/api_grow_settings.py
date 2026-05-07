@@ -32,9 +32,10 @@ import sqlite3
 from typing import Optional
 
 from flask import Blueprint, jsonify, request
-from pydantic import BaseModel, Field, ValidationError, model_validator
+from pydantic import BaseModel, Field, ValidationError
 
 from database.init_db import DB_FILE
+from mlss_contracts._validators import make_min_le_max_validator
 from mlss_monitor.grow.api_helpers import serialise_validation_errors
 from mlss_monitor.grow.auth import hash_secret
 from mlss_monitor.rbac import require_role
@@ -102,15 +103,7 @@ class _ProfileUpdate(BaseModel):
     default_light_hours: Optional[float] = Field(None, ge=0, le=24)
     notes: Optional[str] = Field(None, max_length=500)
 
-    @model_validator(mode="after")
-    def _min_le_max(self):
-        if (
-            self.min_pulse_s is not None
-            and self.max_pulse_s is not None
-            and self.min_pulse_s > self.max_pulse_s
-        ):
-            raise ValueError("min_pulse_s must be <= max_pulse_s")
-        return self
+    _min_le_max = make_min_le_max_validator("min_pulse_s", "max_pulse_s")
 
 
 @api_grow_settings_bp.route("/api/grow/plant-profiles", methods=["GET"])

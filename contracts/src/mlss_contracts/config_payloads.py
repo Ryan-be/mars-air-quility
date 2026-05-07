@@ -25,6 +25,8 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
+from mlss_contracts._validators import make_min_le_max_validator
+
 _PHASE = Literal["seedling", "vegetative", "flowering", "fruiting", "dormant"]
 _MEDIUM = Literal["soil", "coco", "rockwool", "custom"]
 
@@ -60,15 +62,7 @@ class PIDUpdate(BaseModel):
     min_pulse_s: Optional[float] = Field(None, ge=0, le=60)
     max_pulse_s: Optional[float] = Field(None, ge=0, le=60)
 
-    @model_validator(mode="after")
-    def _min_le_max(self):
-        if (
-            self.min_pulse_s is not None
-            and self.max_pulse_s is not None
-            and self.min_pulse_s > self.max_pulse_s
-        ):
-            raise ValueError("min_pulse_s must be <= max_pulse_s")
-        return self
+    _min_le_max = make_min_le_max_validator("min_pulse_s", "max_pulse_s")
 
 
 class LightWindow(BaseModel):

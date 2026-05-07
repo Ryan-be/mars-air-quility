@@ -33,6 +33,7 @@ import json
 import logging
 import sqlite3
 from datetime import datetime
+from typing import NamedTuple
 
 from flask import Blueprint, jsonify, request, session
 from pydantic import ValidationError
@@ -156,22 +157,54 @@ def put_profile(unit_id):
 # ---------------------------------------------------------------------------
 
 
-# Map PIDUpdate fields → grow_units column names.
+# Single registry of every PID-tunable field, with all four representations
+# the codebase needs (response key on firmware GET, override column on
+# grow_units, profile column on grow_plant_profiles, contracts field on
+# PIDUpdate). Replaces four parallel dicts that previously each encoded
+# one direction of the same mapping.
 #
-# NOTE: deadband_pct has no override column in the schema (see
-# database/grow_schema.py). We accept the field at the API boundary for
-# forward-compat — frontend or firmware can send it without a 400 — but
-# silently drop it. A future migration can add the column; until then,
-# the resolved value comes from grow_plant_profiles.deadband_pct.
-_PID_COLUMN_MAP = {
-    "target_pct":      "watering_target_override",
-    "kp":              "watering_kp_override",
-    "ki":              "watering_ki_override",
-    "kd":              "watering_kd_override",
-    "soak_window_min": "soak_window_min_override",
-    "min_pulse_s":     "pulse_min_s_override",
-    "max_pulse_s":     "pulse_max_s_override",
-}
+# Note the asymmetry in the response_key/contracts_field row for the
+# moisture target: PIDUpdate exposes `target_pct` (a write-side
+# convenience name), but the firmware GET response uses `watering_target`
+# (matches the override column prefix). The profile column is
+# `target_moisture_pct`. The other six rows happen to use the same name
+# across all three.
+#
+# NOTE on deadband_pct: it has no override column in the schema (see
+# database/grow_schema.py), so it isn't in this registry. We still accept
+# it at the API boundary for forward-compat (see put_pid) but silently
+# drop it. A future migration can add the column, at which point a row
+# would land here.
+class _PIDFieldDef(NamedTuple):
+    """One PID-tunable field, with all four representations.
+
+    Adding a future PID-tunable means appending one tuple here rather
+    than touching four scattered dicts.
+    """
+    response_key: str       # JSON field on firmware GET /config (overrides{})
+    override_column: str    # column on grow_units (NULL → use profile default)
+    profile_column: str     # column on grow_plant_profiles
+    contracts_field: str    # field name on PIDUpdate (often == response_key)
+
+
+_PID_FIELDS: tuple[_PIDFieldDef, ...] = (
+    _PIDFieldDef("watering_target", "watering_target_override",
+                 "target_moisture_pct", "target_pct"),
+    _PIDFieldDef("kp", "watering_kp_override", "kp", "kp"),
+    _PIDFieldDef("ki", "watering_ki_override", "ki", "ki"),
+    _PIDFieldDef("kd", "watering_kd_override", "kd", "kd"),
+    _PIDFieldDef("soak_window_min", "soak_window_min_override",
+                 "soak_window_min", "soak_window_min"),
+    _PIDFieldDef("min_pulse_s", "pulse_min_s_override",
+                 "min_pulse_s", "min_pulse_s"),
+    _PIDFieldDef("max_pulse_s", "pulse_max_s_override",
+                 "max_pulse_s", "max_pulse_s"),
+)
+
+# Derived dicts — derived from _PID_FIELDS so the call sites that already
+# expect dicts can keep working unchanged. If you need to add a new PID
+# tunable, do it in _PID_FIELDS above; do not edit these.
+_PID_COLUMN_MAP = {f.contracts_field: f.override_column for f in _PID_FIELDS}
 
 
 @api_grow_config_bp.route(
@@ -434,60 +467,31 @@ def post_safety_override(unit_id):
 # ---------------------------------------------------------------------------
 
 
-# Mirror of _PID_COLUMN_MAP keyed for the pull-side response. Field order is
-# the canonical order the firmware expects in UnitConfig.overrides.
-_PID_RESPONSE_FIELDS = (
-    "watering_target", "kp", "ki", "kd",
-    "soak_window_min", "min_pulse_s", "max_pulse_s",
-)
-
-# DB column name for each response key (overrides table → response).
-_OVERRIDE_COLUMN_FOR_RESPONSE = {
-    "watering_target":  "watering_target_override",
-    "kp":               "watering_kp_override",
-    "ki":               "watering_ki_override",
-    "kd":               "watering_kd_override",
-    "soak_window_min":  "soak_window_min_override",
-    "min_pulse_s":      "pulse_min_s_override",
-    "max_pulse_s":      "pulse_max_s_override",
-}
-
-# Plant profile column name for each response key (used to fill nulls).
-# Note: target_moisture_pct is the profile column for `watering_target`.
-_PROFILE_COLUMN_FOR_RESPONSE = {
-    "watering_target":  "target_moisture_pct",
-    "kp":               "kp",
-    "ki":               "ki",
-    "kd":               "kd",
-    "soak_window_min":  "soak_window_min",
-    "min_pulse_s":      "min_pulse_s",
-    "max_pulse_s":      "max_pulse_s",
-}
-
-
 def _resolve_overrides(unit_row, profile_row) -> dict:
     """Combine unit overrides with plant profile defaults.
 
-    For each response key, prefer the unit's `*_override` column when it
+    For each PID field, prefer the unit's `*_override` column when it
     is non-NULL, else fall back to the matching plant profile column.
-    Returns a dict with concrete (never-null) values for every key in
-    _PID_RESPONSE_FIELDS — plant_profiles has NOT NULL constraints on
+    Returns a dict with concrete (never-null) values for every response
+    key in `_PID_FIELDS` — plant_profiles has NOT NULL constraints on
     every column we read from, so the fallback is always defined.
+
+    Output ordering follows `_PID_FIELDS` declaration order, which is the
+    canonical order the firmware expects in UnitConfig.overrides.
     """
     out = {}
-    for key in _PID_RESPONSE_FIELDS:
-        override_col = _OVERRIDE_COLUMN_FOR_RESPONSE[key]
-        override_val = unit_row[override_col]
+    for f in _PID_FIELDS:
+        override_val = unit_row[f.override_column]
         if override_val is not None:
-            out[key] = override_val
+            out[f.response_key] = override_val
             continue
         if profile_row is None:
             # Defensive: shouldn't happen because we seed a 'generic'
             # profile per phase, but if a unit's plant_type points to a
             # row that doesn't exist, surface NULL rather than crashing.
-            out[key] = None
+            out[f.response_key] = None
             continue
-        out[key] = profile_row[_PROFILE_COLUMN_FOR_RESPONSE[key]]
+        out[f.response_key] = profile_row[f.profile_column]
     return out
 
 

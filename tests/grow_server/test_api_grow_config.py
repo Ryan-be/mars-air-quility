@@ -1266,3 +1266,57 @@ def test_get_unit_config_includes_buffer_retention_days_when_set(bearer_client):
     assert r.status_code == 200
     body = r.get_json()
     assert body["buffer_retention_days"] == 14
+
+
+# ---------------------------------------------------------------------------
+# _PID_FIELDS registry shape — pins the consolidated registry that replaced
+# the four parallel _PID_* dicts. Adding a future PID field is one tuple in
+# _PID_FIELDS instead of four scattered entries; these tests anchor that
+# shape so a future contributor sees a clear failure if they break it.
+# ---------------------------------------------------------------------------
+
+
+def test_pid_field_registry_has_all_expected_fields():
+    """Pins the 7 PID-tunable fields and their declaration order.
+
+    Order matters: _resolve_overrides outputs in _PID_FIELDS order and the
+    firmware expects that canonical order in UnitConfig.overrides.
+    """
+    from mlss_monitor.routes.api_grow_config import _PID_FIELDS
+    assert len(_PID_FIELDS) == 7
+    response_keys = [f.response_key for f in _PID_FIELDS]
+    assert response_keys == [
+        "watering_target",
+        "kp",
+        "ki",
+        "kd",
+        "soak_window_min",
+        "min_pulse_s",
+        "max_pulse_s",
+    ]
+
+
+def test_pid_field_registry_response_keys_unique():
+    """Two PID fields with the same response_key would silently overwrite
+    each other in the firmware response — pin uniqueness so a typo in
+    _PID_FIELDS surfaces here rather than at runtime."""
+    from mlss_monitor.routes.api_grow_config import _PID_FIELDS
+    keys = [f.response_key for f in _PID_FIELDS]
+    assert len(keys) == len(set(keys))
+
+
+def test_pid_field_registry_override_columns_unique():
+    """Two PID fields mapped to the same override column would mean a
+    PUT to one would clobber the other. Pin uniqueness defensively."""
+    from mlss_monitor.routes.api_grow_config import _PID_FIELDS
+    cols = [f.override_column for f in _PID_FIELDS]
+    assert len(cols) == len(set(cols))
+
+
+def test_pid_field_registry_profile_columns_unique():
+    """The profile column is read on the GET-side fallback. Two fields
+    pointing at the same profile column would resolve to identical values
+    when both are NULL on the unit row — almost certainly a registry bug."""
+    from mlss_monitor.routes.api_grow_config import _PID_FIELDS
+    cols = [f.profile_column for f in _PID_FIELDS]
+    assert len(cols) == len(set(cols))
