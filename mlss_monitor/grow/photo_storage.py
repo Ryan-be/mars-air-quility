@@ -23,18 +23,20 @@ from database.init_db import DB_FILE
 
 log = logging.getLogger(__name__)
 
-# Default to a project-relative path that the gunicorn user can write to,
-# mirroring the data/sensor_data.db posture in database/init_db.py. The
-# previous default (/var/lib/mlss/grow_images) needed root to create on
-# first photo arrival because mkdir -p had to traverse /var/lib/ which
-# only root can write to. data/grow_images is owned by whoever owns the
-# project tree (typically the deploy user) so the auto-mkdir on first
-# photo Just Works.
+# Default to <project-root>/data/grow_images, computed from this file's
+# location so it's stable regardless of where gunicorn was started from
+# (e.g. systemd cwd, manual launch, etc.). Mirrors the data/sensor_data.db
+# posture in database/init_db.py but as an absolute path so a gunicorn
+# process started with cwd=/ doesn't resolve "data/grow_images" to "/data".
 #
 # Override via env (MLSS_GROW_IMAGES_DIR) or app_settings.grow_images_dir
 # if you want photos elsewhere (e.g. an external SSD mounted at /mnt/photos).
+#
+# This module sits at <project-root>/mlss_monitor/grow/photo_storage.py,
+# so parent.parent.parent is the project root.
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 GROW_IMAGES_DIR = os.environ.get(
-    "MLSS_GROW_IMAGES_DIR", "data/grow_images"
+    "MLSS_GROW_IMAGES_DIR", str(_PROJECT_ROOT / "data" / "grow_images")
 )
 
 _JOIN_WINDOW_SECONDS = 60
@@ -76,6 +78,8 @@ def handle_photo_frame(unit_id: int, frame: bytes) -> None:
     `taken_at` raise `sqlite3.IntegrityError` rather than silently
     corrupting.
     """
+    log.info("handle_photo_frame: unit=%s frame_len=%d bytes",
+             unit_id, len(frame))
     if len(frame) < 4:
         raise ValueError("photo frame too short for header length")
     (h_len,) = struct.unpack(">I", frame[:4])
