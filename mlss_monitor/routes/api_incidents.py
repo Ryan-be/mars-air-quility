@@ -110,9 +110,6 @@ def _find_similar(
     scored = []
     for row in rows:
         try:
-            # load_signature prefers the typed sub-table and falls back
-            # to the legacy incidents.signature JSON column for incidents
-            # written before the promotion migration ran.
             other_sig = load_signature(conn, row["id"])
             score = cosine_similarity(signature, other_sig)
             if score >= 0.5:
@@ -176,6 +173,10 @@ def list_incidents():
         d = dict(row)
         if q and q not in d.get("title", "").lower() and q not in d["id"].lower():
             continue
+        # Populate the similarity vector from the typed sub-table — the
+        # frontend Galaxy section runs PCA over these to scatter-plot
+        # incidents in the active window.
+        d["signature"] = load_signature(conn, d["id"])
         incidents.append(d)
 
     # Single grouped query for alert counts — replaces per-incident SELECT.
@@ -320,8 +321,7 @@ def get_incident(incident_id: str):
         return jsonify({"error": "Incident not found"}), 404
 
     incident = dict(row)
-    # Prefer the typed sub-table; the helper falls back to the legacy
-    # JSON column for pre-migration incidents.
+    # Load the similarity vector from the typed sub-table.
     signature = load_signature(conn, incident_id)
 
     # Load alerts with signal deps
@@ -410,7 +410,6 @@ def get_incident(incident_id: str):
         if operator_split:
             earliest_split_alert_id = earliest_primary_id
 
-    incident.pop("signature", None)
     conn.close()
 
     return jsonify({

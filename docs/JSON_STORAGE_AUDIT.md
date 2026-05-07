@@ -46,44 +46,45 @@ columns only (`msg_type`, `body`, `timestamp_utc`); see
 
 All entries below are deferred — no code changes in Phase 2 C3.
 
-- ~~**inferences.evidence → typed columns or sub-table**~~ **DONE** —
-  promoted to 5 typed columns (`evidence_attribution_source`,
-  `evidence_attribution_confidence`, `evidence_runner_up_id`,
-  `evidence_runner_up_confidence`, `evidence_detection_method`) plus
-  a smaller `evidence_extras` TEXT/JSON column for genuinely
-  heterogeneous diagnostic context (`feature_vector`,
-  `thresholds_used`, `baseline_*`, `range_start`/`range_end`, etc.).
-  The 24 `evidence={...}` literal call sites in
-  `mlss_monitor/inference_engine.py` and
+- ~~**inferences.evidence → typed columns or sub-table**~~ **DONE
+  AND DROPPED** — promoted to 5 typed columns
+  (`evidence_attribution_source`, `evidence_attribution_confidence`,
+  `evidence_runner_up_id`, `evidence_runner_up_confidence`,
+  `evidence_detection_method`) plus a smaller `evidence_extras`
+  TEXT/JSON column for genuinely heterogeneous diagnostic context
+  (`feature_vector`, `thresholds_used`, `baseline_*`,
+  `range_start`/`range_end`, etc.). The 24 `evidence={...}` literal
+  call sites in `mlss_monitor/inference_engine.py` and
   `mlss_monitor/detection_engine.py` are unchanged — the central
   `save_inference()` in `database/db_logger.py` delegates to
   `mlss_monitor.inference_evidence_storage.persist_evidence` which
   splits the dict at write time. Reads via `get_inferences` /
-  `get_inference_by_id` use `rebuild_evidence_from_row` to prefer the
-  typed columns and fall back to the legacy JSON for pre-migration
-  rows. `get_distinct_attribution_sources` now queries the typed
-  column directly (indexable) and unions in pre-migration rows. The
-  legacy `inferences.evidence` TEXT column is retained for one
-  release per `DATABASE.md`'s deprecation policy; a follow-up commit
-  will drop it. See `mlss_monitor/inference_evidence_storage.py` and
+  `get_inference_by_id` use `rebuild_evidence_from_row` to read from
+  the typed columns + extras blob. `get_distinct_attribution_sources`
+  queries the typed column directly (indexable). After commit
+  `d0a1d07` back-filled all historic rows, the legacy
+  `inferences.evidence` TEXT column was dropped — the typed
+  representation is now the single source of truth. See
+  `mlss_monitor/inference_evidence_storage.py` and
   `tests/test_inference_evidence_storage.py`.
 
-- ~~**incidents.signature → blob or sub-table**~~ **DONE** — promoted
-  to `incident_signature_features (incident_id, feature_idx, value)`
+- ~~**incidents.signature → blob or sub-table**~~ **DONE AND
+  DROPPED** — promoted to
+  `incident_signature_features (incident_id, feature_idx, value)`
   with `ON DELETE CASCADE`. Option 2 (queryable sub-table) was chosen
   over Option 1 (BLOB) because it future-proofs against the vector
   growing past 32 features and allows per-feature analytical queries
   (e.g. "incidents whose pm_density bucket is extreme") without a
   Python decode step. Reads via
-  `mlss_monitor.incident_signature_storage.load_signature` prefer the
-  sub-table and fall back to the legacy JSON column for pre-migration
-  incidents. The legacy `incidents.signature` TEXT column is retained
-  for one release; a follow-up commit will drop it. See
+  `mlss_monitor.incident_signature_storage.load_signature` go directly
+  to the sub-table. After commit `d0a1d07` back-filled all historic
+  rows, the legacy `incidents.signature` TEXT column was dropped —
+  the sub-table is now the single source of truth. See
   `mlss_monitor/incident_signature_storage.py` and
   `tests/test_incident_signature_features.py`.
 
-No DROP-DEAD or REFACTOR-CACHE candidates were found on the
-air-quality side — both columns have live readers.
+No DROP-DEAD or REFACTOR-CACHE candidates remain on the
+air-quality side.
 
 ## Already-cleaned (Phase 2 C1 batch)
 

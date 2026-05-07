@@ -6,7 +6,6 @@ separated at the top so they can be unit-tested without a DB connection.
 """
 from __future__ import annotations
 
-import json
 import logging
 import queue
 import sqlite3
@@ -502,19 +501,17 @@ def regroup_all(db_file: str) -> None:
         )
         title = generate_incident_title(component)
         vector = build_incident_similarity_vector(component)
-        # Insert the parent row first (still populates the legacy
-        # incidents.signature column with the JSON-encoded vector for
-        # back-compat — kept for one release; see
-        # docs/JSON_STORAGE_AUDIT.md). save_signature() below replaces
-        # it with the typed sub-table rows + a fresh JSON write.
+        # Insert the parent row first; save_signature() then writes the
+        # 32-element vector into the typed
+        # incident_signature_features sub-table.
         cur.execute(
             "INSERT OR REPLACE INTO incidents "
-            "(id, started_at, ended_at, max_severity, confidence, title, signature) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "(id, started_at, ended_at, max_severity, confidence, title) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
             (incident_id,
              t_start.isoformat(sep=" "),
              t_end.isoformat(sep=" "),
-             max_sev, conf, title, json.dumps(vector)),
+             max_sev, conf, title),
         )
         save_signature(conn, incident_id, vector)
 

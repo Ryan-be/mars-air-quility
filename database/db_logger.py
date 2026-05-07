@@ -6,12 +6,6 @@ from datetime import datetime, timedelta, timezone
 from config import config
 
 
-class _SafeJSONEncoder(json.JSONEncoder):
-    def default(self, o):  # pylint: disable=arguments-renamed
-        if isinstance(o, datetime):
-            return o.isoformat()
-        return super().default(o)
-
 DB_FILE = config.get("DB_FILE", "data/sensor_data.db")
 
 
@@ -402,21 +396,20 @@ def save_inference(event_type, severity, title, description, action,
                    evidence, confidence, start_id=None, end_id=None,
                    annotation=None):
     # Normalise datetime values inside evidence to ISO strings so the
-    # typed-column splitter (and the legacy JSON column) both serialise
-    # cleanly. _deep_to_str is a no-op on plain dicts of scalars.
+    # typed-column splitter serialises cleanly. _deep_to_str is a no-op
+    # on plain dicts of scalars.
     norm_evidence = _deep_to_str(evidence) if isinstance(evidence, dict) else evidence
     conn = _connect()
     cur = conn.cursor()
     cur.execute("""
         INSERT INTO inferences
             (created_at, event_type, severity, title, description, action,
-             evidence, confidence, sensor_data_start_id, sensor_data_end_id,
+             confidence, sensor_data_start_id, sensor_data_end_id,
              annotation)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         datetime.utcnow().isoformat(), event_type, severity, title,
         description, action,
-        json.dumps(norm_evidence, cls=_SafeJSONEncoder) if norm_evidence else None,
         confidence, start_id, end_id, annotation,
     ))
     inf_id = cur.lastrowid
@@ -533,9 +526,7 @@ def _evidence_from_row_dict(row_dict: dict) -> dict | None:
 
     Wraps :func:`mlss_monitor.inference_evidence_storage.rebuild_evidence_from_row`
     by extracting the relevant values from the row dict's keys. Used by
-    :func:`get_inferences` and :func:`get_inference_by_id` so the typed
-    columns are the source of truth where present, and the legacy
-    ``evidence`` JSON column is the fallback for pre-migration rows.
+    :func:`get_inferences` and :func:`get_inference_by_id`.
     """
     # Late import to avoid circulars at module-import time (db_logger
     # is imported by mlss_monitor.* modules during package init).
@@ -546,7 +537,6 @@ def _evidence_from_row_dict(row_dict: dict) -> dict | None:
         row_dict.get(f"evidence_{f}") for f in TYPED_FIELDS
     )
     return rebuild_evidence_from_row(
-        legacy_json=row_dict.get("evidence"),
         extras_json=row_dict.get("evidence_extras"),
         typed_values=typed_values,
     )
@@ -556,41 +546,18 @@ def get_distinct_attribution_sources() -> set:
     """Return the set of distinct attribution_source values stored in inference evidence.
 
     Reads the typed ``evidence_attribution_source`` column directly
-    (indexable, no JSON parse) and unions in the values from any
-    pre-migration rows that still only carry the legacy ``evidence``
-    TEXT column. Once the legacy column is dropped (one release after
-    the migration), the fallback half can be deleted.
+    (indexable, no JSON parse).
     """
     conn = _connect()
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     sources: set[str] = set()
-    # Fast path: typed column. NULL where the row pre-dates migration
-    # OR the inference had no attribution to record.
     cur.execute(
         "SELECT DISTINCT evidence_attribution_source FROM inferences "
         "WHERE evidence_attribution_source IS NOT NULL"
     )
     for (src,) in cur.fetchall():
         if isinstance(src, str) and src:
-            sources.add(src)
-    # Fallback: pre-migration rows where the typed column is NULL but
-    # the legacy JSON has the data. Filter at the SQL layer so we don't
-    # decode rows already covered by the fast path.
-    cur.execute(
-        "SELECT DISTINCT evidence FROM inferences "
-        "WHERE evidence IS NOT NULL "
-        "AND evidence_attribution_source IS NULL"
-    )
-    for (ev_str,) in cur.fetchall():
-        if not ev_str:
-            continue
-        try:
-            ev = json.loads(ev_str)
-        except (json.JSONDecodeError, TypeError):
-            continue
-        src = ev.get("attribution_source") if isinstance(ev, dict) else None
-        if src and isinstance(src, str):
             sources.add(src)
     conn.close()
     return sources

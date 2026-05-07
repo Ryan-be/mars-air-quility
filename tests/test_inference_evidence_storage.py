@@ -1,16 +1,13 @@
 """Tests for the typed inferences.evidence_* columns + extras blob.
 
-Pin the split / round-trip / fallback semantics for the
+Pin the split / round-trip semantics for the
 mlss_monitor.inference_evidence_storage helpers:
 
   * split_evidence — separates the 5 read-consistently fields from the
     genuinely-heterogeneous extras dict; aliases ``runner_up`` →
     ``runner_up_id`` (some callers use one name, some the other).
-  * persist_evidence — writes typed columns + extras JSON, AND keeps
-    the legacy ``evidence`` TEXT column populated for the deprecation
-    window.
-  * load_evidence — prefers the new columns; falls back to the legacy
-    JSON column for pre-migration rows.
+  * persist_evidence — writes typed columns + extras JSON.
+  * load_evidence — reads back the same dict shape.
 
 See docs/JSON_STORAGE_AUDIT.md for the column-promotion rationale.
 """
@@ -58,20 +55,18 @@ def db(tmp_path):
     ht.DB_FILE = "data/sensor_data.db"
 
 
-def _seed_inference(conn, *, evidence_text=None) -> int:
+def _seed_inference(conn) -> int:
     """Insert a minimal inferences row, returning its id.
 
     Bypasses save_inference so tests can exercise the storage helper in
-    isolation; callers can pass ``evidence_text`` to mimic a pre-migration
-    row whose only evidence representation is the legacy JSON column.
+    isolation.
     """
     now = datetime.utcnow().isoformat()
     cur = conn.execute(
         "INSERT INTO inferences (created_at, event_type, severity, title, "
-        "description, action, evidence, confidence) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (now, "tvoc_spike", "info", "Test", "desc", "action",
-         evidence_text, 0.5),
+        "description, action, confidence) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (now, "tvoc_spike", "info", "Test", "desc", "action", 0.5),
     )
     conn.commit()
     return cur.lastrowid
@@ -180,26 +175,6 @@ def test_persist_evidence_writes_typed_columns_and_extras(db):
     }
 
 
-def test_persist_evidence_writes_legacy_column_for_compat(db):
-    """The legacy ``evidence`` TEXT column also receives the full original
-    dict as JSON, for the one-release deprecation window during which
-    consumers may still read the legacy column."""
-    conn = sqlite3.connect(db)
-    inf_id = _seed_inference(conn)
-    full = {
-        "attribution_source": "smoking",
-        "attribution_confidence": 0.82,
-        "feature_vector": {"tvoc_current": 487.0},
-    }
-    persist_evidence(conn, inf_id, full)
-    conn.commit()
-    legacy = conn.execute(
-        "SELECT evidence FROM inferences WHERE id=?", (inf_id,),
-    ).fetchone()[0]
-    conn.close()
-    assert json.loads(legacy) == full
-
-
 def test_persist_evidence_with_runner_up_alias_writes_typed_column(db):
     """A caller passing ``runner_up`` (no ``_id`` suffix) lands in the
     ``evidence_runner_up_id`` typed column, NOT in extras."""
@@ -220,7 +195,7 @@ def test_persist_evidence_with_runner_up_alias_writes_typed_column(db):
 
 def test_persist_evidence_with_none_clears_all_columns(db):
     """persist_evidence(conn, id, None) sets all evidence-related
-    columns (typed + extras + legacy) to NULL. Used when a row is being
+    columns (typed + extras) to NULL. Used when a row is being
     rewritten to drop its evidence."""
     conn = sqlite3.connect(db)
     inf_id = _seed_inference(conn)
@@ -231,7 +206,7 @@ def test_persist_evidence_with_none_clears_all_columns(db):
     persist_evidence(conn, inf_id, None)
     conn.commit()
     row = conn.execute(
-        "SELECT evidence, evidence_extras, evidence_attribution_source, "
+        "SELECT evidence_extras, evidence_attribution_source, "
         "evidence_attribution_confidence, evidence_runner_up_id, "
         "evidence_runner_up_confidence, evidence_detection_method "
         "FROM inferences WHERE id=?",
@@ -287,54 +262,10 @@ def test_load_evidence_for_unknown_inference_returns_none(db):
 
 
 def test_load_evidence_for_inference_with_no_evidence_returns_none(db):
-    """A row with NULL legacy column AND NULL typed columns AND NULL
-    extras returns None — there is genuinely no evidence."""
+    """A row with NULL typed columns AND NULL extras returns None —
+    there is genuinely no evidence."""
     conn = sqlite3.connect(db)
-    inf_id = _seed_inference(conn)  # no evidence_text passed
-    out = load_evidence(conn, inf_id)
-    conn.close()
-    assert out is None
-
-
-def test_load_evidence_falls_back_to_legacy_when_new_columns_null(db):
-    """For a row written before the migration ran (typed columns and
-    extras are NULL but the legacy ``evidence`` TEXT column is populated),
-    load_evidence returns the JSON-decoded legacy dict.
-
-    Critical for keeping existing inferences readable post-deploy.
-    """
-    conn = sqlite3.connect(db)
-    legacy_dict = {
-        "attribution_source": "old_smoking",
-        "attribution_confidence": 0.6,
-        "feature_vector": {"tvoc_current": 200.0},
-    }
-    inf_id = _seed_inference(conn, evidence_text=json.dumps(legacy_dict))
-    out = load_evidence(conn, inf_id)
-    conn.close()
-    assert out == legacy_dict
-
-
-def test_load_evidence_prefers_new_columns_over_legacy(db):
-    """When BOTH the typed columns AND the legacy column have data
-    (the steady state during the deprecation window), the new
-    representation wins."""
-    conn = sqlite3.connect(db)
-    inf_id = _seed_inference(
-        conn, evidence_text=json.dumps({"attribution_source": "stale"})
-    )
-    persist_evidence(conn, inf_id, {"attribution_source": "fresh"})
-    conn.commit()
-    out = load_evidence(conn, inf_id)
-    conn.close()
-    assert out == {"attribution_source": "fresh"}
-
-
-def test_load_evidence_handles_corrupt_legacy_json_gracefully(db):
-    """If the legacy column holds non-JSON garbage AND no new columns
-    are populated, load_evidence returns None instead of raising."""
-    conn = sqlite3.connect(db)
-    inf_id = _seed_inference(conn, evidence_text="not-json-at-all")
+    inf_id = _seed_inference(conn)
     out = load_evidence(conn, inf_id)
     conn.close()
     assert out is None

@@ -1,12 +1,9 @@
-import logging
 import sqlite3
 
 from config import config
 from database.grow_schema import create_grow_schema
 
 DB_FILE = config.get("DB_FILE", "data/sensor_data.db")
-
-log = logging.getLogger(__name__)
 
 
 def create_db():
@@ -90,7 +87,6 @@ def create_db():
         title TEXT NOT NULL,
         description TEXT,
         action TEXT,
-        evidence TEXT,
         confidence REAL NOT NULL DEFAULT 0.5,
         sensor_data_start_id INTEGER,
         sensor_data_end_id INTEGER,
@@ -99,8 +95,9 @@ def create_db():
         dismissed INTEGER DEFAULT 0,
         -- Promoted-from-JSON typed columns (see
         -- mlss_monitor/inference_evidence_storage.py + JSON_STORAGE_AUDIT.md).
-        -- The legacy ``evidence`` TEXT column above is kept for one
-        -- release per DATABASE.md's deprecation policy.
+        -- The legacy ``evidence`` TEXT column was dropped after the
+        -- historic-data migration completed; the typed columns +
+        -- ``evidence_extras`` are now the single source of truth.
         evidence_attribution_source TEXT,
         evidence_attribution_confidence REAL,
         evidence_runner_up_id TEXT,
@@ -256,15 +253,22 @@ def create_db():
         "ALTER TABLE grow_errors ADD COLUMN snoozed_until DATETIME",
         # Promotion of ``inferences.evidence`` (JSON-in-TEXT) → typed
         # columns + extras blob. The legacy ``evidence`` TEXT column
-        # is retained for one release per DATABASE.md's deprecation
-        # policy; see mlss_monitor/inference_evidence_storage.py and
-        # docs/JSON_STORAGE_AUDIT.md.
+        # was dropped after the historic-data back-fill completed —
+        # see the DROP COLUMN entries below.
         "ALTER TABLE inferences ADD COLUMN evidence_attribution_source TEXT",
         "ALTER TABLE inferences ADD COLUMN evidence_attribution_confidence REAL",
         "ALTER TABLE inferences ADD COLUMN evidence_runner_up_id TEXT",
         "ALTER TABLE inferences ADD COLUMN evidence_runner_up_confidence REAL",
         "ALTER TABLE inferences ADD COLUMN evidence_detection_method TEXT",
         "ALTER TABLE inferences ADD COLUMN evidence_extras TEXT",
+        # Drop legacy JSON-in-TEXT columns now that the typed
+        # representations are the sole source of truth (historic data
+        # back-filled in commit d0a1d07). SQLite 3.35+ supports DROP
+        # COLUMN; Pi OS Lite ships 3.40+. Wrapped in the same
+        # try/except as every other migration so re-running on an
+        # already-migrated DB is a no-op.
+        "ALTER TABLE incidents DROP COLUMN signature",
+        "ALTER TABLE inferences DROP COLUMN evidence",
     ]:
         try:
             cur.execute(migration)
@@ -338,8 +342,7 @@ def create_db():
         max_severity TEXT NOT NULL DEFAULT 'info'
                          CHECK(max_severity IN ('info', 'warning', 'critical')),
         confidence   REAL NOT NULL DEFAULT 0,
-        title        TEXT NOT NULL,
-        signature    TEXT NOT NULL DEFAULT '[]'
+        title        TEXT NOT NULL
     );
     """)
     cur.execute(
@@ -357,9 +360,10 @@ def create_db():
     """)
 
     # Promotion of ``incidents.signature`` (JSON-in-TEXT) → typed
-    # sub-table. The legacy column above is retained for one release
-    # per DATABASE.md's deprecation policy; see
-    # docs/JSON_STORAGE_AUDIT.md and mlss_monitor/incident_signature_storage.py.
+    # sub-table. The legacy ``incidents.signature`` column was dropped
+    # after the historic-data back-fill completed; this sub-table is
+    # now the single source of truth. See docs/JSON_STORAGE_AUDIT.md
+    # and mlss_monitor/incident_signature_storage.py.
     cur.execute("""
     CREATE TABLE IF NOT EXISTS incident_signature_features (
         incident_id TEXT    NOT NULL,
@@ -397,14 +401,6 @@ def create_db():
 
     conn.commit()
     conn.close()
-
-    # Run historic-data migrations (idempotent — only touches rows that
-    # haven't been migrated yet). Empty case is fast (filtered by IS NULL
-    # / NOT EXISTS), so startup time on a fresh DB is unaffected.
-    from database.migrations import run_all_migrations
-    summary = run_all_migrations(DB_FILE)
-    if any(v > 0 for v in summary.values()):
-        log.info("data migrations complete: %s", summary)
 
 
 if __name__ == "__main__":

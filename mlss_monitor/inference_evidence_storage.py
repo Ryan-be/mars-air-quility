@@ -15,11 +15,10 @@ JSON column. Reads become indexable AND the ~24 callers building
 ``detection_engine.py`` don't have to change — :func:`persist_evidence`
 splits the dict at write time.
 
-The legacy ``evidence`` TEXT column is *retained* for one release per
-``DATABASE.md``'s deprecation policy. :func:`persist_evidence` writes
-both representations in lockstep; :func:`load_evidence` prefers the
-new columns and only falls back to the legacy JSON for pre-migration
-rows. A future commit will drop the legacy column.
+The legacy ``evidence`` TEXT column has been dropped — the typed
+columns + ``evidence_extras`` blob are now the single source of truth.
+The historic-data back-fill happened in commit ``d0a1d07``; this
+commit completes the deprecation cycle started in commit ``85ce40e``.
 
 See ``docs/JSON_STORAGE_AUDIT.md`` for the broader audit trail.
 """
@@ -82,11 +81,8 @@ def persist_evidence(
 ) -> None:
     """Write the evidence representation for an existing inferences row.
 
-    Updates BOTH:
-      * the new typed columns (``evidence_attribution_source`` etc.)
-        and the JSON ``evidence_extras`` blob holding leftover keys;
-      * the legacy ``evidence`` TEXT column with the full original dict
-        as JSON (for the one-release deprecation window).
+    Updates the typed columns (``evidence_attribution_source`` etc.)
+    and the JSON ``evidence_extras`` blob holding leftover keys.
 
     Pass ``evidence=None`` to clear all six columns to NULL.
 
@@ -95,11 +91,10 @@ def persist_evidence(
     keeping the write transactional with any surrounding row insert.
     """
     typed, extras = split_evidence(evidence)
-    legacy_json = json.dumps(evidence) if evidence else None
     extras_json = json.dumps(extras) if extras else None
 
-    set_clauses = ["evidence=?", "evidence_extras=?"]
-    values: list[Any] = [legacy_json, extras_json]
+    set_clauses = ["evidence_extras=?"]
+    values: list[Any] = [extras_json]
     for field in _TYPED_FIELDS:
         set_clauses.append(f"evidence_{field}=?")
         values.append(typed.get(field))
@@ -117,32 +112,24 @@ def load_evidence(
 ) -> dict | None:
     """Load evidence for an inference, reconstructing the original dict.
 
-    Resolution order:
-      1. If any of the new typed columns are populated OR
-         ``evidence_extras`` is non-NULL, build the dict from those
-         (the new source of truth).
-      2. Otherwise, if the legacy ``evidence`` TEXT column is
-         populated (i.e. this is a pre-migration row), JSON-decode
-         that and return it. Returns ``None`` rather than raising on
-         malformed legacy JSON — readers should treat ``None`` as
-         "no comparable evidence".
-      3. Otherwise (or if the inference doesn't exist) ``None``.
+    Builds the dict from the typed columns + ``evidence_extras`` JSON.
+    Returns ``None`` if the inference doesn't exist OR if every
+    evidence-related column is NULL (no evidence to report).
     """
     cols = ", ".join(f"evidence_{field}" for field in _TYPED_FIELDS)
     row = conn.execute(
-        f"SELECT evidence, evidence_extras, {cols} FROM inferences WHERE id=?",
+        f"SELECT evidence_extras, {cols} FROM inferences WHERE id=?",
         (inference_id,),
     ).fetchone()
     if row is None:
         return None
     return rebuild_evidence_from_row(
-        legacy_json=row[0], extras_json=row[1], typed_values=row[2:],
+        extras_json=row[0], typed_values=row[1:],
     )
 
 
 def rebuild_evidence_from_row(
     *,
-    legacy_json: str | None,
     extras_json: str | None,
     typed_values: tuple | list,
 ) -> dict | None:
@@ -155,22 +142,8 @@ def rebuild_evidence_from_row(
     ``typed_values`` must be a sequence of length ``len(_TYPED_FIELDS)``
     in the same order as ``_TYPED_FIELDS``.
 
-    Same fallback semantics as :func:`load_evidence`.
+    Returns ``None`` if every value is NULL.
     """
-    # Pre-migration row: only the legacy column has anything to offer.
-    if all(v is None for v in typed_values) and not extras_json:
-        if not legacy_json:
-            return None
-        try:
-            decoded = json.loads(legacy_json)
-        except (json.JSONDecodeError, TypeError, ValueError):
-            return None
-        if not isinstance(decoded, dict):
-            return None
-        return decoded
-
-    # New representation wins. Re-merge typed columns on top of extras
-    # so the original dict shape is reconstructed for legacy callers.
     out: dict[str, Any] = {}
     if extras_json:
         try:

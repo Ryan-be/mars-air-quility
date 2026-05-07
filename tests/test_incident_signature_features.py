@@ -5,7 +5,6 @@ mlss_monitor.incident_signature_storage helpers, plus the schema
 contract (cascade delete, primary-key replacement). See
 docs/JSON_STORAGE_AUDIT.md for the column-promotion rationale.
 """
-import json
 import sqlite3
 import sys
 from datetime import datetime, timedelta
@@ -48,7 +47,7 @@ def db(tmp_path):
     ht.DB_FILE = "data/sensor_data.db"
 
 
-def _seed_incident(conn, incident_id="INC-TEST-0001", signature_json="[]"):
+def _seed_incident(conn, incident_id="INC-TEST-0001"):
     """Insert a minimal incident row so signature helpers have a parent."""
     now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
     later = (datetime.utcnow() + timedelta(minutes=5)).strftime(
@@ -56,9 +55,8 @@ def _seed_incident(conn, incident_id="INC-TEST-0001", signature_json="[]"):
     )
     conn.execute(
         "INSERT INTO incidents (id, started_at, ended_at, max_severity, "
-        "confidence, title, signature) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (incident_id, now, later, "info", 0.5, f"Test {incident_id}",
-         signature_json),
+        "confidence, title) VALUES (?, ?, ?, ?, ?, ?)",
+        (incident_id, now, later, "info", 0.5, f"Test {incident_id}"),
     )
     conn.commit()
 
@@ -99,10 +97,9 @@ def test_save_signature_replaces_existing(db):
 
 
 def test_load_signature_returns_empty_list_when_missing(db):
-    """An incident with no signature rows AND no legacy JSON returns []."""
+    """An incident with no signature rows returns []."""
     conn = sqlite3.connect(db)
-    # Seed an incident with empty-list legacy JSON ('[]') and no sub-table rows.
-    _seed_incident(conn, "INC-MISS-1", signature_json="[]")
+    _seed_incident(conn, "INC-MISS-1")
     out = load_signature(conn, "INC-MISS-1")
     conn.close()
     assert out == []
@@ -144,24 +141,17 @@ def test_load_signature_orders_by_feature_idx(db):
 
 
 def test_save_signature_handles_empty_vector_gracefully(db):
-    """An empty vector inserts no sub-table rows and raises no error.
-    The legacy column is updated to '[]'."""
+    """An empty vector inserts no sub-table rows and raises no error."""
     conn = sqlite3.connect(db)
-    _seed_incident(conn, "INC-EMP-1", signature_json="[1.0, 2.0]")
+    _seed_incident(conn, "INC-EMP-1")
     save_signature(conn, "INC-EMP-1", [])
     conn.commit()
     n = conn.execute(
         "SELECT COUNT(*) FROM incident_signature_features WHERE incident_id=?",
         ("INC-EMP-1",),
     ).fetchone()[0]
-    legacy = conn.execute(
-        "SELECT signature FROM incidents WHERE id=?",
-        ("INC-EMP-1",),
-    ).fetchone()[0]
     conn.close()
     assert n == 0
-    # Legacy column should have been overwritten to '[]'.
-    assert json.loads(legacy) == []
 
 
 def test_cascade_delete_removes_signature_rows(db):
@@ -186,44 +176,3 @@ def test_cascade_delete_removes_signature_rows(db):
     ).fetchone()[0]
     conn.close()
     assert n_after == 0
-
-
-# ── Backward-compat read path ────────────────────────────────────────────────
-
-def test_load_signature_falls_back_to_legacy_json_column(db):
-    """For an incident written before the migration (sub-table empty,
-    legacy JSON populated), load_signature returns the JSON-decoded
-    vector. This is critical so historical incidents keep matching after
-    deploy and before the next regroup runs."""
-    conn = sqlite3.connect(db)
-    legacy = json.dumps([1.5, 2.5, 3.5, 4.5])
-    _seed_incident(conn, "INC-LEG-1", signature_json=legacy)
-    # No save_signature call — only the legacy column is populated.
-    out = load_signature(conn, "INC-LEG-1")
-    conn.close()
-    assert out == [1.5, 2.5, 3.5, 4.5]
-
-
-def test_load_signature_prefers_subtable_over_legacy_json(db):
-    """When BOTH the sub-table AND the legacy JSON column have data,
-    the sub-table wins (it is the new source of truth). This pins
-    correctness during the deprecation window where save_signature
-    still updates the legacy column for one release."""
-    conn = sqlite3.connect(db)
-    _seed_incident(conn, "INC-PREF-1", signature_json=json.dumps([99.0, 99.0]))
-    save_signature(conn, "INC-PREF-1", [1.0, 2.0, 3.0])
-    conn.commit()
-    out = load_signature(conn, "INC-PREF-1")
-    conn.close()
-    # The sub-table value, NOT the legacy [99.0, 99.0].
-    assert out == [1.0, 2.0, 3.0]
-
-
-def test_load_signature_handles_corrupt_legacy_json(db):
-    """If the legacy column holds non-JSON garbage and no sub-table
-    rows exist, load_signature returns [] rather than crashing."""
-    conn = sqlite3.connect(db)
-    _seed_incident(conn, "INC-CORRUPT-1", signature_json="not-json-at-all")
-    out = load_signature(conn, "INC-CORRUPT-1")
-    conn.close()
-    assert out == []

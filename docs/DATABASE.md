@@ -65,12 +65,12 @@ section is a one-line-per-table summary.
 | `fan_settings` | Single-row snapshot of fan auto-mode thresholds. | Permanent config. |
 | `app_settings` | Key/value store for misc settings (location, energy rate, grow defaults, enrollment-key hash). Never holds runtime-mutable structured state — keep it scalar. | Permanent config. |
 | `weather_log` | One row per hourly Open-Meteo fetch. | Auto-purged after 7 days. |
-| `inferences` | Detector output rows. `evidence` is JSON-in-TEXT (heterogeneous diagnostic context) — see [JSON storage](#json-storage). | Indefinite. |
+| `inferences` | Detector output rows. The 5 read-consistently fields (`evidence_attribution_*`, `evidence_runner_up_*`, `evidence_detection_method`) are typed columns; the rest lives in the `evidence_extras` JSON blob — see [JSON storage](#json-storage). | Indefinite. |
 | `inference_thresholds` | Per-key default + optional user override. | Permanent config. |
 | `event_tags` | User-applied source labels on inferences. | Indefinite. |
 | `users` | Authorised GitHub users + roles (admin/controller/viewer). | Soft-delete via `is_active=0`. |
 | `login_log` | Append-only login audit. | Indefinite. |
-| `incidents` | Sessionised inference clusters (30-min silence gap). `signature` is a 32-float JSON vector — see [JSON storage](#json-storage). | Follows `inferences`. |
+| `incidents` | Sessionised inference clusters (30-min silence gap). The 32-float similarity vector lives in the typed `incident_signature_features (incident_id, feature_idx, value)` sub-table — see [JSON storage](#json-storage). | Follows `inferences`. |
 | `incident_alerts` | M:N inferences ↔ incidents with `is_primary` flag. | Rebuilt on regroup. |
 | `alert_signal_deps` | Per-sensor Pearson r + lag for each alert. | Rebuilt on regroup. |
 | `incident_splits` | Operator markers that veto a merge. | Indefinite, manual. |
@@ -231,12 +231,16 @@ the full audit and roadmap in
 |---|---|---|
 | `grow_errors.details_json` | Genuinely heterogeneous per `kind` (sensor address, threshold values, eviction counts, …); written-once-read-as-blob | Legitimate |
 | `grow_unit_capabilities.details_json` | Reserved for future per-channel heterogeneous metadata; currently unused | Legitimate (reserved) |
-| `inferences.evidence` | Heterogeneous per `event_type`; readers consistently extract a handful of common fields | Refactor candidate (Phase 3+) — promote common fields to typed columns |
-| `incidents.signature` | Fixed-shape 32-float vector; schema-versioned in code | Refactor candidate (Phase 3+) — promote to BLOB or sub-table |
+| `inferences.evidence_extras` | Heterogeneous per `event_type` (whatever isn't in the typed `evidence_*` columns) | Legitimate (residual after promotion) |
 
 `grow_unit_capabilities.health`, `grow_units.last_known_state_json`,
 and `grow_units.light_phase_override_json` were **dropped** in Phase 2
 C1 and replaced by typed columns / the `grow_light_windows` table.
+`incidents.signature` and `inferences.evidence` followed the same
+deprecation cycle and were dropped after the historic-data back-fill
+completed — the typed `incident_signature_features` sub-table and
+typed `evidence_*` columns + `evidence_extras` blob are now the
+single source of truth.
 
 ---
 

@@ -61,12 +61,12 @@ def _seed_incident(db_path, incident_id="INC-20260419-1200",
     if ended_at is None:
         ended_at = (datetime.utcnow() - timedelta(minutes=50)).strftime("%Y-%m-%d %H:%M:%S")
     conn = sqlite3.connect(db_path)
-    sig = json.dumps([0.0] * 32)
     conn.execute(
-        "INSERT INTO incidents (id, started_at, ended_at, max_severity, confidence, title, signature) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (incident_id, started_at, ended_at, max_severity, 0.8, f"Test {incident_id}", sig)
+        "INSERT INTO incidents (id, started_at, ended_at, max_severity, confidence, title) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (incident_id, started_at, ended_at, max_severity, 0.8, f"Test {incident_id}")
     )
+    # Seed an empty signature so list_incidents has something to load_signature for.
     conn.commit()
     conn.close()
 
@@ -181,9 +181,9 @@ def seed_three_incidents(db):
     for inc_id, sev in rows:
         conn.execute(
             "INSERT INTO incidents (id, started_at, ended_at, max_severity, "
-            "confidence, title, signature) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "confidence, title) VALUES (?, ?, ?, ?, ?, ?)",
             (inc_id, (now - timedelta(hours=1)).isoformat(sep=" "),
-             now.isoformat(sep=" "), sev, 0.9, f"Test {inc_id}", json.dumps([0.0] * 32)),
+             now.isoformat(sep=" "), sev, 0.9, f"Test {inc_id}"),
         )
     conn.commit()
     conn.close()
@@ -479,13 +479,16 @@ def test_get_incident_detail_reports_operator_split(client, db):
 
 def test_get_incidents_retains_signature_field(client, db):
     """list_incidents must return the signature vector so the Galaxy
-    section can run PCA over the active window."""
+    section can run PCA over the active window. The signature is now a
+    list of floats loaded from the typed incident_signature_features
+    sub-table (the legacy JSON-in-TEXT incidents.signature column was
+    dropped after the deprecation cycle completed)."""
     _seed_incident(db, "INC-20260429-1100")
     rv = client.get("/api/incidents")
     data = rv.get_json()
     inc = next(i for i in data["incidents"] if i["id"] == "INC-20260429-1100")
     assert "signature" in inc
-    assert isinstance(inc["signature"], str)  # JSON-encoded list
+    assert isinstance(inc["signature"], list)
 
 
 def test_get_incidents_summary_includes_severity_by_hour(client, db):

@@ -13,15 +13,13 @@ the per-feature values are real ``REAL`` floats, indexable, and
 queryable per-feature (e.g. "incidents whose pm_density bucket is
 extreme") — see ``docs/JSON_STORAGE_AUDIT.md`` for rationale.
 
-The legacy ``incidents.signature`` TEXT column is *retained* for one
-release per ``DATABASE.md``'s deprecation policy. ``save_signature``
-writes both, ``load_signature`` prefers the sub-table and only falls
-back to the JSON column for incidents created before the migration.
-A future commit will drop the column.
+The legacy ``incidents.signature`` TEXT column has been dropped — the
+sub-table is now the single source of truth. The historic-data
+back-fill happened in commit ``d0a1d07``; this commit completes the
+deprecation cycle started in commit ``9c745fe``.
 """
 from __future__ import annotations
 
-import json
 import sqlite3
 
 
@@ -32,11 +30,6 @@ def save_signature(
 ) -> None:
     """Replace any existing signature rows for ``incident_id`` with
     ``vector``, indexed by position.
-
-    Also writes the JSON-stringified vector into the legacy
-    ``incidents.signature`` column for backward compatibility — a
-    follow-up release will remove this once all live deployments have
-    cycled through at least one regroup_all() run on the new schema.
 
     Caller is responsible for ``conn.commit()``. This mirrors the
     existing pattern used by ``incident_grouper.regroup_all`` which
@@ -53,13 +46,6 @@ def save_signature(
             [(incident_id, idx, float(value))
              for idx, value in enumerate(vector)],
         )
-    # Legacy column — kept for one release. Always rewritten so the
-    # legacy + new representations stay consistent during the
-    # deprecation window.
-    conn.execute(
-        "UPDATE incidents SET signature=? WHERE id=?",
-        (json.dumps(list(vector)), incident_id),
-    )
 
 
 def load_signature(
@@ -68,13 +54,9 @@ def load_signature(
 ) -> list[float]:
     """Load the signature vector for ``incident_id``.
 
-    Tries the new typed sub-table first; falls back to the legacy
-    JSON-stringified ``incidents.signature`` column if the sub-table
-    has no rows for this incident (i.e. it was created before the
-    promotion migration ran). Returns ``[]`` if neither holds data,
-    or if the legacy JSON is malformed — readers should treat ``[]``
-    as "no comparable signature available" (cosine similarity over
-    a zero-length vector returns 0.0 by convention in
+    Returns ``[]`` if the incident has no signature rows — readers
+    should treat ``[]`` as "no comparable signature available" (cosine
+    similarity over a zero-length vector returns 0.0 by convention in
     :func:`incident_grouper.cosine_similarity`).
     """
     rows = conn.execute(
@@ -82,20 +64,4 @@ def load_signature(
         "WHERE incident_id=? ORDER BY feature_idx",
         (incident_id,),
     ).fetchall()
-    if rows:
-        return [r[0] for r in rows]
-
-    # Fallback: read legacy JSON column for pre-migration incidents.
-    row = conn.execute(
-        "SELECT signature FROM incidents WHERE id=?",
-        (incident_id,),
-    ).fetchone()
-    if row is None or not row[0]:
-        return []
-    try:
-        decoded = json.loads(row[0])
-    except (json.JSONDecodeError, TypeError, ValueError):
-        return []
-    if not isinstance(decoded, list):
-        return []
-    return [float(v) for v in decoded]
+    return [r[0] for r in rows]
