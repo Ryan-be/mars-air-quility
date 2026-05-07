@@ -30,7 +30,7 @@ air-quality side hold serialised JSON; everything else is either:
 | Column | Table | Read sites | Write sites | What it stores | Mutates after insert? | Static shape? | Verdict |
 |---|---|---|---|---|---|---|---|
 | `evidence` | `inferences` | `database/db_logger.py:425, 495, 514, 532`; `mlss_monitor/attribution/engine.py:442`; `mlss_monitor/routes/api_history.py:329, 343, 454`; `mlss_monitor/routes/api_inferences.py:219` | `database/db_logger.py:414` (single write site, called from `mlss_monitor/inference_engine.py` and `mlss_monitor/detection_engine.py` — ~25 call sites) | Per-event diagnostic snapshot (e.g. `baseline_tvoc`, `peak_tvoc`, `correlation_r`, `feature_vector`, `attribution_source`, `attribution_confidence`, `_thresholds`). Keys vary by `event_type`. | No — written once at `save_inference()`, never updated | Heterogeneous keys per `event_type`, but readers consistently look up the same handful of fields (`attribution_source`, `attribution_confidence`, `runner_up_source`, `runner_up_confidence`, `range_start`, `range_end`, `feature_vector`) | **PROMOTE-TO-COLUMNS** (roadmap — Phase 3+) — user pre-classified |
-| `signature` | `incidents` | `mlss_monitor/routes/api_incidents.py:113, 321` | `mlss_monitor/incident_grouper.py:498` (called from `regroup_incidents()` — full table rebuild) | A 32-element `list[float]` from `build_incident_similarity_vector()` — fixed layout documented at `incident_grouper.py:283-291` (peak deltas, sensor presence flags, detection-method one-hot, severity one-hot, duration, mean confidence, time-of-day) | No — written once when incidents are regrouped | Yes — fixed 32-float vector, schema-versioned by code | **PROMOTE-TO-COLUMNS** (roadmap — Phase 3+) — user pre-classified |
+| `signature` | `incidents` | `mlss_monitor/routes/api_incidents.py:113, 321` | `mlss_monitor/incident_grouper.py:498` (called from `regroup_incidents()` — full table rebuild) | A 32-element `list[float]` from `build_incident_similarity_vector()` — fixed layout documented at `incident_grouper.py:283-291` (peak deltas, sensor presence flags, detection-method one-hot, severity one-hot, duration, mean confidence, time-of-day) | No — written once when incidents are regrouped | Yes — fixed 32-float vector, schema-versioned by code | **DONE** — promoted to `incident_signature_features (incident_id, feature_idx, value)` sub-table; legacy TEXT column retained for one release per `DATABASE.md` |
 
 That's it. No other JSON-bearing TEXT columns exist on the
 air-quality side.
@@ -63,17 +63,19 @@ All entries below are deferred — no code changes in Phase 2 C3.
   - Plan reference: future
     `docs/superpowers/plans/<date>-inference-evidence-typed-cols.md`.
 
-- **incidents.signature → blob or sub-table** (Phase 3+)
-  - Scope: 32-float vector is fixed-shape and schema-versioned in code.
-    Two natural targets:
-    1. `BLOB` of 32 IEEE-754 floats (smaller, faster), or
-    2. New `incident_signatures` table with one row per (incident_id,
-       index, value) — slower but queryable.
-  - Read use cases today are all scan-then-cosine-similarity in
-    Python (`api_incidents.py:_find_similar`), so option 1 is likely
-    the right answer.
-  - Plan reference: future
-    `docs/superpowers/plans/<date>-incident-signature-blob.md`.
+- ~~**incidents.signature → blob or sub-table**~~ **DONE** — promoted
+  to `incident_signature_features (incident_id, feature_idx, value)`
+  with `ON DELETE CASCADE`. Option 2 (queryable sub-table) was chosen
+  over Option 1 (BLOB) because it future-proofs against the vector
+  growing past 32 features and allows per-feature analytical queries
+  (e.g. "incidents whose pm_density bucket is extreme") without a
+  Python decode step. Reads via
+  `mlss_monitor.incident_signature_storage.load_signature` prefer the
+  sub-table and fall back to the legacy JSON column for pre-migration
+  incidents. The legacy `incidents.signature` TEXT column is retained
+  for one release; a follow-up commit will drop it. See
+  `mlss_monitor/incident_signature_storage.py` and
+  `tests/test_incident_signature_features.py`.
 
 No DROP-DEAD or REFACTOR-CACHE candidates were found on the
 air-quality side — both columns have live readers.

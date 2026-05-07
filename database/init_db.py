@@ -332,6 +332,24 @@ def create_db():
     );
     """)
 
+    # Promotion of ``incidents.signature`` (JSON-in-TEXT) → typed
+    # sub-table. The legacy column above is retained for one release
+    # per DATABASE.md's deprecation policy; see
+    # docs/JSON_STORAGE_AUDIT.md and mlss_monitor/incident_signature_storage.py.
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS incident_signature_features (
+        incident_id TEXT    NOT NULL,
+        feature_idx INTEGER NOT NULL,
+        value       REAL    NOT NULL,
+        PRIMARY KEY (incident_id, feature_idx),
+        FOREIGN KEY (incident_id) REFERENCES incidents(id) ON DELETE CASCADE
+    );
+    """)
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_isf_incident "
+        "ON incident_signature_features(incident_id)"
+    )
+
     cur.execute("""
     CREATE TABLE IF NOT EXISTS alert_signal_deps (
         alert_id     INTEGER NOT NULL REFERENCES inferences(id),

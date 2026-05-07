@@ -7,7 +7,6 @@ POST /api/incidents/<id>/unsplit — remove a split marker
 """
 from __future__ import annotations
 
-import json
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -23,6 +22,7 @@ from mlss_monitor.incident_grouper import (
     explain_similarity,
     is_cross_incident,
 )
+from mlss_monitor.incident_signature_storage import load_signature
 from mlss_monitor.incidents_narrative import build_narrative
 from mlss_monitor.rbac import require_role
 
@@ -102,7 +102,7 @@ def _find_similar(
 ) -> list[dict]:
     """Find similar past incidents using cosine similarity on signature vectors."""
     rows = conn.execute(
-        "SELECT id, title, started_at, max_severity, confidence, signature "
+        "SELECT id, title, started_at, max_severity, confidence "
         "FROM incidents WHERE id != ? ORDER BY started_at DESC LIMIT 100",
         (incident_id,)
     ).fetchall()
@@ -110,7 +110,10 @@ def _find_similar(
     scored = []
     for row in rows:
         try:
-            other_sig = json.loads(row["signature"])
+            # load_signature prefers the typed sub-table and falls back
+            # to the legacy incidents.signature JSON column for incidents
+            # written before the promotion migration ran.
+            other_sig = load_signature(conn, row["id"])
             score = cosine_similarity(signature, other_sig)
             if score >= 0.5:
                 scored.append({
@@ -317,10 +320,9 @@ def get_incident(incident_id: str):
         return jsonify({"error": "Incident not found"}), 404
 
     incident = dict(row)
-    try:
-        signature = json.loads(incident.get("signature", "[]"))
-    except Exception:  # pylint: disable=broad-except
-        signature = []
+    # Prefer the typed sub-table; the helper falls back to the legacy
+    # JSON column for pre-migration incidents.
+    signature = load_signature(conn, incident_id)
 
     # Load alerts with signal deps
     alert_rows = conn.execute(
