@@ -19,9 +19,12 @@ Pillow = ">=10.0,<12.0"
 requests = "^2.31"
 mlss-contracts = {path = "../contracts", develop = true}
 
-# Pi-only deps marked with markers so dev laptops can install without them
-"adafruit-circuitpython-seesaw" = {version = "^1.13", markers = "platform_machine == 'armv7l' or platform_machine == 'aarch64'"}
-"RPi.GPIO" = {version = "^0.7", markers = "platform_machine == 'armv7l' or platform_machine == 'aarch64'"}
+# Pi-only deps marked with markers so dev laptops can install without them.
+# armv6l → Pi Zero / Zero W (original)
+# armv7l → Pi Zero 2 W on 32-bit Pi OS, older Pi 2/3 on 32-bit
+# aarch64 → Pi 3/4/5/Zero 2 W on 64-bit Pi OS (recommended)
+"adafruit-circuitpython-seesaw" = {version = "^1.13", markers = "platform_machine == 'armv6l' or platform_machine == 'armv7l' or platform_machine == 'aarch64'"}
+"RPi.GPIO" = {version = "^0.7", markers = "platform_machine == 'armv6l' or platform_machine == 'armv7l' or platform_machine == 'aarch64'"}
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0"

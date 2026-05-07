@@ -7,7 +7,7 @@ description = "CircuitPython APIs for non-CircuitPython versions of Python such 
 optional = false
 python-versions = ">=3.7.0"
 groups = ["main"]
-markers = "platform_machine == \"armv7l\" or platform_machine == \"aarch64\""
+markers = "platform_machine == \"armv6l\" or platform_machine == \"armv7l\" or platform_machine == \"aarch64\""
 files = [
     {file = "adafruit_blinka-9.1.0-py3-none-any.whl", hash = "sha256:6f617d4ebb7c2e14dfe1259c63f21df4a77d1b12d5efd92cf71ae4bf34d21b91"},
     {file = "adafruit_blinka-9.1.0.tar.gz", hash = "sha256:6d17122358d5f9c4a550eae4f78207ac4c239662236bb37fc646b9f4166e3248"},
@@ -28,7 +28,7 @@ description = "CircuitPython bus device classes to manage bus sharing."
 optional = false
 python-versions = "*"
 groups = ["main"]
-markers = "platform_machine == \"armv7l\" or platform_machine == \"aarch64\""
+markers = "platform_machine == \"armv6l\" or platform_machine == \"armv7l\" or platform_machine == \"aarch64\""
 files = [
     {file = "adafruit_circuitpython_busdevice-5.2.17-py3-none-any.whl", hash = "sha256:5a834fbe0b88b07d20494bec566815da154aa4b1b668e2e665277b34b3578e44"},
     {file = "adafruit_circuitpython_busdevice-5.2.17.tar.gz", hash = "sha256:01887ba0056d3635536f0bf1e580a2969c67fc2c4c7b42a4093bcf7a3308bc9b"},
@@ -45,7 +45,7 @@ description = "A urllib3.poolmanager/urllib3.connectionpool-like library for man
 optional = false
 python-versions = "*"
 groups = ["main"]
-markers = "platform_machine == \"armv7l\" or platform_machine == \"aarch64\""
+markers = "platform_machine == \"armv6l\" or platform_machine == \"armv7l\" or platform_machine == \"aarch64\""
 files = [
     {file = "adafruit_circuitpython_connectionmanager-3.1.8-py3-none-any.whl", hash = "sha256:f93e27874a840f728b5cdbb1bcf0aee4e75ed1c0ba46b4562606ac3ac3ea2cca"},
     {file = "adafruit_circuitpython_connectionmanager-3.1.8.tar.gz", hash = "sha256:ce7436d62ac26312fbd2fc7d8f70ab0582a7c7807d7033ae5bd5cb53e4f66f3b"},
@@ -61,7 +61,7 @@ description = "A pure Python implementation of adafruit_pixelbuf for smaller boa
 optional = false
 python-versions = "*"
 groups = ["main"]
-markers = "platform_machine == \"armv7l\" or platform_machine == \"aarch64\""
+markers = "platform_machine == \"armv6l\" or platform_machine == \"armv7l\" or platform_machine == \"aarch64\""
 files = [
     {file = "adafruit_circuitpython_pixelbuf-2.0.12-py3-none-any.whl", hash = "sha256:73d7b2d70d203f948b0eb62965b6c8efdbb35a8e6c86c8c7d50b7e64f6acee91"},
     {file = "adafruit_circuitpython_pixelbuf-2.0.12.tar.gz", hash = "sha256:c5aa79f52dfb80568325a293f8aef57aaee4deb582dca77317eb05dfe3df52cd"},
@@ -77,7 +77,7 @@ description = "A requests-like library for web interfacing"
 optional = false
 python-versions = "*"
 groups = ["main"]
-markers = "platform_machine == \"armv7l\" or platform_machine == \"aarch64\""
+markers = "platform_machine == \"armv6l\" or platform_machine == \"armv7l\" or platform_machine == \"aarch64\""
 files = [
     {file = "adafruit_circuitpython_requests-4.1.17-py3-none-any.whl", hash = "sha256:4c205188a052f52b3bb8ab4af97798d7d56ae3701857d31f03b164f029fae44f"},
     {file = "adafruit_circuitpython_requests-4.1.17.tar.gz", hash = "sha256:7259976be340324d34da1ba6f4b935430b46ceece2e5c1632387a24e6f94e9a3"},
@@ -97,7 +97,7 @@ description = "CircuitPython library for controlling a SeeSaw helper chip."
 optional = false
 python-versions = "*"
 groups = ["main"]
-markers = "platform_machine == \"armv7l\" or platform_machine == \"aarch64\""
+markers = "platform_machine == \"armv6l\" or platform_machine == \"armv7l\" or platform_machine == \"aarch64\""
 files = [
     {file = "adafruit_circuitpython_seesaw-1.18.2-py3-none-any.whl", hash = "sha256:d1b39e8b1144403c468a6995dab38ac36757f9ce485513b18b0a52a1292c2f32"},
     {file = "adafruit_circuitpython_seesaw-1.18.2.tar.gz", hash = "sha256:90de6df17267bf9972d5817ab4597b9641ab2996f8026a3fc6ffb926b3ab6e4c"},
@@ -115,7 +115,7 @@ description = "Types needed for type annotation that are not in `typing`"
 optional = false
 python-versions = ">=3.8"
 groups = ["main"]
-markers = "platform_machine == \"armv7l\" or platform_machine == \"aarch64\""
+markers = "platform_machine == \"armv6l\" or platform_machine == \"armv7l\" or platform_machine == \"aarch64\""
 files = [
     {file = "adafruit_circuitpython_typing-1.12.3-py3-none-any.whl", hash = "sha256:f6d0a02150e1e4efb5a2c2945b88d948809fdb465875f39947108b8467c986d9"},
     {file = "adafruit_circuitpython_typing-1.12.3.tar.gz", hash = "sha256:63f196f834e47842bcd4cf8c37aaa0c61e1aeb5d07f056c875fc3016cda91a12"},
@@ -134,7 +134,7 @@ description = "Platform detection for use by libraries like Adafruit-Blinka."
 optional = false
 python-versions = "*"
 groups = ["main"]
-markers = "platform_machine == \"armv7l\" or platform_machine == \"aarch64\""
+markers = "platform_machine == \"armv6l\" or platform_machine == \"armv7l\" or platform_machine == \"aarch64\""
 files = [
     {file = "adafruit_platformdetect-3.88.0-py3-none-any.whl", hash = "sha256:69e694d80d551c6cb8e39f731e6ee0de1f135e64cffee0e2a665b1f9579c10d7"},
     {file = "adafruit_platformdetect-3.88.0.tar.gz", hash = "sha256:dc2188ddb348bfd2a02a9533263294cc0f1762bd9f6b3b20866547d98820cd71"},
@@ -147,7 +147,7 @@ description = "Pure python (i.e. no native extensions) access to Linux IO    inc
 optional = false
 python-versions = ">=3.5.0"
 groups = ["main"]
-markers = "platform_machine == \"armv7l\" or platform_machine == \"aarch64\""
+markers = "platform_machine == \"armv6l\" or platform_machine == \"armv7l\" or platform_machine == \"aarch64\""
 files = [
     {file = "Adafruit_PureIO-1.1.11-py3-none-any.whl", hash = "sha256:281ab2099372cc0decc26326918996cbf21b8eed694ec4764d51eefa029d324e"},
     {file = "Adafruit_PureIO-1.1.11.tar.gz", hash = "sha256:c4cfbb365731942d1f1092a116f47dfdae0aef18c5b27f1072b5824ad5ea8c7c"},
@@ -172,7 +172,7 @@ description = "Python Libraries for Binho Multi-Protocol USB Host Adapters"
 optional = false
 python-versions = "*"
 groups = ["main"]
-markers = "platform_machine == \"armv7l\" or platform_machine == \"aarch64\""
+markers = "platform_machine == \"armv6l\" or platform_machine == \"armv7l\" or platform_machine == \"aarch64\""
 files = [
     {file = "binho-host-adapter-0.1.6.tar.gz", hash = "sha256:1e6da7a84e208c13b5f489066f05774bff1d593d0f5bf1ca149c2b8e83eae856"},
     {file = "binho_host_adapter-0.1.6-py3-none-any.whl", hash = "sha256:f71ca176c1e2fc1a5dce128beb286da217555c6c7c805f2ed282a6f3507ec277"},
@@ -843,7 +843,7 @@ description = "FTDI device driver (pure Python)"
 optional = false
 python-versions = ">=3.9"
 groups = ["main"]
-markers = "platform_machine == \"armv7l\" or platform_machine == \"aarch64\""
+markers = "platform_machine == \"armv6l\" or platform_machine == \"armv7l\" or platform_machine == \"aarch64\""
 files = [
     {file = "pyftdi-0.57.1-py3-none-any.whl", hash = "sha256:efd3f5a7d43202dc883ff261a7b1cb4dcbbe65b19628f8603a8b1183a7bc2841"},
 ]
@@ -874,7 +874,7 @@ description = "Python Serial Port Extension"
 optional = false
 python-versions = "*"
 groups = ["main"]
-markers = "platform_machine == \"armv7l\" or platform_machine == \"aarch64\""
+markers = "platform_machine == \"armv6l\" or platform_machine == \"armv7l\" or platform_machine == \"aarch64\""
 files = [
     {file = "pyserial-3.5-py2.py3-none-any.whl", hash = "sha256:c4451db6ba391ca6ca299fb3ec7bae67a5c55dde170964c7a14ceefec02f2cf0"},
     {file = "pyserial-3.5.tar.gz", hash = "sha256:3c77e014170dfffbd816e6ffc205e9842efb10be9f58ec16d3e8675b4925cddb"},
@@ -931,7 +931,7 @@ description = "Easy USB access for Python"
 optional = false
 python-versions = ">=3.9.0"
 groups = ["main"]
-markers = "platform_machine == \"armv7l\" or platform_machine == \"aarch64\""
+markers = "platform_machine == \"armv6l\" or platform_machine == \"armv7l\" or platform_machine == \"aarch64\""
 files = [
     {file = "pyusb-1.3.1-py3-none-any.whl", hash = "sha256:bf9b754557af4717fe80c2b07cc2b923a9151f5c08d17bdb5345dac09d6a0430"},
     {file = "pyusb-1.3.1.tar.gz", hash = "sha256:3af070b607467c1c164f49d5b0caabe8ac78dbed9298d703a8dbf9df4052d17e"},
@@ -1049,7 +1049,7 @@ description = "A module to control Raspberry Pi GPIO channels"
 optional = false
 python-versions = "*"
 groups = ["main"]
-markers = "platform_machine == \"armv7l\" or platform_machine == \"aarch64\""
+markers = "platform_machine == \"armv6l\" or platform_machine == \"armv7l\" or platform_machine == \"aarch64\""
 files = [
     {file = "RPi.GPIO-0.7.1-cp27-cp27mu-linux_armv6l.whl", hash = "sha256:b86b66dc02faa5461b443a1e1f0c1d209d64ab5229696f32fb3b0215e0600c8c"},
     {file = "RPi.GPIO-0.7.1-cp310-cp310-linux_armv6l.whl", hash = "sha256:57b6c044ef5375a78c8dda27cdfadf329e76aa6943cd6cffbbbd345a9adf9ca5"},
@@ -1066,7 +1066,7 @@ description = "SysV IPC primitives (semaphores, shared memory and message queues
 optional = false
 python-versions = "*"
 groups = ["main"]
-markers = "sys_platform == \"linux\" and (platform_machine == \"armv7l\" or platform_machine == \"aarch64\")"
+markers = "sys_platform == \"linux\" and (platform_machine == \"armv6l\" or platform_machine == \"armv7l\" or platform_machine == \"aarch64\")"
 files = [
     {file = "sysv_ipc-1.2.0-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:216801b6ec9d6493dcfa27c45d435a2ae6e078170bded13e01ecd5d19bd414fa"},
     {file = "sysv_ipc-1.2.0-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:28cd8cebc3bb01931afc96985e823aeaf54a5a2505da354964b369123a3db1d4"},
@@ -1253,4 +1253,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<4.0"
-content-hash = "aa13a8e475620dcdeaa3c3e9fc8f2d4a99c53348374be06a13ee1e19d196cb6d"
+content-hash = "68400bdd5d5b9ad0bf4287fd9342023cab9a434e37ac33971454c5e77d74aed8"

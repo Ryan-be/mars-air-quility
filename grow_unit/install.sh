@@ -37,11 +37,16 @@ fi
 echo "==> MLSS host: $MLSS_HOST"
 
 # ── 1. apt deps
+# python3-picamera2 is the Python binding for libcamera. It's a system
+# package on Pi OS (the libcamera C bindings can't be pip-installed
+# cleanly) — the venv below uses --system-site-packages so it can see it.
+# libcamera-apps gives us the CLI tools (libcamera-still etc.) for
+# debugging from a shell.
 echo "==> Installing system packages"
 apt-get update -y
 apt-get install -y --no-install-recommends \
     python3 python3-venv python3-pip python3-dev \
-    libcamera-apps i2c-tools \
+    libcamera-apps python3-picamera2 i2c-tools \
     build-essential libffi-dev \
     openssl
 
@@ -150,8 +155,13 @@ verify_sha "$TMP/${CONTRACTS_FILENAME}" "$CONTRACTS_SHA256"
 verify_sha "$TMP/${SERVICE_FILENAME}" "$SERVICE_SHA256"
 
 # ── 5. venv + install
+# --system-site-packages lets the venv import system-installed Python
+# packages (specifically python3-picamera2 from apt above — its libcamera
+# C bindings can't be pip-installed). pip-installed packages still take
+# precedence over system ones, so this doesn't break our wheel-pinned
+# mlss_grow / mlss_contracts / Pillow / pydantic etc.
 echo "==> Creating venv and installing wheels"
-sudo -u mlss-grow python3 -m venv /opt/mlss-grow/.venv
+sudo -u mlss-grow python3 -m venv --system-site-packages /opt/mlss-grow/.venv
 sudo -u mlss-grow /opt/mlss-grow/.venv/bin/pip install --upgrade pip
 # --find-links "$TMP" makes pip prefer our SHA256-verified mlss_grow +
 # mlss_contracts wheels for those two packages. Transitive deps (Pillow,
