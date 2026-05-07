@@ -29,7 +29,7 @@ def client(monkeypatch):
     """Mount only the diagnostics blueprint against a fresh DB seeded with
     one grow_unit (id=1). Tests then inject the rows they need (caps,
     grow_errors) with raw sqlite3 to keep the seed surface tiny."""
-    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)  # pylint: disable=R1732
     tmp.close()
     import database.init_db as init_db
     init_db.DB_FILE = tmp.name

@@ -13,7 +13,7 @@ _hw_mocks = [
 # (Windows path-too-long is the recurring offender). The anomaly_detector module
 # pulls it in transitively via the routes package, breaking unrelated tests.
 try:  # pragma: no cover - environmental
-    import river.anomaly  # noqa: F401
+    import river.anomaly  # noqa: F401  pylint: disable=unused-import
 except Exception:  # pylint: disable=broad-except
     _hw_mocks.append("river")
     _hw_mocks.append("river.anomaly")

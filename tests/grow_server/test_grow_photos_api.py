@@ -4,7 +4,6 @@ Also covers the History tab endpoints:
   GET /api/grow/units/<id>/photos                    — list photos in a range
   GET /api/grow/units/<id>/photos/<photo_id>         — fetch a single JPEG by id
 """
-import os
 import sqlite3
 import tempfile
 from datetime import datetime, timedelta
@@ -13,7 +12,7 @@ import pytest
 
 @pytest.fixture
 def setup(tmp_path, monkeypatch):
-    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)  # pylint: disable=R1732
     tmp.close()
     import database.init_db as init_db
     init_db.DB_FILE = tmp.name
@@ -118,7 +117,7 @@ def list_setup(tmp_path, monkeypatch):
     cross-unit security test has a real photo on disk to attempt to leak)
     plus a controlled set of grow_photos rows at staggered timestamps.
     """
-    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)  # pylint: disable=R1732
     tmp.close()
     import database.init_db as init_db
     init_db.DB_FILE = tmp.name

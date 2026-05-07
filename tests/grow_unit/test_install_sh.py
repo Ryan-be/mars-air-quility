@@ -53,7 +53,7 @@ def test_install_script_creates_required_directories():
 def test_install_script_passes_shellcheck_when_available():
     if shutil.which("shellcheck") is None:
         pytest.skip("shellcheck not installed")
-    r = subprocess.run(["shellcheck", str(INSTALL)], capture_output=True, text=True)
+    r = subprocess.run(["shellcheck", str(INSTALL)], capture_output=True, text=True, check=False)
     assert r.returncode == 0, f"shellcheck:\n{r.stdout}\n{r.stderr}"
 
 

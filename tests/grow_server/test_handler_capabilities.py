@@ -6,7 +6,7 @@ import pytest
 
 @pytest.fixture
 def db_with_unit(monkeypatch):
-    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)  # pylint: disable=R1732
     tmp.close()
     import database.init_db as init_db
     init_db.DB_FILE = tmp.name
@@ -185,7 +185,7 @@ def test_grow_caps_health_check_constraint_at_db_level(db_with_unit):
     The fixture in this file creates the DB fresh, so the constraint
     is present.
     """
-    from datetime import datetime as _dt
+    _dt = datetime
     conn = sqlite3.connect(db_with_unit)
     with pytest.raises(sqlite3.IntegrityError):
         conn.execute(

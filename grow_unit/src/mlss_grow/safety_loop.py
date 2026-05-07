@@ -1,7 +1,7 @@
 """Top-level orchestration: sensors → PID → actuators every tick."""
 import logging
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Callable, Optional
 

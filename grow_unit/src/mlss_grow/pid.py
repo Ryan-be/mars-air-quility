@@ -10,7 +10,7 @@ Note: `pid_decide` mutates the passed-in `PIDState` (updates
 is intentional — the caller owns the state object across ticks. Tests
 assert on the post-call state.
 """
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 

@@ -2,7 +2,7 @@
 import asyncio
 import json
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 import pytest
 from mlss_grow.ws_client import WSClient
 
@@ -40,7 +40,7 @@ async def test_send_when_connected_goes_through(tmp_path):
 
     client = WSClient(
         url="ws://test", token="t", buffer_db_path=str(tmp_path / "b.sqlite"),
-        on_command=lambda cmd: cmd_received.append(cmd),
+        on_command=cmd_received.append,
         connect_fn=AsyncMock(return_value=fake_ws),
     )
     await client._connect_once()
@@ -206,7 +206,6 @@ async def test_replay_buffer_resends_only_remaining_after_partial_fail(tmp_path)
                         "light_state": True, "pump_state": False}),
             ts=datetime(2026, 1, 1, 0, i),
         )
-    bad_sent_count_before = client._buffer.size()
     await client._connect_once()
     await client._replay_buffer()
 
@@ -236,7 +235,7 @@ async def test_incoming_command_dispatched_to_handler(tmp_path):
     received = []
     client = WSClient(
         url="ws://test", token="t", buffer_db_path=str(tmp_path / "b.sqlite"),
-        on_command=lambda cmd: received.append(cmd),
+        on_command=received.append,
         connect_fn=AsyncMock(return_value=fake_ws),
     )
     await client._connect_once()
@@ -365,7 +364,7 @@ async def test_run_forever_continues_when_on_reconnect_sync_raises(tmp_path):
     client = WSClient(
         url="ws://test", token="t",
         buffer_db_path=str(tmp_path / "b.sqlite"),
-        on_command=lambda cmd: received.append(cmd),
+        on_command=received.append,
         connect_fn=AsyncMock(return_value=fake_ws),
         on_reconnect_sync=boom,
         backoff_base=0.0,
@@ -411,7 +410,7 @@ async def test_on_reconnect_sync_optional_default_none_keeps_old_behavior(
     client = WSClient(
         url="ws://test", token="t",
         buffer_db_path=str(tmp_path / "b.sqlite"),
-        on_command=lambda cmd: received.append(cmd),
+        on_command=received.append,
         connect_fn=AsyncMock(return_value=fake_ws),
         backoff_base=0.0,
         # NB: no on_reconnect_sync — should default to None and the
@@ -553,7 +552,7 @@ async def test_run_forever_continues_when_prune_raises(tmp_path):
     client = WSClient(
         url="ws://test", token="t",
         buffer_db_path=str(tmp_path / "b.sqlite"),
-        on_command=lambda cmd: received.append(cmd),
+        on_command=received.append,
         connect_fn=AsyncMock(return_value=fake_ws),
         buffer_retention_days_provider=provider,
         backoff_base=0.0,

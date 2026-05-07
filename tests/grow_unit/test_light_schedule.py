@@ -1,5 +1,5 @@
 """is_light_on: pure function over (now, list of (start, end) windows)."""
-from datetime import datetime, time
+from datetime import datetime
 from mlss_grow.light_schedule import is_light_on, parse_window
 
 

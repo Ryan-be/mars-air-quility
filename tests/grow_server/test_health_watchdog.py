@@ -31,7 +31,7 @@ def db(monkeypatch):
     the schema. ``clear()`` runs both before and after to guarantee
     isolation regardless of fixture ordering.
     """
-    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)  # pylint: disable=R1732
     tmp.close()
     import database.init_db as init_db
     from mlss_monitor.grow import health_watchdog
@@ -42,14 +42,13 @@ def db(monkeypatch):
     init_db.create_db()
 
     # A unit row is required by the FK on grow_watering_events / telemetry
-    conn = sqlite3.connect(tmp.name)
-    conn.execute(
-        "INSERT INTO grow_units (id, hardware_serial, label, enrolled_at, "
-        "bearer_token_hash, phase_set_at) VALUES (1, 'h', 'X', ?, 'h', ?)",
-        (datetime.utcnow(), datetime.utcnow()),
-    )
-    conn.commit()
-    conn.close()
+    with sqlite3.connect(tmp.name) as conn:
+        conn.execute(
+            "INSERT INTO grow_units (id, hardware_serial, label, enrolled_at, "
+            "bearer_token_hash, phase_set_at) VALUES (1, 'h', 'X', ?, 'h', ?)",
+            (datetime.utcnow(), datetime.utcnow()),
+        )
+        conn.commit()
 
     health_watchdog.clear()
     yield tmp.name

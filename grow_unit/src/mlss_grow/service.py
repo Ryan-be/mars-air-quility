@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from importlib.metadata import version, PackageNotFoundError
 
 from mlss_grow.config import (
-    load_firstboot_config, load_token, save_token, FirstbootConfig,
+    load_firstboot_config, load_token, save_token,
 )
 from mlss_grow.enrol import enroll_unit, get_hardware_serial
 
@@ -300,7 +300,8 @@ async def _run_main_loop(state: BootstrappedState) -> None:
     from mlss_grow.light_schedule import parse_window
     from mlss_grow.dispatch import DispatchContext, dispatch_command
     from mlss_grow.safety_override import SafetyOverrideState
-    import board, busio
+    import board
+    import busio
     from datetime import datetime
 
     i2c = busio.I2C(board.SCL, board.SDA)
@@ -341,7 +342,7 @@ async def _run_main_loop(state: BootstrappedState) -> None:
         url=f"wss://{state.mlss_host}:5001/api/grow/{state.unit_id}/ws",
         token=state.token,
         buffer_db_path="/var/lib/mlss-grow/buffer.sqlite",
-        on_command=lambda cmd: received_commands.put_nowait(cmd),
+        on_command=received_commands.put_nowait,
         server_cert_path=state.server_cert_path,
         on_reconnect_sync=on_reconnect_sync,
         buffer_retention_days_provider=retention_provider,

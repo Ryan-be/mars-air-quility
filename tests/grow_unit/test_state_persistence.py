@@ -18,8 +18,6 @@ import logging
 import os
 from unittest.mock import patch
 
-import pytest
-
 from mlss_grow.state_persistence import PersistedState, load_state, save_state
 
 

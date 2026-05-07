@@ -55,7 +55,7 @@ def _build_history_stack(monkeypatch, tmp_path, telemetry_count: int):
     ``test_configure_e2e.py`` minus the WS bits.
     """
     # ── 1. Tmp DB + DB_FILE patches across every grow module ──
-    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)  # pylint: disable=R1732
     tmp.close()
     images_dir = str(tmp_path / "imgs")
     os.makedirs(images_dir, exist_ok=True)
@@ -94,56 +94,55 @@ def _build_history_stack(monkeypatch, tmp_path, telemetry_count: int):
     now = datetime.utcnow()
     base_ts = now - timedelta(hours=23)  # spread the data within last 24h
 
-    conn = sqlite3.connect(tmp.name)
-    conn.execute(
-        "INSERT INTO grow_units (id, hardware_serial, label, enrolled_at, "
-        "bearer_token_hash, phase_set_at) "
-        "VALUES (1, 'hw-history-e2e', 'E2E History', ?, 'h', ?)",
-        (now, now),
-    )
-
-    # Telemetry: ``telemetry_count`` rows evenly spread across the last 23h
-    # so the 24h range covers them all. Spacing varies depending on count.
-    if telemetry_count > 0:
-        spread_seconds = 23 * 3600
-        interval_s = spread_seconds / telemetry_count
-        for i in range(telemetry_count):
-            ts = base_ts + timedelta(seconds=i * interval_s)
-            pct = 50 + (i % 30) - 15  # oscillates 35-65
-            raw = 600 + (i % 200)
-            conn.execute(
-                "INSERT INTO grow_telemetry "
-                "(unit_id, timestamp_utc, soil_moisture_raw, soil_moisture_pct, "
-                " light_state, pump_state) VALUES (?, ?, ?, ?, 1, 0)",
-                (1, ts, raw, pct),
-            )
-
-    # 10 photos staggered across the last ~20 hours (within 24h range).
     photo_ids = []
     photo_bodies = []
-    for i in range(10):
-        taken_at = base_ts + timedelta(hours=i * 2)
-        date_dir = taken_at.strftime("%Y-%m-%d")
-        # millisecond-precision filename matches the production layout in
-        # mlss_monitor/grow/photo_storage.py
-        rel_path = (
-            f"unit_001/{date_dir}/"
-            f"{taken_at.strftime('%H%M%S_%f')[:-3]}.jpg"
+    with sqlite3.connect(tmp.name) as conn:
+        conn.execute(
+            "INSERT INTO grow_units (id, hardware_serial, label, enrolled_at, "
+            "bearer_token_hash, phase_set_at) "
+            "VALUES (1, 'hw-history-e2e', 'E2E History', ?, 'h', ?)",
+            (now, now),
         )
-        abs_dir = os.path.join(images_dir, "unit_001", date_dir)
-        os.makedirs(abs_dir, exist_ok=True)
-        body = _fake_jpeg(i)
-        with open(os.path.join(images_dir, rel_path), "wb") as f:
-            f.write(body)
-        cur = conn.execute(
-            "INSERT INTO grow_photos (unit_id, taken_at, file_path, "
-            "width_px, height_px, size_bytes) VALUES (?, ?, ?, ?, ?, ?)",
-            (1, taken_at, rel_path, 1920, 1080, len(body)),
-        )
-        photo_ids.append(cur.lastrowid)
-        photo_bodies.append(body)
-    conn.commit()
-    conn.close()
+
+        # Telemetry: ``telemetry_count`` rows evenly spread across the last 23h
+        # so the 24h range covers them all. Spacing varies depending on count.
+        if telemetry_count > 0:
+            spread_seconds = 23 * 3600
+            interval_s = spread_seconds / telemetry_count
+            for i in range(telemetry_count):
+                ts = base_ts + timedelta(seconds=i * interval_s)
+                pct = 50 + (i % 30) - 15  # oscillates 35-65
+                raw = 600 + (i % 200)
+                conn.execute(
+                    "INSERT INTO grow_telemetry "
+                    "(unit_id, timestamp_utc, soil_moisture_raw, soil_moisture_pct, "
+                    " light_state, pump_state) VALUES (?, ?, ?, ?, 1, 0)",
+                    (1, ts, raw, pct),
+                )
+
+        # 10 photos staggered across the last ~20 hours (within 24h range).
+        for i in range(10):
+            taken_at = base_ts + timedelta(hours=i * 2)
+            date_dir = taken_at.strftime("%Y-%m-%d")
+            # millisecond-precision filename matches the production layout in
+            # mlss_monitor/grow/photo_storage.py
+            rel_path = (
+                f"unit_001/{date_dir}/"
+                f"{taken_at.strftime('%H%M%S_%f')[:-3]}.jpg"
+            )
+            abs_dir = os.path.join(images_dir, "unit_001", date_dir)
+            os.makedirs(abs_dir, exist_ok=True)
+            body = _fake_jpeg(i)
+            with open(os.path.join(images_dir, rel_path), "wb") as f:
+                f.write(body)
+            cur = conn.execute(
+                "INSERT INTO grow_photos (unit_id, taken_at, file_path, "
+                "width_px, height_px, size_bytes) VALUES (?, ?, ?, ?, ?, ?)",
+                (1, taken_at, rel_path, 1920, 1080, len(body)),
+            )
+            photo_ids.append(cur.lastrowid)
+            photo_bodies.append(body)
+        conn.commit()
 
     # ── 3. Boot the real Flask app with OAuth-on posture ──
     import mlss_monitor.app as app_module
@@ -195,33 +194,32 @@ def history_stack_with_unit2_photo(tmp_path, monkeypatch):
     bundle = _build_history_stack(monkeypatch, tmp_path, telemetry_count=100)
     # Seed unit 2 + one photo
     now = datetime.utcnow()
-    conn = sqlite3.connect(bundle["db_path"])
-    conn.execute(
-        "INSERT INTO grow_units (id, hardware_serial, label, enrolled_at, "
-        "bearer_token_hash, phase_set_at) "
-        "VALUES (2, 'hw-unit2', 'E2E Other', ?, 'h', ?)",
-        (now, now),
-    )
-    taken_at = now - timedelta(hours=1)
-    date_dir = taken_at.strftime("%Y-%m-%d")
-    rel_path = (
-        f"unit_002/{date_dir}/"
-        f"{taken_at.strftime('%H%M%S_%f')[:-3]}.jpg"
-    )
-    abs_dir = os.path.join(bundle["images_dir"], "unit_002", date_dir)
-    os.makedirs(abs_dir, exist_ok=True)
-    body = b"\xff\xd8UNIT2_SECRET" + b"\x00" * 32
-    with open(os.path.join(bundle["images_dir"], rel_path), "wb") as f:
-        f.write(body)
-    cur = conn.execute(
-        "INSERT INTO grow_photos (unit_id, taken_at, file_path, "
-        "width_px, height_px, size_bytes) VALUES (?, ?, ?, ?, ?, ?)",
-        (2, taken_at, rel_path, 1920, 1080, len(body)),
-    )
-    bundle["unit2_photo_id"] = cur.lastrowid
-    bundle["unit2_body"] = body
-    conn.commit()
-    conn.close()
+    with sqlite3.connect(bundle["db_path"]) as conn:
+        conn.execute(
+            "INSERT INTO grow_units (id, hardware_serial, label, enrolled_at, "
+            "bearer_token_hash, phase_set_at) "
+            "VALUES (2, 'hw-unit2', 'E2E Other', ?, 'h', ?)",
+            (now, now),
+        )
+        taken_at = now - timedelta(hours=1)
+        date_dir = taken_at.strftime("%Y-%m-%d")
+        rel_path = (
+            f"unit_002/{date_dir}/"
+            f"{taken_at.strftime('%H%M%S_%f')[:-3]}.jpg"
+        )
+        abs_dir = os.path.join(bundle["images_dir"], "unit_002", date_dir)
+        os.makedirs(abs_dir, exist_ok=True)
+        body = b"\xff\xd8UNIT2_SECRET" + b"\x00" * 32
+        with open(os.path.join(bundle["images_dir"], rel_path), "wb") as f:
+            f.write(body)
+        cur = conn.execute(
+            "INSERT INTO grow_photos (unit_id, taken_at, file_path, "
+            "width_px, height_px, size_bytes) VALUES (?, ?, ?, ?, ?, ?)",
+            (2, taken_at, rel_path, 1920, 1080, len(body)),
+        )
+        bundle["unit2_photo_id"] = cur.lastrowid
+        bundle["unit2_body"] = body
+        conn.commit()
     return bundle
 
 

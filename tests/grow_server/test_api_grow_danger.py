@@ -38,7 +38,7 @@ def client(monkeypatch):
     spins up a fake WS registry + listener loop so the synchronous push
     path has somewhere to send to.
     """
-    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)  # pylint: disable=R1732
     tmp.close()
     import database.init_db as init_db
     init_db.DB_FILE = tmp.name
@@ -157,7 +157,7 @@ def test_delete_unit_404_for_already_deleted(client):
     This means a retried DELETE doesn't accidentally touch a different
     row that happens to have the same id (impossible in SQLite, but the
     is_active=1 guard makes the contract explicit)."""
-    c, _, db_path = client
+    c, _, _ = client
     # Soft-delete first, then try again.
     r1 = c.delete("/api/grow/units/1")
     assert r1.status_code == 200
@@ -252,7 +252,7 @@ def test_clear_buffer_returns_503_when_unit_disconnected(monkeypatch):
     Same contract as safety_override: clear-buffer is intent-to-act-now,
     so a 503 surfaces clearly rather than silently being best-effort.
     """
-    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)  # pylint: disable=R1732
     tmp.close()
     import database.init_db as init_db
     init_db.DB_FILE = tmp.name

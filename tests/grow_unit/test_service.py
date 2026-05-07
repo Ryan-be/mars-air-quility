@@ -1,8 +1,6 @@
 """Service entrypoint orchestrates: load config → enrol if needed → boot WS + safety loop."""
-import json
 from unittest.mock import MagicMock, patch
-from mlss_grow.service import bootstrap_unit_state, BootstrappedState, _build_reconnect_sync
-from mlss_grow.config import FirstbootConfig
+from mlss_grow.service import bootstrap_unit_state, _build_reconnect_sync
 import pytest
 
 
@@ -14,7 +12,7 @@ def test_bootstrap_uses_existing_token_if_present(tmp_path, monkeypatch):
     save_token(token_path, unit_id=42, token="existing-token")
 
     # Boot YAML present (would normally trigger enroll) but token already exists
-    open(boot_path, "w").write(
+    open(boot_path, "w").write(  # pylint: disable=R1732,unspecified-encoding
         "mlss_host: mlss.local\nenrollment_key: x\nplant:\n  name: X\n"
     )
 
@@ -32,7 +30,7 @@ def test_bootstrap_uses_existing_token_if_present(tmp_path, monkeypatch):
 def test_bootstrap_enrolls_when_no_token(tmp_path, monkeypatch):
     token_path = str(tmp_path / "grow.token")
     boot_path = str(tmp_path / "mlss-grow.yaml")
-    open(boot_path, "w").write(
+    open(boot_path, "w").write(  # pylint: disable=R1732,unspecified-encoding
         "mlss_host: mlss.local\nenrollment_key: ek\nplant:\n  name: Test\n"
     )
 

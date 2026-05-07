@@ -3,7 +3,7 @@
 Pure function over a datetime + a list of (start, end) windows. Handles
 overnight windows (end < start) and multi-window-per-day setups.
 """
-from datetime import datetime, time, timedelta
+from datetime import datetime, time
 import re
 
 _HH_MM = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")

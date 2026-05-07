@@ -28,7 +28,7 @@ import pytest
 
 @pytest.fixture
 def client(monkeypatch):
-    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)  # pylint: disable=R1732
     tmp.close()
     import database.init_db as init_db
     init_db.DB_FILE = tmp.name
@@ -186,7 +186,7 @@ def test_put_profile_succeeds_when_unit_not_connected(monkeypatch):
     """If the unit isn't in the registry (or send raises), the DB write
     still committed — return 200 anyway. Firmware will re-pull on reconnect.
     """
-    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)  # pylint: disable=R1732
     tmp.close()
     import database.init_db as init_db
     init_db.DB_FILE = tmp.name
@@ -230,7 +230,7 @@ def test_put_profile_succeeds_when_unit_not_connected(monkeypatch):
 
 def test_put_profile_succeeds_when_send_raises(monkeypatch):
     """Best-effort: if send_to_unit raises for any reason, swallow and 200."""
-    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)  # pylint: disable=R1732
     tmp.close()
     import database.init_db as init_db
     init_db.DB_FILE = tmp.name
@@ -694,7 +694,7 @@ def test_put_calibration_pushes_config_changed_via_ws(client):
 
 def test_put_calibration_succeeds_when_unit_not_connected(monkeypatch):
     """Best-effort: calibration write is durable even if the unit is offline."""
-    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)  # pylint: disable=R1732
     tmp.close()
     import database.init_db as init_db
     init_db.DB_FILE = tmp.name
@@ -776,7 +776,7 @@ def test_post_safety_override_returns_503_when_unit_not_connected(monkeypatch):
     safety_override returns 503 — unlike best-effort config_changed pushes,
     a safety override is intent-to-act-now and a missed push is a real fail.
     """
-    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)  # pylint: disable=R1732
     tmp.close()
     import database.init_db as init_db
     init_db.DB_FILE = tmp.name
@@ -960,7 +960,7 @@ def bearer_client(monkeypatch):
     from database.init_db import DB_FILE as _PROD_DB_FILE
     import mlss_monitor.routes.api_grow_ws as _api_grow_ws
 
-    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)  # pylint: disable=R1732
     tmp.close()
     import database.init_db as init_db
     # Use monkeypatch (not direct assignment) so init_db.DB_FILE is
@@ -1083,8 +1083,8 @@ def test_get_unit_config_resolves_plant_profile_defaults_for_null_overrides(
     """When override fields are NULL, the response substitutes values from
     grow_plant_profiles for (plant_type, current_phase). The firmware can
     then apply the result directly without its own profile lookup table."""
-    import mlss_monitor.routes.api_grow_ws  # noqa: F401  warm-up; see fixture comment
-    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    import mlss_monitor.routes.api_grow_ws  # noqa: F401  pylint: disable=unused-import  # warm-up; see fixture comment
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)  # pylint: disable=R1732
     tmp.close()
     import database.init_db as init_db
     monkeypatch.setattr(init_db, "DB_FILE", tmp.name)

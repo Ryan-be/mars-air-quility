@@ -195,8 +195,10 @@ def test_record_connection_event_db_failure_does_not_raise(monkeypatch, writer_e
 
     monkeypatch.setattr(mod.sqlite3, "connect", _boom)
 
-    # No raise allowed.
-    result = mod._record_connection_event(1, "online")
+    # No raise allowed. _record_connection_event returns None by design;
+    # we deliberately bind the return to assert it stays None even when
+    # the underlying sqlite3.connect blows up.
+    result = mod._record_connection_event(1, "online")  # pylint: disable=assignment-from-no-return
     assert result is None
 
 

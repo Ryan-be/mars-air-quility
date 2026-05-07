@@ -198,6 +198,7 @@ def diag_stack_no_ws(monkeypatch, tmp_path):
     listener. For tests that don't drive connection_log via real WS
     connects (tests 1, 3, 4, 5, 8) — skipping the listener boot saves
     ~50 ms per test and trims fixture surface area."""
+    # pylint: disable=R1732  # delete=False + close() pattern: we only want the path
     tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
     tmp.close()
     images_dir = str(tmp_path / "imgs")
@@ -236,6 +237,7 @@ async def diag_stack(monkeypatch, tmp_path):
     Tests that need it: 2 (real WS connect→disconnect), 6 (clear-buffer
     push to a connected unit), 9 (full observability narrative).
     """
+    # pylint: disable=R1732  # delete=False + close() pattern: we only want the path
     tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
     tmp.close()
     images_dir = str(tmp_path / "imgs")
@@ -268,7 +270,9 @@ async def diag_stack(monkeypatch, tmp_path):
     _clear_auth_cache()
     registry = WSRegistry()
     handle = start_ws_listener(host="127.0.0.1", port=0, registry=registry)
-    port = handle.sockets[0].getsockname()[1]
+    # _ListenerHandle.sockets is added via property() in api_grow_ws.py;
+    # pylint can't see the runtime monkey-patch on the namedtuple.
+    port = handle.sockets[0].getsockname()[1]  # pylint: disable=no-member
     from mlss_monitor import state
     state.grow_ws_registry = registry
 
@@ -958,7 +962,7 @@ async def test_e2e_full_phase3_observability_story(diag_stack):
     assert r.status_code == 200, r.data
 
     # ── Step 7: unit reconnects → kind=online resolves the open offline.
-    fw2 = await bundle["connect_fake_firmware"](unit_id=1)
+    _fw2 = await bundle["connect_fake_firmware"](unit_id=1)
 
     # Wait for the resolution to flush. The reconnect inserts an online
     # row; the same writer first updates resolved_at on any open offline

@@ -23,6 +23,7 @@ def db(monkeypatch):
     rather than the dev/prod sensor_data.db. We monkeypatch DB_FILE in
     BOTH the init_db module (for create_db()) AND the storage_check
     module (which captured DB_FILE at import time)."""
+    # pylint: disable=R1732  # delete=False + close() pattern: we only want the path
     tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
     tmp.close()
     import database.init_db as init_db
@@ -36,23 +37,21 @@ def db(monkeypatch):
 
 def _set_threshold(db_path, value):
     """Overwrite the seeded grow_disk_warn_pct with a test value."""
-    conn = sqlite3.connect(db_path)
-    conn.execute(
-        "INSERT OR REPLACE INTO app_settings (key, value) VALUES "
-        "('grow_disk_warn_pct', ?)",
-        (str(value),),
-    )
-    conn.commit()
-    conn.close()
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO app_settings (key, value) VALUES "
+            "('grow_disk_warn_pct', ?)",
+            (str(value),),
+        )
+        conn.commit()
 
 
 def _delete_threshold(db_path):
-    conn = sqlite3.connect(db_path)
-    conn.execute(
-        "DELETE FROM app_settings WHERE key='grow_disk_warn_pct'"
-    )
-    conn.commit()
-    conn.close()
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "DELETE FROM app_settings WHERE key='grow_disk_warn_pct'"
+        )
+        conn.commit()
 
 
 def test_get_storage_status_returns_dict_with_expected_keys(monkeypatch, db, tmp_path):

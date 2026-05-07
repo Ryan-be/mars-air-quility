@@ -20,7 +20,7 @@ def test_script_passes_shellcheck_when_available():
     """If shellcheck is installed, the script must lint clean."""
     if shutil.which("shellcheck") is None:
         pytest.skip("shellcheck not installed")
-    r = subprocess.run(["shellcheck", str(SCRIPT)], capture_output=True, text=True)
+    r = subprocess.run(["shellcheck", str(SCRIPT)], capture_output=True, text=True, check=False)
     assert r.returncode == 0, f"shellcheck failures:\n{r.stdout}\n{r.stderr}"
 
 
@@ -39,7 +39,7 @@ def test_script_produces_wheels(tmp_path, monkeypatch):
     if DIST_DIR.exists():
         for f in DIST_DIR.glob("*.whl"):
             f.unlink()
-    r = subprocess.run([str(SCRIPT)], cwd=REPO_ROOT, capture_output=True, text=True)
+    r = subprocess.run([str(SCRIPT)], cwd=REPO_ROOT, capture_output=True, text=True, check=False)
     assert r.returncode == 0, f"build failed:\n{r.stdout}\n{r.stderr}"
     wheels = list(DIST_DIR.glob("*.whl"))
     pkgs = {w.name.split("-")[0] for w in wheels}
@@ -83,7 +83,7 @@ def test_script_copies_systemd_unit_into_dist_dir(tmp_path):
         for f in DIST_DIR.iterdir():
             if f.is_file():
                 f.unlink()
-    r = subprocess.run([str(SCRIPT)], cwd=REPO_ROOT, capture_output=True, text=True)
+    r = subprocess.run([str(SCRIPT)], cwd=REPO_ROOT, capture_output=True, text=True, check=False)
     assert r.returncode == 0, f"build failed:\n{r.stdout}\n{r.stderr}"
     service_in_dist = DIST_DIR / "mlss-grow.service"
     assert service_in_dist.exists(), (

@@ -14,7 +14,6 @@ Tests cover:
   * safety_override drives the actuator via the override module
   * unknown commands are dropped without raising
 """
-import asyncio
 import logging
 from unittest.mock import MagicMock, patch
 
@@ -161,7 +160,7 @@ async def test_dispatch_safety_override_coerces_duration_to_float():
             {"kind": "safety_override",
              "action": "force_pump_on", "duration_s": 7}, ctx,
         )
-    args, kwargs = mock_invoke.call_args
+    args, _ = mock_invoke.call_args
     assert isinstance(args[1], float)
     assert args[1] == 7.0
 
@@ -204,7 +203,7 @@ async def test_dispatch_light_override_off_invokes_safety_override():
             {"name": "light_override", "args": {"state": "off"}}, ctx,
         )
     mock_invoke.assert_called_once()
-    args, kwargs = mock_invoke.call_args
+    args, _ = mock_invoke.call_args
     assert args[0] == "force_light_off"
     assert args[1] == 0.0
 
@@ -243,7 +242,6 @@ async def test_dispatch_reboot_invokes_systemctl_reboot(caplog):
     """reboot → spawns a thread that calls subprocess.run with
     [sudo, systemctl, reboot]. The thread is daemon so the test
     doesn't hang at teardown."""
-    import logging
     caplog.set_level(logging.INFO)
     ctx = _basic_context()
     with patch("mlss_grow.dispatch.subprocess.run") as mock_run, \
@@ -326,13 +324,11 @@ async def test_dispatch_clear_buffer_logs_at_info_when_handled():
     """Operator-visible log when the command lands successfully — ops
     forensics rely on journalctl to confirm the firmware actually
     received and acted on the clear."""
-    import logging as _logging
     fake_buffer = MagicMock()
     ctx = _basic_context(buffer=fake_buffer)
-    import pytest as _pytest
-    with _pytest.MonkeyPatch.context() as mp:
+    with pytest.MonkeyPatch.context() as mp:
         # caplog is harder to use here without the fixture, so just
         # inspect the side effect directly: clear() got called.
-        mp.setattr(_logging, "getLogger", _logging.getLogger)
+        mp.setattr(logging, "getLogger", logging.getLogger)
         await dispatch_command({"name": "clear_buffer"}, ctx)
     fake_buffer.clear.assert_called_once_with()

@@ -1,15 +1,15 @@
 """PID watering decision: pure function over (current_pct, config, state)."""
 from datetime import datetime, timedelta
 from mlss_grow.pid import (
-    PIDConfig, PIDState, pid_decide, Decision,
+    PIDConfig, PIDState, pid_decide,
 )
 
 
 def _cfg(**kwargs):
-    defaults = dict(
-        target_pct=55, deadband_pct=5, kp=0.4, ki=0, kd=0,
-        min_pulse_s=2, max_pulse_s=8, soak_window_min=30,
-    )
+    defaults = {
+        "target_pct": 55, "deadband_pct": 5, "kp": 0.4, "ki": 0, "kd": 0,
+        "min_pulse_s": 2, "max_pulse_s": 8, "soak_window_min": 30,
+    }
     defaults.update(kwargs)
     return PIDConfig(**defaults)
 

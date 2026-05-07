@@ -63,7 +63,7 @@ def get_storage_status() -> Optional[StorageStatus]:
                 return None
         else:
             check_path = images_dir
-        total, used, free = shutil.disk_usage(check_path)
+        total, used, _ = shutil.disk_usage(check_path)
         used_pct = (used / total) * 100 if total > 0 else 0
         return {
             "images_dir": images_dir,

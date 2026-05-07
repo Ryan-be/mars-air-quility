@@ -88,8 +88,7 @@ def list_errors():
         limit = _DEFAULT_LIMIT
     if limit <= 0:
         limit = _DEFAULT_LIMIT
-    if limit > _MAX_LIMIT:
-        limit = _MAX_LIMIT
+    limit = min(limit, _MAX_LIMIT)
 
     # Build the query. JOIN to grow_units so each row carries unit_label.
     where = []

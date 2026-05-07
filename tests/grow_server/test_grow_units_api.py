@@ -297,8 +297,9 @@ def test_get_unit_watchdog_marks_pump_unresponsive_after_timeout_no_event(
 
     We bypass the full water_now POST (which needs a live WS registry) by
     poking the watchdog state directly — that's the unit under test here."""
-    from datetime import datetime as _dt, timedelta as _td
     from mlss_monitor.grow import health_watchdog
+    _dt = datetime
+    _td = timedelta
 
     db_path = str(tmp_path / "test.db")
     uid = _unit_id(client)
@@ -321,8 +322,9 @@ def test_get_unit_watchdog_does_not_mark_unresponsive_when_event_arrived(
 ):
     """If a watering_event landed AFTER the command timestamp, pump is
     working — don't mark unresponsive."""
-    from datetime import datetime as _dt, timedelta as _td
     from mlss_monitor.grow import health_watchdog
+    _dt = datetime
+    _td = timedelta
 
     db_path = str(tmp_path / "test.db")
     uid = _unit_id(client)

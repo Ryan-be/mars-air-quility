@@ -11,7 +11,6 @@ These tests exercise the small helpers in mlss_grow.service so the rest
 of the boot sequence (which needs real hardware) doesn't have to run.
 """
 from unittest.mock import MagicMock
-import pytest
 
 
 def test_try_init_with_health_returns_untested_when_init_succeeds():
@@ -54,7 +53,7 @@ def test_read_with_health_returns_no_hardware_when_read_returns_empty():
     from mlss_grow.service import _read_with_health
     sensor = MagicMock()
     sensor.read.return_value = {}
-    reading, health = _read_with_health(sensor, "soil_moisture")
+    _, health = _read_with_health(sensor, "soil_moisture")
     assert health == "no_hardware"
 
 

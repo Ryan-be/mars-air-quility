@@ -4,14 +4,14 @@ import json
 import sqlite3
 import struct
 import tempfile
-from datetime import datetime
 import pytest
 import websockets
 
 
 @pytest.fixture
 def setup(tmp_path, monkeypatch):
-    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False); tmp.close()
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)  # pylint: disable=R1732,multiple-statements
+    tmp.close()
     img_dir = tmp_path / "images"
     import database.init_db as init_db
     init_db.DB_FILE = tmp.name
@@ -45,7 +45,7 @@ def setup(tmp_path, monkeypatch):
     _clear_auth_cache()
     registry = WSRegistry()
     handle = start_ws_listener("127.0.0.1", 0, registry)
-    port = handle.sockets[0].getsockname()[1]
+    port = handle.sockets[0].getsockname()[1]  # pylint: disable=no-member
 
     yield raw_key, port, tmp.name, str(img_dir), registry
     stop_ws_listener(handle)
@@ -58,7 +58,8 @@ async def test_full_lifecycle(setup):
     # 1. Enrol via REST
     from flask import Flask
     from mlss_monitor.routes.api_grow_enroll import api_grow_enroll_bp
-    app = Flask(__name__); app.register_blueprint(api_grow_enroll_bp)
+    app = Flask(__name__)
+    app.register_blueprint(api_grow_enroll_bp)
     enroll_resp = app.test_client().post("/api/grow/enroll", json={
         "enrollment_key": raw_key, "hardware_serial": "test-pi-001",
         "plant": {"name": "Test Tomato", "type": "tomato", "medium": "soil"},

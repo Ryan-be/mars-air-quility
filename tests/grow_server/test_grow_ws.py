@@ -12,7 +12,7 @@ import websockets
 @pytest.fixture
 def server(monkeypatch):
     """Start the WS listener on a random port with a freshly-enrolled unit."""
-    tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)  # pylint: disable=R1732
     tmp_db.close()
     import database.init_db as init_db
     init_db.DB_FILE = tmp_db.name
@@ -44,7 +44,7 @@ def server(monkeypatch):
     _clear_auth_cache()
     registry = WSRegistry()
     handle = start_ws_listener(host="127.0.0.1", port=0, registry=registry)
-    port = handle.sockets[0].getsockname()[1]
+    port = handle.sockets[0].getsockname()[1]  # pylint: disable=no-member
 
     yield port, raw, tmp_db.name, registry
 
@@ -57,7 +57,7 @@ async def test_connect_with_valid_bearer_token_succeeds(server):
     async with websockets.connect(
         f"ws://127.0.0.1:{port}/api/grow/1/ws",
         extra_headers={"Authorization": f"Bearer {token}"},
-    ) as ws:
+    ) as _ws:
         await asyncio.sleep(0.1)
         assert registry.is_connected(1) is True
 
@@ -371,7 +371,7 @@ async def test_real_ws_connect_and_disconnect_writes_grow_errors_rows(server):
     async with websockets.connect(
         f"ws://127.0.0.1:{port}/api/grow/1/ws",
         extra_headers={"Authorization": f"Bearer {token}"},
-    ) as ws:
+    ) as _ws:
         # Brief breather so the server-side _record_connection_event("online")
         # actually runs before we exit the context manager.
         await asyncio.sleep(0.1)
@@ -410,7 +410,7 @@ def _make_fake_serve(captured):
         closed = asyncio.Event()
         srv = MagicMock()
         srv.sockets = []
-        srv.close = lambda: closed.set()
+        srv.close = closed.set
 
         async def _wait_closed():
             await closed.wait()

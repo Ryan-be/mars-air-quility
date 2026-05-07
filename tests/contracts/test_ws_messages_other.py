@@ -108,4 +108,5 @@ def test_ack_payload_was_removed():
     existing telemetry/event channels aren't enough.
     """
     with pytest.raises(ImportError):
+        # pylint: disable=no-name-in-module,unused-import,import-outside-toplevel
         from mlss_contracts.ws_messages import AckPayload  # noqa: F401

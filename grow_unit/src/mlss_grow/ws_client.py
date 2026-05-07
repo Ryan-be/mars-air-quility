@@ -242,6 +242,9 @@ class WSClient:
     async def _receive_loop(self) -> None:
         if self._ws is None:
             return
+        # asyncio.CancelledError inherits from BaseException (Python 3.8+),
+        # not Exception — so the broad `except Exception` below cleanly skips
+        # it and cancellation propagates without an explicit re-raise.
         try:
             async for msg in self._ws:
                 if isinstance(msg, str):
@@ -251,8 +254,6 @@ class WSClient:
                             self._on_command(parsed["payload"])
                     except Exception as exc:
                         log.warning("bad incoming message: %s", exc)
-        except asyncio.CancelledError:
-            raise
         except Exception as exc:
             log.warning("receive loop ended: %s", exc)
             self._ws = None

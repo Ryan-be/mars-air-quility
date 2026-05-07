@@ -17,6 +17,7 @@ import pytest
 def app_with_wheels(monkeypatch, tmp_path):
     """Real app with fake wheel files in a tmp dist dir."""
     # DB
+    # pylint: disable=R1732  # delete=False + close() pattern: we only want the path
     tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
     tmp.close()
     import database.init_db as init_db

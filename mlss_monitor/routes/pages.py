@@ -4,7 +4,7 @@ from flask import Blueprint, redirect, render_template, session, url_for
 
 from mlss_monitor import state
 from mlss_monitor.grow.storage_check import get_storage_status
-from mlss_monitor.rbac import current_role, require_role
+from mlss_monitor.rbac import require_role
 
 pages_bp = Blueprint("pages", __name__)
 

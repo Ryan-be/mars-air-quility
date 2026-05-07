@@ -29,7 +29,6 @@ clears the auth cache. No test reads or writes shared state across runs.
 import asyncio
 import json
 import sqlite3
-import struct
 import tempfile
 from datetime import datetime
 from unittest.mock import MagicMock
@@ -136,7 +135,7 @@ async def configured_stack(monkeypatch):
       fake_firmware: connected _FakeFirmware instance
     """
     # ── 1. Tmp DB + DB_FILE patches across every grow module ──
-    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)  # pylint: disable=R1732
     tmp.close()
     import database.init_db as init_db
     import database.db_logger as dbl
@@ -188,7 +187,7 @@ async def configured_stack(monkeypatch):
     _clear_auth_cache()
     registry = WSRegistry()
     handle = start_ws_listener(host="127.0.0.1", port=0, registry=registry)
-    port = handle.sockets[0].getsockname()[1]
+    port = handle.sockets[0].getsockname()[1]  # pylint: disable=no-member
 
     # ── 4. Wire the registry + listener-loop into state so the Flask
     #      route's _push_config_changed and synchronous safety_override
@@ -199,10 +198,9 @@ async def configured_stack(monkeypatch):
 
     # ── 5. Boot the real Flask app with OAuth-on posture ──
     import mlss_monitor.app as app_module
-    import mlss_monitor.state as app_state
     monkeypatch.setattr(app_module, "LOG_INTERVAL", 99999)
-    monkeypatch.setattr(app_state, "fan_smart_plug", MagicMock())
-    monkeypatch.setattr(app_state, "github_oauth", MagicMock())  # auth ON
+    monkeypatch.setattr(state, "fan_smart_plug", MagicMock())
+    monkeypatch.setattr(state, "github_oauth", MagicMock())  # auth ON
     app_module.app.config["TESTING"] = True
     app_module.app.config["SECRET_KEY"] = "test-secret-e2e"
 

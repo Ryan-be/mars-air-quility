@@ -7,11 +7,8 @@ safety_override stalled it for 60s the unit would appear offline to
 the server while the override was running. invoke_safety_override
 schedules the off-flip on a timer thread and returns immediately.
 """
-import threading
 import time as time_mod
 from unittest.mock import MagicMock
-
-import pytest
 
 from mlss_grow.safety_override import (
     SafetyOverrideState,

@@ -24,7 +24,7 @@ def client(monkeypatch):
     """Mount the errors blueprint against a fresh DB seeded with two grow
     units. Tests then inject grow_errors rows with raw sqlite3.
     """
-    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)  # pylint: disable=R1732
     tmp.close()
     import database.init_db as init_db
     init_db.DB_FILE = tmp.name

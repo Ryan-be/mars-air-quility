@@ -20,6 +20,8 @@ jobs:
         pip install poetry
         poetry install --with dev
         poetry run pip install pylint
+        poetry run pip install -e ./contracts
+        poetry run pip install -e ./grow_unit
     - name: Run pylint
       run: |
         poetry run pylint $(git ls-files '*.py')

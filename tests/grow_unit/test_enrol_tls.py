@@ -13,7 +13,6 @@ visible in logs.
 """
 import logging
 from unittest.mock import MagicMock
-import pytest
 from mlss_grow.enrol import enroll_unit
 from mlss_grow.config import FirstbootConfig
 

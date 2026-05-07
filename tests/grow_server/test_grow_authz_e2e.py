@@ -15,7 +15,7 @@ import pytest
 @pytest.fixture
 def real_app_client(monkeypatch):
     """Spin up the actual mlss_monitor.app.app with grow plumbing wired in."""
-    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)  # pylint: disable=R1732
     tmp.close()
     import database.init_db as init_db
     import database.db_logger as dbl

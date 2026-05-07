@@ -7,7 +7,7 @@ import pytest
 
 @pytest.fixture
 def client(monkeypatch):
-    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)  # pylint: disable=R1732
     tmp.close()
     import database.init_db as init_db
     init_db.DB_FILE = tmp.name
@@ -46,7 +46,7 @@ def client(monkeypatch):
 @pytest.fixture
 def empty_client(monkeypatch):
     """Fresh DB with a unit but NO telemetry/watering rows."""
-    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)  # pylint: disable=R1732
     tmp.close()
     import database.init_db as init_db
     init_db.DB_FILE = tmp.name
@@ -72,7 +72,7 @@ def empty_client(monkeypatch):
 @pytest.fixture
 def seed_client(monkeypatch):
     """Fresh DB with a unit but no telemetry — caller seeds via _seed_telemetry."""
-    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)  # pylint: disable=R1732
     tmp.close()
     import database.init_db as init_db
     init_db.DB_FILE = tmp.name

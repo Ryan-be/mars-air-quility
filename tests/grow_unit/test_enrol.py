@@ -1,5 +1,5 @@
 """enroll_unit: POST /api/grow/enroll, returns (unit_id, token)."""
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from mlss_grow.enrol import enroll_unit, EnrollmentError
 from mlss_grow.config import FirstbootConfig
 import pytest

@@ -10,7 +10,7 @@ Dev/test: no cert path → CERT_NONE + warning.
 """
 import logging
 import ssl
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 import pytest
 from mlss_grow.ws_client import WSClient, _default_connect
 

@@ -51,7 +51,7 @@ def test_enroll_with_valid_key_creates_unit_and_returns_token(client):
 
 
 def test_enroll_idempotent_returns_existing_unit(client):
-    c, raw_key, db_path = client
+    c, raw_key, _ = client
     r1 = c.post("/api/grow/enroll", json={
         "enrollment_key": raw_key,
         "hardware_serial": "100000000c0a8014b",

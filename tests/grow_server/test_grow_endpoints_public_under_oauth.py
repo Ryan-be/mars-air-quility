@@ -54,7 +54,7 @@ def oauth_on_client(monkeypatch, tmp_path):
     POST a valid enrollment, request wheels by name, etc.
     """
     # 1. Temp DB so the seed-on-first-run gives us an enrollment key.
-    db_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    db_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)  # pylint: disable=R1732
     db_file.close()
     import database.init_db as init_db
     init_db.DB_FILE = db_file.name

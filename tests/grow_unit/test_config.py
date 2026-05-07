@@ -51,7 +51,8 @@ def test_load_token_returns_none_if_file_missing(tmp_path):
 
 
 def test_save_token_sets_mode_0600(tmp_path):
-    import os, stat
+    import os
+    import stat
     token_path = str(tmp_path / "grow.token")
     save_token(token_path, unit_id=1, token="x")
     mode = stat.S_IMODE(os.stat(token_path).st_mode)

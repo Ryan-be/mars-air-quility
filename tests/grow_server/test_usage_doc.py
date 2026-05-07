@@ -3,7 +3,8 @@ from pathlib import Path
 DOC = Path(__file__).resolve().parent.parent.parent / "docs" / "PLANT_GROW_UNIT_USAGE.md"
 
 
-def test_doc_exists(): assert DOC.exists()
+def test_doc_exists():
+    assert DOC.exists()
 
 
 def test_doc_covers_user_topics():

@@ -72,7 +72,7 @@ def tls_server(monkeypatch, tmp_path):
     cert_path, key_path = _gen_self_signed(tmp_path)
 
     # DB
-    tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)  # pylint: disable=R1732
     tmp_db.close()
     import database.init_db as init_db
     init_db.DB_FILE = tmp_db.name
@@ -110,7 +110,7 @@ def tls_server(monkeypatch, tmp_path):
         registry=registry,
         ssl_context=ctx,
     )
-    port = handle.sockets[0].getsockname()[1]
+    port = handle.sockets[0].getsockname()[1]  # pylint: disable=no-member
 
     yield port, raw, registry
 
@@ -136,7 +136,7 @@ async def test_wss_connection_succeeds_with_valid_cert_and_token(tls_server):
         f"wss://127.0.0.1:{port}/api/grow/1/ws",
         ssl=client_ctx,
         extra_headers={"Authorization": f"Bearer {token}"},
-    ) as ws:
+    ) as _ws:
         await asyncio.sleep(0.1)
         assert registry.is_connected(1) is True
 
@@ -162,7 +162,7 @@ def tls_server_with_cert_path(monkeypatch, tmp_path):
     WSClient can pin against it (mirrors /etc/mlss/server.crt in prod)."""
     cert_path, key_path = _gen_self_signed(tmp_path)
 
-    tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)  # pylint: disable=R1732
     tmp_db.close()
     import database.init_db as init_db
     init_db.DB_FILE = tmp_db.name
@@ -195,7 +195,7 @@ def tls_server_with_cert_path(monkeypatch, tmp_path):
     handle = start_ws_listener(
         host="127.0.0.1", port=0, registry=registry, ssl_context=ctx,
     )
-    port = handle.sockets[0].getsockname()[1]
+    port = handle.sockets[0].getsockname()[1]  # pylint: disable=no-member
 
     yield port, raw, registry, cert_path
     stop_ws_listener(handle)
@@ -230,7 +230,7 @@ async def test_ws_client_handshakes_with_pinned_cert_against_self_signed_listene
         url=f"wss://127.0.0.1:{port}/api/grow/1/ws",
         token=token,
         buffer_db_path=":memory:",  # not used for this test
-        on_command=lambda cmd: received_commands.append(cmd),
+        on_command=received_commands.append,
         server_cert_path=cert_path,
     )
 
@@ -260,8 +260,9 @@ async def test_ws_client_fails_when_pinned_cert_is_for_a_different_host(
     from cryptography.hazmat.primitives import hashes, serialization
     from cryptography.hazmat.primitives.asymmetric import rsa
     from cryptography.x509.oid import NameOID
-    from datetime import datetime as _dt, timedelta as _td
     from mlss_grow.ws_client import WSClient
+    _dt = datetime
+    _td = timedelta
 
     port, token, _, _ = tls_server_with_cert_path
 

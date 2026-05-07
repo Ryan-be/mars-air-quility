@@ -76,6 +76,7 @@ def sense_stack(tmp_path, monkeypatch):
     # snapshots DB_FILE at import time sees the test path. The watchdog
     # is patched too because it reads grow_watering_events / grow_telemetry
     # directly to evaluate the unresponsive condition.
+    # pylint: disable=R1732  # delete=False + close() pattern: we only want the path
     tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
     tmp.close()
     import database.init_db as init_db

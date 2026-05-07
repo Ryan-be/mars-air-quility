@@ -5,9 +5,6 @@ mapping directly. The end-to-end behaviour (drop bad frames, keep
 connection up, log warning) is covered in test_grow_ws.py.
 """
 import logging
-from unittest.mock import patch
-
-import pytest
 
 
 def test_validation_map_covers_all_handler_message_types():

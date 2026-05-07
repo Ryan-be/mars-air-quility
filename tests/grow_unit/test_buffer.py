@@ -1,5 +1,4 @@
 """LocalBuffer: append messages, replay in timestamp order, prune by age."""
-import time
 from datetime import datetime, timedelta
 from mlss_grow.buffer import LocalBuffer, _BYTE_CAP_CHECK_EVERY
 

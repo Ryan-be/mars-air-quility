@@ -5,8 +5,7 @@ to match the schedule, PID decisions trigger pump pulses, events get
 emitted to the supplied callback.
 """
 import logging
-from dataclasses import dataclass
-from datetime import datetime, time, timedelta
+from datetime import datetime, timedelta
 from unittest.mock import MagicMock
 from mlss_grow.safety_loop import SafetyLoop, LoopConfig
 from mlss_grow.pid import PIDConfig, PIDState
@@ -665,7 +664,6 @@ def test_safety_loop_does_not_save_when_in_deadband(tmp_path):
         "last_pulse_at_iso": "2025-12-31T23:59:59",
     }
     state_path.write_text(json.dumps(seed))
-    mtime_before = state_path.stat().st_mtime_ns
 
     # Soil at target (55%) → error 0 → in deadband, no fire.
     sensor = MagicMock(channels=lambda: ["soil_moisture"],

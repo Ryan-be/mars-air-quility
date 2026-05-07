@@ -60,7 +60,7 @@ def enroll_unit(cfg: FirstbootConfig, hardware_serial: str) -> tuple[int, str]:
     try:
         resp = requests.post(url, json=body, timeout=30, verify=verify)
     except requests.RequestException as exc:
-        raise EnrollmentError(f"network error contacting {url}: {exc}")
+        raise EnrollmentError(f"network error contacting {url}: {exc}") from exc
 
     if resp.status_code != 201:
         raise EnrollmentError(f"enrollment failed (HTTP {resp.status_code}): {resp.text}")

@@ -1,5 +1,4 @@
 """systemd unit file is well-formed and references the right entrypoint."""
-import os
 import re
 from pathlib import Path
 

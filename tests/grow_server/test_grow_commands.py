@@ -10,7 +10,7 @@ import pytest
 
 @pytest.fixture
 def client(monkeypatch):
-    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)  # pylint: disable=R1732
     tmp.close()
     import database.init_db as init_db
     init_db.DB_FILE = tmp.name
@@ -30,8 +30,10 @@ def client(monkeypatch):
     state.grow_ws_registry = WSRegistry()
 
     class FakeWS:
-        def __init__(self): self.sent = []
-        async def send(self, m): self.sent.append(m)
+        def __init__(self):
+            self.sent = []
+        async def send(self, m):
+            self.sent.append(m)
 
     fake_ws = FakeWS()
     state.grow_ws_registry.register(1, fake_ws)
@@ -101,14 +103,14 @@ def test_water_now_pushes_command_with_duration(client):
 
 def test_water_now_default_duration_is_5s(client):
     c, fake_ws = client
-    r = c.post("/api/grow/units/1/water-now", json={})
+    c.post("/api/grow/units/1/water-now", json={})
     cmd = json.loads(fake_ws.sent[0])
     assert cmd["payload"]["args"]["duration_s"] == 5
 
 
 def test_water_now_clamps_to_30s_safety_cap(client):
     c, fake_ws = client
-    r = c.post("/api/grow/units/1/water-now", json={"duration_s": 999})
+    c.post("/api/grow/units/1/water-now", json={"duration_s": 999})
     cmd = json.loads(fake_ws.sent[0])
     assert cmd["payload"]["args"]["duration_s"] == 30
 
@@ -118,14 +120,10 @@ def test_identify_send_failure_returns_503(monkeypatch):
     the endpoint surfaces 503 with send_failed instead of crashing 500."""
     from mlss_monitor.grow.ws_registry import WSRegistry
     from mlss_monitor import state
-    import asyncio
-    import sqlite3
-    import tempfile
-    from datetime import datetime
     from flask import Flask
     from mlss_monitor.routes.api_grow_units import api_grow_units_bp
 
-    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)  # pylint: disable=R1732
     tmp.close()
     import database.init_db as init_db
     init_db.DB_FILE = tmp.name
@@ -150,7 +148,6 @@ def test_identify_send_failure_returns_503(monkeypatch):
 
     # Spin up a real listener loop so run_coroutine_threadsafe has somewhere
     # to schedule against. The send will be scheduled there and raise.
-    import threading
     loop_ready = threading.Event()
     captured = {}
 

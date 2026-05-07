@@ -23,7 +23,7 @@ def _set_session(c, *, logged_in=True, role="admin"):
 
 @pytest.fixture
 def client(monkeypatch):
-    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)  # pylint: disable=R1732
     tmp.close()
     import database.init_db as init_db
     init_db.DB_FILE = tmp.name
