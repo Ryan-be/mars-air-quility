@@ -12,5 +12,10 @@
 </div>
 {% endblock %}
 {% block scripts %}
+  {# Plotly is required by the Live tab's watering-history chart (see
+     static/js/grow/components/sensor-event-chart.mjs). Without it the
+     chart silently shows "Plotly not loaded". Same plotly-basic flavour
+     the dashboard uses — bar+scatter is enough for what we render here. #}
+  <script src="https://cdn.plot.ly/plotly-basic-2.35.2.min.js" charset="utf-8"></script>
   <script type="module" src="{{ url_for('static', filename='js/grow/unit_detail.mjs') }}"></script>
 {% endblock %}

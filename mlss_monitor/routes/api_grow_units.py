@@ -63,15 +63,26 @@ def _classify_status(last_seen_at: str | None) -> str:
 
 
 def _last_known_state(conn: sqlite3.Connection, unit_id: int) -> dict | None:
-    """Build a `last_known_state` dict from the latest grow_telemetry row.
+    """Build a `last_known_state` dict for fleet/detail responses.
 
-    Returns None if no telemetry has ever been recorded for the unit.
-    Keys match what the frontend (grow-card.mjs, unit_detail.mjs) reads:
-    soil_moisture_pct/raw, light_state, pump_state, soil_temp_c,
-    ambient_lux, air_temp_c, air_humidity_pct, reservoir_level_pct.
-    Plus last_pulse_at — populated from grow_watering_events so the
-    Live tab's water-lock countdown actually has a value (the previous
-    JSON cache never wrote it).
+    Returns None only when the unit has produced NEITHER telemetry nor
+    photos — a unit with only-camera-connected (the "first deployment"
+    posture) needs `last_known_state` populated so the fleet card can
+    surface its latest photo even though no soil-moisture row exists yet.
+
+    Keys (consumed by static/js/grow/components/grow-card.mjs and
+    static/js/grow/unit_detail.mjs):
+      * soil_moisture_pct/raw, light_state, pump_state, soil_temp_c,
+        ambient_lux, air_temp_c, air_humidity_pct, reservoir_level_pct
+      * last_pulse_at  — last `grow_watering_events.timestamp_utc`,
+                         drives the Live tab's water-lock countdown
+      * last_photo_url — URL of the most recent grow_photos row, used as
+                         the fleet-card thumbnail. Points at the
+                         /photos/<id> endpoint (immutable per id, so the
+                         browser caches it indefinitely; URL changes
+                         when a fresh photo lands which busts the cache
+                         naturally). None when the unit has never been
+                         photographed.
     """
     row = conn.execute(
         "SELECT soil_moisture_raw, soil_moisture_pct, light_state, pump_state, "
@@ -81,19 +92,42 @@ def _last_known_state(conn: sqlite3.Connection, unit_id: int) -> dict | None:
         "ORDER BY timestamp_utc DESC LIMIT 1",
         (unit_id,),
     ).fetchone()
-    if row is None:
+    photo_row = conn.execute(
+        "SELECT id FROM grow_photos WHERE unit_id=? "
+        "ORDER BY taken_at DESC LIMIT 1",
+        (unit_id,),
+    ).fetchone()
+    last_photo_url = (
+        f"/api/grow/units/{unit_id}/photos/{photo_row['id']}"
+        if photo_row else None
+    )
+
+    if row is None and last_photo_url is None:
+        # No data of any kind for this unit yet — preserves the previous
+        # contract (None when there's truly nothing to surface).
         return None
-    state: dict = {col: row[col] for col in _TELEMETRY_STATE_COLUMNS}
-    # SQLite stores light/pump_state as INTEGER 0/1; surface as bool to
-    # match the previous JSON-cache shape the frontend expects.
-    state["light_state"] = bool(state["light_state"])
-    state["pump_state"] = bool(state["pump_state"])
+
+    if row is None:
+        # Photo-only path: unit has captured a photo but no telemetry has
+        # ever been recorded (e.g. camera wired up before soil sensor).
+        # Stub all telemetry fields with None so the fleet card's
+        # `last.soil_moisture_pct != null` checks fall through to the
+        # "—" placeholder rather than crashing on a missing field.
+        state: dict = {col: None for col in _TELEMETRY_STATE_COLUMNS}
+    else:
+        state = {col: row[col] for col in _TELEMETRY_STATE_COLUMNS}
+        # SQLite stores light/pump_state as INTEGER 0/1; surface as bool
+        # to match the previous JSON-cache shape the frontend expects.
+        state["light_state"] = bool(state["light_state"])
+        state["pump_state"] = bool(state["pump_state"])
+
     pulse_row = conn.execute(
         "SELECT timestamp_utc FROM grow_watering_events "
         "WHERE unit_id=? ORDER BY timestamp_utc DESC LIMIT 1",
         (unit_id,),
     ).fetchone()
     state["last_pulse_at"] = pulse_row["timestamp_utc"] if pulse_row else None
+    state["last_photo_url"] = last_photo_url
     return state
 
 

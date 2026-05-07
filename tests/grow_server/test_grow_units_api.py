@@ -77,6 +77,113 @@ def test_list_includes_last_known_state(client):
     assert tomato["last_known_state"]["soil_moisture_pct"] == 58
 
 
+def test_list_last_known_state_includes_last_photo_url_when_photo_exists(
+    client, monkeypatch, tmp_path,
+):
+    """Fleet-card photo bug fix: last_known_state must surface a
+    `last_photo_url` field pointing at the most recent grow_photos row.
+
+    Without this, grow-card.mjs sees `unit.last_known_state?.last_photo_url`
+    as undefined and shows "— No photo yet —" even on units that have
+    captured photos. Caught during first physical deployment when a
+    camera-only unit still showed the empty placeholder.
+
+    The URL points at /photos/<id> (immutable, cacheable) rather than
+    /photo/latest (which would re-fetch every fleet poll defeating the
+    cache headers we just added).
+    """
+    # Use the existing fixture's DB and seed a photo for unit 1.
+    import database.init_db as init_db
+    db_path = init_db.DB_FILE
+    conn = sqlite3.connect(db_path)
+    cur = conn.execute(
+        "INSERT INTO grow_photos (unit_id, taken_at, file_path, "
+        "width_px, height_px, size_bytes) VALUES (1, ?, ?, 100, 100, 9)",
+        (datetime.utcnow(), "unit_001/2026-05-07/120000.jpg"),
+    )
+    photo_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+
+    r = client.get("/api/grow/units")
+    tomato = next(u for u in r.get_json()["units"] if u["label"] == "Tomato 1")
+    expected = f"/api/grow/units/1/photos/{photo_id}"
+    assert tomato["last_known_state"]["last_photo_url"] == expected
+
+
+def test_list_last_known_state_last_photo_url_null_when_no_photos(client):
+    """Units with no photos get last_photo_url=None — frontend's
+    `?? null` then surfaces the "— No photo yet —" placeholder."""
+    r = client.get("/api/grow/units")
+    tomato = next(u for u in r.get_json()["units"] if u["label"] == "Tomato 1")
+    # Telemetry exists, but no photos for this unit yet
+    assert tomato["last_known_state"]["last_photo_url"] is None
+
+
+def test_list_last_known_state_present_for_photo_only_unit(
+    client, monkeypatch, tmp_path,
+):
+    """Camera-only deployment posture: a unit with photos but ZERO
+    telemetry rows must still have a populated last_known_state so
+    the fleet card can render the photo. Pre-fix, _last_known_state
+    returned None when telemetry was missing, hiding the photo even
+    though one had been captured.
+    """
+    import database.init_db as init_db
+    db_path = init_db.DB_FILE
+    conn = sqlite3.connect(db_path)
+    # Brand-new unit with no telemetry, but seed one photo
+    conn.execute(
+        "INSERT INTO grow_units (id, hardware_serial, label, enrolled_at, "
+        "bearer_token_hash, phase_set_at, last_seen_at) "
+        "VALUES (3, 'hw-3', 'Camera-only', ?, 'h3', ?, ?)",
+        (datetime.utcnow(), datetime.utcnow(), datetime.utcnow()),
+    )
+    cur = conn.execute(
+        "INSERT INTO grow_photos (unit_id, taken_at, file_path, "
+        "width_px, height_px, size_bytes) VALUES (3, ?, ?, 100, 100, 9)",
+        (datetime.utcnow(), "unit_003/2026-05-07/120000.jpg"),
+    )
+    photo_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+
+    r = client.get("/api/grow/units")
+    cam = next(u for u in r.get_json()["units"] if u["label"] == "Camera-only")
+    # last_known_state must NOT be None — that's the bug we're closing.
+    assert cam["last_known_state"] is not None
+    assert cam["last_known_state"]["last_photo_url"] == \
+        f"/api/grow/units/3/photos/{photo_id}"
+    # Telemetry-derived fields are None (we don't fabricate readings):
+    assert cam["last_known_state"]["soil_moisture_pct"] is None
+    assert cam["last_known_state"]["light_state"] is None
+
+
+def test_list_last_known_state_still_none_for_zero_data_unit(
+    client, monkeypatch, tmp_path,
+):
+    """Preserve the previous None contract: a unit with NEITHER
+    telemetry NOR photos still gets last_known_state=None (so the
+    grow-card's `unit.last_known_state || {}` fallback continues to
+    work for never-talked-to units).
+    """
+    import database.init_db as init_db
+    db_path = init_db.DB_FILE
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "INSERT INTO grow_units (id, hardware_serial, label, enrolled_at, "
+        "bearer_token_hash, phase_set_at) "
+        "VALUES (4, 'hw-4', 'Brand-new', ?, 'h4', ?)",
+        (datetime.utcnow(), datetime.utcnow()),
+    )
+    conn.commit()
+    conn.close()
+
+    r = client.get("/api/grow/units")
+    bn = next(u for u in r.get_json()["units"] if u["label"] == "Brand-new")
+    assert bn["last_known_state"] is None
+
+
 def test_detail_returns_full_unit(client):
     list_resp = client.get("/api/grow/units").get_json()
     unit_id = next(u["id"] for u in list_resp["units"] if u["label"] == "Tomato 1")
