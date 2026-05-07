@@ -153,8 +153,15 @@ verify_sha "$TMP/${SERVICE_FILENAME}" "$SERVICE_SHA256"
 echo "==> Creating venv and installing wheels"
 sudo -u mlss-grow python3 -m venv /opt/mlss-grow/.venv
 sudo -u mlss-grow /opt/mlss-grow/.venv/bin/pip install --upgrade pip
+# --find-links "$TMP" makes pip prefer our SHA256-verified mlss_grow +
+# mlss_contracts wheels for those two packages. Transitive deps (Pillow,
+# pydantic, websockets, etc.) come from PyPI — we don't ship a full
+# wheelhouse, and the Pi has internet for apt anyway. Don't add
+# --no-index here: it would block the transitive resolution and pip
+# fails with "No matching distribution" even though the deps are
+# perfectly fetchable from PyPI.
 sudo -u mlss-grow /opt/mlss-grow/.venv/bin/pip install \
-    --no-index --find-links "$TMP" \
+    --find-links "$TMP" \
     "mlss_grow==${GROW_VER}" \
     "mlss_contracts==${CONTRACTS_VER}"
 

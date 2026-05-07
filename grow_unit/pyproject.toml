@@ -6,11 +6,16 @@ authors = ["MLSS"]
 packages = [{include = "mlss_grow", from = "src"}]
 
 [tool.poetry.dependencies]
-python = "^3.11"
+# 3.11 is the minimum the firmware was developed against; Pi OS Lite
+# Bookworm ships 3.11 and Trixie ships 3.13. Allow up to but excluding
+# the next major (4.x) so the firmware tracks Pi OS upgrades.
+python = ">=3.11,<4.0"
 websockets = "^12.0"
 pydantic = "^2.0"
 pyyaml = "^6.0"
-Pillow = "^10.0"
+# Pillow >=10,<12 — Pillow 10 lacks Python 3.13 wheels, so the lower
+# bound stays at 10 for dev compat but Trixie Pis will install 11.x.
+Pillow = ">=10.0,<12.0"
 requests = "^2.31"
 mlss-contracts = {path = "../contracts", develop = true}
 
