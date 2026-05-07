@@ -52,3 +52,61 @@ test("renderQuickControls: water-now enabled when not locked", () => {
   const btn = el.querySelector("[data-action='water-now']");
   assert.equal(btn.disabled, false);
 });
+
+
+// ---------------------------------------------------------------------------
+// Phase 2 — capability `health` field drives sense-only-mode UI degradation.
+// First-deployment scenario: camera + soil moisture sensor wired but pump
+// + grow light not yet powered. Buttons must visibly grey out without an
+// explicit "disabled mode" toggle, so the user knows clicking water_now
+// won't actually pulse the pump.
+// ---------------------------------------------------------------------------
+
+
+function unitWithCap(channel, health) {
+  return {
+    id: 1,
+    capabilities: [
+      { channel, hardware: "x", is_required: false, unit_label: "x", health },
+    ],
+  };
+}
+
+
+test("renderQuickControls: connected pump → normal styling on water-now", () => {
+  const el = renderQuickControls(unitWithCap("pump", "connected"), document);
+  const btn = el.querySelector("[data-action='water-now']");
+  assert.equal(btn.disabled, false);
+  assert.doesNotMatch(btn.className, /greyed|unresponsive|no-hardware/);
+});
+
+
+test("renderQuickControls: untested pump → greyed but clickable", () => {
+  const el = renderQuickControls(unitWithCap("pump", "untested"), document);
+  const btn = el.querySelector("[data-action='water-now']");
+  // Clickable: lets the user kick off the first test pulse once the PSU
+  // is wired up.
+  assert.equal(btn.disabled, false);
+  assert.match(btn.className, /greyed/);
+  assert.match(btn.title || "", /test|psu/i);
+});
+
+
+test("renderQuickControls: unresponsive pump → greyed AND disabled", () => {
+  const el = renderQuickControls(unitWithCap("pump", "unresponsive"), document);
+  const btn = el.querySelector("[data-action='water-now']");
+  assert.equal(btn.disabled, true);
+  assert.match(btn.className, /greyed/);
+  assert.match(btn.className, /unresponsive/);
+  assert.match(btn.title || "", /power|cabling|reach/i);
+});
+
+
+test("renderQuickControls: no_hardware light → light-toggle greyed AND disabled", () => {
+  const el = renderQuickControls(unitWithCap("light", "no_hardware"), document);
+  const btn = el.querySelector("[data-action='light-toggle']");
+  assert.equal(btn.disabled, true);
+  assert.match(btn.className, /greyed/);
+  assert.match(btn.className, /no-hardware/);
+  assert.match(btn.title || "", /not detected|hardware/i);
+});

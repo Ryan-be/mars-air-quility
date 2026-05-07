@@ -14,6 +14,7 @@ from flask import Blueprint, jsonify, request
 
 from database.init_db import DB_FILE
 from mlss_monitor import state
+from mlss_monitor.grow import health_watchdog
 from mlss_monitor.rbac import require_role
 
 api_grow_units_bp = Blueprint("api_grow_units", __name__)
@@ -95,16 +96,33 @@ def get_unit(unit_id):
         if row["last_known_state_json"] else None
     )
     body.pop("last_known_state_json", None)
-    body["capabilities"] = [
-        {
+    body["capabilities"] = []
+    for c in caps:
+        details = json.loads(c["details_json"]) if c["details_json"] else {}
+        # Sense-only-mode (Phase 2): the persisted health drives UI
+        # degradation. Old rows written before the migration may not
+        # have a health key — fall back to "untested" so the frontend
+        # has a sane default to render.
+        persisted_health = details.get("health", "untested") if details else "untested"
+        # Strip `health` from the surfaced details payload so we don't
+        # double-expose the same value as both top-level and nested.
+        details_for_payload = {k: v for k, v in (details or {}).items() if k != "health"}
+        # Lazy watchdog overlay: if a recent command went unanswered,
+        # report unresponsive in this response only. The persisted
+        # health stays alone — the next confirming telemetry/event will
+        # promote it back via _promote_capability_health.
+        health = persisted_health
+        if c["channel"] in ("pump", "light"):
+            if health_watchdog.check_unresponsive(unit_id, c["channel"]):
+                health = "unresponsive"
+        body["capabilities"].append({
             "channel": c["channel"],
             "hardware": c["hardware"],
             "is_required": bool(c["is_required"]),
             "unit_label": c["unit_label"],
-            "details": json.loads(c["details_json"]) if c["details_json"] else None,
-        }
-        for c in caps
-    ]
+            "details": details_for_payload or None,
+            "health": health,
+        })
     # Configure-tab Task 5: surface PID/profile overrides + soil calibration +
     # light_windows so the frontend can render current values + "(default)" vs
     # "(custom)" indicators without a separate fetch. Field names strip the
@@ -192,4 +210,11 @@ def water_now(unit_id):
         "name": "water_now",
         "args": {"duration_s": duration_s},
     })
+    # Watchdog: only record AFTER a successful 202 from the registry.
+    # Recording on 503/504 would mean we mark "unresponsive" for commands
+    # the unit never received in the first place — the user needs to know
+    # the unit is offline (which 503 already conveys), not that the pump
+    # itself is broken.
+    if status == 202:
+        health_watchdog.record_command_sent(unit_id, "pump")
     return jsonify(body), status

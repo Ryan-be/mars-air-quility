@@ -69,6 +69,20 @@
 .du-act-btn:hover:not(:disabled) { border-color: #4dacff; color: #4dacff; }
 .du-act-btn.primary { background: #4dacff; color: #001028; border-color: #4dacff; }
 .du-act-btn.locked, .du-act-btn:disabled { background: #0e1722; color: #4a5d72; border-color: #1f2e3c; cursor: not-allowed; opacity: 0.85; }
+/* Sense-only-mode (Phase 2): health-state styling for capability buttons.
+   .greyed alone = "untested" (clickable so user can kick off a test).
+   .greyed + .unresponsive / .no-hardware = button also disabled by JS. */
+.du-act-btn.greyed { opacity: 0.5; }
+.du-act-btn.greyed:not(:disabled) { cursor: pointer; }
+.du-act-btn.unresponsive { border-color: #c84747; color: #c84747; }
+.du-act-btn.no-hardware { border-color: #555; color: #777; }
+/* Optional pill rendered in stat tiles when a sensor capability isn't
+   reading cleanly. The four-corner placement keeps it from crowding the
+   stat value while still being unmissable. */
+.cap-health-pill { display: inline-block; font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 6px; border-radius: 2px; margin-left: 6px; vertical-align: middle; }
+.cap-health-pill.untested { background: #2a3a4d; color: #7d92a8; }
+.cap-health-pill.unresponsive { background: #4d2424; color: #c84747; }
+.cap-health-pill.no-hardware { background: #2c3540; color: #888; }
 .du-photo-hero { aspect-ratio: 16/9; background: #0a1219; }
 
 .du-schedule-bar { padding: 14px; }

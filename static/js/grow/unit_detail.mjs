@@ -198,6 +198,62 @@ export function computeWaterLockedUntil(lastPulseAt, soakWindowMin, now = new Da
 }
 
 
+/** Look up the health flag for an actuator capability.
+ *  Returns "connected" by default (so units without an explicit health
+ *  field render normally). Returns null if the capability isn't present
+ *  at all — caller decides whether to skip the button entirely.
+ *
+ *  Phase 2 sense-only-mode: this is the single read-point for actuator
+ *  health from the rendered fleet/detail JSON — keep it tiny + pure so
+ *  tests can poke it directly.
+ */
+export function actuatorHealth(unit, channel) {
+  const cap = (unit.capabilities || []).find(c => c.channel === channel);
+  if (!cap) return null;
+  return cap.health || "connected";
+}
+
+
+/** Mutate `btn` based on capability health. Side-effects only (sets
+ *  className, disabled, title) — pure function over the input states.
+ *
+ *  Health states (Phase 2 sense-only-mode):
+ *    - "connected"    → no-op (button looks normal)
+ *    - "untested"     → greyed BUT clickable (lets user kick off a test)
+ *    - "unresponsive" → greyed AND disabled (last command went unanswered)
+ *    - "no_hardware"  → greyed AND disabled (init failed at boot)
+ */
+export function applyHealthStyling(btn, health) {
+  if (!health || health === "connected") return;
+  btn.classList.add("greyed");
+  if (health === "untested") {
+    btn.title = "Click to test — connect 12V PSU to Automation HAT first";
+  } else if (health === "unresponsive") {
+    btn.classList.add("unresponsive");
+    btn.disabled = true;
+    btn.title = "Last command didn't reach the unit. Check power + cabling.";
+  } else if (health === "no_hardware") {
+    btn.classList.add("no-hardware");
+    btn.disabled = true;
+    btn.title = "Hardware not detected at boot.";
+  }
+}
+
+
+/** Map a Quick Controls action to the actuator channel it drives.
+ *  Returns null for actions that aren't directly tied to a single
+ *  hardware channel (identify blinks the light, but greying it out
+ *  on a no_hardware light would block the diagnostic too — leave it
+ *  alone). Snap-photo also stays unaffected: a no_hardware camera
+ *  would fail at boot loud enough to surface elsewhere.
+ */
+function actionToChannel(action) {
+  if (action === "water-now") return "pump";
+  if (action === "light-toggle") return "light";
+  return null;
+}
+
+
 export function renderQuickControls(unit, doc = document) {
   const panel = doc.createElement("div");
   panel.className = "du-panel";
@@ -231,6 +287,15 @@ export function renderQuickControls(unit, doc = document) {
     btn.disabled = !b.enabled;
     btn.textContent = b.label;
     if (b.tooltip) btn.title = b.tooltip;
+
+    // Phase 2 sense-only-mode: overlay health styling AFTER the lock-state
+    // logic above. Health-based disable wins — a no_hardware pump must
+    // stay disabled even if the soak timer has elapsed.
+    const channel = actionToChannel(b.action);
+    if (channel) {
+      applyHealthStyling(btn, actuatorHealth(unit, channel));
+    }
+
     body.appendChild(btn);
   }
 

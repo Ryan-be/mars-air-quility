@@ -50,3 +50,44 @@ def test_capability_rejects_unknown_channel():
             is_required=False,
             unit_label="x",
         )
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 — sense-only-mode capability `health` field. Each capability now
+# carries a four-state health flag stored in details_json on the server side.
+# Default is "untested" so a fresh capability that the firmware just declared
+# but has never observed working is not mistakenly rendered as "connected".
+# ---------------------------------------------------------------------------
+
+
+def test_capability_default_health_is_untested():
+    c = Capability(
+        channel=Channel.PUMP,
+        hardware="automation_phat",
+        is_required=False,
+        unit_label="bool",
+    )
+    assert c.health == "untested"
+
+
+def test_capability_accepts_each_valid_health_value():
+    for value in ("connected", "untested", "unresponsive", "no_hardware"):
+        c = Capability(
+            channel=Channel.PUMP,
+            hardware="automation_phat",
+            is_required=False,
+            unit_label="bool",
+            health=value,
+        )
+        assert c.health == value
+
+
+def test_capability_rejects_invalid_health_value():
+    with pytest.raises(ValidationError):
+        Capability(
+            channel=Channel.PUMP,
+            hardware="automation_phat",
+            is_required=False,
+            unit_label="bool",
+            health="bogus",
+        )

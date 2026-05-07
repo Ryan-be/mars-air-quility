@@ -23,6 +23,65 @@ FIRSTBOOT_PATH = "/boot/mlss-grow.yaml"
 TOKEN_PATH = "/etc/mlss/grow.token"
 
 
+def _try_init_with_health(driver_factory, channel_name: str):
+    """Run a driver factory inside a try/except; classify the outcome.
+
+    Returns a tuple ``(driver_or_none, health_string)`` where:
+      - ``health == "untested"`` if init succeeded — the driver is alive
+        but hasn't been exercised yet (this is the right baseline for
+        actuators: a working pHAT does NOT prove anything until we
+        actually pulse the pump or toggle the relay)
+      - ``health == "no_hardware"`` if init raised — the HAT/sensor isn't
+        present or isn't responding on the I2C bus
+
+    Used for actuators (pump, light) where "init succeeded" is the only
+    cheap signal we have at boot. Sensors use ``_read_with_health`` which
+    additionally requires a successful first read.
+    """
+    try:
+        return driver_factory(), "untested"
+    except Exception as exc:  # noqa: BLE001 — boot path; log + degrade
+        log.warning(
+            "init failed for %s: %s — capability will report no_hardware",
+            channel_name, exc,
+        )
+        return None, "no_hardware"
+
+
+def _read_with_health(sensor, channel_name: str):
+    """Read a sensor once at boot to confirm it's actually reporting data.
+
+    A sensor that detected on the bus but returns garbage (or nothing)
+    isn't useful to the user; flag it as no_hardware so the UI can grey
+    out the corresponding tile. Sensors are eligible for "connected"
+    immediately because a successful first read IS the observation that
+    proves the channel is alive (unlike actuators, where init success
+    is necessary but not sufficient).
+
+    Returns ``(reading_or_none, health_string)`` where reading is a dict
+    on success, None otherwise.
+    """
+    try:
+        reading = sensor.read()
+    except Exception as exc:  # noqa: BLE001 — boot path; log + degrade
+        log.warning(
+            "first read failed for %s: %s — capability will report no_hardware",
+            channel_name, exc,
+        )
+        return None, "no_hardware"
+    if not reading:
+        # Sensor.read() returns {} on bad reads (see SeesawSoilSensor).
+        # Treat empty as no_hardware: same UX outcome from the user's
+        # POV (no usable data) and we're past the point where the driver
+        # might recover quickly.
+        log.warning(
+            "first read for %s returned no data — capability will report no_hardware",
+            channel_name,
+        )
+        return None, "no_hardware"
+    return reading, "connected"
+
+
 @dataclass
 class BootstrappedState:
     unit_id: int

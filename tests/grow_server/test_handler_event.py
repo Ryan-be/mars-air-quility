@@ -88,6 +88,39 @@ def test_sensor_recovered_with_special_chars_resolves_correctly(db_with_unit):
     assert n_open == 0
 
 
+def test_watering_pulse_promotes_pump_capability_to_connected(db_with_unit):
+    """Phase 2 sense-only-mode: a completed watering_pulse is the strongest
+    evidence the pump works (the firmware only emits this AFTER the
+    actuation completes). Promote pump capability to "connected" so a
+    previously-untested or unresponsive flag clears immediately."""
+    import json
+    from mlss_monitor.grow.handlers import handle_event
+    # Seed pump capability with no_hardware (simulate the boot-time
+    # outcome before the user wires up the PSU)
+    conn = sqlite3.connect(db_with_unit)
+    conn.execute(
+        "INSERT INTO grow_unit_capabilities "
+        "(unit_id, channel, hardware, is_required, unit_label, "
+        " installed_at, details_json) "
+        "VALUES (1, 'pump', 'automation_phat', 0, 'bool', ?, ?)",
+        (datetime.utcnow(), json.dumps({"health": "no_hardware"})),
+    )
+    conn.commit()
+    conn.close()
+
+    handle_event(unit_id=1, ts=datetime.utcnow(), payload={
+        "kind": "watering_pulse",
+        "details": {"duration_s": 5, "trigger": "manual",
+                    "triggered_by": "user"},
+    })
+    conn = sqlite3.connect(db_with_unit)
+    details_json = conn.execute(
+        "SELECT details_json FROM grow_unit_capabilities "
+        "WHERE unit_id=1 AND channel='pump'"
+    ).fetchone()[0]
+    assert json.loads(details_json)["health"] == "connected"
+
+
 def test_sensor_recovered_only_resolves_matching_sensor(db_with_unit):
     """Two different sensors degraded; recover one — the other stays open."""
     from mlss_monitor.grow.handlers import handle_event

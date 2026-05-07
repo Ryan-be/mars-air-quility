@@ -99,6 +99,16 @@ def handle_telemetry(unit_id: int, ts: datetime, payload: dict) -> int:
             "last_telemetry_at=?, last_seen_at=? WHERE id=?",
             (json.dumps(state), ts, ts, unit_id),
         )
+
+        # Phase 2 sense-only-mode: promote actuator capabilities to
+        # "connected" when their state is non-zero. Why only on state=1?
+        # Because pump_state=0 / light_state=0 is the normal idle state,
+        # not evidence of disconnection. The watchdog handles regression.
+        if int(payload["pump_state"]):
+            _promote_capability_health(conn, unit_id, "pump", "connected")
+        if int(payload["light_state"]):
+            _promote_capability_health(conn, unit_id, "light", "connected")
+
         conn.commit()
         return inserted_id
     finally:
@@ -111,11 +121,21 @@ def handle_capabilities(unit_id: int, ts: datetime, payload: dict) -> None:
     Caller (the WS listener in Task 4.5) is expected to have validated the
     payload via pydantic. Idempotent: a re-pushed identical payload simply
     rewrites the same rows. A removed sensor disappears on next push.
+
+    The capability `health` field (Phase 2 sense-only-mode) is persisted
+    alongside any pre-existing details into `details_json` — there is no
+    schema migration; we just merge `health` into the JSON blob the
+    column already holds.
     """
     conn = sqlite3.connect(DB_FILE, timeout=10)
     try:
         conn.execute("DELETE FROM grow_unit_capabilities WHERE unit_id=?", (unit_id,))
         for cap in payload["capabilities"]:
+            # Merge cap.details (driver-specific blob like {i2c_address: 0x36})
+            # with the health flag. We always write SOMETHING so reads can
+            # rely on details_json.health being present.
+            details = dict(cap.get("details") or {})
+            details["health"] = cap.get("health", "untested")
             conn.execute(
                 "INSERT INTO grow_unit_capabilities "
                 "(unit_id, channel, hardware, is_required, unit_label, "
@@ -123,7 +143,7 @@ def handle_capabilities(unit_id: int, ts: datetime, payload: dict) -> None:
                 "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (unit_id, cap["channel"], cap.get("hardware"),
                  int(cap["is_required"]), cap.get("unit_label"), ts,
-                 json.dumps(cap["details"]) if cap.get("details") else None),
+                 json.dumps(details)),
             )
         conn.execute(
             "UPDATE grow_units SET last_seen_at=? WHERE id=?",
@@ -132,6 +152,38 @@ def handle_capabilities(unit_id: int, ts: datetime, payload: dict) -> None:
         conn.commit()
     finally:
         conn.close()
+
+
+def _promote_capability_health(conn: sqlite3.Connection, unit_id: int,
+                               channel: str, new_health: str) -> None:
+    """Update grow_unit_capabilities.details_json[health] in-place.
+
+    Promotes a capability to a stronger health state when telemetry or an
+    event proves the actuator is responding. Read-modify-write rather
+    than json_set() because the latter is only available on SQLite 3.38+
+    and we want this to work on older deployments.
+
+    Idempotent: if the capability already has the target health, this
+    is a no-op write. Silently no-ops if the row doesn't exist (the
+    telemetry handler shouldn't crash on a unit whose capabilities
+    haven't yet been declared — that's a transient ordering quirk).
+    """
+    row = conn.execute(
+        "SELECT details_json FROM grow_unit_capabilities "
+        "WHERE unit_id=? AND channel=?",
+        (unit_id, channel),
+    ).fetchone()
+    if row is None:
+        return
+    details = json.loads(row[0]) if row[0] else {}
+    if details.get("health") == new_health:
+        return
+    details["health"] = new_health
+    conn.execute(
+        "UPDATE grow_unit_capabilities SET details_json=? "
+        "WHERE unit_id=? AND channel=?",
+        (json.dumps(details), unit_id, channel),
+    )
 
 
 def handle_event(unit_id: int, ts: datetime, payload: dict) -> None:
@@ -161,6 +213,11 @@ def handle_event(unit_id: int, ts: datetime, payload: dict) -> None:
                  details.get("pid_p_term"), details.get("pid_i_term"),
                  details.get("pid_d_term")),
             )
+            # Phase 2 sense-only-mode: a completed watering pulse is the
+            # strongest evidence the pump works. Promote regardless of
+            # current health so a previously-"unresponsive" capability
+            # snaps back to "connected" the moment evidence arrives.
+            _promote_capability_health(conn, unit_id, "pump", "connected")
         elif kind == "sensor_degraded":
             sensor = details.get("sensor", "unknown")
             conn.execute(

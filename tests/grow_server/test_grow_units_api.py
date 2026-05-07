@@ -35,6 +35,9 @@ def client(monkeypatch, tmp_path):
     from flask import Flask
     from mlss_monitor.routes.api_grow_units import api_grow_units_bp
     monkeypatch.setattr("mlss_monitor.routes.api_grow_units.DB_FILE", db_path)
+    # Lazy watchdog reads grow_watering_events / grow_telemetry directly,
+    # so it needs its DB_FILE redirected to the same temp file.
+    monkeypatch.setattr("mlss_monitor.grow.health_watchdog.DB_FILE", db_path)
 
     app = Flask(__name__)
     app.register_blueprint(api_grow_units_bp)
@@ -209,6 +212,123 @@ def test_get_unit_existing_keys_unchanged(client):
     assert body["plant_type"] == "generic"
     assert body["medium_type"] == "soil"
     assert body["current_phase"] == "vegetative"
+
+
+def _seed_capability(db_path, unit_id, channel, hardware, is_required, health):
+    """Helper for capability-health tests below."""
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "INSERT INTO grow_unit_capabilities "
+        "(unit_id, channel, hardware, is_required, unit_label, "
+        " installed_at, details_json) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (unit_id, channel, hardware, int(is_required), "bool",
+         datetime.utcnow(), json.dumps({"health": health})),
+    )
+    conn.commit()
+    conn.close()
+
+
+def test_get_unit_response_includes_health_per_capability(client, tmp_path):
+    """Phase 2 sense-only-mode: GET /api/grow/units/<id> must surface the
+    `health` field per capability so the frontend can grey out actuators
+    whose hardware is not yet wired."""
+    db_path = str(tmp_path / "test.db")
+    uid = _unit_id(client)
+    _seed_capability(db_path, uid, "pump", "automation_phat", False, "no_hardware")
+    _seed_capability(db_path, uid, "soil_moisture", "Seesaw", True, "connected")
+
+    body = client.get(f"/api/grow/units/{uid}").get_json()
+    caps = {c["channel"]: c for c in body["capabilities"]}
+    assert caps["pump"]["health"] == "no_hardware"
+    assert caps["soil_moisture"]["health"] == "connected"
+
+
+def test_get_unit_health_defaults_to_untested_when_details_json_lacks_field(
+    client, tmp_path,
+):
+    """A capability row inserted before the health-field migration (older
+    firmware) has details_json without "health". Surface it as "untested"
+    so the UI has a sane value to render."""
+    db_path = str(tmp_path / "test.db")
+    uid = _unit_id(client)
+    # Seed with details that have NO health key (just an i2c_address)
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "INSERT INTO grow_unit_capabilities "
+        "(unit_id, channel, hardware, is_required, unit_label, "
+        " installed_at, details_json) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (uid, "soil_moisture", "Seesaw", 1, "raw", datetime.utcnow(),
+         json.dumps({"i2c_address": "0x36"})),
+    )
+    conn.commit()
+    conn.close()
+
+    body = client.get(f"/api/grow/units/{uid}").get_json()
+    caps = {c["channel"]: c for c in body["capabilities"]}
+    assert caps["soil_moisture"]["health"] == "untested"
+
+
+def test_get_unit_watchdog_marks_pump_unresponsive_after_timeout_no_event(
+    client, tmp_path, monkeypatch,
+):
+    """Lazy watchdog: when a water_now command was sent >30s ago but no
+    watering_event row landed in that window, the GET response must
+    surface health="unresponsive" for the pump capability.
+
+    We bypass the full water_now POST (which needs a live WS registry) by
+    poking the watchdog state directly — that's the unit under test here."""
+    from datetime import datetime as _dt, timedelta as _td
+    from mlss_monitor.grow import health_watchdog
+
+    db_path = str(tmp_path / "test.db")
+    uid = _unit_id(client)
+    _seed_capability(db_path, uid, "pump", "automation_phat", False, "connected")
+
+    # Pretend we sent water_now 60s ago
+    health_watchdog.record_command_sent(
+        uid, "pump", at=_dt.utcnow() - _td(seconds=60),
+    )
+    try:
+        body = client.get(f"/api/grow/units/{uid}").get_json()
+        caps = {c["channel"]: c for c in body["capabilities"]}
+        assert caps["pump"]["health"] == "unresponsive"
+    finally:
+        health_watchdog.clear()
+
+
+def test_get_unit_watchdog_does_not_mark_unresponsive_when_event_arrived(
+    client, tmp_path,
+):
+    """If a watering_event landed AFTER the command timestamp, pump is
+    working — don't mark unresponsive."""
+    from datetime import datetime as _dt, timedelta as _td
+    from mlss_monitor.grow import health_watchdog
+
+    db_path = str(tmp_path / "test.db")
+    uid = _unit_id(client)
+    _seed_capability(db_path, uid, "pump", "automation_phat", False, "connected")
+
+    cmd_at = _dt.utcnow() - _td(seconds=60)
+    event_at = _dt.utcnow() - _td(seconds=30)  # after cmd, within window
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "INSERT INTO grow_watering_events "
+        "(unit_id, timestamp_utc, trigger, duration_s, triggered_by) "
+        "VALUES (?, ?, 'manual', 5, 'user')",
+        (uid, event_at),
+    )
+    conn.commit()
+    conn.close()
+
+    health_watchdog.record_command_sent(uid, "pump", at=cmd_at)
+    try:
+        body = client.get(f"/api/grow/units/{uid}").get_json()
+        caps = {c["channel"]: c for c in body["capabilities"]}
+        assert caps["pump"]["health"] == "connected"
+    finally:
+        health_watchdog.clear()
 
 
 def test_get_unit_light_windows_preserves_sort_order(client, tmp_path):

@@ -71,6 +71,68 @@ def test_handle_telemetry_returns_inserted_id(db_with_unit):
     assert inserted_id > 0
 
 
+def _seed_capability(db_path, unit_id, channel, hardware, is_required, health):
+    """Helper: insert a grow_unit_capabilities row with details_json={'health': ...}."""
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "INSERT INTO grow_unit_capabilities "
+        "(unit_id, channel, hardware, is_required, unit_label, "
+        " installed_at, details_json) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (unit_id, channel, hardware, int(is_required), "bool",
+         datetime.utcnow(), json.dumps({"health": health})),
+    )
+    conn.commit()
+    conn.close()
+
+
+def _read_capability_health(db_path, unit_id, channel):
+    conn = sqlite3.connect(db_path)
+    row = conn.execute(
+        "SELECT details_json FROM grow_unit_capabilities "
+        "WHERE unit_id=? AND channel=?",
+        (unit_id, channel),
+    ).fetchone()
+    conn.close()
+    if not row or not row[0]:
+        return None
+    return json.loads(row[0]).get("health")
+
+
+def test_handle_telemetry_with_pump_state_1_promotes_pump_to_connected(db_with_unit):
+    """Phase 2 sense-only-mode: when telemetry shows pump_state=1, the server
+    promotes the pump capability's health to "connected" — that's strong
+    evidence the actuator is wired and working."""
+    from mlss_monitor.grow.handlers import handle_telemetry
+    _seed_capability(db_with_unit, 1, "pump", "automation_phat", False, "untested")
+    handle_telemetry(unit_id=1, ts=datetime.utcnow(), payload={
+        "soil_moisture_raw": 612, "light_state": False, "pump_state": True,
+    })
+    assert _read_capability_health(db_with_unit, 1, "pump") == "connected"
+
+
+def test_handle_telemetry_with_light_state_1_promotes_light_to_connected(db_with_unit):
+    from mlss_monitor.grow.handlers import handle_telemetry
+    _seed_capability(db_with_unit, 1, "light", "automation_phat", False, "untested")
+    handle_telemetry(unit_id=1, ts=datetime.utcnow(), payload={
+        "soil_moisture_raw": 612, "light_state": True, "pump_state": False,
+    })
+    assert _read_capability_health(db_with_unit, 1, "light") == "connected"
+
+
+def test_handle_telemetry_with_state_0_does_not_demote_connected(db_with_unit):
+    """Once a capability is "connected", routine off-state telemetry must NOT
+    flip it back. The pump being off most of the time is the normal idle
+    state, not evidence of disconnection. Only the watchdog (after a
+    command without follow-up evidence) demotes."""
+    from mlss_monitor.grow.handlers import handle_telemetry
+    _seed_capability(db_with_unit, 1, "pump", "automation_phat", False, "connected")
+    handle_telemetry(unit_id=1, ts=datetime.utcnow(), payload={
+        "soil_moisture_raw": 612, "light_state": False, "pump_state": False,
+    })
+    assert _read_capability_health(db_with_unit, 1, "pump") == "connected"
+
+
 def test_handle_telemetry_computes_pct_when_unit_calibrated(db_with_unit):
     """If pct is missing but raw + calibration are present, server fills it in."""
     from mlss_monitor.grow.handlers import handle_telemetry
