@@ -271,6 +271,11 @@ def _seed_grow_data(cur):
         "grow_disk_warn_pct": "90",
         "grow_holiday_mode": "0",
         "grow_images_dir": "",  # empty = use env var or built-in default
+        # Phase 3 Task 3: Diagnostics tab uses this to mark a sensor stale
+        # when (now - last_seen_at) exceeds the threshold. Stored as a
+        # string per the existing app_settings convention; the endpoint
+        # casts to float and falls back to 5 on parse failure.
+        "grow_sensor_stale_threshold_min": "5",
     }
     for k, v in defaults.items():
         cur.execute(
