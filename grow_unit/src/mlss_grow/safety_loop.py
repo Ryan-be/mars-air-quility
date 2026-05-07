@@ -27,6 +27,12 @@ class LoopConfig:
     photo_interval_min: int = 30
     photo_active_hours: tuple[int, int] | None = (6, 22)
     soil_calibration: tuple[int, int] | None = None
+    # Household-wide vacation flag. When True, the SafetyLoop suppresses
+    # pump pulses (PID still runs and emits debug-level info, but no
+    # actuation). Lights + telemetry continue normally so the operator
+    # comes home to a lit plant and a continuous log instead of a dry
+    # one. Updated by config_sync.apply_config from the server pull.
+    holiday_mode: bool = False
 
 
 class SafetyLoop:
@@ -76,9 +82,12 @@ class SafetyLoop:
         if should_be_on != self._light.state():
             (self._light.on() if should_be_on else self._light.off())
 
-        # 3. PID watering
+        # 3. PID watering — bypassed entirely when holiday mode is on.
+        # Telemetry + lights still run; the operator's plant stays lit and
+        # logged but not over-watered while they're away. PID *state*
+        # isn't reset, so coming back from holiday picks up where we left.
         raw = readings.get("soil_moisture")
-        if raw is not None:
+        if raw is not None and not self._config.holiday_mode:
             pct = _moisture_pct(raw, self._config.soil_calibration)
             if pct is not None:
                 d = pid_decide(pct, self._config.pid, self._pid_state, now)

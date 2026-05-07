@@ -242,3 +242,37 @@ def test_camera_captured_at_interval(tmp_path):
     loop.tick()
     camera.capture.assert_called_once()
     assert any(k == "photo" for k, _ in emitted)
+
+
+def test_holiday_mode_suppresses_pump_pulse_but_still_emits_telemetry():
+    """Reproduces the test_tick_fires_pid_pulse setup but with
+    holiday_mode=True — pump must NOT pulse, but light decision +
+    telemetry must continue normally so the operator sees a continuous
+    log + a lit plant when they come home."""
+    sensor = MagicMock(channels=lambda: ["soil_moisture"],
+                       read=lambda: {"soil_moisture": 612},
+                       healthy=lambda: True)
+    pump = MagicMock(state=lambda: False)
+    light = MagicMock(state=lambda: False)
+    emitted = []
+
+    cfg = _basic_config()
+    cfg.soil_calibration = (200, 1500)  # raw 612 → ~31.7%, would pulse
+    cfg.holiday_mode = True
+
+    loop = SafetyLoop(
+        sensors=[sensor], pump=pump, light=light, camera=None,
+        config=cfg, emit=lambda k, p: emitted.append((k, p)),
+        now_fn=lambda: datetime(2026, 5, 3, 12, 0),
+        pid_state=PIDState(last_pulse_at=datetime(2025, 1, 1)),
+    )
+    loop.tick()
+    # No pump pulse — holiday mode short-circuited the PID branch
+    pump.pulse.assert_not_called()
+    # No watering_pulse event either
+    kinds = [(k, p.get("kind") if isinstance(p, dict) else None)
+             for k, p in emitted]
+    assert ("event", "watering_pulse") not in kinds
+    # But telemetry + light decision still happened
+    assert any(k == "telemetry" for k, _ in emitted)
+    light.on.assert_called_once()  # noon falls inside the default window

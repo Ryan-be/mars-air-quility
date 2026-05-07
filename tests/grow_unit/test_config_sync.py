@@ -219,3 +219,35 @@ def test_pull_unit_config_warns_only_once_for_missing_cert(caplog):
         f"expected exactly one cert-missing warning across 3 calls, "
         f"got {len(cert_warnings)}: {[r.getMessage() for r in cert_warnings]}"
     )
+
+
+def test_pull_unit_config_parses_holiday_mode_field():
+    """Server response now includes holiday_mode (Phase 2 Task 2c). The
+    pull function copies it onto the returned UnitConfig.
+    """
+    payload = dict(_FULL_PAYLOAD)
+    payload["holiday_mode"] = True
+    with patch("mlss_grow.config_sync.requests.get") as mock_get:
+        mock_get.return_value = _ok_response(payload)
+        cfg = pull_unit_config(
+            server_url="https://mlss.local:5000",
+            unit_id=1,
+            token="t",
+            server_cert_path=None,
+        )
+        assert cfg.holiday_mode is True
+
+
+def test_pull_unit_config_defaults_holiday_mode_false_when_absent():
+    """Older server responses don't include holiday_mode — must default
+    to False rather than None or KeyError so the dispatcher doesn't
+    accidentally pause watering."""
+    with patch("mlss_grow.config_sync.requests.get") as mock_get:
+        mock_get.return_value = _ok_response(_FULL_PAYLOAD)  # no field
+        cfg = pull_unit_config(
+            server_url="https://mlss.local:5000",
+            unit_id=1,
+            token="t",
+            server_cert_path=None,
+        )
+        assert cfg.holiday_mode is False

@@ -1189,3 +1189,34 @@ def test_get_unit_config_endpoint_is_in_public_endpoints():
     """Anchor the public-endpoints set so a future renamer flags here too."""
     from mlss_monitor.app import _PUBLIC_ENDPOINTS
     assert "api_grow_config.get_unit_config" in _PUBLIC_ENDPOINTS
+
+
+def test_get_unit_config_includes_holiday_mode(bearer_client):
+    """The firmware reads holiday_mode from the GET /config response and
+    short-circuits pump pulses when True. Default seed value is OFF.
+    """
+    c, token, db_path = bearer_client
+    # Default seed has grow_holiday_mode='0' — so holiday_mode is False.
+    r = c.get(
+        "/api/grow/units/1/config",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200
+    body = r.get_json()
+    assert "holiday_mode" in body
+    assert body["holiday_mode"] is False
+
+    # Flip the flag and re-pull
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)",
+        ("grow_holiday_mode", "1"),
+    )
+    conn.commit()
+    conn.close()
+    r = c.get(
+        "/api/grow/units/1/config",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    body = r.get_json()
+    assert body["holiday_mode"] is True

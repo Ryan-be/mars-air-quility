@@ -567,6 +567,14 @@ def get_unit_config(unit_id):
             "ORDER BY phase, sort_order",
             (unit_id,),
         ).fetchall()
+
+        # Household-wide holiday mode flag — included so firmware can
+        # short-circuit pump pulses on the next reconnect-pull. Stored as
+        # "0"/"1" in app_settings; absence (or any other value) means OFF.
+        hm_row = conn.execute(
+            "SELECT value FROM app_settings WHERE key='grow_holiday_mode'"
+        ).fetchone()
+        holiday_mode = hm_row is not None and hm_row[0] == "1"
     finally:
         conn.close()
 
@@ -585,4 +593,5 @@ def get_unit_config(unit_id):
         "light_windows": light_windows,
         "current_phase": unit_row["current_phase"],
         "plant_type":    unit_row["plant_type"],
+        "holiday_mode":  holiday_mode,
     })

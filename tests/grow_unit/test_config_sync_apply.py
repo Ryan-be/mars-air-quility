@@ -137,3 +137,53 @@ def test_apply_config_handles_phase_with_no_windows():
     )
     apply_config(new_cfg, loop_cfg)
     assert loop_cfg.light_windows == []
+
+
+def test_unit_config_dataclass_has_holiday_mode_with_default_false():
+    """UnitConfig accepts (and defaults) holiday_mode for backward compat
+    with older server responses that don't include the field."""
+    # No holiday_mode kwarg — should default False
+    cfg = UnitConfig(
+        overrides={}, calibration={}, light_windows={},
+        current_phase="vegetative", plant_type="tomato",
+    )
+    assert cfg.holiday_mode is False
+    # Explicitly True
+    cfg2 = UnitConfig(
+        overrides={}, calibration={}, light_windows={},
+        current_phase="vegetative", plant_type="tomato",
+        holiday_mode=True,
+    )
+    assert cfg2.holiday_mode is True
+
+
+def test_apply_config_writes_holiday_mode_to_loop_config():
+    """apply_config copies holiday_mode from UnitConfig onto LoopConfig
+    so the SafetyLoop tick can short-circuit pump pulses."""
+    loop_cfg = _basic_loop_config()
+    assert loop_cfg.holiday_mode is False
+    new_cfg = UnitConfig(
+        overrides={},
+        calibration={"dry_raw": 220, "wet_raw": 1600},
+        light_windows={},
+        current_phase="vegetative",
+        plant_type="tomato",
+        holiday_mode=True,
+    )
+    apply_config(new_cfg, loop_cfg)
+    assert loop_cfg.holiday_mode is True
+
+
+def test_apply_config_clears_holiday_mode_when_server_says_off():
+    loop_cfg = _basic_loop_config()
+    loop_cfg.holiday_mode = True   # was on; coming back from vacation
+    new_cfg = UnitConfig(
+        overrides={},
+        calibration={"dry_raw": 220, "wet_raw": 1600},
+        light_windows={},
+        current_phase="vegetative",
+        plant_type="tomato",
+        holiday_mode=False,
+    )
+    apply_config(new_cfg, loop_cfg)
+    assert loop_cfg.holiday_mode is False

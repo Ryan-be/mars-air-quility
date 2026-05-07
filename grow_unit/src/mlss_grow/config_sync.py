@@ -41,12 +41,19 @@ _warned_missing_cert = False
 
 @dataclass
 class UnitConfig:
-    """Server response shape, pre-resolved against plant profiles."""
+    """Server response shape, pre-resolved against plant profiles.
+
+    `holiday_mode` is the household-wide vacation flag — when True the
+    loop suppresses pump pulses but keeps light schedule + telemetry
+    going. Defaults False so older server responses (without the field)
+    don't accidentally pause watering.
+    """
     overrides: dict
     calibration: dict
     light_windows: dict
     current_phase: str
     plant_type: str
+    holiday_mode: bool = False
 
 
 # Maps overrides-key → PIDConfig attribute name. Any None values in the
@@ -98,6 +105,7 @@ def pull_unit_config(server_url: str, unit_id: int, token: str,
         light_windows=data.get("light_windows", {}) or {},
         current_phase=data["current_phase"],
         plant_type=data["plant_type"],
+        holiday_mode=bool(data.get("holiday_mode", False)),
     )
 
 
@@ -139,3 +147,9 @@ def apply_config(unit_cfg: UnitConfig, loop_cfg: LoopConfig) -> None:
         except (KeyError, ValueError) as exc:
             log.warning("skipping malformed light window %r: %s", w, exc)
     loop_cfg.light_windows = new_windows
+
+    # 4. Holiday mode flag. The SafetyLoop reads this each tick and
+    # short-circuits the pump-pulse path when True. Lights + telemetry
+    # are unaffected — operator going on vacation wants the plant to
+    # keep being lit and logged, just not over-watered while away.
+    loop_cfg.holiday_mode = bool(unit_cfg.holiday_mode)
