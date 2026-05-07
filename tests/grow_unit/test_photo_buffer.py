@@ -259,6 +259,57 @@ def test_evict_if_over_cap_calls_on_eviction_callback(tmp_path):
     assert calls[0]["evicted_count"] >= 1
 
 
+# ---------------------------------------------------------------------------
+# summary() — structured photo-buffer snapshot for the Diagnostics UI.
+# Same shape contract as LocalBuffer.summary() except no ``kinds`` field
+# (photos are all the same kind). The JS renderer branches on its
+# presence to decide whether to render the per-kind breakdown.
+# ---------------------------------------------------------------------------
+
+
+def test_photo_buffer_summary_empty(tmp_path):
+    """Empty photo buffer → zero counts and None timestamps. Renderer
+    reads ``size == 0`` to draw the empty state."""
+    buf = PhotoBuffer(root_dir=str(tmp_path))
+    s = buf.summary()
+    assert s == {
+        "size": 0,
+        "total_bytes": 0,
+        "oldest_ts": None,
+        "newest_ts": None,
+    }
+
+
+def test_photo_buffer_summary_with_photos(tmp_path):
+    """size + oldest_ts/newest_ts come from peek_all (which is sorted
+    chronologically). taken_at on the metadata sidecar is the wall-clock
+    time the camera fired — the diagnostics UI surfaces it directly."""
+    buf = PhotoBuffer(root_dir=str(tmp_path))
+    buf.append({"taken_at": "2026-05-07T03:00:00Z"}, b"jpeg-1")
+    time.sleep(0.005)  # distinct ms-timestamp filename
+    buf.append({"taken_at": "2026-05-07T04:00:00Z"}, b"jpeg-2")
+    time.sleep(0.005)
+    buf.append({"taken_at": "2026-05-07T05:30:00Z"}, b"jpeg-3")
+
+    s = buf.summary()
+    assert s["size"] == 3
+    assert s["oldest_ts"] == "2026-05-07T03:00:00Z"
+    assert s["newest_ts"] == "2026-05-07T05:30:00Z"
+
+
+def test_photo_buffer_summary_total_bytes(tmp_path):
+    """total_bytes sums JPEG sizes only, not metadata sidecars (sidecars
+    are tiny and the byte cap is JPEG-driven). Two photos of 1000 +
+    2500 bytes → 3500."""
+    buf = PhotoBuffer(root_dir=str(tmp_path))
+    buf.append({"taken_at": "2026-05-07T03:00:00Z"}, b"x" * 1000)
+    time.sleep(0.005)
+    buf.append({"taken_at": "2026-05-07T04:00:00Z"}, b"x" * 2500)
+
+    s = buf.summary()
+    assert s["total_bytes"] == 3500
+
+
 def test_evict_callback_failure_does_not_raise(tmp_path):
     """A buggy on_eviction callback must NOT propagate the exception out
     of append(). The eviction itself already happened; losing the

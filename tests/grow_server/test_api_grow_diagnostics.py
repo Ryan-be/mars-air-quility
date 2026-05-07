@@ -318,6 +318,100 @@ def test_diagnostics_open_errors_includes_subject_sensor(client):
 
 
 # ---------------------------------------------------------------------------
+# Buffer-summary cache (Phase 3 follow-up: WHAT is queued, not just count)
+# ---------------------------------------------------------------------------
+
+
+def test_diagnostics_includes_buffer_summary(client):
+    """The diagnostics endpoint surfaces the cached buffer summary parsed
+    back from JSON. Pre-set the column with a known summary, GET, assert
+    it round-trips intact (the Diagnostics tab renderer consumes it as
+    a dict, not a string)."""
+    import json
+    c, db_path = client
+    summary = {
+        "size": 247,
+        "total_bytes": 78423,
+        "oldest_ts": "2026-05-07T03:42:00",
+        "newest_ts": "2026-05-07T04:17:30",
+        "kinds": {"telemetry": 240, "event": 6, "capabilities": 1},
+    }
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "UPDATE grow_units SET last_buffer_summary_json=? WHERE id=1",
+        (json.dumps(summary),),
+    )
+    conn.commit()
+    conn.close()
+
+    r = c.get("/api/grow/units/1/diagnostics")
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["buffer_summary"] == summary
+
+
+def test_diagnostics_includes_photo_buffer_summary(client):
+    """Same shape contract for the photo buffer (no `kinds` field —
+    photos are all the same kind)."""
+    import json
+    c, db_path = client
+    photo_summary = {
+        "size": 12,
+        "total_bytes": 4_800_000,
+        "oldest_ts": "2026-05-07T03:00:00Z",
+        "newest_ts": "2026-05-07T05:30:00Z",
+    }
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "UPDATE grow_units SET last_photo_buffer_summary_json=? WHERE id=1",
+        (json.dumps(photo_summary),),
+    )
+    conn.commit()
+    conn.close()
+
+    r = c.get("/api/grow/units/1/diagnostics")
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["photo_buffer_summary"] == photo_summary
+
+
+def test_diagnostics_buffer_summary_is_null_when_never_set(client):
+    """Default state (firmware too old, OR brand-new unit that hasn't
+    reached a piggyback tick yet): the JSON columns are NULL so the
+    response carries None for both summaries. The renderer treats this
+    as "no summary yet" without crashing."""
+    c, _ = client
+    r = c.get("/api/grow/units/1/diagnostics")
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["buffer_summary"] is None
+    assert body["photo_buffer_summary"] is None
+
+
+def test_diagnostics_buffer_summary_corrupt_json_falls_back_to_null(client):
+    """If the cached JSON is somehow corrupt (manual DB poke, partial
+    write), the endpoint must NOT 500 — return None for that summary
+    and let the rest of the response through. Operators need the other
+    diagnostics lanes (connection log, sensor sanity) to keep working."""
+    c, db_path = client
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "UPDATE grow_units SET last_buffer_summary_json=? WHERE id=1",
+        ("not-valid-json {",),
+    )
+    conn.commit()
+    conn.close()
+
+    r = c.get("/api/grow/units/1/diagnostics")
+    assert r.status_code == 200, r.data
+    body = r.get_json()
+    assert body["buffer_summary"] is None
+    # Other lanes still present
+    assert "connection_log" in body
+    assert "sensor_sanity" in body
+
+
+# ---------------------------------------------------------------------------
 # RBAC
 # ---------------------------------------------------------------------------
 

@@ -247,6 +247,16 @@ def create_db():
         "ALTER TABLE grow_units ADD COLUMN firmware_version TEXT",
         "ALTER TABLE grow_units ADD COLUMN last_uptime_s REAL",
         "ALTER TABLE grow_units ADD COLUMN last_buffer_size INTEGER",
+        # Buffer-inspection UI (Phase 3 follow-up): cache the firmware-
+        # reported summaries of the local message buffer + photo buffer
+        # so the Diagnostics tab can render WHAT is queued, not just how
+        # many. Stored as JSON-in-TEXT (nullable) — these are read-only
+        # caches updated only when a piggyback frame carries them; the
+        # omit-doesn't-clobber semantics in handle_telemetry preserve
+        # the last-known summary between piggybacks (firmware sends
+        # them every 10th tick, not every tick).
+        "ALTER TABLE grow_units ADD COLUMN last_buffer_summary_json TEXT",
+        "ALTER TABLE grow_units ADD COLUMN last_photo_buffer_summary_json TEXT",
         # Phase 3 Task 5: snooze support on grow_errors. Nullable; rows
         # with snoozed_until > now() render muted client-side but are
         # NOT filtered server-side (admins can still un-snooze them).

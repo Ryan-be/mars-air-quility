@@ -67,7 +67,7 @@ test("diagnostics panel: fetches the diagnostics endpoint with unit id", async (
 });
 
 
-test("diagnostics panel: renders all four child sections on success", async () => {
+test("diagnostics panel: renders all five child sections on success", async () => {
   const fetchFn = async () => _ok(_diagBody({
     firmware_version: "1.2.3",
     uptime_s: 100,
@@ -86,6 +86,8 @@ test("diagnostics panel: renders all four child sections on success", async () =
   assert.equal(el.dataset.testid, "diagnostics-panel");
   assert.ok(el.querySelector("[data-testid='diag-firmware']"),
     "firmware-info child present");
+  assert.ok(el.querySelector("[data-testid='diag-buffer-inspector']"),
+    "buffer-inspector child present");
   assert.ok(el.querySelector("[data-testid='diag-connection-log']"),
     "connection-log child present");
   assert.ok(el.querySelector("[data-testid='diag-sensor-sanity']"),

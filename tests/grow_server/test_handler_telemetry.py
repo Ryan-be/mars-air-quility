@@ -212,6 +212,94 @@ def test_handle_telemetry_partial_diagnostics_updates_only_provided_field(db_wit
     assert buf == 5  # untouched
 
 
+def test_handle_telemetry_persists_buffer_summary_to_grow_units(db_with_unit):
+    """Buffer-inspection UI cache: when a piggyback telemetry frame
+    carries `buffer_summary`, handle_telemetry serialises it into
+    grow_units.last_buffer_summary_json. The Diagnostics tab parses
+    that back to render WHAT is queued."""
+    import json
+    from mlss_monitor.grow.handlers import handle_telemetry
+
+    summary = {
+        "size": 247,
+        "total_bytes": 78423,
+        "oldest_ts": "2026-05-07T03:42:00",
+        "newest_ts": "2026-05-07T04:17:30",
+        "kinds": {"telemetry": 240, "event": 6, "capabilities": 1},
+    }
+    handle_telemetry(unit_id=1, ts=datetime.utcnow(), payload={
+        "soil_moisture_raw": 612, "light_state": False, "pump_state": False,
+        "buffer_summary": summary,
+    })
+    conn = sqlite3.connect(db_with_unit)
+    raw = conn.execute(
+        "SELECT last_buffer_summary_json FROM grow_units WHERE id=1"
+    ).fetchone()[0]
+    assert raw is not None, "handler must persist buffer_summary"
+    assert json.loads(raw) == summary
+
+
+def test_handle_telemetry_persists_photo_buffer_summary(db_with_unit):
+    """Same shape as buffer_summary but lands in
+    last_photo_buffer_summary_json. Both summaries are independently
+    nullable — a frame can carry either, both, or neither."""
+    import json
+    from mlss_monitor.grow.handlers import handle_telemetry
+
+    photo_summary = {
+        "size": 12,
+        "total_bytes": 4_800_000,
+        "oldest_ts": "2026-05-07T03:00:00Z",
+        "newest_ts": "2026-05-07T05:30:00Z",
+    }
+    handle_telemetry(unit_id=1, ts=datetime.utcnow(), payload={
+        "soil_moisture_raw": 612, "light_state": False, "pump_state": False,
+        "photo_buffer_summary": photo_summary,
+    })
+    conn = sqlite3.connect(db_with_unit)
+    raw = conn.execute(
+        "SELECT last_photo_buffer_summary_json FROM grow_units WHERE id=1"
+    ).fetchone()[0]
+    assert raw is not None
+    assert json.loads(raw) == photo_summary
+
+
+def test_handle_telemetry_omitting_buffer_summary_does_not_clobber_existing(db_with_unit):
+    """Omit-doesnt-clobber for the summary columns matches the existing
+    contract for last_uptime_s + last_buffer_size. Most telemetry
+    frames OMIT the summary (only every 10th tick carries it); those
+    in-between frames must NOT overwrite the cached summary with NULL,
+    or the Diagnostics tab would flap on every non-piggyback frame."""
+    import json
+    conn = sqlite3.connect(db_with_unit)
+    # Pre-seed both columns with a previous summary.
+    conn.execute(
+        "UPDATE grow_units SET "
+        " last_buffer_summary_json='{\"size\":100,\"kinds\":{\"telemetry\":100}}',"
+        " last_photo_buffer_summary_json='{\"size\":3}'"
+        " WHERE id=1"
+    )
+    conn.commit()
+    conn.close()
+
+    from mlss_monitor.grow.handlers import handle_telemetry
+    # Non-piggyback frame: no buffer_summary, no photo_buffer_summary.
+    handle_telemetry(unit_id=1, ts=datetime.utcnow(), payload={
+        "soil_moisture_raw": 612, "light_state": False, "pump_state": False,
+    })
+    conn = sqlite3.connect(db_with_unit)
+    bs, pbs = conn.execute(
+        "SELECT last_buffer_summary_json, last_photo_buffer_summary_json "
+        "FROM grow_units WHERE id=1"
+    ).fetchone()
+    assert json.loads(bs) == {"size": 100, "kinds": {"telemetry": 100}}, (
+        "non-piggyback frame must NOT clobber the cached buffer_summary"
+    )
+    assert json.loads(pbs) == {"size": 3}, (
+        "non-piggyback frame must NOT clobber the cached photo_buffer_summary"
+    )
+
+
 def test_handle_telemetry_computes_pct_when_unit_calibrated(db_with_unit):
     """If pct is missing but raw + calibration are present, server fills it in."""
     from mlss_monitor.grow.handlers import handle_telemetry

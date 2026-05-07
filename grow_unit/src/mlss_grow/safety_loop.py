@@ -21,6 +21,15 @@ log = logging.getLogger(__name__)
 _HARD_PUMP_CAP_S = 30.0
 _PUMP_COOLDOWN_AFTER_HARD_CAP_S = 5 * 60  # 5 minutes
 
+# Buffer summaries (diagnostics-tab "what is queued") piggyback on every
+# Nth telemetry frame rather than every tick. Summaries don't change
+# minute-to-minute much; pushing them every tick would dominate the
+# JSON payload size for ~no diagnostic value. With a 30s tick the
+# default of 10 means a fresh summary every ~5 minutes — fast enough
+# for ops, cheap enough that the SQLite scan in LocalBuffer.summary()
+# only runs ~12 times an hour.
+_BUFFER_SUMMARY_EVERY_N_TICKS = 10
+
 
 def _moisture_pct(raw: int, calibration: tuple[int, int] | None) -> float | None:
     if calibration is None:
@@ -55,6 +64,7 @@ class SafetyLoop:
                  light_budget: LightBudget | None = None,
                  uptime_provider: Optional[Callable[[], float]] = None,
                  buffer: Optional[Any] = None,
+                 photo_buffer: Optional[Any] = None,
                  state_path: Optional[str] = None) -> None:
         self._sensors = sensors
         self._pump = pump
@@ -106,6 +116,19 @@ class SafetyLoop:
         # poking at module-level globals.
         self._uptime_provider = uptime_provider
         self._buffer = buffer
+        # Photo buffer is the *second* on-disk queue (the first is the
+        # telemetry buffer above). The diagnostics-tab buffer-inspection
+        # UI piggybacks summaries of BOTH on every Nth telemetry frame
+        # so operators can see what's queued without firing a separate
+        # WS command. Optional — old wiring that doesn't pass it just
+        # skips the photo_buffer_summary field on telemetry.
+        self._photo_buffer = photo_buffer
+        # Tick counter drives the every-Nth-tick piggyback decision for
+        # buffer summaries. Wraps every _BUFFER_SUMMARY_EVERY_N_TICKS
+        # so we don't accumulate forever. 0-indexed so the very first
+        # tick (count → 1, 1 % 10 != 0) doesn't carry a summary; the
+        # 10th does.
+        self._tick_count = 0
 
     def _persist_pid_state(self) -> None:
         """Snapshot current PID state to disk. Best-effort, never raises."""
@@ -120,6 +143,10 @@ class SafetyLoop:
 
     def tick(self) -> None:
         now = self._now()
+        # Drive the every-Nth-tick piggyback cadence. Increment first so
+        # the first tick is count=1 (1 % 10 != 0 → no summary), and the
+        # 10th tick is count=10 (10 % 10 == 0 → include summary).
+        self._tick_count += 1
 
         # 1. Read all sensors
         readings = {}
@@ -300,6 +327,29 @@ class SafetyLoop:
                 telemetry["buffer_size"] = self._buffer.size()
             except Exception as exc:  # noqa: BLE001
                 log.warning("buffer.size() failed: %s", exc)
+
+        # Buffer summaries — periodic piggyback (every Nth tick) rather
+        # than per-tick. The summary is bigger than buffer_size + uptime
+        # combined (per-msg-type counts + total_bytes + oldest/newest
+        # timestamps) and changes slowly during an outage; pushing it
+        # every tick would burn bandwidth + CPU on the SQLite scan in
+        # LocalBuffer.summary() for ~no operator-visible benefit. The
+        # server's omit-doesnt-clobber persistence keeps the last good
+        # summary visible between piggybacks.
+        include_buffer_summary = (
+            self._tick_count % _BUFFER_SUMMARY_EVERY_N_TICKS == 0
+        )
+        if include_buffer_summary and self._buffer is not None:
+            try:
+                telemetry["buffer_summary"] = self._buffer.summary()
+            except Exception as exc:  # noqa: BLE001
+                log.warning("buffer.summary() failed: %s", exc)
+        if include_buffer_summary and self._photo_buffer is not None:
+            try:
+                telemetry["photo_buffer_summary"] = self._photo_buffer.summary()
+            except Exception as exc:  # noqa: BLE001
+                log.warning("photo_buffer.summary() failed: %s", exc)
+
         self._emit("telemetry", telemetry)
 
     def _photo_due(self, now: datetime) -> bool:

@@ -184,6 +184,45 @@ class PhotoBuffer:
                 continue
         return total
 
+    def summary(self) -> dict:
+        """Return a structured summary of buffered photos.
+
+        Mirrors LocalBuffer.summary() so the diagnostics-panel renderer
+        can treat both buffers uniformly. The shape intentionally OMITS
+        ``kinds`` (photos are all the same kind — there's no msg_type
+        equivalent), so the JS render branches on its presence to
+        decide whether to draw the per-kind list.
+
+        Shape::
+
+            {
+                "size": 12,
+                "total_bytes": 4_800_000,
+                "oldest_ts": "2026-05-07T03:00:00Z",  # from metadata
+                "newest_ts": "2026-05-07T05:30:00Z",
+            }
+
+        Empty buffer → all zero/None.
+        """
+        photos = self.peek_all()
+        if not photos:
+            return {
+                "size": 0,
+                "total_bytes": 0,
+                "oldest_ts": None,
+                "newest_ts": None,
+            }
+        return {
+            "size": len(photos),
+            "total_bytes": sum(p.size_bytes for p in photos),
+            # Camera writes "taken_at" into the metadata sidecar (see
+            # SafetyLoop.tick where it's assigned just before the photo
+            # is emitted). Falls back to None if absent — the renderer
+            # already handles the dash case.
+            "oldest_ts": photos[0].metadata.get("taken_at"),
+            "newest_ts": photos[-1].metadata.get("taken_at"),
+        }
+
     def prune(self, retention_days: Optional[int] = None) -> int:
         """Delete photos older than retention_days. Returns count deleted.
 

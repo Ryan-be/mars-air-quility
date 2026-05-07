@@ -5,6 +5,11 @@ frontend doesn't have to chain four round-trips on every panel open:
 
   * firmware_version / uptime_s / buffer_size — from grow_units (Phase 3
     Task 1 added these columns; the WS handler keeps them current)
+  * buffer_summary / photo_buffer_summary — JSON snapshots of WHAT is
+    queued in the firmware-side buffers (Phase 3 follow-up: piggybacks
+    on every Nth telemetry frame so operators can see content, not just
+    a row count). Either may be null when the firmware has never sent
+    a summary OR when running an older firmware that doesn't emit them.
   * connection_log    — last 20 online/offline rows from grow_errors so
     the operator can see the recent connect/disconnect cadence
   * sensor_sanity     — per-capability staleness derived from
@@ -18,6 +23,7 @@ frontend doesn't have to chain four round-trips on every panel open:
 Read-only — viewer-readable. The Diagnostics tab is observability, not
 write surface.
 """
+import json
 import sqlite3
 from datetime import datetime
 from flask import Blueprint, jsonify
@@ -59,12 +65,32 @@ def get_diagnostics(unit_id):
     conn.row_factory = sqlite3.Row
     try:
         unit_row = conn.execute(
-            "SELECT firmware_version, last_uptime_s, last_buffer_size "
+            "SELECT firmware_version, last_uptime_s, last_buffer_size, "
+            "       last_buffer_summary_json, last_photo_buffer_summary_json "
             "FROM grow_units WHERE id=?",
             (unit_id,),
         ).fetchone()
         if unit_row is None:
             return jsonify({"error": "unit_not_found"}), 404
+
+        # Parse the cached JSON summaries back to dicts. Both columns are
+        # nullable: NULL means the firmware has never sent a summary
+        # (either because it's brand new and hasn't reached a piggyback
+        # tick yet, or because the firmware version doesn't emit them).
+        # Malformed JSON falls back to None rather than 500ing — the
+        # endpoint must keep working for the other diagnostics lanes
+        # even if one cached summary is corrupt.
+        def _parse_summary(raw):
+            if raw is None:
+                return None
+            try:
+                return json.loads(raw)
+            except (TypeError, ValueError):
+                return None
+        buffer_summary = _parse_summary(unit_row["last_buffer_summary_json"])
+        photo_buffer_summary = _parse_summary(
+            unit_row["last_photo_buffer_summary_json"],
+        )
 
         threshold = _get_stale_threshold(conn)
         now = datetime.utcnow()
@@ -145,6 +171,8 @@ def get_diagnostics(unit_id):
             "firmware_version": unit_row["firmware_version"],
             "uptime_s": unit_row["last_uptime_s"],
             "buffer_size": unit_row["last_buffer_size"],
+            "buffer_summary": buffer_summary,
+            "photo_buffer_summary": photo_buffer_summary,
             "connection_log": connection_log,
             "sensor_sanity": sensor_sanity,
             "open_errors": open_errors,

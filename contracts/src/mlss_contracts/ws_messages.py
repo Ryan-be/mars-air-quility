@@ -55,6 +55,19 @@ class TelemetryPayload(BaseModel):
     # that doesn't yet emit them.
     uptime_s: float | None = None
     buffer_size: int | None = None
+    # Buffer-inspection UI (Phase 3 follow-up): the firmware piggybacks
+    # full summaries of both on-disk buffers (text + photo) on every
+    # Nth telemetry frame so the Diagnostics tab can render WHAT is
+    # queued. Both are dicts with shape:
+    #   {"size": int, "total_bytes": int,
+    #    "oldest_ts": str|None, "newest_ts": str|None,
+    #    "kinds": {<msg_type>: int, ...}}
+    # (`kinds` is text-buffer-only — photos are all the same kind.)
+    # Stored on the unit at SafetyLoop level; persisted server-side as
+    # JSON-in-TEXT on grow_units.last_*_summary_json with omit-doesnt-
+    # clobber semantics in handle_telemetry.
+    buffer_summary: dict | None = None
+    photo_buffer_summary: dict | None = None
 
 
 class EventPayload(BaseModel):

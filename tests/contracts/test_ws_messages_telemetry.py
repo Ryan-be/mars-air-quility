@@ -69,6 +69,52 @@ def test_telemetry_existing_shape_unchanged_when_new_fields_omitted():
     assert p.pump_state is False
 
 
+def test_telemetry_accepts_optional_buffer_summary():
+    """Buffer-inspection UI: the buffer summary is a free-form dict
+    piggybacking on every Nth telemetry frame. Validation must accept
+    it as ``dict | None`` — pydantic doesn't try to enforce the inner
+    keys (the firmware-side LocalBuffer.summary() owns that contract,
+    and a strict schema here would force a wire-shape lockstep we don't
+    want)."""
+    p = TelemetryPayload(
+        soil_moisture_raw=612,
+        light_state=True,
+        pump_state=False,
+        buffer_summary={
+            "size": 247,
+            "total_bytes": 78423,
+            "oldest_ts": "2026-05-07T03:42:00",
+            "newest_ts": "2026-05-07T04:17:30",
+            "kinds": {"telemetry": 240, "event": 6, "capabilities": 1},
+        },
+        photo_buffer_summary={
+            "size": 12,
+            "total_bytes": 4_800_000,
+            "oldest_ts": "2026-05-07T03:00:00Z",
+            "newest_ts": "2026-05-07T05:30:00Z",
+        },
+    )
+    blob = p.model_dump_json()
+    parsed = TelemetryPayload.model_validate_json(blob)
+    assert parsed.buffer_summary["size"] == 247
+    assert parsed.buffer_summary["kinds"]["telemetry"] == 240
+    assert parsed.photo_buffer_summary["size"] == 12
+
+
+def test_telemetry_buffer_summary_omitted_defaults_to_none():
+    """Most telemetry frames OMIT the summary (firmware sends it on
+    every Nth tick only). Pydantic must default both to None so the
+    server's omit-doesnt-clobber persistence path knows to skip the
+    UPDATE."""
+    p = TelemetryPayload(
+        soil_moisture_raw=612,
+        light_state=True,
+        pump_state=False,
+    )
+    assert p.buffer_summary is None
+    assert p.photo_buffer_summary is None
+
+
 def test_ws_envelope_round_trip():
     msg = WSMessage(
         type="telemetry",

@@ -200,6 +200,83 @@ class LocalBuffer:
     def size(self) -> int:
         return self._conn.execute("SELECT COUNT(*) FROM buffer").fetchone()[0]
 
+    def summary(self) -> dict:
+        """Return a structured summary of buffered messages.
+
+        Used by the diagnostics UI to render WHAT is queued without
+        serialising every row across the wire. Piggybacks on every Nth
+        telemetry frame from the firmware (see SafetyLoop.tick); the
+        server caches the JSON-encoded result on
+        ``grow_units.last_buffer_summary_json`` and the diagnostics
+        endpoint surfaces it parsed.
+
+        Shape (see also tests/grow_unit/test_buffer.py)::
+
+            {
+                "size": 247,                     # row count
+                "total_bytes": 78423,            # SUM(LENGTH(body))
+                "oldest_ts": "2026-05-07T03:42:00",  # ISO-8601 string
+                "newest_ts": "2026-05-07T04:17:30",
+                "kinds": {                       # per-msg_type counts
+                    "telemetry": 240,
+                    "event": 6,
+                    "capabilities": 1,
+                },
+            }
+
+        Empty buffer → all zero/None and an empty ``kinds`` dict (rather
+        than missing keys), so the renderer can rely on the shape.
+
+        DOES NOT include any message bodies. The whole point of the
+        summary vs. a full dump is keeping the wire shape under ~1 KB
+        even for a buffer of tens of thousands of rows.
+        """
+        rows = self._conn.execute(
+            "SELECT msg_type, timestamp_utc, LENGTH(body) AS body_bytes "
+            "FROM buffer ORDER BY id"
+        ).fetchall()
+        if not rows:
+            return {
+                "size": 0,
+                "total_bytes": 0,
+                "oldest_ts": None,
+                "newest_ts": None,
+                "kinds": {},
+            }
+
+        kinds: dict[str, int] = {}
+        total_bytes = 0
+        for r in rows:
+            kinds[r[0]] = kinds.get(r[0], 0) + 1
+            total_bytes += r[2]
+
+        # SQLite stores datetime values as TEXT in the form
+        # "YYYY-MM-DD HH:MM:SS[.ffffff]" (space separator, not 'T').
+        # The diagnostics UI consumes ISO-8601 with the 'T' separator
+        # so we normalize both possible inputs (str round-tripped from
+        # SQLite OR a raw datetime when something queries with a
+        # detect_types connection) to a canonical ISO-8601 string.
+        def _iso(ts):
+            if ts is None:
+                return None
+            if hasattr(ts, "isoformat"):
+                return ts.isoformat()
+            # SQLite text form. Cheapest fix: swap the space for 'T'.
+            # (Don't try to parse + re-format — that'd lose microsecond
+            # precision and risk timezone confusion.)
+            text = str(ts)
+            if " " in text and "T" not in text:
+                text = text.replace(" ", "T", 1)
+            return text
+
+        return {
+            "size": len(rows),
+            "total_bytes": total_bytes,
+            "oldest_ts": _iso(rows[0][1]),
+            "newest_ts": _iso(rows[-1][1]),
+            "kinds": kinds,
+        }
+
     def peek_all(self) -> list[BufferedRow]:
         """Return all buffered rows in timestamp order WITHOUT deleting them.
 

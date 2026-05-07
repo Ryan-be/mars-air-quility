@@ -1,10 +1,12 @@
 /**
  * Diagnostics tab orchestrator — Phase 3 Task 4.
  *
- * Composes four child sections fetched from a single consolidated
+ * Composes five child sections fetched from a single consolidated
  * endpoint (Phase 3 Task 3 added the endpoint):
  *
  *   - firmware-info: version + uptime + buffer size
+ *   - buffer-inspector: per-msg_type counts + bytes + age (Phase 3
+ *                       follow-up: WHAT is queued, not just count)
  *   - connection-log: 20 most recent online/offline events
  *   - sensor-sanity: per-capability staleness
  *   - danger-zone: token rotation + decommission + clear remote buffer
@@ -26,6 +28,7 @@
  * "no data" message; this orchestrator doesn't gate per-section.
  */
 import { renderFirmwareInfo } from "./firmware-info.mjs";
+import { renderBufferInspector } from "./buffer-inspector.mjs";
 import { renderConnectionLog } from "./connection-log.mjs";
 import { renderSensorSanity } from "./sensor-sanity.mjs";
 import { renderDangerZone } from "./danger-zone.mjs";
@@ -76,6 +79,10 @@ export async function renderDiagnosticsPanel(unit, opts = {}) {
   }
 
   wrap.appendChild(renderFirmwareInfo(data, opts));
+  // Buffer inspector mounts between firmware-info and connection-log:
+  // it's a deeper drill-down on the buffer-size field shown in the
+  // firmware card, so adjacency keeps the related info together.
+  wrap.appendChild(renderBufferInspector(data, opts));
   wrap.appendChild(renderConnectionLog(data.connection_log, opts));
   wrap.appendChild(renderSensorSanity(data.sensor_sanity, opts));
   wrap.appendChild(renderDangerZone(unit, opts));

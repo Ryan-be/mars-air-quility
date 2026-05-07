@@ -548,6 +548,117 @@ def test_tick_telemetry_includes_buffer_size_when_buffer_supplied():
     assert tel["buffer_size"] == 7
 
 
+def test_tick_includes_buffer_summary_every_10th_tick():
+    """Phase 3 buffer-inspection UI: full buffer summary piggybacks on
+    every 10th telemetry frame (not every tick — see
+    _BUFFER_SUMMARY_EVERY_N_TICKS rationale). Tick 9 must NOT carry a
+    summary; tick 10 must carry one."""
+    sensor = MagicMock(channels=lambda: ["soil_moisture"],
+                       read=lambda: {"soil_moisture": 612},
+                       healthy=lambda: True)
+    pump = MagicMock(state=lambda: False)
+    light = MagicMock(state=lambda: False)
+    emitted = []
+
+    fake_summary = {
+        "size": 247, "total_bytes": 78423,
+        "oldest_ts": "2026-05-07T03:42:00",
+        "newest_ts": "2026-05-07T04:17:30",
+        "kinds": {"telemetry": 240, "event": 6, "capabilities": 1},
+    }
+    fake_buffer = MagicMock(
+        size=lambda: 247,
+        summary=lambda: fake_summary,
+    )
+
+    loop = SafetyLoop(
+        sensors=[sensor], pump=pump, light=light, camera=None,
+        config=_basic_config(),
+        emit=lambda k, p: emitted.append((k, p)),
+        now_fn=lambda: datetime(2026, 5, 3, 12, 0),
+        buffer=fake_buffer,
+    )
+    # Tick 9 times — none should carry a summary (count is 1..9, not
+    # divisible by 10).
+    for _ in range(9):
+        emitted.clear()
+        loop.tick()
+        tel = next(p for k, p in emitted if k == "telemetry")
+        assert "buffer_summary" not in tel, (
+            "buffer_summary must NOT appear on ticks 1..9 — only every 10th"
+        )
+    # 10th tick — must carry a summary.
+    emitted.clear()
+    loop.tick()
+    tel = next(p for k, p in emitted if k == "telemetry")
+    assert tel.get("buffer_summary") == fake_summary, (
+        f"tick 10 must carry buffer_summary; got telemetry={tel}"
+    )
+
+
+def test_tick_includes_photo_buffer_summary_on_piggyback_tick():
+    """Photo buffer gets the same every-10th-tick treatment as the text
+    buffer. Both summaries hitch a ride on the same telemetry frame."""
+    sensor = MagicMock(channels=lambda: ["soil_moisture"],
+                       read=lambda: {"soil_moisture": 612},
+                       healthy=lambda: True)
+    pump = MagicMock(state=lambda: False)
+    light = MagicMock(state=lambda: False)
+    emitted = []
+
+    photo_summary = {
+        "size": 12,
+        "total_bytes": 4_800_000,
+        "oldest_ts": "2026-05-07T03:00:00Z",
+        "newest_ts": "2026-05-07T05:30:00Z",
+    }
+    fake_photo_buffer = MagicMock(summary=lambda: photo_summary)
+
+    loop = SafetyLoop(
+        sensors=[sensor], pump=pump, light=light, camera=None,
+        config=_basic_config(),
+        emit=lambda k, p: emitted.append((k, p)),
+        now_fn=lambda: datetime(2026, 5, 3, 12, 0),
+        photo_buffer=fake_photo_buffer,
+    )
+    # Skip to tick 10.
+    for _ in range(9):
+        loop.tick()
+    emitted.clear()
+    loop.tick()  # 10th
+    tel = next(p for k, p in emitted if k == "telemetry")
+    assert tel.get("photo_buffer_summary") == photo_summary
+
+
+def test_tick_omits_buffer_summary_when_buffer_is_none():
+    """Defensive: a SafetyLoop wired without a buffer must not crash on
+    the piggyback tick — it just skips the summary fields."""
+    sensor = MagicMock(channels=lambda: ["soil_moisture"],
+                       read=lambda: {"soil_moisture": 612},
+                       healthy=lambda: True)
+    pump = MagicMock(state=lambda: False)
+    light = MagicMock(state=lambda: False)
+    emitted = []
+
+    loop = SafetyLoop(
+        sensors=[sensor], pump=pump, light=light, camera=None,
+        config=_basic_config(),
+        emit=lambda k, p: emitted.append((k, p)),
+        now_fn=lambda: datetime(2026, 5, 3, 12, 0),
+        # No buffer / photo_buffer wired.
+    )
+    # Drive 10 ticks — the piggyback branch fires on tick 10 and must
+    # be a no-op when the buffers aren't wired.
+    for _ in range(10):
+        loop.tick()  # must not raise
+    tel = next(p for k, p in emitted if k == "telemetry")
+    # Neither summary should be in any payload.
+    assert all(
+        "buffer_summary" not in p and "photo_buffer_summary" not in p
+        for k, p in emitted if k == "telemetry"
+    )
+
+
 def test_tick_telemetry_omits_diagnostics_fields_when_not_wired():
     """Backward compat: a SafetyLoop built without uptime_provider /
     buffer must not crash and must not put the new keys in the

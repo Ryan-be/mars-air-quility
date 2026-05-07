@@ -48,7 +48,16 @@ def create_grow_schema(cur):
       -- populated by the firmware's capabilities/telemetry envelopes.
       firmware_version            TEXT,
       last_uptime_s               REAL,
-      last_buffer_size            INTEGER
+      last_buffer_size            INTEGER,
+      -- Buffer-inspection UI (Phase 3 follow-up): JSON-encoded
+      -- snapshots of the firmware-side message buffer + photo buffer.
+      -- Piggybacked on every Nth telemetry frame; persisted by
+      -- handle_telemetry with omit-doesnt-clobber semantics so the
+      -- Diagnostics tab keeps showing the last good summary between
+      -- piggybacks. Both nullable — old firmware that doesn't emit
+      -- the summaries leaves these NULL forever.
+      last_buffer_summary_json    TEXT,
+      last_photo_buffer_summary_json TEXT
     );
     """)
     cur.execute(

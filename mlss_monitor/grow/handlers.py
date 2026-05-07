@@ -82,9 +82,20 @@ def handle_telemetry(unit_id: int, ts: datetime, payload: dict) -> int:
         # NULL, because the Diagnostics tab would then bounce between
         # "known" and "unknown" depending on which firmware is currently
         # talking. Hence the conditional UPDATE.
+        #
+        # buffer_summary / photo_buffer_summary follow the same shape but
+        # piggyback on every 10th telemetry frame rather than every tick
+        # (see SafetyLoop._tick_count + _BUFFER_SUMMARY_EVERY_N_TICKS).
+        # Stored as JSON-in-TEXT for the same reason as `details_json`:
+        # the structure is a read-only cache the diagnostics endpoint
+        # parses back, not something we ever query into.
         uptime_s = payload.get("uptime_s")
         buffer_size = payload.get("buffer_size")
-        if uptime_s is not None or buffer_size is not None:
+        buffer_summary = payload.get("buffer_summary")
+        photo_buffer_summary = payload.get("photo_buffer_summary")
+        if (uptime_s is not None or buffer_size is not None
+                or buffer_summary is not None
+                or photo_buffer_summary is not None):
             sets: list[str] = []
             values: list = []
             if uptime_s is not None:
@@ -93,6 +104,12 @@ def handle_telemetry(unit_id: int, ts: datetime, payload: dict) -> int:
             if buffer_size is not None:
                 sets.append("last_buffer_size=?")
                 values.append(buffer_size)
+            if buffer_summary is not None:
+                sets.append("last_buffer_summary_json=?")
+                values.append(json.dumps(buffer_summary))
+            if photo_buffer_summary is not None:
+                sets.append("last_photo_buffer_summary_json=?")
+                values.append(json.dumps(photo_buffer_summary))
             values.append(unit_id)
             conn.execute(
                 f"UPDATE grow_units SET {', '.join(sets)} WHERE id=?",

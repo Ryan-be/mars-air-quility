@@ -355,6 +355,86 @@ def test_buffer_clear_persists_across_close_reopen(tmp_path):
     assert b2.size() == 0
 
 
+# ---------------------------------------------------------------------------
+# summary() — structured buffer-content snapshot for the Diagnostics UI.
+# Piggybacked on every Nth telemetry frame so operators can see WHAT
+# is queued during an outage, not just the count.
+# ---------------------------------------------------------------------------
+
+
+def test_buffer_summary_empty(tmp_path):
+    """Empty buffer → zero counts and an empty kinds dict (not missing
+    keys). Renderer relies on the shape being present even when nothing's
+    queued, so it can branch on ``size == 0`` rather than KeyError-trying
+    to read ``kinds``."""
+    buf = LocalBuffer(db_path=str(tmp_path / "buf.sqlite"))
+    s = buf.summary()
+    assert s == {
+        "size": 0,
+        "total_bytes": 0,
+        "oldest_ts": None,
+        "newest_ts": None,
+        "kinds": {},
+    }
+
+
+def test_buffer_summary_counts_by_msg_type(tmp_path):
+    """kinds is a count-per-msg_type, not a list of bodies. Three
+    telemetry + two events + one capabilities → {telemetry: 3, event: 2,
+    capabilities: 1}."""
+    buf = LocalBuffer(db_path=str(tmp_path / "buf.sqlite"))
+    base = datetime(2026, 5, 7, 3, 0, 0)
+    for i in range(3):
+        buf.append("telemetry", '{"i":%d}' % i, ts=base + timedelta(seconds=i))
+    buf.append("event", '{"k":"watering_pulse"}', ts=base + timedelta(minutes=1))
+    buf.append("event", '{"k":"sensor_degraded"}', ts=base + timedelta(minutes=2))
+    buf.append("capabilities", '{"caps":[]}', ts=base + timedelta(minutes=3))
+
+    s = buf.summary()
+    assert s["size"] == 6
+    assert s["kinds"] == {
+        "telemetry": 3,
+        "event": 2,
+        "capabilities": 1,
+    }
+
+
+def test_buffer_summary_includes_oldest_and_newest_ts(tmp_path):
+    """oldest_ts/newest_ts pin the time-window the buffer covers — useful
+    for the operator deciding whether the queued data is still relevant
+    or stale enough to clear."""
+    buf = LocalBuffer(db_path=str(tmp_path / "buf.sqlite"))
+    t1 = datetime(2026, 5, 7, 3, 42, 0)
+    t2 = datetime(2026, 5, 7, 3, 50, 0)
+    t3 = datetime(2026, 5, 7, 4, 17, 30)
+    # Insert out of chronological order to verify summary() orders by
+    # insertion id (which is the actual chronological order at insert
+    # time — a freshly-arrived row will always have the largest id).
+    buf.append("telemetry", '{"i":1}', ts=t1)
+    buf.append("telemetry", '{"i":2}', ts=t2)
+    buf.append("telemetry", '{"i":3}', ts=t3)
+
+    s = buf.summary()
+    # The summary returns timestamps as ISO strings (cross-process JSON
+    # safe); both datetime and str input forms must round-trip cleanly.
+    assert s["oldest_ts"] == t1.isoformat()
+    assert s["newest_ts"] == t3.isoformat()
+
+
+def test_buffer_summary_total_bytes_sums_body_lengths(tmp_path):
+    """total_bytes is the SUM(LENGTH(body)) across all rows, not a count.
+    Drives the "X KB queued" line in the Diagnostics UI so operators
+    can sense the size of an outage."""
+    buf = LocalBuffer(db_path=str(tmp_path / "buf.sqlite"))
+    body_a = "x" * 100
+    body_b = "y" * 250
+    buf.append("telemetry", body_a, ts=datetime(2026, 5, 7, 3, 0, 0))
+    buf.append("event", body_b, ts=datetime(2026, 5, 7, 3, 1, 0))
+
+    s = buf.summary()
+    assert s["total_bytes"] == 100 + 250
+
+
 def test_buffer_eviction_does_not_recurse_when_callback_appends(tmp_path):
     """The on_eviction callback typically appends an event row back into
     the buffer (so the server eventually sees the eviction). That append
