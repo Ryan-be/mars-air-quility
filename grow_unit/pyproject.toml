@@ -21,6 +21,10 @@ mlss-contracts = {path = "../contracts", develop = true}
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0"
 pytest-asyncio = "^0.24"
+# cryptography enables tests/grow_unit/test_ws_client_tls.py to generate
+# a real self-signed cert for the SSLContext-loads-CA assertion. Without
+# it that test pytest.skips with "cryptography lib not available".
+cryptography = "^42.0"
 
 [tool.pytest.ini_options]
 # Scope pytest to the grow_unit test tree only. The repo-root tests/conftest.py
