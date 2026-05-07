@@ -951,6 +951,22 @@ sudo journalctl -u mlss-monitor -f
 
 The shipped `mlss-monitor.service` invokes gunicorn with the conf file above. Do not replace `ExecStart` with `python -m mlss_monitor.app` for a production unit.
 
+### Redeploying after a code change
+
+Once the systemd unit is installed, redeploy with the bundled script:
+
+```bash
+bin/deploy
+```
+
+This runs `git pull --ff-only`, `poetry install --without dev`, rebuilds the
+grow firmware wheels if `grow_unit/`, `contracts/`, or
+`scripts/build_grow_wheel.sh` changed (or on first deploy), and
+`sudo systemctl restart mlss-monitor`. It uses `set -euo pipefail` so any
+failed step aborts before bouncing the service. Use this in preference to
+`git pull && sudo systemctl restart mlss-monitor` — that older shorthand
+skips the poetry install and the wheel rebuild.
+
 ---
 
 ## Web interface

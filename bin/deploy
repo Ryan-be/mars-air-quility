@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# MLSS deployment script. Pulls latest code, refreshes Python deps,
+# rebuilds the grow-firmware wheels (if grow code changed), and
+# bounces the systemd service.
+#
+# Usage: bin/deploy
+#
+# Run from the project root on the MLSS server. Requires sudo for
+# systemctl + the systemctl line is the only sudo step.
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT"
+
+echo "==> git pull"
+git pull --ff-only
+
+echo "==> poetry install (production deps only)"
+poetry install --without dev
+
+# Detect whether grow firmware code changed since last deploy.
+# If yes, rebuild wheels so the Pi installer's manifest reflects
+# the new versions on next first-boot. The wheel-build is idempotent
+# but takes ~30s, so skip when nothing changed.
+#
+# If the git-diff check is fragile (first deploy: HEAD@{1} doesn't
+# exist), default to "always build" — wasting 30s on a no-op build is
+# fine; skipping a needed build is the failure mode that bites.
+GROW_CHANGED=0
+if git diff --quiet HEAD@{1}..HEAD -- grow_unit/ contracts/ scripts/build_grow_wheel.sh 2>/dev/null; then
+    echo "==> grow firmware unchanged; skipping wheel build"
+else
+    GROW_CHANGED=1
+fi
+
+# Always build on the FIRST deploy (when HEAD@{1} doesn't exist) — detect via
+# the .last_built sentinel and fall through to build if it's missing.
+if [[ "$GROW_CHANGED" -eq 1 ]] || [[ ! -f "static/grow_dist/.last_built" ]]; then
+    echo "==> Building grow firmware wheels"
+    bash scripts/build_grow_wheel.sh
+    touch static/grow_dist/.last_built
+fi
+
+echo "==> Restarting mlss-monitor"
+sudo systemctl restart mlss-monitor
+
+echo "==> Tail of journalctl (last 20 lines):"
+sudo journalctl -u mlss-monitor -n 20 --no-pager
+
+echo ""
+echo "==> Done. Watch logs with: sudo journalctl -u mlss-monitor -f"
