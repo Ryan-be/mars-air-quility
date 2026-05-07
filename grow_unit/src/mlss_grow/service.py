@@ -451,10 +451,53 @@ async def _run_main_loop(state: BootstrappedState) -> None:
             cmd = await received_commands.get()
             await dispatch_command(cmd, dispatch_ctx)
 
+    async def watchdog_pinger():
+        """Ping systemd's watchdog so it doesn't SIGABRT us.
+
+        The systemd unit declares WatchdogSec=30, meaning systemd
+        expects a `WATCHDOG=1` notification at least every 30s. If we
+        miss it (e.g. async loop wedged, hardware deadlock), systemd
+        kills us — that's the safety property the watchdog provides.
+        We ping every 10s so transient slowness doesn't trigger a
+        kill.
+
+        Dependency-free: writes to the AF_UNIX socket path in
+        $NOTIFY_SOCKET via stdlib `socket`. If the env var isn't
+        set (e.g. running outside systemd, or via `python -m` for
+        dev), this is a no-op. Errors are swallowed — the firmware
+        should keep running even if notify is broken.
+        """
+        notify_socket_path = os.environ.get("NOTIFY_SOCKET")
+        if not notify_socket_path:
+            log.info("NOTIFY_SOCKET not set — watchdog ping disabled "
+                     "(running outside systemd?)")
+            return
+        # Linux abstract sockets start with @ — translate to NUL prefix.
+        if notify_socket_path.startswith("@"):
+            notify_socket_path = "\0" + notify_socket_path[1:]
+        log.info("watchdog ping enabled — notifying systemd every 10s")
+        try:
+            import socket
+            sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+            # Initial READY=1 lets systemd know boot completed.
+            try:
+                sock.sendto(b"READY=1", notify_socket_path)
+            except OSError as exc:
+                log.warning("READY=1 notify failed: %s", exc)
+            while True:
+                try:
+                    sock.sendto(b"WATCHDOG=1", notify_socket_path)
+                except OSError as exc:
+                    log.warning("WATCHDOG=1 notify failed: %s", exc)
+                await asyncio.sleep(10)
+        except Exception as exc:
+            log.warning("watchdog_pinger setup failed: %s", exc)
+
     await asyncio.gather(
         ws.run_forever(),
         safety_ticker(),
         command_handler(),
+        watchdog_pinger(),
     )
 
 
