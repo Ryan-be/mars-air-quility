@@ -75,6 +75,30 @@ def handle_telemetry(unit_id: int, ts: datetime, payload: dict) -> int:
             (ts, ts, unit_id),
         )
 
+        # Phase 3 diagnostics cache. uptime_s + buffer_size are optional —
+        # firmware too old to emit them keeps validating; we just don't
+        # update the cached columns. Omit-doesnt-clobber: a frame WITHOUT
+        # the field MUST NOT overwrite the previously-known value with
+        # NULL, because the Diagnostics tab would then bounce between
+        # "known" and "unknown" depending on which firmware is currently
+        # talking. Hence the conditional UPDATE.
+        uptime_s = payload.get("uptime_s")
+        buffer_size = payload.get("buffer_size")
+        if uptime_s is not None or buffer_size is not None:
+            sets: list[str] = []
+            values: list = []
+            if uptime_s is not None:
+                sets.append("last_uptime_s=?")
+                values.append(uptime_s)
+            if buffer_size is not None:
+                sets.append("last_buffer_size=?")
+                values.append(buffer_size)
+            values.append(unit_id)
+            conn.execute(
+                f"UPDATE grow_units SET {', '.join(sets)} WHERE id=?",
+                values,
+            )
+
         # Phase 2 sense-only-mode: promote actuator capabilities to
         # "connected" when their state is non-zero. Why only on state=1?
         # Because pump_state=0 / light_state=0 is the normal idle state,
@@ -123,6 +147,19 @@ def handle_capabilities(unit_id: int, ts: datetime, payload: dict) -> None:
             "UPDATE grow_units SET last_seen_at=? WHERE id=?",
             (ts, unit_id),
         )
+
+        # Phase 3 diagnostics cache. firmware_version is sent only with
+        # capabilities (boot/reconnect) — keeping it off the per-tick
+        # telemetry frame saves bandwidth, since it changes only when the
+        # operator re-flashes the unit. Omit-doesnt-clobber: a payload
+        # without the field leaves the column untouched.
+        fw_version = payload.get("firmware_version")
+        if fw_version is not None:
+            conn.execute(
+                "UPDATE grow_units SET firmware_version=? WHERE id=?",
+                (fw_version, unit_id),
+            )
+
         conn.commit()
     finally:
         conn.close()

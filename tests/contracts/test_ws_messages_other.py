@@ -63,6 +63,39 @@ def test_config_payload_round_trip():
     assert parsed == cfg
 
 
+def test_capabilities_accepts_optional_uptime_s():
+    """Phase 3 diagnostics: capabilities envelope carries uptime_s so the
+    server can cache it on capabilities receipt (alongside the existing
+    firmware_version)."""
+    c = CapabilitiesPayload(
+        capabilities=[
+            Capability(channel="soil_moisture", hardware="Seesaw",
+                       is_required=True, unit_label="raw"),
+        ],
+        firmware_version="1.2.3",
+        hardware_serial="hw-1",
+        uptime_s=42.5,
+    )
+    blob = c.model_dump_json()
+    parsed = CapabilitiesPayload.model_validate_json(blob)
+    assert parsed.firmware_version == "1.2.3"
+    assert parsed.uptime_s == 42.5
+
+
+def test_capabilities_omits_uptime_s_by_default():
+    """uptime_s is Optional with None default — old firmware that doesn't
+    yet emit it must validate without modification."""
+    c = CapabilitiesPayload(
+        capabilities=[
+            Capability(channel="soil_moisture", hardware="Seesaw",
+                       is_required=True, unit_label="raw"),
+        ],
+        firmware_version="1.2.3",
+        hardware_serial="hw-1",
+    )
+    assert c.uptime_s is None
+
+
 def test_ack_payload_was_removed():
     """AckPayload existed in an earlier draft but was deleted in Commit C2
     after the implementation deliberately deviated from spec — see

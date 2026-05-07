@@ -143,6 +143,75 @@ def test_handle_telemetry_with_state_0_does_not_demote_connected(db_with_unit):
     assert _read_capability_health(db_with_unit, 1, "pump") == "connected"
 
 
+def test_handle_telemetry_persists_uptime_and_buffer_size(db_with_unit):
+    """Phase 3 diagnostics: handle_telemetry caches uptime_s + buffer_size
+    onto grow_units.last_uptime_s + last_buffer_size so the Diagnostics
+    tab can render them without joining against grow_telemetry."""
+    from mlss_monitor.grow.handlers import handle_telemetry
+    handle_telemetry(unit_id=1, ts=datetime.utcnow(), payload={
+        "soil_moisture_raw": 612, "light_state": False, "pump_state": False,
+        "uptime_s": 1234.5,
+        "buffer_size": 42,
+    })
+    conn = sqlite3.connect(db_with_unit)
+    uptime, buf = conn.execute(
+        "SELECT last_uptime_s, last_buffer_size FROM grow_units WHERE id=1"
+    ).fetchone()
+    assert uptime == 1234.5
+    assert buf == 42
+
+
+def test_handle_telemetry_omitting_uptime_does_not_clobber_existing_value(db_with_unit):
+    """Backward compat: a telemetry frame without uptime_s must NOT
+    overwrite a previously-cached last_uptime_s with NULL. Keeps the
+    Diagnostics tab from flipping to "unknown" each time an old
+    firmware (no diagnostics fields) sends a frame between modern
+    frames."""
+    conn = sqlite3.connect(db_with_unit)
+    conn.execute(
+        "UPDATE grow_units SET last_uptime_s=100, last_buffer_size=5 WHERE id=1"
+    )
+    conn.commit()
+    conn.close()
+
+    from mlss_monitor.grow.handlers import handle_telemetry
+    # Old-firmware-shaped payload: no uptime_s, no buffer_size.
+    handle_telemetry(unit_id=1, ts=datetime.utcnow(), payload={
+        "soil_moisture_raw": 612, "light_state": False, "pump_state": False,
+    })
+    conn = sqlite3.connect(db_with_unit)
+    uptime, buf = conn.execute(
+        "SELECT last_uptime_s, last_buffer_size FROM grow_units WHERE id=1"
+    ).fetchone()
+    assert uptime == 100  # untouched
+    assert buf == 5  # untouched
+
+
+def test_handle_telemetry_partial_diagnostics_updates_only_provided_field(db_with_unit):
+    """A frame with uptime_s but no buffer_size must update only
+    last_uptime_s and leave last_buffer_size alone (and vice versa).
+    Hedges against firmware that only emits one of the two if e.g. the
+    buffer hasn't initialised yet."""
+    conn = sqlite3.connect(db_with_unit)
+    conn.execute(
+        "UPDATE grow_units SET last_uptime_s=100, last_buffer_size=5 WHERE id=1"
+    )
+    conn.commit()
+    conn.close()
+
+    from mlss_monitor.grow.handlers import handle_telemetry
+    handle_telemetry(unit_id=1, ts=datetime.utcnow(), payload={
+        "soil_moisture_raw": 612, "light_state": False, "pump_state": False,
+        "uptime_s": 999.0,  # only uptime, no buffer_size
+    })
+    conn = sqlite3.connect(db_with_unit)
+    uptime, buf = conn.execute(
+        "SELECT last_uptime_s, last_buffer_size FROM grow_units WHERE id=1"
+    ).fetchone()
+    assert uptime == 999.0  # updated
+    assert buf == 5  # untouched
+
+
 def test_handle_telemetry_computes_pct_when_unit_calibrated(db_with_unit):
     """If pct is missing but raw + calibration are present, server fills it in."""
     from mlss_monitor.grow.handlers import handle_telemetry

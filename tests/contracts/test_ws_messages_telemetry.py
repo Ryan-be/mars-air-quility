@@ -35,6 +35,40 @@ def test_telemetry_rejects_missing_required():
         TelemetryPayload(soil_moisture_raw=612, light_state=True)  # missing pump_state
 
 
+def test_telemetry_accepts_optional_uptime_and_buffer_size():
+    """Phase 3 diagnostics: every telemetry frame carries uptime_s and
+    buffer_size so the server can cache the latest values into
+    grow_units for the Diagnostics tab."""
+    p = TelemetryPayload(
+        soil_moisture_raw=612,
+        light_state=True,
+        pump_state=False,
+        uptime_s=12345.6,
+        buffer_size=42,
+    )
+    blob = p.model_dump_json()
+    parsed = TelemetryPayload.model_validate_json(blob)
+    assert parsed.uptime_s == 12345.6
+    assert parsed.buffer_size == 42
+
+
+def test_telemetry_existing_shape_unchanged_when_new_fields_omitted():
+    """Backward compat: a telemetry payload built without the new
+    diagnostics fields must still validate identically. Old firmware in
+    the field can keep talking to the server."""
+    p = TelemetryPayload(
+        soil_moisture_raw=612,
+        light_state=True,
+        pump_state=False,
+    )
+    assert p.uptime_s is None
+    assert p.buffer_size is None
+    # The pre-existing required fields keep their values.
+    assert p.soil_moisture_raw == 612
+    assert p.light_state is True
+    assert p.pump_state is False
+
+
 def test_ws_envelope_round_trip():
     msg = WSMessage(
         type="telemetry",

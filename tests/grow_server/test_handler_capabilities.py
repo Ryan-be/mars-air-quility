@@ -125,6 +125,55 @@ def test_handle_capabilities_replaces_old_set(db_with_unit):
     assert channels == {"soil_moisture", "ambient_lux"}
 
 
+def test_handle_capabilities_persists_firmware_version_to_grow_units(db_with_unit):
+    """Phase 3 diagnostics: handle_capabilities caches firmware_version
+    into grow_units.firmware_version so the Diagnostics tab can show
+    what's actually running on the unit (without a separate per-unit
+    HTTP query)."""
+    from mlss_monitor.grow.handlers import handle_capabilities
+    handle_capabilities(unit_id=1, ts=datetime.utcnow(), payload={
+        "capabilities": [
+            {"channel": "soil_moisture", "hardware": "Seesaw",
+             "is_required": True, "unit_label": "raw"},
+        ],
+        "firmware_version": "1.2.3",
+        "hardware_serial": "hw1",
+    })
+    conn = sqlite3.connect(db_with_unit)
+    fw = conn.execute(
+        "SELECT firmware_version FROM grow_units WHERE id=1"
+    ).fetchone()[0]
+    assert fw == "1.2.3"
+
+
+def test_handle_capabilities_omitting_firmware_version_does_not_clobber(db_with_unit):
+    """Backward compat: a capabilities frame without firmware_version
+    must NOT overwrite the previously-cached value with NULL — the
+    Diagnostics tab should keep showing the last known value rather
+    than flipping to "unknown" because an old firmware reconnected."""
+    conn = sqlite3.connect(db_with_unit)
+    conn.execute(
+        "UPDATE grow_units SET firmware_version='2.0.0' WHERE id=1"
+    )
+    conn.commit()
+    conn.close()
+
+    from mlss_monitor.grow.handlers import handle_capabilities
+    # Old-firmware-shaped payload: no firmware_version key at all.
+    handle_capabilities(unit_id=1, ts=datetime.utcnow(), payload={
+        "capabilities": [
+            {"channel": "soil_moisture", "hardware": "Seesaw",
+             "is_required": True, "unit_label": "raw"},
+        ],
+        "hardware_serial": "hw1",
+    })
+    conn = sqlite3.connect(db_with_unit)
+    fw = conn.execute(
+        "SELECT firmware_version FROM grow_units WHERE id=1"
+    ).fetchone()[0]
+    assert fw == "2.0.0"
+
+
 def test_grow_caps_health_check_constraint_at_db_level(db_with_unit):
     """C1 schema cleanup: a fresh schema (CREATE TABLE path) enforces
     `health IN ('connected','untested','unresponsive','no_hardware')` at

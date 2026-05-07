@@ -496,3 +496,72 @@ def test_holiday_mode_suppresses_pump_pulse_but_still_emits_telemetry():
     # But telemetry + light decision still happened
     assert any(k == "telemetry" for k, _ in emitted)
     light.on.assert_called_once()  # noon falls inside the default window
+
+
+def test_tick_telemetry_includes_uptime_s_when_provider_supplied():
+    """Phase 3 diagnostics: when a uptime_provider is wired, every
+    telemetry frame carries uptime_s so the server can cache it on
+    grow_units.last_uptime_s for the Diagnostics tab."""
+    sensor = MagicMock(channels=lambda: ["soil_moisture"],
+                       read=lambda: {"soil_moisture": 612},
+                       healthy=lambda: True)
+    pump = MagicMock(state=lambda: False)
+    light = MagicMock(state=lambda: False)
+    emitted = []
+
+    loop = SafetyLoop(
+        sensors=[sensor], pump=pump, light=light, camera=None,
+        config=_basic_config(),
+        emit=lambda k, p: emitted.append((k, p)),
+        now_fn=lambda: datetime(2026, 5, 3, 12, 0),
+        uptime_provider=lambda: 123.45,
+    )
+    loop.tick()
+    tel = next(p for k, p in emitted if k == "telemetry")
+    assert tel["uptime_s"] == 123.45
+
+
+def test_tick_telemetry_includes_buffer_size_when_buffer_supplied():
+    """Phase 3 diagnostics: when a buffer is wired, every telemetry frame
+    reports the current buffered-row count via buffer.size()."""
+    sensor = MagicMock(channels=lambda: ["soil_moisture"],
+                       read=lambda: {"soil_moisture": 612},
+                       healthy=lambda: True)
+    pump = MagicMock(state=lambda: False)
+    light = MagicMock(state=lambda: False)
+    emitted = []
+
+    fake_buffer = MagicMock(size=lambda: 7)
+    loop = SafetyLoop(
+        sensors=[sensor], pump=pump, light=light, camera=None,
+        config=_basic_config(),
+        emit=lambda k, p: emitted.append((k, p)),
+        now_fn=lambda: datetime(2026, 5, 3, 12, 0),
+        buffer=fake_buffer,
+    )
+    loop.tick()
+    tel = next(p for k, p in emitted if k == "telemetry")
+    assert tel["buffer_size"] == 7
+
+
+def test_tick_telemetry_omits_diagnostics_fields_when_not_wired():
+    """Backward compat: a SafetyLoop built without uptime_provider /
+    buffer must not crash and must not put the new keys in the
+    telemetry payload (so old listeners aren't surprised)."""
+    sensor = MagicMock(channels=lambda: ["soil_moisture"],
+                       read=lambda: {"soil_moisture": 612},
+                       healthy=lambda: True)
+    pump = MagicMock(state=lambda: False)
+    light = MagicMock(state=lambda: False)
+    emitted = []
+
+    loop = SafetyLoop(
+        sensors=[sensor], pump=pump, light=light, camera=None,
+        config=_basic_config(),
+        emit=lambda k, p: emitted.append((k, p)),
+        now_fn=lambda: datetime(2026, 5, 3, 12, 0),
+    )
+    loop.tick()
+    tel = next(p for k, p in emitted if k == "telemetry")
+    assert "uptime_s" not in tel
+    assert "buffer_size" not in tel

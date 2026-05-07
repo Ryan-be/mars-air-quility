@@ -10,7 +10,9 @@ import asyncio
 import logging
 import os
 import sys
+import time
 from dataclasses import dataclass
+from importlib.metadata import version, PackageNotFoundError
 
 from mlss_grow.config import (
     load_firstboot_config, load_token, save_token, FirstbootConfig,
@@ -21,6 +23,32 @@ log = logging.getLogger(__name__)
 
 FIRSTBOOT_PATH = "/boot/mlss-grow.yaml"
 TOKEN_PATH = "/etc/mlss/grow.token"
+
+# Module-load monotonic timestamp. We use monotonic (not wall-clock) so
+# uptime_s is immune to clock changes (NTP step, manual sysadmin set).
+# Captured at import so all subsequent uptime calculations reference
+# the same origin even if the service module is re-imported in tests.
+_SERVICE_START_TIME = time.monotonic()
+
+
+def _get_firmware_version() -> str:
+    """Return the package version (mlss_grow) or "dev" if not installed.
+
+    The systemd unit installs mlss_grow as a real package via pip so
+    importlib.metadata.version returns whatever pyproject.toml advertises.
+    Running out of a checkout (poetry shell, pytest) typically yields
+    PackageNotFoundError; in that case "dev" is the right placeholder
+    so the Diagnostics tab shows something useful rather than crashing.
+    """
+    try:
+        return version("mlss_grow")
+    except PackageNotFoundError:
+        return "dev"
+
+
+def _service_uptime_s() -> float:
+    """Seconds since the service module was imported (monotonic)."""
+    return time.monotonic() - _SERVICE_START_TIME
 
 
 def _try_init_with_health(driver_factory, channel_name: str):
@@ -335,6 +363,12 @@ async def _run_main_loop(state: BootstrappedState) -> None:
         config=loop_cfg,
         emit=lambda k, p: asyncio.run_coroutine_threadsafe(
             emit(k, p), asyncio.get_event_loop()),
+        # Phase 3 diagnostics: every telemetry frame carries uptime +
+        # buffer_size. The buffer is owned by the WSClient (which we
+        # constructed above) — pass through so safety_loop can call
+        # .size() each tick.
+        uptime_provider=_service_uptime_s,
+        buffer=ws._buffer,
     )
 
     # Bundle of state the dispatcher needs. Reuses https_base_url so

@@ -49,6 +49,12 @@ class TelemetryPayload(BaseModel):
     air_temp_c: float | None = None
     air_humidity_pct: float | None = None
     reservoir_level_pct: float | None = None
+    # Phase 3 diagnostics — populated by the firmware on every frame so
+    # the server can cache the latest values into grow_units for the
+    # Diagnostics tab. Optional for backward compat with older firmware
+    # that doesn't yet emit them.
+    uptime_s: float | None = None
+    buffer_size: int | None = None
 
 
 class EventPayload(BaseModel):
@@ -62,6 +68,10 @@ class CapabilitiesPayload(BaseModel):
     capabilities: list[Capability]
     firmware_version: str
     hardware_serial: str
+    # Phase 3 diagnostics — uptime at the moment the capabilities message
+    # is built (typically very small at boot). Optional for backward
+    # compat with firmware that doesn't yet emit it.
+    uptime_s: float | None = None
 
 
 class CommandPayload(BaseModel):

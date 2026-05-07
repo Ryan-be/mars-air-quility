@@ -56,3 +56,40 @@ def test_read_with_health_returns_no_hardware_when_read_returns_empty():
     sensor.read.return_value = {}
     reading, health = _read_with_health(sensor, "soil_moisture")
     assert health == "no_hardware"
+
+
+def test_get_firmware_version_returns_package_version_when_installed():
+    """Phase 3 diagnostics: capabilities envelope advertises firmware_version
+    pulled from importlib.metadata so the Diagnostics tab shows what's
+    actually running on the unit (rather than a hard-coded constant that
+    drifts from pyproject.toml)."""
+    from unittest.mock import patch
+    with patch("mlss_grow.service.version", return_value="1.2.3") as mock_v:
+        from mlss_grow.service import _get_firmware_version
+        assert _get_firmware_version() == "1.2.3"
+    mock_v.assert_called_with("mlss_grow")
+
+
+def test_get_firmware_version_returns_dev_when_not_installed():
+    """When running out of a checkout (e.g. poetry shell, pytest)
+    importlib.metadata raises PackageNotFoundError. Fall back to "dev"
+    so the Diagnostics tab has something printable rather than crashing
+    the capabilities frame entirely."""
+    from unittest.mock import patch
+    from importlib.metadata import PackageNotFoundError
+    with patch(
+        "mlss_grow.service.version",
+        side_effect=PackageNotFoundError("mlss_grow"),
+    ):
+        from mlss_grow.service import _get_firmware_version
+        assert _get_firmware_version() == "dev"
+
+
+def test_service_uptime_s_is_non_negative_and_monotonic():
+    """uptime_s comes from time.monotonic() so it should always be
+    non-negative and never go backward across calls."""
+    from mlss_grow.service import _service_uptime_s
+    a = _service_uptime_s()
+    b = _service_uptime_s()
+    assert a >= 0
+    assert b >= a

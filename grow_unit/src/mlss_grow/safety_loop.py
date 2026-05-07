@@ -2,7 +2,7 @@
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 from mlss_grow.pid import PIDConfig, PIDState, pid_decide
 from mlss_grow.light_schedule import is_light_on
@@ -48,7 +48,9 @@ class SafetyLoop:
                  emit: Callable[[str, dict], None],
                  now_fn: Callable[[], datetime] = datetime.utcnow,
                  pid_state: PIDState | None = None,
-                 light_budget: LightBudget | None = None) -> None:
+                 light_budget: LightBudget | None = None,
+                 uptime_provider: Optional[Callable[[], float]] = None,
+                 buffer: Optional[Any] = None) -> None:
         self._sensors = sensors
         self._pump = pump
         self._light = light
@@ -64,6 +66,13 @@ class SafetyLoop:
         # cumulative on-time.
         self._light_budget = light_budget or LightBudget()
         self._last_photo_at: Optional[datetime] = None
+        # Phase 3 diagnostics: every telemetry frame includes uptime_s
+        # and buffer_size so the server can cache them in grow_units
+        # for the Diagnostics tab. Both are injected (rather than
+        # imported from service.py) so tests can supply fakes without
+        # poking at module-level globals.
+        self._uptime_provider = uptime_provider
+        self._buffer = buffer
 
     def tick(self) -> None:
         now = self._now()
@@ -210,7 +219,7 @@ class SafetyLoop:
                 log.warning("camera capture failed: %s", exc)
 
         # 5. Telemetry — always last, includes everything we just did
-        self._emit("telemetry", {
+        telemetry: dict = {
             "soil_moisture_raw": raw if raw is not None else 0,
             "soil_moisture_pct": (
                 _moisture_pct(raw, self._config.soil_calibration)
@@ -223,7 +232,22 @@ class SafetyLoop:
             "air_temp_c": readings.get("air_temp_c"),
             "air_humidity_pct": readings.get("air_humidity_pct"),
             "reservoir_level_pct": readings.get("reservoir_level_pct"),
-        })
+        }
+        # Phase 3 diagnostics fields. Both are best-effort: a buffer.size()
+        # call that raises (e.g. SQLite locked) shouldn't take down the
+        # tick — the field just won't appear, and the server's
+        # omit-doesnt-clobber persistence keeps the last good value.
+        if self._uptime_provider is not None:
+            try:
+                telemetry["uptime_s"] = self._uptime_provider()
+            except Exception as exc:  # noqa: BLE001
+                log.warning("uptime_provider failed: %s", exc)
+        if self._buffer is not None:
+            try:
+                telemetry["buffer_size"] = self._buffer.size()
+            except Exception as exc:  # noqa: BLE001
+                log.warning("buffer.size() failed: %s", exc)
+        self._emit("telemetry", telemetry)
 
     def _photo_due(self, now: datetime) -> bool:
         # Active hours check
