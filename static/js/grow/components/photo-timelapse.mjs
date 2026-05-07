@@ -32,6 +32,8 @@
  * pass.
  */
 
+import { openLightbox } from "./photo-lightbox.mjs";
+
 const RANGES = ["24h", "7d", "30d", "90d", "all"];
 
 const PLAY_INTERVAL_MS = 500;
@@ -124,12 +126,27 @@ export function renderPhotoTimelapse(unit, opts = {}) {
       return;
     }
 
-    // Hero image
+    // Hero image — clickable to open the lightbox with the full photos
+    // list as nav context. The pointer cursor signals the affordance.
     imgEl = doc.createElement("img");
     imgEl.className = "hist-tlapse-img";
     imgEl.dataset.testid = "tlapse-img";
     imgEl.src = _photoUrl(photos[position].id);
     imgEl.alt = `Photo ${position + 1} of ${photos.length}`;
+    imgEl.style.cursor = "pointer";
+    imgEl.addEventListener("click", () => {
+      const photoList = photos.map(p => ({
+        id: p.id,
+        taken_at: p.taken_at,
+        url: _photoUrl(p.id),
+      }));
+      openLightbox({
+        photos: photoList,
+        currentIndex: position,
+        unitId: unit.id,
+        ownerDocument: doc,
+      });
+    });
     body.appendChild(imgEl);
 
     // Caption (taken_at)

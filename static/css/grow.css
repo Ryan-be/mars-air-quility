@@ -249,6 +249,54 @@
 }
 .hist-tlapse-error { color: #ff5252; }
 
+/* Photo lightbox (Phase 2 Task 3) — modal for full-size photo viewing.
+   Opened on click of the latest-photo hero (Live tab) or the
+   timelapse hero img (History tab). Dim backdrop, close button,
+   prev/next when a list context is provided. */
+.lightbox-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 9999;
+  font-family: Roboto, sans-serif;
+}
+.lightbox-content {
+  max-width: 95vw; max-height: 95vh;
+  position: relative;
+  display: flex; flex-direction: column; align-items: center;
+}
+.lightbox-img {
+  max-width: 100%; max-height: 90vh; object-fit: contain;
+  display: block;
+  border: 1px solid #1c2733; background: #0a1219;
+}
+.lightbox-close {
+  position: absolute; top: -2.2rem; right: 0;
+  background: none; border: none; color: #c2d2e3;
+  font-size: 2rem; line-height: 1; cursor: pointer;
+  padding: 0 0.5rem;
+}
+.lightbox-close:hover { color: #4dacff; }
+.lightbox-prev, .lightbox-next {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  background: rgba(0, 0, 0, 0.55); color: #fff;
+  border: 1px solid #2a3d50; border-radius: 2px;
+  font-size: 2rem; line-height: 1; padding: 0.4rem 1rem;
+  cursor: pointer; font-family: Roboto, sans-serif;
+}
+.lightbox-prev:hover:not(:disabled),
+.lightbox-next:hover:not(:disabled) { border-color: #4dacff; color: #4dacff; }
+.lightbox-prev { left: -3.5rem; }
+.lightbox-next { right: -3.5rem; }
+.lightbox-prev:disabled, .lightbox-next:disabled {
+  opacity: 0.3; cursor: not-allowed;
+}
+.lightbox-caption {
+  color: #c2d2e3; text-align: center; margin-top: 0.6rem;
+  font-size: 11px; letter-spacing: 0.04em;
+  font-family: 'SFMono-Regular', Consolas, monospace;
+}
+
 /* Empty-state onboarding panel (shown when zero units enrolled) */
 .empty-wrap { padding: 40px 20px; display: flex; align-items: center; justify-content: center; min-height: 480px; font-family: Roboto, sans-serif; }
 .empty-card { background: #142028; border: 1px solid #1f2e3c; border-radius: 4px; max-width: 720px; width: 100%; padding: 32px; }

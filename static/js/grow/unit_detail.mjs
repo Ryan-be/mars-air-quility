@@ -8,6 +8,7 @@ import { renderLightWindowsEditor } from "./components/light-windows-editor.mjs"
 import { renderCalibrationWizard } from "./components/calibration-wizard.mjs";
 import { renderSafetyOverride } from "./components/safety-override.mjs";
 import { renderHistoryPanel } from "./components/history-panel.mjs";
+import { openLightbox } from "./components/photo-lightbox.mjs";
 
 const SUBTABS = [
   { id: "live", label: "● Live", enabled: true },
@@ -147,6 +148,15 @@ export function renderPhotoPanel(unit, doc = document) {
   photo.style.backgroundImage = `url(${url})`;
   photo.style.backgroundSize = "cover";
   photo.style.backgroundPosition = "center";
+  // Click to open the lightbox. Live tab is single-photo (no nav
+  // context) — we re-fetch /photo/latest with a fresh cache-bust ts so
+  // the lightbox shows whatever's current rather than the cached
+  // background-image.
+  photo.style.cursor = "pointer";
+  photo.addEventListener("click", () => {
+    const fullUrl = `/api/grow/units/${unit.id}/photo/latest?ts=${Date.now()}`;
+    openLightbox({ photoUrl: fullUrl, ownerDocument: doc });
+  });
   wrap.appendChild(photo);
   return wrap;
 }
