@@ -93,7 +93,17 @@ def create_db():
         sensor_data_end_id INTEGER,
         annotation TEXT,
         user_notes TEXT,
-        dismissed INTEGER DEFAULT 0
+        dismissed INTEGER DEFAULT 0,
+        -- Promoted-from-JSON typed columns (see
+        -- mlss_monitor/inference_evidence_storage.py + JSON_STORAGE_AUDIT.md).
+        -- The legacy ``evidence`` TEXT column above is kept for one
+        -- release per DATABASE.md's deprecation policy.
+        evidence_attribution_source TEXT,
+        evidence_attribution_confidence REAL,
+        evidence_runner_up_id TEXT,
+        evidence_runner_up_confidence REAL,
+        evidence_detection_method TEXT,
+        evidence_extras TEXT
     );
     """)
 
@@ -241,6 +251,17 @@ def create_db():
         # with snoozed_until > now() render muted client-side but are
         # NOT filtered server-side (admins can still un-snooze them).
         "ALTER TABLE grow_errors ADD COLUMN snoozed_until DATETIME",
+        # Promotion of ``inferences.evidence`` (JSON-in-TEXT) → typed
+        # columns + extras blob. The legacy ``evidence`` TEXT column
+        # is retained for one release per DATABASE.md's deprecation
+        # policy; see mlss_monitor/inference_evidence_storage.py and
+        # docs/JSON_STORAGE_AUDIT.md.
+        "ALTER TABLE inferences ADD COLUMN evidence_attribution_source TEXT",
+        "ALTER TABLE inferences ADD COLUMN evidence_attribution_confidence REAL",
+        "ALTER TABLE inferences ADD COLUMN evidence_runner_up_id TEXT",
+        "ALTER TABLE inferences ADD COLUMN evidence_runner_up_confidence REAL",
+        "ALTER TABLE inferences ADD COLUMN evidence_detection_method TEXT",
+        "ALTER TABLE inferences ADD COLUMN evidence_extras TEXT",
     ]:
         try:
             cur.execute(migration)

@@ -29,7 +29,7 @@ air-quality side hold serialised JSON; everything else is either:
 
 | Column | Table | Read sites | Write sites | What it stores | Mutates after insert? | Static shape? | Verdict |
 |---|---|---|---|---|---|---|---|
-| `evidence` | `inferences` | `database/db_logger.py:425, 495, 514, 532`; `mlss_monitor/attribution/engine.py:442`; `mlss_monitor/routes/api_history.py:329, 343, 454`; `mlss_monitor/routes/api_inferences.py:219` | `database/db_logger.py:414` (single write site, called from `mlss_monitor/inference_engine.py` and `mlss_monitor/detection_engine.py` — ~25 call sites) | Per-event diagnostic snapshot (e.g. `baseline_tvoc`, `peak_tvoc`, `correlation_r`, `feature_vector`, `attribution_source`, `attribution_confidence`, `_thresholds`). Keys vary by `event_type`. | No — written once at `save_inference()`, never updated | Heterogeneous keys per `event_type`, but readers consistently look up the same handful of fields (`attribution_source`, `attribution_confidence`, `runner_up_source`, `runner_up_confidence`, `range_start`, `range_end`, `feature_vector`) | **PROMOTE-TO-COLUMNS** (roadmap — Phase 3+) — user pre-classified |
+| `evidence` | `inferences` | `database/db_logger.py` (`get_inferences`, `get_inference_by_id` — both rebuild the dict via `inference_evidence_storage.rebuild_evidence_from_row`); `mlss_monitor/attribution/engine.py:442` and `mlss_monitor/routes/api_inferences.py:219` (read pre-decoded `inf["evidence"]`); `mlss_monitor/routes/api_history.py:329, 343, 454` | `database/db_logger.py:save_inference` (single write site, called from `mlss_monitor/inference_engine.py` + `mlss_monitor/detection_engine.py` — ~24 literal `evidence={...}` call sites). The save site delegates the typed-column split to `inference_evidence_storage.persist_evidence`. | Per-event diagnostic snapshot (e.g. `baseline_tvoc`, `peak_tvoc`, `correlation_r`, `feature_vector`, `attribution_source`, `attribution_confidence`, `_thresholds`). Keys vary by `event_type`. | No — written once at `save_inference()`, never updated | Heterogeneous keys per `event_type`, but readers consistently look up the same handful of fields (`attribution_source`, `attribution_confidence`, `runner_up_id`, `runner_up_confidence`, `detection_method`) | **DONE** — promoted to typed columns (`evidence_attribution_source`, `evidence_attribution_confidence`, `evidence_runner_up_id`, `evidence_runner_up_confidence`, `evidence_detection_method`) plus a smaller `evidence_extras` JSON for the genuinely-heterogeneous remainder. Legacy `evidence` TEXT column retained for one release per `DATABASE.md`'s deprecation policy. The 24 callers building `evidence={...}` literals are unchanged — `inference_evidence_storage.persist_evidence` splits the dict at write time. |
 | `signature` | `incidents` | `mlss_monitor/routes/api_incidents.py:113, 321` | `mlss_monitor/incident_grouper.py:498` (called from `regroup_incidents()` — full table rebuild) | A 32-element `list[float]` from `build_incident_similarity_vector()` — fixed layout documented at `incident_grouper.py:283-291` (peak deltas, sensor presence flags, detection-method one-hot, severity one-hot, duration, mean confidence, time-of-day) | No — written once when incidents are regrouped | Yes — fixed 32-float vector, schema-versioned by code | **DONE** — promoted to `incident_signature_features (incident_id, feature_idx, value)` sub-table; legacy TEXT column retained for one release per `DATABASE.md` |
 
 That's it. No other JSON-bearing TEXT columns exist on the
@@ -46,22 +46,27 @@ columns only (`msg_type`, `body`, `timestamp_utc`); see
 
 All entries below are deferred — no code changes in Phase 2 C3.
 
-- **inferences.evidence → typed columns or sub-table** (Phase 3+)
-  - Scope: extract the consistently-read fields
-    (`attribution_source`, `attribution_confidence`, `runner_up_source`,
-    `runner_up_confidence`, `range_start`, `range_end`) into proper
-    columns on `inferences` so attribution queries (e.g.
-    `get_distinct_attribution_sources`) become indexable instead of
-    `SELECT DISTINCT evidence` + Python parsing.
-  - Keep a smaller `evidence_extras` JSON column for the genuinely
-    heterogeneous diagnostic context (event-specific human-readable
-    fields like `baseline_tvoc`, `correlation_r`).
-  - Migration is non-trivial: ~25 `evidence={...}` literal call sites
-    across `inference_engine.py` + `detection_engine.py`, plus the
-    `feature_vector` blob used by ML attribution; should be batched
-    into a single PR with a backfill script.
-  - Plan reference: future
-    `docs/superpowers/plans/<date>-inference-evidence-typed-cols.md`.
+- ~~**inferences.evidence → typed columns or sub-table**~~ **DONE** —
+  promoted to 5 typed columns (`evidence_attribution_source`,
+  `evidence_attribution_confidence`, `evidence_runner_up_id`,
+  `evidence_runner_up_confidence`, `evidence_detection_method`) plus
+  a smaller `evidence_extras` TEXT/JSON column for genuinely
+  heterogeneous diagnostic context (`feature_vector`,
+  `thresholds_used`, `baseline_*`, `range_start`/`range_end`, etc.).
+  The 24 `evidence={...}` literal call sites in
+  `mlss_monitor/inference_engine.py` and
+  `mlss_monitor/detection_engine.py` are unchanged — the central
+  `save_inference()` in `database/db_logger.py` delegates to
+  `mlss_monitor.inference_evidence_storage.persist_evidence` which
+  splits the dict at write time. Reads via `get_inferences` /
+  `get_inference_by_id` use `rebuild_evidence_from_row` to prefer the
+  typed columns and fall back to the legacy JSON for pre-migration
+  rows. `get_distinct_attribution_sources` now queries the typed
+  column directly (indexable) and unions in pre-migration rows. The
+  legacy `inferences.evidence` TEXT column is retained for one
+  release per `DATABASE.md`'s deprecation policy; a follow-up commit
+  will drop it. See `mlss_monitor/inference_evidence_storage.py` and
+  `tests/test_inference_evidence_storage.py`.
 
 - ~~**incidents.signature → blob or sub-table**~~ **DONE** — promoted
   to `incident_signature_features (incident_id, feature_idx, value)`
