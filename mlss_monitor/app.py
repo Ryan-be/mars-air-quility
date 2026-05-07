@@ -17,7 +17,9 @@ import busio
 from adafruit_ahtx0 import AHTx0
 from adafruit_sgp30 import Adafruit_SGP30
 from authlib.integrations.flask_client import OAuth
-from flask import Flask, redirect, request, session, url_for
+from urllib.parse import urlparse
+
+from flask import Flask, jsonify, redirect, request, session, url_for
 
 from config import config
 from database.db_logger import (
@@ -147,6 +149,13 @@ if HTTPS_ENABLED:
     app.config["PREFERRED_URL_SCHEME"] = "https"
     app.config["SESSION_COOKIE_SECURE"] = True
 
+# CSRF mitigation layer 1: SameSite=Lax stops modern browsers from sending the
+# session cookie on cross-site state-changing requests. Lax (not Strict) is
+# applied unconditionally — Strict would break top-level auth-redirect flows
+# (e.g. arriving at the site via a GitHub OAuth redirect), and Lax is safe in
+# dev too. Layer 2 is the Origin/Referer check in `check_csrf` below.
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+
 # Populate shared state with auth config
 state.GITHUB_CLIENT_ID     = config.get("GITHUB_CLIENT_ID", None)
 state.GITHUB_CLIENT_SECRET = config.get("GITHUB_CLIENT_SECRET", None)
@@ -224,10 +233,69 @@ def check_auth():
         and not session.get("logged_in")
     ):
         if request.path.startswith("/api/"):
-            from flask import jsonify as _jsonify
-            return _jsonify({"error": "Unauthorised", "login_required": True}), 401
+            return jsonify({"error": "Unauthorised", "login_required": True}), 401
         return redirect(url_for("auth.login"))
     return None
+
+
+# ── CSRF middleware ───────────────────────────────────────────────────────────
+
+# State-changing HTTP methods that must carry a same-origin Origin (or Referer
+# fallback) header. GET/HEAD/OPTIONS are read-only and exempt.
+_STATE_CHANGING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+def _origin_allowed(origin_or_referer, host_url):
+    """Return True iff the Origin (or Referer) value points at our own host.
+
+    `host_url` is `request.host_url`, e.g. "https://mlss.local:5000/". We
+    compare scheme+netloc only — the path on a Referer is irrelevant. Pure
+    function (no Flask globals) so it is testable in isolation.
+    """
+    if not origin_or_referer:
+        return False
+    expected = urlparse(host_url)
+    actual = urlparse(origin_or_referer)
+    if not actual.scheme or not actual.netloc:
+        return False
+    return (actual.scheme == expected.scheme
+            and actual.netloc == expected.netloc)
+
+
+@app.before_request
+def check_csrf():
+    """CSRF defence: state-changing methods MUST have a same-origin Origin
+    (or Referer fallback) header. Skipped for endpoints in
+    `_PUBLIC_ENDPOINTS`, which use bearer-token auth (firmware) or are part
+    of the OAuth login redirect flow — neither rides the session cookie a
+    CSRF attack would target.
+
+    Registered after `check_auth` so authentication runs first; both are
+    independent before_request callbacks and Flask runs them in source
+    (registration) order.
+    """
+    if request.method not in _STATE_CHANGING_METHODS:
+        return None
+    if request.endpoint in _PUBLIC_ENDPOINTS:
+        return None
+
+    # Origin first — modern browsers always send it on cross-origin AND
+    # same-origin state-changing requests, including JSON POSTs.
+    origin = request.headers.get("Origin")
+    if origin:
+        if _origin_allowed(origin, request.host_url):
+            return None
+        return jsonify({"error": "csrf_origin_mismatch"}), 403
+
+    # Fall back to Referer for older clients that omit Origin.
+    referer = request.headers.get("Referer")
+    if referer:
+        if _origin_allowed(referer, request.host_url):
+            return None
+        return jsonify({"error": "csrf_referer_mismatch"}), 403
+
+    # Neither header present and not a public endpoint — reject.
+    return jsonify({"error": "csrf_origin_missing"}), 403
 
 
 @app.after_request
