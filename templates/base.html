@@ -138,9 +138,17 @@
     <!-- Grow -->
     <a href="{{ url_for('pages.grow_fleet') }}"
        data-tab="grow"
-       class="{{ 'active' if active and active.startswith('pages.grow') else '' }}">
+       class="{{ 'active' if active == 'pages.grow_fleet' or active == 'pages.grow_unit_detail' else '' }}">
       <rux-icon icon="add-photo-alternate" size="extra-small"></rux-icon>
       <span>Grow</span>
+    </a>
+
+    <!-- Grow Errors (fleet-wide log) — viewer-readable -->
+    <a href="{{ url_for('pages.grow_errors_page') }}"
+       data-tab="grow-errors"
+       class="{{ 'active' if active == 'pages.grow_errors_page' else '' }}">
+      <rux-icon icon="notifications-active" size="extra-small"></rux-icon>
+      <span>Errors</span>
     </a>
 
     <!-- Controls -->

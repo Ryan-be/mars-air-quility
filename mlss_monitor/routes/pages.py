@@ -1,9 +1,9 @@
 """Page routes: dashboard, history, controls, admin."""
 
-from flask import Blueprint, redirect, render_template, url_for
+from flask import Blueprint, redirect, render_template, session, url_for
 
 from mlss_monitor import state
-from mlss_monitor.rbac import require_role
+from mlss_monitor.rbac import current_role, require_role
 
 pages_bp = Blueprint("pages", __name__)
 
@@ -31,6 +31,19 @@ def grow_fleet():
 @pages_bp.route("/grow/<int:unit_id>")
 def grow_unit_detail(unit_id):
     return render_template("grow_unit_detail.html", unit_id=unit_id)
+
+
+@pages_bp.route("/grow/errors")
+@require_role("viewer", "controller", "admin")
+def grow_errors_page():
+    """Top-level fleet-wide error log. Viewer-readable; admin actions
+    (resolve / snooze) gated client-side off `data-role` and enforced
+    server-side by the PATCH endpoint.
+    """
+    return render_template(
+        "grow_errors.html",
+        current_role=session.get("user_role", "viewer"),
+    )
 
 
 @pages_bp.route("/settings/grow")

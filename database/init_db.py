@@ -237,6 +237,10 @@ def create_db():
         "ALTER TABLE grow_units ADD COLUMN firmware_version TEXT",
         "ALTER TABLE grow_units ADD COLUMN last_uptime_s REAL",
         "ALTER TABLE grow_units ADD COLUMN last_buffer_size INTEGER",
+        # Phase 3 Task 5: snooze support on grow_errors. Nullable; rows
+        # with snoozed_until > now() render muted client-side but are
+        # NOT filtered server-side (admins can still un-snooze them).
+        "ALTER TABLE grow_errors ADD COLUMN snoozed_until DATETIME",
     ]:
         try:
             cur.execute(migration)

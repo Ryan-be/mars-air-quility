@@ -200,7 +200,12 @@ def create_grow_schema(cur):
       message        TEXT NOT NULL,
       details_json   TEXT,
       subject_sensor TEXT,  -- populated for sensor_* kinds; NULL otherwise
-      resolved_at    DATETIME
+      resolved_at    DATETIME,
+      -- Phase 3 Task 5: muted-until timestamp for snooze. NULL when not
+      -- snoozed; rows where snoozed_until > now() render muted in the
+      -- /grow/errors fleet-wide error log but are NOT filtered out
+      -- server-side (admins can still un-snooze them).
+      snoozed_until  DATETIME
     );
     """)
     cur.execute(

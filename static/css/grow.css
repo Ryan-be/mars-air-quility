@@ -447,3 +447,52 @@
 
 /* Diagnostics fetch failure */
 .diag-error { padding: 16px; color: #ff5252; font-size: 13px; text-align: center; }
+
+/* ============================================================
+   /grow/errors — fleet-wide error log (Phase 3 Task 5)
+   ============================================================ */
+.grow-errors { padding: 0; }
+.grow-errors-title { color: #fff; font-size: 22px; font-weight: 500; margin: 0 0 6px; font-family: Roboto, sans-serif; }
+.grow-errors-blurb { color: #7d92a8; font-size: 12px; line-height: 1.5; margin: 0; max-width: 720px; }
+
+.grow-errors-filter-row { gap: 18px; }
+.grow-errors-toggle-label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; text-transform: none; letter-spacing: 0.02em; font-size: 11px; color: #c2d2e3; }
+.grow-errors-toggle-label input[type="checkbox"] { accent-color: #4dacff; cursor: pointer; }
+.grow-errors-refresh { margin-left: auto; }
+
+.grow-errors-list { padding: 14px 20px; display: flex; flex-direction: column; gap: 8px; background: #080c11; }
+
+.error-row {
+  display: grid; grid-template-columns: 28px 1fr;
+  gap: 10px; padding: 10px 12px; align-items: start;
+  background: #142028; border: 1px solid #1f2e3c; border-radius: 3px;
+  font-family: Roboto, sans-serif; color: #c2d2e3; font-size: 13px;
+}
+.error-row.snoozed { opacity: 0.45; }
+.error-row.resolved { opacity: 0.65; border-style: dashed; }
+
+.error-row-sev { font-size: 18px; line-height: 1; padding-top: 2px; }
+.error-row.sev-info .error-row-sev { color: #4dacff; }
+.error-row.sev-warning .error-row-sev { color: #ffb302; }
+.error-row.sev-critical .error-row-sev { color: #ff5252; }
+.error-row.sev-critical { border-color: #5a1f1f; }
+
+.error-row-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.error-row-head { color: #fff; font-size: 12px; letter-spacing: 0.02em; }
+.error-row-msg { color: #c2d2e3; font-size: 13px; line-height: 1.4; word-wrap: break-word; }
+
+.error-row-actions { display: flex; gap: 6px; margin-top: 6px; }
+.error-row-btn {
+  background: transparent; border: 1px solid #2a3d50;
+  color: #c2d2e3; padding: 4px 9px; font-size: 10px;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  cursor: pointer; border-radius: 2px; font-family: Roboto, sans-serif;
+}
+.error-row-btn:hover { border-color: #4dacff; color: #4dacff; }
+.error-row-btn.resolve:hover { border-color: #56f000; color: #56f000; }
+
+.grow-errors-empty {
+  padding: 32px 20px; text-align: center; color: #7d92a8;
+  font-size: 13px; font-family: Roboto, sans-serif;
+  background: #142028; border: 1px dashed #2a3d50; border-radius: 3px;
+}
