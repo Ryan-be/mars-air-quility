@@ -82,13 +82,9 @@ def _build_history_stack(monkeypatch, tmp_path, telemetry_count: int):
             monkeypatch.setattr(f"{mod}.DB_FILE", tmp.name)
         except AttributeError:
             pass
-    # photo_by_id reads the file via _resolve_images_dir() which falls back
-    # to GROW_IMAGES_DIR. Patch both the routes module's copy AND the
-    # photo_storage module's copy so app_settings-less tests still resolve
-    # to the tmp dir.
-    monkeypatch.setattr(
-        "mlss_monitor.routes.api_grow_photos.GROW_IMAGES_DIR", images_dir
-    )
+    # latest_photo + photo_by_id both resolve via _resolve_images_dir()
+    # which falls back to photo_storage.GROW_IMAGES_DIR. Patch the storage
+    # module's copy so app_settings-less tests still resolve to the tmp dir.
     monkeypatch.setattr(
         "mlss_monitor.grow.photo_storage.GROW_IMAGES_DIR", images_dir
     )

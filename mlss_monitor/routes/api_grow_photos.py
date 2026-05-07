@@ -20,15 +20,10 @@ import sqlite3
 from datetime import datetime, timedelta
 from flask import Blueprint, jsonify, request, send_from_directory, abort
 from database.init_db import DB_FILE
+from mlss_monitor.grow.api_helpers import RANGE_TO_HOURS
 from mlss_monitor.grow.photo_storage import _resolve_images_dir
 
 api_grow_photos_bp = Blueprint("api_grow_photos", __name__)
-GROW_IMAGES_DIR = os.environ.get("MLSS_GROW_IMAGES_DIR", "/var/lib/mlss/grow_images")
-
-# Mirrors the vocabulary in mlss_monitor/routes/api_grow_history.py — kept
-# duplicated rather than shared so the photos module has no dependency on
-# the history module. If a third consumer arrives, extract to a util.
-_RANGE_TO_HOURS = {"24h": 24, "7d": 168, "30d": 720, "90d": 2160, "all": None}
 
 
 @api_grow_photos_bp.route("/api/grow/units/<int:unit_id>/photo/latest", methods=["GET"])
@@ -44,7 +39,10 @@ def latest_photo(unit_id):
     if row is None:
         abort(404)
     file_path = row[0]
-    abs_path = os.path.join(GROW_IMAGES_DIR, file_path)
+    # Resolve via _resolve_images_dir so the app_settings.grow_images_dir
+    # override (admin UI) takes effect end-to-end. Same resolver used by
+    # photo_by_id below — keep them consistent.
+    abs_path = os.path.join(_resolve_images_dir(), file_path)
     if not os.path.exists(abs_path):
         abort(404)
     directory, filename = os.path.split(abs_path)
@@ -60,9 +58,9 @@ def list_photos(unit_id):
     UI distinguishes "no data" from "no unit" via other endpoints.
     """
     range_str = request.args.get("range", "24h")
-    if range_str not in _RANGE_TO_HOURS:
+    if range_str not in RANGE_TO_HOURS:
         return jsonify({"error": "invalid_range"}), 400
-    hours = _RANGE_TO_HOURS[range_str]
+    hours = RANGE_TO_HOURS[range_str]
     cutoff = (datetime.utcnow() - timedelta(hours=hours)) if hours is not None else None
 
     conn = sqlite3.connect(DB_FILE, timeout=5)

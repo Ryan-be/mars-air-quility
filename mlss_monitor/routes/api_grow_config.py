@@ -46,6 +46,7 @@ from mlss_contracts.config_payloads import (
     SafetyOverrideRequest,
 )
 from mlss_monitor import state
+from mlss_monitor.grow.api_helpers import serialise_validation_errors
 from mlss_monitor.rbac import require_role
 from mlss_monitor.routes.api_grow_ws import _validate_bearer
 
@@ -62,23 +63,6 @@ _PUSH_TIMEOUT_S = 2
 # 503 here is a real user-visible failure (the action didn't happen).
 # Still bounded so a hung listener can't wedge an admin's browser.
 _SAFETY_PUSH_TIMEOUT_S = 5
-
-
-def _serialise_validation_errors(errors: list) -> list:
-    """Strip non-JSON-serializable values from pydantic ValidationError.errors().
-
-    pydantic v2 puts a raw `ValueError` instance under `ctx.error` when a
-    `model_validator` raises — Flask's jsonify can't serialise that. Convert
-    it to a string so the client gets a useful detail block instead of a 500.
-    """
-    cleaned = []
-    for err in errors:
-        item = dict(err)
-        ctx = item.get("ctx")
-        if isinstance(ctx, dict) and isinstance(ctx.get("error"), Exception):
-            item["ctx"] = {**ctx, "error": str(ctx["error"])}
-        cleaned.append(item)
-    return cleaned
 
 
 def _push_config_changed(unit_id: int, section: str) -> None:
@@ -129,7 +113,7 @@ def put_profile(unit_id):
     except ValidationError as exc:
         return jsonify({
             "error": "invalid_payload",
-            "detail": _serialise_validation_errors(exc.errors()),
+            "detail": serialise_validation_errors(exc.errors()),
         }), 400
 
     fields = payload.model_dump(exclude_none=True)
@@ -201,7 +185,7 @@ def put_pid(unit_id):
     except ValidationError as exc:
         return jsonify({
             "error": "invalid_payload",
-            "detail": _serialise_validation_errors(exc.errors()),
+            "detail": serialise_validation_errors(exc.errors()),
         }), 400
 
     fields = payload.model_dump(exclude_none=True)
@@ -269,7 +253,7 @@ def put_light_windows(unit_id):
     except ValidationError as exc:
         return jsonify({
             "error": "invalid_payload",
-            "detail": _serialise_validation_errors(exc.errors()),
+            "detail": serialise_validation_errors(exc.errors()),
         }), 400
 
     conn = sqlite3.connect(DB_FILE, timeout=10)
@@ -326,7 +310,7 @@ def put_calibration(unit_id):
     except ValidationError as exc:
         return jsonify({
             "error": "invalid_payload",
-            "detail": _serialise_validation_errors(exc.errors()),
+            "detail": serialise_validation_errors(exc.errors()),
         }), 400
 
     conn = sqlite3.connect(DB_FILE, timeout=10)
@@ -372,7 +356,7 @@ def post_safety_override(unit_id):
     except ValidationError as exc:
         return jsonify({
             "error": "invalid_payload",
-            "detail": _serialise_validation_errors(exc.errors()),
+            "detail": serialise_validation_errors(exc.errors()),
         }), 400
 
     # Verify unit exists before pushing — keeps a 404 from masquerading as

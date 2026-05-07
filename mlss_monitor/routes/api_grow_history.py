@@ -15,10 +15,10 @@ import sqlite3
 from datetime import datetime, timedelta
 from flask import Blueprint, jsonify, request
 from database.init_db import DB_FILE
+from mlss_monitor.grow.api_helpers import RANGE_TO_HOURS
 
 api_grow_history_bp = Blueprint("api_grow_history", __name__)
 
-_RANGE_TO_HOURS = {"24h": 24, "7d": 168, "30d": 720, "90d": 2160, "all": None}
 _DOWNSAMPLE_THRESHOLD = 600
 
 
@@ -69,9 +69,9 @@ def _maybe_downsample(rows, target=_DOWNSAMPLE_THRESHOLD):
 @api_grow_history_bp.route("/api/grow/units/<int:unit_id>/history", methods=["GET"])
 def history(unit_id):
     range_str = request.args.get("range", "24h")
-    if range_str not in _RANGE_TO_HOURS:
+    if range_str not in RANGE_TO_HOURS:
         return jsonify({"error": "invalid_range"}), 400
-    hours = _RANGE_TO_HOURS[range_str]
+    hours = RANGE_TO_HOURS[range_str]
     cutoff = (datetime.utcnow() - timedelta(hours=hours)) if hours is not None else None
 
     conn = sqlite3.connect(DB_FILE, timeout=5)

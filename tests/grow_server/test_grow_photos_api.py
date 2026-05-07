@@ -18,10 +18,9 @@ def setup(tmp_path, monkeypatch):
     import database.init_db as init_db
     init_db.DB_FILE = tmp.name
     monkeypatch.setattr("mlss_monitor.routes.api_grow_photos.DB_FILE", tmp.name)
-    monkeypatch.setattr(
-        "mlss_monitor.routes.api_grow_photos.GROW_IMAGES_DIR", str(tmp_path / "imgs"))
-    # _resolve_images_dir lives in photo_storage; the new endpoints use it for
-    # path resolution so the override needs to apply there too.
+    # Both endpoints now resolve via _resolve_images_dir (photo_storage).
+    # Patch the storage module's GROW_IMAGES_DIR fallback so when the
+    # app_settings override is empty, both fall through to the tmp dir.
     monkeypatch.setattr(
         "mlss_monitor.grow.photo_storage.GROW_IMAGES_DIR", str(tmp_path / "imgs"))
     monkeypatch.setattr("mlss_monitor.grow.photo_storage.DB_FILE", tmp.name)
@@ -31,6 +30,12 @@ def setup(tmp_path, monkeypatch):
     (img_dir / "120000.jpg").write_bytes(b"\xff\xd8FAKEJPEG")
 
     conn = sqlite3.connect(tmp.name)
+    # Empty value → _resolve_images_dir falls through to env/built-in.
+    # The default test posture; individual tests can override.
+    conn.execute(
+        "INSERT OR REPLACE INTO app_settings (key, value) VALUES "
+        "('grow_images_dir', '')"
+    )
     conn.execute(
         "INSERT INTO grow_units (id, hardware_serial, label, enrolled_at, "
         "bearer_token_hash, phase_set_at) VALUES (1, 'h', 'X', ?, 'h', ?)",
@@ -48,19 +53,56 @@ def setup(tmp_path, monkeypatch):
     from mlss_monitor.routes.api_grow_photos import api_grow_photos_bp
     app = Flask(__name__)
     app.register_blueprint(api_grow_photos_bp)
-    return app.test_client()
+    return {"client": app.test_client(), "db_path": tmp.name, "tmp_path": tmp_path}
 
 
 def test_latest_serves_jpeg(setup):
-    r = setup.get("/api/grow/units/1/photo/latest")
+    r = setup["client"].get("/api/grow/units/1/photo/latest")
     assert r.status_code == 200
     assert r.mimetype == "image/jpeg"
     assert r.data == b"\xff\xd8FAKEJPEG"
 
 
 def test_latest_404_for_unit_with_no_photos(setup):
-    r = setup.get("/api/grow/units/9999/photo/latest")
+    r = setup["client"].get("/api/grow/units/9999/photo/latest")
     assert r.status_code == 404
+
+
+def test_latest_photo_honours_app_settings_grow_images_dir_override(setup):
+    """Regression: latest_photo previously used a module-level env-only
+    constant ignoring app_settings.grow_images_dir. Now it resolves via
+    _resolve_images_dir, so an admin-set override takes effect.
+
+    Set up two dirs:
+      - dir_a (the env-default in the fixture, contains FAKEJPEG)
+      - dir_b (the override, contains a different body at the same relpath)
+    Set app_settings.grow_images_dir = dir_b → response body must be dir_b's.
+    """
+    tmp_path = setup["tmp_path"]
+    db_path = setup["db_path"]
+
+    # dir_a is already populated by the fixture under tmp_path/imgs.
+    # Build dir_b at a separate location with a different body.
+    dir_b = tmp_path / "imgs_override"
+    img_dir_b = dir_b / "unit_001" / "2026-05-03"
+    img_dir_b.mkdir(parents=True)
+    override_body = b"\xff\xd8OVERRIDEJPEG"
+    (img_dir_b / "120000.jpg").write_bytes(override_body)
+
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "INSERT OR REPLACE INTO app_settings (key, value) VALUES "
+        "('grow_images_dir', ?)", (str(dir_b),),
+    )
+    conn.commit()
+    conn.close()
+
+    r = setup["client"].get("/api/grow/units/1/photo/latest")
+    assert r.status_code == 200
+    assert r.mimetype == "image/jpeg"
+    # The dir_b override won — proves the route consults app_settings,
+    # not just the module-level constant from the env.
+    assert r.data == override_body
 
 
 # ---------------------------------------------------------------------------
@@ -81,8 +123,8 @@ def list_setup(tmp_path, monkeypatch):
     import database.init_db as init_db
     init_db.DB_FILE = tmp.name
     monkeypatch.setattr("mlss_monitor.routes.api_grow_photos.DB_FILE", tmp.name)
-    monkeypatch.setattr(
-        "mlss_monitor.routes.api_grow_photos.GROW_IMAGES_DIR", str(tmp_path / "imgs"))
+    # Both endpoints resolve via _resolve_images_dir; we only need to
+    # patch the storage-module fallback (no longer a routes-module copy).
     monkeypatch.setattr(
         "mlss_monitor.grow.photo_storage.GROW_IMAGES_DIR", str(tmp_path / "imgs"))
     monkeypatch.setattr("mlss_monitor.grow.photo_storage.DB_FILE", tmp.name)

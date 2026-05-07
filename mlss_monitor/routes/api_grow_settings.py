@@ -35,26 +35,11 @@ from flask import Blueprint, jsonify, request
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from database.init_db import DB_FILE
+from mlss_monitor.grow.api_helpers import serialise_validation_errors
 from mlss_monitor.grow.auth import hash_secret
 from mlss_monitor.rbac import require_role
 
 api_grow_settings_bp = Blueprint("api_grow_settings", __name__)
-
-
-def _serialise_validation_errors(errors: list) -> list:
-    """Same helper shape as api_grow_config — strip non-JSON-serializable
-    `ctx.error` Exception instances from pydantic ValidationError.errors().
-    Duplicated here rather than imported so the settings blueprint stays
-    self-contained (no implicit ordering between blueprint imports).
-    """
-    cleaned = []
-    for err in errors:
-        item = dict(err)
-        ctx = item.get("ctx")
-        if isinstance(ctx, dict) and isinstance(ctx.get("error"), Exception):
-            item["ctx"] = {**ctx, "error": str(ctx["error"])}
-        cleaned.append(item)
-    return cleaned
 
 
 # ---------------------------------------------------------------------------
@@ -168,7 +153,7 @@ def update_plant_profile(profile_id):
     except ValidationError as exc:
         return jsonify({
             "error": "invalid_payload",
-            "detail": _serialise_validation_errors(exc.errors()),
+            "detail": serialise_validation_errors(exc.errors()),
         }), 400
 
     fields = payload.model_dump(exclude_none=True)
