@@ -134,6 +134,23 @@ export function renderLiveReadings(unit, doc = document) {
 }
 
 
+/** Refresh the latest-photo panel by re-setting its background-image
+ *  with a fresh cache-bust ts. Exposed so the Quick Controls click
+ *  handler can call it after Snap-photo, and so init() can set up a
+ *  poll. Looks up the panel by class — there's only ever one
+ *  `.du-photo-hero` on the page (Live tab single-mount).
+ *
+ *  @param {number} unitId  the unit id
+ *  @param {Document} doc   the owner document (default: current page)
+ */
+export function refreshPhotoPanel(unitId, doc = document) {
+  const photo = doc.querySelector(".du-photo-hero");
+  if (!photo) return;  // Live tab not mounted (e.g., we're on Configure)
+  const url = `/api/grow/units/${unitId}/photo/latest?ts=${Date.now()}`;
+  photo.style.backgroundImage = `url(${url})`;
+}
+
+
 export function renderPhotoPanel(unit, doc = document) {
   const wrap = doc.createElement("div");
   wrap.className = "du-panel";
@@ -318,12 +335,20 @@ export function renderQuickControls(unit, doc = document) {
     if (!btn || btn.disabled) return;
     const url = `/api/grow/units/${unit.id}/${btn.dataset.action}`;
     const old = btn.textContent;
+    const action = btn.dataset.action;
     btn.disabled = true; btn.textContent = "Sending…";
     try {
       const r = await fetch(url, { method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}) });
       btn.textContent = r.ok ? "✓ Sent" : "✗ Failed";
+      // For snap-photo: the server returns 202 immediately ("queued")
+      // but the actual photo only arrives 2-5s later via the firmware's
+      // WS push. Wait, then refresh the panel so the operator sees the
+      // result without manual page reload.
+      if (r.ok && action === "snap-photo") {
+        setTimeout(() => refreshPhotoPanel(unit.id), 4000);
+      }
     } finally {
       setTimeout(() => { btn.disabled = false; btn.textContent = old; }, 2000);
     }

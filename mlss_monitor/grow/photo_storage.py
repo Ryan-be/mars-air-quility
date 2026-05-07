@@ -12,6 +12,7 @@ row for the same unit within ±60 seconds. The denormalised join key makes
 ML training queries cheap.
 """
 import json
+import logging
 import os
 import sqlite3
 import struct
@@ -20,8 +21,20 @@ from pathlib import Path
 
 from database.init_db import DB_FILE
 
+log = logging.getLogger(__name__)
+
+# Default to a project-relative path that the gunicorn user can write to,
+# mirroring the data/sensor_data.db posture in database/init_db.py. The
+# previous default (/var/lib/mlss/grow_images) needed root to create on
+# first photo arrival because mkdir -p had to traverse /var/lib/ which
+# only root can write to. data/grow_images is owned by whoever owns the
+# project tree (typically the deploy user) so the auto-mkdir on first
+# photo Just Works.
+#
+# Override via env (MLSS_GROW_IMAGES_DIR) or app_settings.grow_images_dir
+# if you want photos elsewhere (e.g. an external SSD mounted at /mnt/photos).
 GROW_IMAGES_DIR = os.environ.get(
-    "MLSS_GROW_IMAGES_DIR", "/var/lib/mlss/grow_images"
+    "MLSS_GROW_IMAGES_DIR", "data/grow_images"
 )
 
 _JOIN_WINDOW_SECONDS = 60
@@ -85,7 +98,29 @@ def handle_photo_frame(unit_id: int, frame: bytes) -> None:
     abs_dir = os.path.join(images_dir, rel_dir)
     abs_path = os.path.join(images_dir, rel_path)
 
-    Path(abs_dir).mkdir(parents=True, exist_ok=True)
+    # mkdir -p the unit/date subdir. The most common failure mode is the
+    # service user not having write access to the chosen images_dir
+    # (typically when MLSS_GROW_IMAGES_DIR is set to a system path like
+    # /var/lib/mlss/grow_images that needs root). Catch + re-raise with
+    # a clearer message so ops doesn't have to dig through journalctl.
+    try:
+        Path(abs_dir).mkdir(parents=True, exist_ok=True)
+    except PermissionError as exc:
+        log.error(
+            "Cannot create photo dir %s — service user lacks write access. "
+            "Either chown the dir to the service user, or set "
+            "MLSS_GROW_IMAGES_DIR / app_settings.grow_images_dir to a "
+            "writable path (default 'data/grow_images' is project-relative "
+            "and works without sudo).", abs_dir,
+        )
+        raise
+    except FileNotFoundError as exc:
+        log.error(
+            "Cannot create photo dir %s — parent path doesn't exist and "
+            "service user can't traverse to create it. Same fix as "
+            "PermissionError above.", abs_dir,
+        )
+        raise
 
     conn = sqlite3.connect(DB_FILE, timeout=10)
     try:
