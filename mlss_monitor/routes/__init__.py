@@ -21,6 +21,7 @@ from .api_grow_config import api_grow_config_bp
 from .api_grow_dist import api_grow_dist_bp
 from .api_grow_photos import api_grow_photos_bp
 from .api_grow_history import api_grow_history_bp
+from .api_grow_settings import api_grow_settings_bp
 
 
 def register_routes(app):
@@ -45,3 +46,4 @@ def register_routes(app):
     app.register_blueprint(api_grow_dist_bp)
     app.register_blueprint(api_grow_photos_bp)
     app.register_blueprint(api_grow_history_bp)
+    app.register_blueprint(api_grow_settings_bp)
