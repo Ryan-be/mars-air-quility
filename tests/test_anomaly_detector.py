@@ -1,13 +1,24 @@
 """Tests for AnomalyDetector: river HalfSpaceTrees, scoring, persistence."""
 from __future__ import annotations
 
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import MagicMock
 
+import pytest
 import yaml
 
 from mlss_monitor.feature_vector import FeatureVector
 from mlss_monitor.anomaly_detector import AnomalyDetector
+
+# When river fails to install (typically Windows dev — its C extension hits the
+# path-too-long limit), tests/conftest.py mocks it as MagicMock. Pickling a
+# MagicMock raises "not the same object as MagicMock" under Python 3.11's
+# metaclass identity check, so any test that round-trips a real river model
+# through pickle is skipped on those hosts. CI's Linux runners install river
+# cleanly, so the tests run there.
+_river_mocked = isinstance(sys.modules.get("river"), MagicMock)
 
 
 def _make_fv(**kwargs) -> FeatureVector:
@@ -115,6 +126,10 @@ def test_anomalous_channels_excludes_none_scores(tmp_path):
 
 # ── Persistence ───────────────────────────────────────────────────────────────
 
+@pytest.mark.skipif(
+    _river_mocked,
+    reason="river is mocked; pickle round-trip needs real install",
+)
 def test_models_are_saved_and_reloaded(tmp_path):
     """After training, reloading AnomalyDetector restores n_seen."""
     cfg_path = _write_config(tmp_path)
