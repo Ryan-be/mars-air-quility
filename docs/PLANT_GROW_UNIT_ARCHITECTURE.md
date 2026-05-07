@@ -4,6 +4,10 @@ Audience: developers working on the Plant Grow Unit code (server, firmware,
 or browser). For the original design intent and trade-offs, see the spec:
 [`docs/superpowers/specs/2026-05-03-plant-grow-unit-system-design.md`](superpowers/specs/2026-05-03-plant-grow-unit-system-design.md).
 
+> **Schema details** are in [DATABASE.md](DATABASE.md) (single source of
+> truth for both `data/sensor_data.db` and the on-Pi `buffer.sqlite`).
+> This doc summarises and links — it doesn't duplicate column lists.
+
 ---
 
 ## Repo structure
@@ -91,6 +95,65 @@ For the wide telemetry table to accept a new channel, add a column to `grow_tele
 
 ---
 
+## Database schema
+
+The grow tables live in the same SQLite DB as the air-quality side
+(`data/sensor_data.db`) and are created in the same transaction by
+[`database/grow_schema.py::create_grow_schema`](../database/grow_schema.py).
+Per-unit identity + tunables in `grow_units`, channel inventory in
+`grow_unit_capabilities`, time-series in `grow_telemetry`, audit trail
+in `grow_watering_events` + `grow_errors`, image metadata in
+`grow_photos`, and config tables (`grow_plant_profiles`,
+`grow_light_windows`, `grow_medium_defaults`).
+
+The on-device buffer is a separate single-table SQLite at
+`/var/lib/mlss-grow/buffer.sqlite` managed by
+[`grow_unit/src/mlss_grow/buffer.py`](../grow_unit/src/mlss_grow/buffer.py).
+
+**For the full schema reference, see [DATABASE.md](DATABASE.md)** —
+every column, every index, runtime-mutable fields, the
+override-cascade for tunables, JSON-storage classification, and
+retention policies.
+
+---
+
+## Capability health field
+
+Each row in `grow_unit_capabilities` carries a typed `health` column
+(`connected | untested | unresponsive | no_hardware`) that the dashboard
+uses to grey out controls when an actuator isn't actually responding —
+see the [sense-only mode UX](PLANT_GROW_UNIT_USAGE.md#sense-only-mode-greyed-out-actuator-buttons).
+
+States and transitions:
+
+| State | Set when | Reset when |
+|---|---|---|
+| `untested` | Capability inserted by enrolment / first capabilities frame | First evidence arrives |
+| `connected` | Successful read (sensors) or successful actuation evidence (actuators) | Falls back to `unresponsive` after the watchdog timeout |
+| `unresponsive` | Watchdog timeout fires after a command was sent without follow-up evidence | Next successful read / actuation evidence |
+| `no_hardware` | Firmware reports the channel was probed-and-missing at boot | Re-detected on a future reboot |
+
+The watchdog is intentionally **lazy** —
+[`mlss_monitor/grow/health_watchdog.py`](../mlss_monitor/grow/health_watchdog.py)
+holds a process-local dict `(unit_id, channel) → last_command_at` and
+is consulted only when a `GET /api/grow/units/<id>` happens. There's
+no background poller. Each command-pushing endpoint
+(`water_now`, `light_toggle`) calls `record_command_sent` on a 202;
+on the next GET the handler asks "did follow-up evidence arrive within
+30 s?" and overrides the response's `health` to `unresponsive` if not
+— the DB row stays unchanged so the next telemetry that proves the
+actuator works quietly upgrades it back without a DB write.
+
+The constant lives in `health_watchdog.DEFAULT_TIMEOUT_S = 30`. Below
+30 s false-positives on slow units; above 30 s the user waits too long
+to see the warning.
+
+This is a single-process (one Flask + one gunicorn worker) design. If
+the deployment grows to multiple workers, swap the module-level dict
+for a Redis or DB-backed store — the function signatures don't change.
+
+---
+
 ## PID watering
 
 `grow_unit/src/mlss_grow/pid.py` is a pure function: given current moisture %, config, and state, returns a Decision (pulse_s + which terms contributed). The safety loop calls this on every 30s tick.
@@ -118,7 +181,71 @@ The hard 30s pump pulse cap is enforced unconditionally in `Actuator.pulse()` re
 
 When the WS is down, telemetry text frames go to `/var/lib/mlss-grow/buffer.sqlite` instead of being sent. On reconnect, the client emits `event: buffer_replay_started`, sends every buffered row in original timestamp order, then `event: buffer_replay_complete`. Photos are **not** buffered (to save SD card writes) — they're dropped if the WS is down at capture time.
 
+The replay loop **peeks** each row, sends it, and only deletes after
+the send acks. A mid-replay disconnect leaves the un-sent tail in
+place for the next attempt. (The earlier `pop_all` flow that deleted
+everything up front silently dropped rows when the socket died
+mid-replay — see I2 fix in `buffer.py`.)
+
 Local config is persisted at `/var/lib/mlss-grow/config.json` and the safety loop runs from it whether or not MLSS is reachable. PIDState (last pulse, integral, last error) is persisted to `/var/lib/mlss-grow/watering_state.json` so a service restart doesn't reset accumulated history.
+
+### Buffer housekeeping (C2)
+
+Three layers bound disk usage so a permanently-down MLSS / misconfigured
+server URL / cert-pinning failure can't fill the SD card:
+
+1. **Per-row delete on send** during replay (above).
+2. **Age-based prune on every reconnect.** `LocalBuffer.prune(retention_days)`
+   is wired by `ws_client._on_reconnect` against the value provided by
+   the server in the `config_changed` push: `grow_units.buffer_retention_days`
+   → `app_settings.grow_default_buffer_retention_days` (default 7) →
+   firmware fallback `_DEFAULT_BUFFER_RETENTION_DAYS=7`.
+3. **Hard size caps inside `LocalBuffer.append()`**, applied
+   unconditionally regardless of whether prune ever runs:
+   `_DEFAULT_MAX_ROWS=100_000`, `_DEFAULT_MAX_BYTES=50 MB`. FIFO
+   eviction — newer telemetry has more diagnostic value than week-old
+   already-stale data. Byte cap is checked every 100 inserts (the
+   `SUM(LENGTH(body))` scan is O(rows); row count is the cheap primary
+   gate).
+
+When the size caps fire, `LocalBuffer` invokes its
+`on_eviction(reason, evicted_count)` callback. The WS client wires that
+to emit a `buffer_eviction` event into `grow_errors` so the operator
+sees the data loss explicitly rather than letting telemetry silently
+disappear. Callback exceptions are caught and swallowed inside the
+buffer commit flow — a buggy callback must not break the buffer.
+
+---
+
+## Config-on-reconnect-pull
+
+The server pushes a `command_changed` notification when admin edits
+land in `grow_units` / `grow_plant_profiles` / `grow_light_windows`,
+but the firmware doesn't trust the push to carry the full config
+state. Instead the dispatcher (`grow_unit/src/mlss_grow/dispatch.py`)
+calls `pull_unit_config(unit_id)` which does an authenticated GET
+against `/api/grow/units/<id>/config` and applies the response
+in-place via `apply_config(unit_cfg, loop_cfg)`.
+
+Why pull rather than rely on push payload:
+
+- The server resolves null overrides against `grow_plant_profiles`
+  **before** responding, so the firmware sees concrete numbers and
+  never has to maintain its own profile table — smaller firmware,
+  single source of truth on the server.
+- A reconnect after long downtime can mean the firmware's
+  in-memory `LoopConfig` is N edits stale; one pull is simpler and
+  more robust than replaying N pushes.
+
+The same `pull_unit_config` is also called by `ws_client._on_reconnect`
+unconditionally on every reconnect — so an admin who edits config
+while a unit is offline gets their changes applied as soon as the
+unit reconnects, no service restart, no dashboard nudge required.
+
+TLS posture matches `enrol.py` and `ws_client.py` — pinned cert from
+`/etc/mlss/server.crt` when the file exists; falls back to `verify=False`
+with a one-time `WARNING` log when it doesn't (dev/test before the
+install pin step).
 
 ---
 

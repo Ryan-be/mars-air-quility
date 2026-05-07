@@ -35,11 +35,12 @@ air-quality side hold serialised JSON; everything else is either:
 That's it. No other JSON-bearing TEXT columns exist on the
 air-quality side.
 
-### Grow unit (/var/lib/mlss-grow/buffer.db)
+### Grow unit (/var/lib/mlss-grow/buffer.sqlite)
 
 The grow-unit local buffer DB has no JSON-in-TEXT columns. The
-on-device buffer (`buffer.db`) stores raw frames as binary/scalar
-columns only (see `grow_unit/storage.py`); no `_json` field exists.
+on-device buffer (`buffer.sqlite`) stores raw frames as scalar
+columns only (`msg_type`, `body`, `timestamp_utc`); see
+`grow_unit/src/mlss_grow/buffer.py`. No `_json` field exists.
 
 ## Roadmap items
 

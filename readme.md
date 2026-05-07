@@ -16,6 +16,7 @@ A list of know issues and feature improvements including recomended fixes can be
 - [Incident correlation graph](#incident-correlation-graph)
 - [FeatureVector](#featurevector)
 - [Data flow](#data-flow)
+- [Plant Grow Units](#plant-grow-units)
 - [Installation](#installation)
 - [Running](#running)
 - [Web interface](#web-interface)
@@ -23,6 +24,7 @@ A list of know issues and feature improvements including recomended fixes can be
 - [Development](#development)
 - [Project structure](#project-structure)
 - [Known limitations](#known-limitations)
+- [Database reference](docs/DATABASE.md)
 - [Configuration reference](docs/CONFIGURATION.md)
 - [Production deployment guide](docs/PRODUCTION.md)
 
@@ -113,7 +115,7 @@ The Pimoroni MICS6814 breakout uses I2C and can be daisy-chained with the AHT20 
 - Real-time Server-Sent Events (SSE) -- sensor readings, fan status, inference alerts, and weather updates are pushed to the browser instantly via an in-process event bus, replacing most polling
 - **AstroUXDS** web-component design system -- dashboard, history, controls, admin, login, and inference-engine config pages all use NASA / Lockheed Martin's [Astro UXDS](https://astrouxds.com) for a consistent dark space-mission look (deep navy / charcoal background, cyan accents, Roboto typography)
 - Per-event sparkline panels -- each detected event on the history page opens a slide-in inference panel with a Plotly sparkline showing the relevant channels around the event timestamp (range events get a shaded "Tagged range" rectangle; point events get a dashed "Event" line)
-- **Plant Grow Units** — remote Pi Zero W satellites, each managing one growing area (single plant, microgreens tray, etc.) with soil moisture sensing, PID-driven watering, configurable light schedule, and timelapse photography. See [PLANT_GROW_UNIT_HARDWARE.md](docs/PLANT_GROW_UNIT_HARDWARE.md), [PLANT_GROW_UNIT_SETUP.md](docs/PLANT_GROW_UNIT_SETUP.md), and the [system design spec](docs/superpowers/specs/2026-05-03-plant-grow-unit-system-design.md).
+- **Plant Grow Units** — remote Pi Zero W satellites, each managing one growing area (single plant, microgreens tray, etc.) with soil moisture sensing, PID-driven watering, configurable light schedule, and timelapse photography. See the [Plant Grow Units](#plant-grow-units) section below for the full doc set.
 
 ---
 
@@ -794,6 +796,42 @@ See spec files in `docs/superpowers/specs/` for full design documentation:
 - `2026-03-31-smart-inference-engine-design.md` -- original engine architecture
 - `2026-04-04-phase5-multivariate-actionable-inferences.md` -- multivariate ML models and actionable inference evidence
 - `2026-04-04-phase6-display-ui-and-ml-insights.md` -- Detections & Insights UI, normal bands chart, and inference card enrichment
+
+---
+
+## Plant Grow Units
+
+The MLSS server can host a fleet of Raspberry Pi Zero W "grow units" —
+each with sensors (soil moisture, ambient lux, soil temperature, …) and
+optional actuators (water pump, grow light) — that report telemetry over
+authenticated WSS and receive control commands. Per-unit PID watering
+runs on the Pi itself so plants survive an MLSS outage; telemetry is
+buffered locally and replays on reconnect. The `/grow` tab on the main
+dashboard shows the fleet; each unit has its own detail page with Live,
+**Configure**, and **History** tabs (the Configure tab covers PID
+tunables, light windows, calibration, and 3-click safety override; the
+History tab shows long-range charts plus a photo timelapse). A
+household-wide **Settings → Grow** page covers enrollment-key rotation,
+default tunables, the plant profile editor, and holiday mode.
+
+| Doc | Audience | Content |
+|---|---|---|
+| [User guide](docs/PLANT_GROW_UNIT_USAGE.md) | Operator | Day-to-day operation: tabs, controls, soak window, sense-only mode, troubleshooting |
+| [Hardware BOM + wiring](docs/PLANT_GROW_UNIT_HARDWARE.md) | Builder | Components, wiring tables, power split, bench tests |
+| [Pi setup + first-boot enrolment](docs/PLANT_GROW_UNIT_SETUP.md) | Installer | One-line install, SHA256 wheel verify, TLS cert pinning, enrolment flow |
+| [Architecture deep-dive](docs/PLANT_GROW_UNIT_ARCHITECTURE.md) | Developer | WS protocol, ABCs, capability watchdog, buffer housekeeping, config-on-reconnect-pull |
+| [Firmware package readme](grow_unit/README.md) | Developer | Per-module map of the firmware package |
+| [System design spec](docs/superpowers/specs/2026-05-03-plant-grow-unit-system-design.md) | Reviewer | Original design intent + trade-offs |
+
+---
+
+## Database
+
+Both server-side state and the on-Pi outbox use SQLite (WAL mode,
+idempotent migrations, additive-only schema policy).
+
+- [Schema reference](docs/DATABASE.md) — every table, every column, indexes, retention/eviction policies, the override cascade for tunables
+- [JSON storage audit](docs/JSON_STORAGE_AUDIT.md) — current state of JSON-in-TEXT-column usage + roadmap for promotion to typed columns
 
 ---
 

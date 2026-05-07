@@ -283,6 +283,28 @@ The Pi Zero W's 5V GPIO rail is protected by a polyfuse rated ~1.1 A. With the P
 - Cable-strain-relief everything that leaves the enclosure (water pump tubing especially)
 - **Water + mains electricity:** the wall wart should be class-II (double-insulated; the symbol is two concentric squares) and ideally on its own RCD/RCBO. Pump tubing should be sized to prevent the pot ever overflowing into the enclosure
 
+### "What if I haven't wired up Port 2 / the actuator load rail yet?"
+
+**Sense-only mode** is the no-actuator-PSU path. The firmware boots, the
+soil sensor + camera + I2C peripherals come up normally on Port 1's Pi
+power, but pump and grow-light commands have no rail to drive — the
+relay can click but nothing's connected to the load side, the OUT 1
+sinking transistor pulls a non-existent rail to ground.
+
+The unit handles this gracefully: telemetry flows, the dashboard renders
+the unit normally, but the pump/light buttons are **greyed out** because
+the [capability health watchdog](PLANT_GROW_UNIT_USAGE.md#sense-only-mode-greyed-out-actuator-buttons)
+sees no follow-up evidence (no `grow_watering_events` row, no
+`light_state=1` telemetry) within 30 s of a command being pushed and
+flips the channel to `unresponsive`.
+
+This means **you can deploy a unit with just Port 1 wired, get useful
+moisture/temperature/photo telemetry from day one, and finish the
+actuator side later.** Once Port 2 is up the very next pump pulse or
+light toggle generates evidence, the watchdog flips the channel back to
+`connected`, and the buttons un-grey themselves on the next page
+refresh.
+
 ---
 
 ## Assembly checklist

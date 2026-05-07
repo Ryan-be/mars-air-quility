@@ -68,12 +68,21 @@ This will:
 
 1. apt-install Python 3.11+, libcamera-apps, i2c-tools, build-essential
 2. Create the `mlss-grow` system user
-3. Download both wheels from the MLSS server
-4. Create a venv at `/opt/mlss-grow/.venv`, install both wheels
-5. Drop the systemd unit at `/etc/systemd/system/mlss-grow.service`
-6. Enable + start the service
+3. Download both wheels (and the systemd unit) from the MLSS server
+4. **Verify each downloaded artifact's SHA256** against the manifest at
+   `/api/grow/dist/latest` — defends against LAN MITM tampering with
+   wheels or the unit file (a tampered unit could expand the firmware's
+   privileges, drop `NoNewPrivileges`, etc.). The script aborts if any
+   hash doesn't match.
+5. **Pin the MLSS server cert** at `/etc/mlss/server.crt` (Trust On First
+   Use). Subsequent enrolment + WS + config-pull calls verify against
+   this pinned cert, so a future LAN MITM with a swapped cert is
+   rejected even if the original `curl -k` install line was unverified.
+6. Create a venv at `/opt/mlss-grow/.venv`, install both wheels
+7. Drop the systemd unit at `/etc/systemd/system/mlss-grow.service`
+8. Enable + start the service
 
-The first run of the service reads `/boot/mlss-grow.yaml`, posts to `/api/grow/enroll`, gets a per-unit token, saves it to `/etc/mlss/grow.token`, and **deletes the YAML** so the enrollment key isn't sitting on the SD card.
+The first run of the service reads `/boot/mlss-grow.yaml`, posts to `/api/grow/enroll` (verifying against the pinned `/etc/mlss/server.crt`), gets a per-unit token, saves it to `/etc/mlss/grow.token` (mode 0600), and **deletes the YAML** so the enrollment key isn't sitting on the SD card.
 
 ### 4. Watch it appear in the dashboard
 
@@ -111,3 +120,4 @@ For unit #2 onwards, repeat steps 2–4 above with the same enrollment key (one 
 - [PLANT_GROW_UNIT_HARDWARE.md](PLANT_GROW_UNIT_HARDWARE.md) — wiring, BOM, bench tests
 - [PLANT_GROW_UNIT_USAGE.md](PLANT_GROW_UNIT_USAGE.md) — day-to-day operation
 - [PLANT_GROW_UNIT_ARCHITECTURE.md](PLANT_GROW_UNIT_ARCHITECTURE.md) — how it works under the hood
+- [DATABASE.md](DATABASE.md) — schema reference for both server + buffer DBs
