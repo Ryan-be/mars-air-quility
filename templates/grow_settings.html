@@ -5,6 +5,7 @@
 {% endblock %}
 
 {% block content %}
+  {% include "_grow_subnav.html" %}
   {% if storage_status and storage_status.is_warning %}
   <div class="storage-warning" role="alert">
     ⚠️ Photo storage is at {{ "%.1f"|format(storage_status.used_pct) }}%

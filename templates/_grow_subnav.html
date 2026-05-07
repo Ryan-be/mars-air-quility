@@ -1,0 +1,29 @@
+{# Grow sub-nav — three pills rendered at the top of every /grow* page.
+   Active-pill detection uses request.endpoint (robust to URL renames).
+
+   Endpoints:
+     pages.grow_fleet         — /grow
+     pages.grow_unit_detail   — /grow/<id>           (Fleet active)
+     pages.grow_errors_page   — /grow/errors
+     pages.grow_settings_page — /grow/settings       (admin-only)
+#}
+{% set _ep = request.endpoint %}
+{% set _on_fleet = _ep in ("pages.grow_fleet", "pages.grow_unit_detail") %}
+{% set _on_errors = _ep == "pages.grow_errors_page" %}
+{% set _on_settings = _ep == "pages.grow_settings_page" %}
+<nav class="grow-subnav" aria-label="Grow sections">
+  <a href="{{ url_for('pages.grow_fleet') }}"
+     class="subnav-pill{{ ' active' if _on_fleet else '' }}">
+    Fleet
+  </a>
+  <a href="{{ url_for('pages.grow_errors_page') }}"
+     class="subnav-pill{{ ' active' if _on_errors else '' }}">
+    Errors
+  </a>
+  {% if session_role == 'admin' %}
+  <a href="{{ url_for('pages.grow_settings_page') }}"
+     class="subnav-pill{{ ' active' if _on_settings else '' }}">
+    Settings
+  </a>
+  {% endif %}
+</nav>

@@ -4,6 +4,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/grow.css') }}">
 {% endblock %}
 {% block content %}
+{% include "_grow_subnav.html" %}
 <div class="du-page" data-unit-id="{{ unit_id }}">
   <header id="du-header"></header>
   <nav id="du-tabs"></nav>

@@ -5,6 +5,7 @@
 {% endblock %}
 
 {% block content %}
+  {% include "_grow_subnav.html" %}
   {# Mark the body element with the user's role so client-side JS can gate
      admin-only UI affordances (Resolve / Snooze buttons). The server still
      enforces auth on the PATCH endpoint — this is purely visual. #}

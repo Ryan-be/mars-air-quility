@@ -53,11 +53,16 @@ def grow_errors_page():
     )
 
 
-@pages_bp.route("/settings/grow")
+@pages_bp.route("/grow/settings")
 @require_role("admin")
 def grow_settings_page():
-    """Settings → Grow. Admin-only at the page level even though the
+    """Grow → Settings. Admin-only at the page level even though the
     individual API endpoints have their own RBAC — defence in depth.
+
+    Lives under /grow/settings (rather than /settings/grow) so it sits
+    naturally under the Grow sub-nav. The legacy /settings/grow URL is
+    redirected to here for backwards compatibility — see
+    grow_settings_page_legacy below.
 
     Phase 3 Task 6: also surfaces the same disk-usage banner as /grow,
     so admins reviewing settings see the warning without having to
@@ -66,6 +71,18 @@ def grow_settings_page():
     return render_template(
         "grow_settings.html", storage_status=get_storage_status()
     )
+
+
+@pages_bp.route("/settings/grow")
+@require_role("viewer", "controller", "admin")
+def grow_settings_page_legacy():
+    """Legacy URL — redirect to the canonical /grow/settings.
+
+    Allows any logged-in role to hit the redirect (so existing bookmarks
+    don't 403 on the way to a 302) — the destination route still gates
+    on admin via require_role.
+    """
+    return redirect(url_for("pages.grow_settings_page"), code=302)
 
 
 @pages_bp.route("/controls")

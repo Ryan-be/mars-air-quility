@@ -95,3 +95,123 @@ def test_grow_fleet_page_omits_storage_warning_on_check_failure(
     body = r.data.decode("utf-8")
     assert r.status_code == 200
     assert "storage-warning" not in body
+
+
+# ---------------------------------------------------------------------------
+# Grow sub-nav + URL consolidation
+# ---------------------------------------------------------------------------
+# The Grow Errors + Grow Settings top-nav links were collapsed into a single
+# Grow tab; the corresponding sub-pages get a sub-nav row of three pills
+# (Fleet / Errors / Settings) instead. The settings page also moved from
+# /settings/grow → /grow/settings, with a 302 redirect kept on the legacy URL.
+
+def _set_session(c, *, logged_in=True, role="admin"):
+    with c.session_transaction() as sess:
+        sess["logged_in"] = logged_in
+        sess["user_role"] = role
+
+
+def test_grow_settings_legacy_url_redirects_to_new_path(client):
+    """Old bookmarks for /settings/grow keep working: any logged-in
+    role gets a 302 to the canonical /grow/settings."""
+    _set_session(client, role="admin")
+    r = client.get("/settings/grow", follow_redirects=False)
+    assert r.status_code == 302
+    assert r.headers["Location"].endswith("/grow/settings")
+
+
+def test_grow_settings_legacy_url_redirects_for_viewer_too(client):
+    """The legacy redirect doesn't gate on role — even a viewer hitting
+    a stale bookmark gets the 302 (they'll then bounce off the
+    admin-only canonical route, but at least the bookmark resolves)."""
+    _set_session(client, logged_in=True, role="viewer")
+    r = client.get("/settings/grow", follow_redirects=False)
+    assert r.status_code == 302
+    assert r.headers["Location"].endswith("/grow/settings")
+
+
+def test_grow_settings_new_url_serves_page(client):
+    """GET /grow/settings as admin → 200 with the settings page body."""
+    _set_session(client, role="admin")
+    r = client.get("/grow/settings")
+    assert r.status_code == 200
+    body = r.data.decode("utf-8")
+    assert "Grow unit settings" in body
+
+
+def test_grow_subnav_appears_on_fleet_page(client):
+    r = client.get("/grow")
+    body = r.data.decode("utf-8")
+    assert "subnav-pill" in body
+    # Three pill destinations
+    assert "/grow/errors" in body
+    # Fleet pill — link to /grow itself
+    assert "grow-subnav" in body
+
+
+def test_grow_subnav_appears_on_errors_page(client):
+    _set_session(client, role="viewer")
+    r = client.get("/grow/errors")
+    body = r.data.decode("utf-8")
+    assert "subnav-pill" in body
+    assert "grow-subnav" in body
+    assert ">Errors" in body or "Errors\n" in body
+
+
+def test_grow_subnav_appears_on_settings_page(client):
+    _set_session(client, role="admin")
+    r = client.get("/grow/settings")
+    body = r.data.decode("utf-8")
+    assert "subnav-pill" in body
+    assert "grow-subnav" in body
+
+
+def test_grow_subnav_marks_active_pill_correctly(client):
+    """Active-pill detection uses request.endpoint (not URL string
+    matching) so future URL renames don't break it."""
+    _set_session(client, role="viewer")
+    r = client.get("/grow/errors")
+    body = r.data.decode("utf-8")
+    # The Errors pill should carry the .active class. We look for the
+    # combination "subnav-pill active" (with 'Errors' nearby) rather
+    # than just any 'active' class — the latter would match the
+    # top-level Grow tab's own .active.
+    assert "subnav-pill active" in body
+    # Fleet + Settings pills should NOT be marked active. Easiest
+    # check: the Fleet href is `/grow` (without /errors suffix), and
+    # if it had .active we'd see "subnav-pill active" preceding that
+    # exact href. Simpler: count active pills in the subnav block.
+    subnav_start = body.find("grow-subnav")
+    subnav_end = body.find("</nav>", subnav_start)
+    subnav_block = body[subnav_start:subnav_end]
+    assert subnav_block.count("subnav-pill active") == 1
+
+
+def test_top_nav_no_longer_includes_grow_errors_link(client):
+    """The Errors link moved from the top nav into the sub-nav. Any
+    page that extends base.html should NOT carry a top-level
+    .tab-nav <a href="/grow/errors"> entry. The sub-nav is rendered
+    inside .grow-subnav (different class), so we narrow our assertion
+    to the .tab-nav block."""
+    r = client.get("/")
+    body = r.data.decode("utf-8")
+    nav_start = body.find('class="tab-nav"')
+    assert nav_start != -1
+    nav_end = body.find("</nav>", nav_start)
+    nav_block = body[nav_start:nav_end]
+    assert "/grow/errors" not in nav_block
+
+
+def test_top_nav_no_longer_includes_grow_settings_link(client):
+    """Same as above for Grow Settings — moved into the admin pill of
+    the sub-nav instead of being a top-level tab."""
+    _set_session(client, role="admin")
+    r = client.get("/")
+    body = r.data.decode("utf-8")
+    nav_start = body.find('class="tab-nav"')
+    assert nav_start != -1
+    nav_end = body.find("</nav>", nav_start)
+    nav_block = body[nav_start:nav_end]
+    # Neither the new path nor the legacy path should appear in the top nav
+    assert "/grow/settings" not in nav_block
+    assert "/settings/grow" not in nav_block

@@ -542,3 +542,249 @@
   font-size: 13px; font-family: Roboto, sans-serif;
   background: #142028; border: 1px dashed #2a3d50; border-radius: 3px;
 }
+
+/* ============================================================
+   Grow sub-nav — three pills above every /grow* page
+   ============================================================
+   Rendered by templates/_grow_subnav.html. Sits between the main
+   tab-nav and the page header. Active pill detection happens in
+   the partial (request.endpoint match) — these styles only paint. */
+.grow-subnav {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 20px;
+  background: #0a1219;
+  border-bottom: 1px solid #1c2733;
+  font-family: Roboto, sans-serif;
+}
+.grow-subnav .subnav-pill {
+  padding: 5px 14px;
+  border-radius: 14px;
+  background: transparent;
+  border: 1px solid #2a3d50;
+  color: #c2d2e3;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-decoration: none;
+  transition: border-color 0.12s, background 0.12s, color 0.12s;
+}
+.grow-subnav .subnav-pill:hover {
+  border-color: #4dacff;
+  color: #4dacff;
+}
+.grow-subnav .subnav-pill.active {
+  background: #4dacff;
+  border-color: #4dacff;
+  color: #001028;
+  font-weight: 500;
+}
+.grow-subnav .subnav-pill.active:hover {
+  color: #001028;
+}
+
+/* ============================================================
+   Settings page — section cards + plant-profiles editor
+   ============================================================
+   Used on /grow/settings. Each <section class="settings-section">
+   becomes a card; the JS-mounted .settings-panel-head spans inside
+   render as the section heading.
+
+   Palette inferred from the rest of grow.css: #0a1219 / #142028 /
+   #1f2e3c / #2a3d50 borders + #4dacff accent. */
+.settings-page { padding: 0; }
+.settings-page .grow-pageheader h2 {
+  color: #fff;
+  font-size: 22px;
+  font-weight: 500;
+  margin: 0 0 4px;
+}
+.settings-page .settings-blurb {
+  color: #7d92a8;
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0;
+  max-width: 720px;
+}
+.settings-sections {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: #080c11;
+}
+.settings-section {
+  background: #142028;
+  border: 1px solid #1f2e3c;
+  border-radius: 3px;
+  padding: 0;
+}
+.settings-section h3 {
+  margin: 0;
+  padding: 12px 14px;
+  border-bottom: 1px solid #1c2733;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+.settings-section > p {
+  color: #7d92a8;
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0;
+  padding: 10px 14px;
+}
+
+/* Each component renders a .settings-panel wrapper with a
+   .settings-panel-head + .settings-panel-body — promote the head to
+   read as a section heading and pad the body uniformly. */
+.settings-panel-head {
+  padding: 12px 14px;
+  border-bottom: 1px solid #1c2733;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  background: linear-gradient(180deg, #182431, #142028);
+}
+.settings-panel-body {
+  padding: 12px 14px;
+}
+
+/* ── Plant profiles editor ───────────────────────────────────────
+   The editor renders a list of .pp-row elements. Without these
+   rules, the inline spans inside .pp-row-head butt up against
+   each other (label/stats/pill all touching). flex + gap fixes it. */
+.pp-blurb {
+  margin: 0;
+  padding: 10px 14px;
+  color: #7d92a8;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.pp-rows {
+  padding: 0 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pp-status {
+  padding: 6px 14px 12px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: #7d92a8;
+}
+.pp-status.ok { color: #56f000; }
+.pp-status.err { color: #ff5252; }
+
+.pp-row {
+  border: 1px solid #1f2e3c;
+  border-radius: 2px;
+  background: #0e1722;
+  overflow: hidden;
+  transition: border-color 0.12s;
+}
+.pp-row:hover { border-color: #2a3d50; }
+.pp-row-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 14px;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font: inherit;
+  font-family: Roboto, sans-serif;
+  text-align: left;
+  cursor: pointer;
+}
+.pp-row-head:hover {
+  background: rgba(77, 172, 255, 0.06);
+}
+.pp-row-head:focus-visible {
+  outline: 2px solid #4dacff;
+  outline-offset: -2px;
+}
+.pp-row-label {
+  font-weight: 500;
+  color: #fff;
+  font-size: 13px;
+  min-width: 14rem;
+  flex-shrink: 0;
+}
+.pp-row-stats {
+  flex: 1;
+  color: #7d92a8;
+  font-size: 12px;
+  font-family: 'SFMono-Regular', Consolas, monospace;
+}
+.pp-pill {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 10px;
+  background: rgba(122, 138, 153, 0.15);
+  color: #7d92a8;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.pp-pill-shipped {
+  background: rgba(77, 172, 255, 0.18);
+  color: #4dacff;
+}
+.pp-pill-modified {
+  background: rgba(255, 179, 2, 0.18);
+  color: #ffb302;
+}
+
+/* Inline editor that expands when a row is clicked. */
+.pp-editor-form {
+  padding: 12px 14px;
+  border-top: 1px solid #1c2733;
+  background: #0a1219;
+}
+.pp-field-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.pp-field-row label {
+  min-width: 14rem;
+  color: #7d92a8;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.pp-field-row input {
+  flex: 1;
+  max-width: 160px;
+  padding: 5px 9px;
+  background: #0a1219;
+  color: #c2d2e3;
+  border: 1px solid #2a3d50;
+  border-radius: 2px;
+  font-size: 12px;
+  font-family: 'SFMono-Regular', Consolas, monospace;
+}
+.pp-field-row input:focus {
+  outline: none;
+  border-color: #4dacff;
+}
+.pp-editor-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #1c2733;
+}
+.pp-editor-error {
+  margin-top: 8px;
+  font-size: 11px;
+  color: #ff5252;
+  letter-spacing: 0.04em;
+}
+.pp-editor-error:empty { display: none; }
