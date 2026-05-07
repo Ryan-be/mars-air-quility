@@ -183,16 +183,20 @@ def test_database_migrations_module_removed_or_empty():
     module is gone, or it carries no functional code. Catches anyone
     re-adding the dead helpers."""
     try:
-        import database.migrations  # noqa: F401  pylint: disable=import-error
+        # Use importlib so pylint doesn't try to statically resolve a
+        # deliberately-deleted module (otherwise it raises I1101
+        # c-extension-no-member on the dynamic getattr below).
+        import importlib
+        migrations = importlib.import_module("database.migrations")
     except ImportError:
         # Module is gone — the desired end state.
         return
     # Module still importable: assert it carries no callables (i.e. the
     # back-fill functions weren't reintroduced).
     public_callables = [
-        name for name in dir(database.migrations)
+        name for name in dir(migrations)
         if not name.startswith("_")
-        and callable(getattr(database.migrations, name))
+        and callable(getattr(migrations, name))
     ]
     assert public_callables == [], (
         f"database.migrations re-introduced functional code: "

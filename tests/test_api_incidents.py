@@ -1,5 +1,4 @@
 """Tests for the incidents REST API."""
-import json
 import sys
 from unittest.mock import MagicMock
 

@@ -62,9 +62,49 @@ install -d -o mlss-grow -g mlss-grow -m 0755 /var/log/mlss-grow
 # ── 4. Download wheels (with SHA256 verification)
 echo "==> Downloading wheels from $MLSS_HOST"
 TMP=$(mktemp -d)
+# mktemp -d defaults to mode 0700, which blocks the unprivileged
+# mlss-grow user from reading the wheels later via `sudo -u mlss-grow
+# pip install --find-links "$TMP" ...`. Open it to 0755 so non-owner
+# read+exec works. Contents are public artefacts (already SHA256-
+# verified), so 0755 doesn't expose anything sensitive.
+chmod 0755 "$TMP"
 trap 'rm -rf "$TMP"' EXIT
 
 LATEST=$(curl -ks "https://${MLSS_HOST}:5000/api/grow/dist/latest")
+
+# Defensive: empty manifest means the MLSS server hasn't built its wheels.
+# Catch this early with a clear message rather than letting the python3
+# KeyError that follows confuse the operator. Three failure modes are
+# distinguished:
+#   (a) curl already errored on unreachable host (set -e aborts above)
+#   (b) manifest is {} or missing required keys (this guard)
+#   (c) manifest has the wrong shape (parse_error path below)
+HAS_GROW=$(echo "$LATEST" | python3 -c "import sys,json; d=json.load(sys.stdin); print('yes' if 'mlss_grow' in d else 'no')" 2>/dev/null || echo "parse_error")
+if [[ "$HAS_GROW" != "yes" ]]; then
+    echo "ERROR: MLSS server at ${MLSS_HOST} returned an empty wheel manifest." >&2
+    echo "" >&2
+    echo "  Got: $LATEST" >&2
+    echo "" >&2
+    echo "The wheels have not been built yet. On the MLSS server, run:" >&2
+    echo "  cd /path/to/mars-air-quility" >&2
+    echo "  bash scripts/build_grow_wheel.sh" >&2
+    echo "" >&2
+    echo "Then re-run this installer." >&2
+    exit 2
+fi
+HAS_CONTRACTS=$(echo "$LATEST" | python3 -c "import sys,json; d=json.load(sys.stdin); print('yes' if 'mlss_contracts' in d else 'no')" 2>/dev/null || echo "parse_error")
+if [[ "$HAS_CONTRACTS" != "yes" ]]; then
+    echo "ERROR: MLSS server at ${MLSS_HOST} manifest is missing mlss_contracts." >&2
+    echo "" >&2
+    echo "  Got: $LATEST" >&2
+    echo "" >&2
+    echo "The wheels have not been built yet. On the MLSS server, run:" >&2
+    echo "  cd /path/to/mars-air-quility" >&2
+    echo "  bash scripts/build_grow_wheel.sh" >&2
+    echo "" >&2
+    echo "Then re-run this installer." >&2
+    exit 2
+fi
 
 # Each manifest entry is now {version, filename, sha256} so we can verify
 # integrity after download — defends against LAN MITM tampering with wheels.

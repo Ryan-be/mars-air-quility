@@ -11,9 +11,7 @@ import time
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
-from mlss_grow.photo_buffer import PhotoBuffer, BufferedPhoto
+from mlss_grow.photo_buffer import PhotoBuffer
 
 
 # ---------------------------------------------------------------------------
@@ -185,7 +183,7 @@ def test_prune_deletes_photos_older_than_retention(tmp_path):
     backwards to simulate age (vs. waiting actual days in test)."""
     buf = PhotoBuffer(root_dir=str(tmp_path))
     p_old = buf.append({"k": "old"}, b"jpeg-old")
-    p_new = buf.append({"k": "new"}, b"jpeg-new")
+    buf.append({"k": "new"}, b"jpeg-new")  # newer photo, retained after prune
     # Set the old JPEG's mtime to 10 days ago. Sidecar mtime is
     # irrelevant — peek_all uses the JPEG's stat.
     ten_days_ago = time.time() - 10 * 86400

@@ -651,7 +651,6 @@ def test_tick_omits_buffer_summary_when_buffer_is_none():
     # be a no-op when the buffers aren't wired.
     for _ in range(10):
         loop.tick()  # must not raise
-    tel = next(p for k, p in emitted if k == "telemetry")
     # Neither summary should be in any payload.
     assert all(
         "buffer_summary" not in p and "photo_buffer_summary" not in p
