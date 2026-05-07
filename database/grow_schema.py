@@ -43,7 +43,12 @@ def create_grow_schema(cur):
       photo_interval_min_override INTEGER,
       buffer_retention_days       INTEGER,
       last_seen_at                DATETIME,
-      last_telemetry_at           DATETIME
+      last_telemetry_at           DATETIME,
+      -- Phase 3 Task 1: firmware-reported metadata. All nullable;
+      -- populated by the firmware's capabilities/telemetry envelopes.
+      firmware_version            TEXT,
+      last_uptime_s               REAL,
+      last_buffer_size            INTEGER
     );
     """)
     cur.execute(

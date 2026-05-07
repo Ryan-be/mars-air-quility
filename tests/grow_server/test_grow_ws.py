@@ -359,6 +359,43 @@ async def test_invalid_payload_does_not_disconnect_unit(server, monkeypatch):
     assert calls[0]["soil_moisture_raw"] == 612
 
 
+@pytest.mark.asyncio
+async def test_real_ws_connect_and_disconnect_writes_grow_errors_rows(server):
+    """Phase 3 Task 1 e2e: a real connect+disconnect must leave one
+    online row + one offline row in grow_errors for that unit. The online
+    row's resolved_at stays NULL (no prior offline to resolve in this
+    fresh-DB scenario); the offline row is open after disconnect. This is
+    the audit trail that the §8 fleet-errors view rolls up."""
+    port, token, db_path, _ = server
+
+    async with websockets.connect(
+        f"ws://127.0.0.1:{port}/api/grow/1/ws",
+        extra_headers={"Authorization": f"Bearer {token}"},
+    ) as ws:
+        # Brief breather so the server-side _record_connection_event("online")
+        # actually runs before we exit the context manager.
+        await asyncio.sleep(0.1)
+
+    # And another for the disconnect-side write to land.
+    await asyncio.sleep(0.2)
+
+    conn = sqlite3.connect(db_path)
+    rows = conn.execute(
+        "SELECT severity, kind, resolved_at FROM grow_errors "
+        "WHERE unit_id=1 ORDER BY id"
+    ).fetchall()
+    conn.close()
+
+    kinds = [r[1] for r in rows]
+    assert "online" in kinds, f"missing online row; rows={rows}"
+    assert "offline" in kinds, f"missing offline row; rows={rows}"
+
+    online = [r for r in rows if r[1] == "online"][0]
+    offline = [r for r in rows if r[1] == "offline"][0]
+    assert online[0] == "info"
+    assert offline[0] == "warning"
+
+
 def _make_fake_serve(captured):
     """Build a fake websockets.serve() that captures kwargs and returns a
     mock server whose wait_closed() blocks forever (until close() fires the

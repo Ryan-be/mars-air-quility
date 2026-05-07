@@ -232,6 +232,11 @@ def create_db():
         # grow_telemetry (already indexed by (unit_id, timestamp_utc DESC)).
         "ALTER TABLE grow_units DROP COLUMN light_phase_override_json",
         "ALTER TABLE grow_units DROP COLUMN last_known_state_json",
+        # Phase 3 Task 1: firmware-reported metadata columns. All nullable;
+        # populated by Task 2's firmware capabilities/telemetry envelopes.
+        "ALTER TABLE grow_units ADD COLUMN firmware_version TEXT",
+        "ALTER TABLE grow_units ADD COLUMN last_uptime_s REAL",
+        "ALTER TABLE grow_units ADD COLUMN last_buffer_size INTEGER",
     ]:
         try:
             cur.execute(migration)

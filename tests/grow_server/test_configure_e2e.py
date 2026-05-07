@@ -486,10 +486,14 @@ async def test_e2e_safety_override_returns_503_when_unit_disconnected(
     )
     assert r.status_code == 503, r.data
 
-    # Audit table must NOT have a row — the action didn't happen.
+    # Audit table must NOT have a safety_override_invoked row — the action
+    # didn't happen. (Connection online/offline rows from Phase 3 Task 1
+    # are expected here because the fake firmware did connect+disconnect;
+    # the assertion narrows to the audit kind this test cares about.)
     conn = sqlite3.connect(db_path)
     rowcount = conn.execute(
-        "SELECT COUNT(*) FROM grow_errors WHERE unit_id=1"
+        "SELECT COUNT(*) FROM grow_errors "
+        "WHERE unit_id=1 AND kind='safety_override_invoked'"
     ).fetchone()[0]
     conn.close()
     assert rowcount == 0

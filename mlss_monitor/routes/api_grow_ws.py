@@ -189,6 +189,45 @@ async def _process_request(path: str, headers):
     return None
 
 
+def _record_connection_event(unit_id: int, kind: str) -> None:
+    """Write a grow_errors row capturing a connection state change.
+
+    For kind='online': resolves any open kind='offline' row for this unit
+    (so the row pair captures the duration of an outage), then inserts a
+    new info-severity 'online' row. For kind='offline': just inserts a
+    warning-severity 'offline' row — note that we always insert even if
+    a prior open offline row exists. A reconnect storm leaving multiple
+    open offline rows is itself diagnostic.
+
+    Best-effort: any DB error is logged at WARNING and swallowed. Failing
+    audit logging MUST NOT tear down a live WS handler.
+    """
+    try:
+        conn = sqlite3.connect(DB_FILE, timeout=5)
+        try:
+            now = datetime.utcnow()
+            if kind == "online":
+                conn.execute(
+                    "UPDATE grow_errors SET resolved_at=? "
+                    "WHERE unit_id=? AND kind='offline' AND resolved_at IS NULL",
+                    (now, unit_id),
+                )
+            severity = "warning" if kind == "offline" else "info"
+            conn.execute(
+                "INSERT INTO grow_errors "
+                "(unit_id, timestamp_utc, severity, kind, message) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (unit_id, now, severity, kind, f"unit {kind}"),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as exc:  # pylint: disable=broad-except
+        log.warning(
+            "connection_event write failed for unit %s: %s", unit_id, exc
+        )
+
+
 async def _connection_handler(ws, path: str, registry):
     """Handle one accepted WS connection.
 
@@ -203,6 +242,7 @@ async def _connection_handler(ws, path: str, registry):
         return
 
     registry.register(unit_id, ws)
+    _record_connection_event(unit_id, "online")
     log.info("grow unit %s connected", unit_id)
     try:
         async for message in ws:
@@ -238,6 +278,7 @@ async def _connection_handler(ws, path: str, registry):
                 log.exception("error handling msg from unit %s: %s", unit_id, exc)
     finally:
         registry.unregister(unit_id)
+        _record_connection_event(unit_id, "offline")
         log.info("grow unit %s disconnected", unit_id)
 
 
