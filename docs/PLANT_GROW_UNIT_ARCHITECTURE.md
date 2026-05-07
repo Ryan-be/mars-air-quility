@@ -10,6 +10,56 @@ or browser). For the original design intent and trade-offs, see the spec:
 
 ---
 
+## System architecture
+
+The system has three runtime tiers — operator's browser, MLSS server,
+and one-or-more Pi Zero W grow units:
+
+```mermaid
+graph TB
+    subgraph "Operator's browser"
+        UI[/grow page<br/>/grow/units/&lt;id&gt;<br/>/grow/errors<br/>/settings/grow/]
+    end
+
+    subgraph "MLSS server"
+        Flask[Flask + blueprints]
+        WS[WS listener :5001]
+        DB[(sensor_data.db<br/>SQLite)]
+        Photos[/var/lib/mlss/grow_images/]
+    end
+
+    subgraph "Plant Grow Unit (Pi Zero W)"
+        FW[mlss-grow service]
+        BUF[(buffer.sqlite)]
+        PB[/var/lib/mlss-grow/photos/]
+        STATE[/etc/mlss/server.crt<br/>/etc/mlss-grow/token.json/]
+        SAFETY[Safety loop<br/>30s tick]
+        PID[PID controller]
+        PHOTO[Camera capture<br/>2-min interval]
+        SENS[Soil moisture<br/>+ optional sensors]
+        ACT[Pump + Light<br/>via Automation HAT]
+    end
+
+    UI -.HTTPS:5000.-> Flask
+    Flask --> DB
+    FW -.WSS:5001.-> WS
+    FW -.HTTPS:5000.-> Flask
+    FW --> BUF
+    FW --> PB
+    SAFETY --> SENS
+    SAFETY --> PID
+    PID --> ACT
+    PHOTO --> FW
+```
+
+The boundary between "MLSS server" and "Plant Grow Unit" is the
+authenticated WSS / HTTPS link. The unit's safety loop runs locally
+on the Pi at 30 s tick — plants survive an MLSS outage. The browser
+never talks to the Pi directly; all traffic flows through the MLSS
+server, which is the only thing exposed on the LAN.
+
+---
+
 ## Repo structure
 
 Single repo, three independently-installable Python packages:
@@ -28,6 +78,59 @@ mars-air-quility/
 ```
 
 Each package has its own `pyproject.toml` and Poetry env. The MLSS server installs `mlss_contracts` as a path dep but **not** `mlss_grow`. The Pi Zero installs `mlss_grow` + `mlss_contracts` as wheels (built by `scripts/build_grow_wheel.sh`, served from MLSS at `/api/grow/dist/`). This guarantees the MLSS Pi never installs picamera2 / RPi.GPIO, and the Pi Zero never installs Flask / gunicorn.
+
+---
+
+## Telemetry + photo flow
+
+Steady-state and offline-replay flow through the WS link:
+
+```mermaid
+sequenceDiagram
+    participant Sensor
+    participant Firmware
+    participant Buffer as buffer.sqlite
+    participant WS as MLSS WS listener
+    participant DB as sensor_data.db
+
+    loop every 30s tick
+        Sensor->>Firmware: read soil moisture, temp, lux
+        Firmware->>Firmware: PID decision
+        alt WS connected
+            Firmware->>WS: telemetry frame
+            WS->>DB: INSERT grow_telemetry
+        else WS disconnected
+            Firmware->>Buffer: append
+        end
+    end
+
+    loop every 2 min
+        Firmware->>Firmware: capture JPEG
+        alt WS connected
+            Firmware->>WS: photo binary frame
+            WS->>DB: INSERT grow_photos
+        else WS disconnected
+            Firmware->>Firmware: write to /var/lib/mlss-grow/photos/
+        end
+    end
+
+    Note over Firmware,WS: On reconnect:
+    Firmware->>WS: drain text buffer (oldest first)
+    Firmware->>WS: drain photo buffer (oldest first)
+    Firmware->>Flask: GET /api/grow/units/<id>/config (fresh config)
+```
+
+Key observations:
+
+- The 30 s tick is the **safety loop** — runs from
+  `/var/lib/mlss-grow/config.json` whether or not MLSS is reachable, so
+  watering and lighting decisions never depend on the WS link being up.
+- Photo cadence (2-min interval here, configurable per-unit) is
+  decoupled from the safety tick — capture work happens on its own
+  thread to avoid stalling the safety loop's I/O.
+- On reconnect the firmware drains the text buffer first (telemetry +
+  events), then the photo buffer, then re-pulls config so an admin's
+  edits during the outage are applied without a service restart.
 
 ---
 
@@ -124,6 +227,18 @@ Each row in `grow_unit_capabilities` carries a typed `health` column
 uses to grey out controls when an actuator isn't actually responding —
 see the [sense-only mode UX](PLANT_GROW_UNIT_USAGE.md#sense-only-mode-greyed-out-actuator-buttons).
 
+```mermaid
+stateDiagram-v2
+    [*] --> untested : firmware boots, actuator init OK
+    [*] --> no_hardware : firmware boots, actuator init FAILED
+    [*] --> connected : firmware boots, sensor reads OK
+
+    untested --> connected : first observed actuation\n(pump_state=1 or light_state=1)
+    connected --> unresponsive : watchdog: command sent\n>30s ago, no event
+    unresponsive --> connected : telemetry shows\nactuator working again
+    no_hardware --> connected : (only via reboot with hardware fixed)
+```
+
 States and transitions:
 
 | State | Set when | Reset when |
@@ -179,7 +294,7 @@ The hard 30s pump pulse cap is enforced unconditionally in `Actuator.pulse()` re
 
 ## Buffer + replay
 
-When the WS is down, telemetry text frames go to `/var/lib/mlss-grow/buffer.sqlite` instead of being sent. On reconnect, the client emits `event: buffer_replay_started`, sends every buffered row in original timestamp order, then `event: buffer_replay_complete`. Photos are **not** buffered (to save SD card writes) — they're dropped if the WS is down at capture time.
+When the WS is down, telemetry text frames go to `/var/lib/mlss-grow/buffer.sqlite` instead of being sent. On reconnect, the client emits `event: buffer_replay_started`, sends every buffered row in original timestamp order, then `event: buffer_replay_complete`. Photos are **also buffered** to disk under `/var/lib/mlss-grow/photos/` as JPEGs with sidecar JSON metadata (see commit `7b24c15`, which reversed the original C2 deferral); on reconnect they're uploaded oldest-first then deleted, with a 1 GB byte cap + 7-day age prune so the SD card isn't filled by a multi-day or permanent outage.
 
 The replay loop **peeks** each row, sends it, and only deletes after
 the send acks. A mid-replay disconnect leaves the un-sent tail in

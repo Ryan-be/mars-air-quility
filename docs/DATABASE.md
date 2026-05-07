@@ -82,6 +82,56 @@ Defined in [`database/grow_schema.py`](../database/grow_schema.py). Created
 in the same transaction as the air-quality schema by `create_db()`'s call
 to `create_grow_schema(cur)`.
 
+```mermaid
+erDiagram
+    grow_units ||--o{ grow_telemetry : "has many"
+    grow_units ||--o{ grow_watering_events : "has many"
+    grow_units ||--o{ grow_photos : "has many"
+    grow_units ||--o{ grow_unit_capabilities : "has"
+    grow_units ||--o{ grow_light_windows : "has"
+    grow_units ||--o{ grow_errors : "may have"
+    grow_telemetry ||--o| grow_photos : "joined via telemetry_id"
+    grow_plant_profiles ||--o{ grow_units : "default tunables for"
+    grow_medium_defaults ||--o{ grow_units : "calibration defaults"
+
+    grow_units {
+        int id PK
+        string hardware_serial UK
+        string label
+        string current_phase
+        string firmware_version
+        json overrides
+    }
+    grow_telemetry {
+        int id PK
+        int unit_id FK
+        datetime timestamp_utc
+        int soil_moisture_raw
+        real soil_moisture_pct
+    }
+    grow_unit_capabilities {
+        int unit_id PK_FK
+        string channel PK
+        string health
+        datetime last_seen_at
+    }
+    grow_errors {
+        int id PK
+        int unit_id FK
+        string severity
+        string kind
+        string message
+        datetime resolved_at
+    }
+```
+
+`ON DELETE CASCADE` is set on every `unit_id` foreign key so removing a
+unit (`DELETE FROM grow_units WHERE id=<n>`) is a single statement that
+cleans up all related rows. The
+`grow_telemetry → grow_photos` join via `telemetry_id` is the ML
+training key — see
+[ARCHITECTURE.md → Image storage](PLANT_GROW_UNIT_ARCHITECTURE.md#image-storage--ml-join-key).
+
 #### `grow_units` — one row per enrolled Pi
 
 Per-unit identity, current phase, plant + medium type, calibration
@@ -238,9 +288,28 @@ and `grow_units.light_phase_override_json` were **dropped** in Phase 2
 C1 and replaced by typed columns / the `grow_light_windows` table.
 `incidents.signature` and `inferences.evidence` followed the same
 deprecation cycle and were dropped after the historic-data back-fill
-completed — the typed `incident_signature_features` sub-table and
-typed `evidence_*` columns + `evidence_extras` blob are now the
-single source of truth.
+completed (commits `9c745fe`, `85ce40e`, `d0a1d07`, `f85b783`) — the
+typed `incident_signature_features` sub-table and typed `evidence_*`
+columns + `evidence_extras` blob are now the single source of truth.
+**Both columns no longer exist in the schema** — any code path or
+external tool that previously read them must use the typed
+representation instead.
+
+### Deprecation cycle policy
+
+When a column is to be retired:
+
+1. Stop writing it. Add the typed replacement and write to both for
+   one release (the "shadow write" phase).
+2. Migrate historic rows in a one-shot back-fill commit
+   (`d0a1d07`-style — runs at startup, idempotent).
+3. Stop reading the legacy column; readers go via the typed
+   representation only.
+4. In the next release, `DROP COLUMN` (`f85b783`-style).
+
+This is the same pattern applied to `grow_units.last_known_state_json`,
+`grow_units.light_phase_override_json`, `incidents.signature`, and
+`inferences.evidence`.
 
 ---
 
@@ -264,8 +333,10 @@ CREATE TABLE buffer (
 
 Each row holds a single text WS frame the firmware tried to send while
 the link was down: telemetry, event, ack, or capabilities. Photos are
-**not** buffered (saves SD-card writes; capture-time photos are dropped
-if the WS is down).
+**not held in this table** — they're saved as JPEGs with sidecar JSON
+metadata under `/var/lib/mlss-grow/photos/` (commit `7b24c15`) and
+uploaded oldest-first on reconnect, with their own 1 GB byte cap +
+7-day age prune so the SD card isn't filled by a long outage.
 
 ### Housekeeping
 
@@ -301,6 +372,32 @@ unreachable too long" rather than letting telemetry silently disappear.
 The callback runs inside the buffer commit flow — exceptions raised by
 the callback are caught and swallowed, so a buggy callback can never
 break the buffer.
+
+---
+
+## CSRF defence layer (commit `3557537`)
+
+Mutating endpoints on the MLSS server (POST / PUT / PATCH / DELETE)
+have two complementary CSRF defences:
+
+1. **`SameSite=Lax` on the session cookie.** Browsers refuse to send
+   the auth cookie on cross-origin requests, so a third-party page
+   can't ride the operator's session to fire e.g. a malicious
+   `POST /api/grow/enroll`. Set in
+   `mlss_monitor/auth/session.py` at session creation.
+2. **Origin / Referer header check** on every mutating request,
+   inside `mlss_monitor/auth/csrf.py::require_same_origin`. Rejects
+   anything where neither header is present or the origin doesn't
+   match the server's own host. Belt-and-braces against older
+   browsers / clients that don't honour `SameSite=Lax`.
+
+Static GETs and the WS upgrade path are exempt — the WS upgrade
+authenticates via `Authorization: Bearer <token>`, not the session
+cookie, so SameSite is irrelevant there.
+
+This is a server-wide defence; it applies equally to the air-quality
+endpoints and to the grow endpoints. There's no DB column behind it —
+it's a request-time check.
 
 ---
 

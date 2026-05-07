@@ -156,6 +156,94 @@ a non-blocking timer (see
 
 ---
 
+## The Diagnostics tab (Phase 3)
+
+Each unit's detail page also has a **Diagnostics** subtab grouped under
+the Configure tab — a single page that surfaces firmware metadata,
+recent connection state, sensor sanity checks, the buffer inspector,
+and a 3-click "danger zone" for destructive ops. Driven by
+`GET /api/grow/units/<id>/diagnostics`.
+
+### Firmware info panel
+
+Shows the unit's reported `firmware_version`, current uptime since the
+mlss-grow service last started, and the wheel name/SHA from
+`/api/grow/dist/latest` (so you can cross-check that the unit is on the
+expected build). Also surfaces the `hardware_serial` and the
+`bearer_token_hash`'s first 8 hex chars for identification (the rest is
+hidden).
+
+### Connection log
+
+A reverse-chronological list of `online` / `offline` `grow_errors` rows
+for this unit (last 50). Useful for spotting flap patterns: "this unit
+drops every 4 hours" usually means router channel hop or DHCP lease
+churn rather than a Pi problem.
+
+### Sensor sanity
+
+Runs each registered capability through a one-off read and shows pass /
+fail with the raw reading. Quick way to confirm the soil sensor really
+is plugged in vs. just a stale cached row.
+
+### Buffer inspector (commit `715c063`)
+
+Per-message-kind summary of what's currently sitting in the unit's
+local `buffer.sqlite`: total rows, total size in bytes, oldest row's
+age. If the buffer is non-empty when the unit is reportedly online,
+something's wrong with the replay path (often: WS handshake works but
+auth fails, leaving the unit in a "connect → drop" loop). Fields:
+`telemetry`, `event`, `ack`, `capabilities`.
+
+### Danger zone
+
+A 3-click confirmed flow for destructive operations:
+
+- **Force-disconnect** — drops the WS connection server-side. The
+  firmware will reconnect within a few seconds; useful for clearing a
+  stuck handler state without restarting the service on the Pi.
+- **Re-pull config** — issues a `config_changed` push so the firmware
+  re-fetches `GET /api/grow/units/<id>/config`. Use after editing the
+  unit's plant_type via SQLite directly.
+- **Clear buffer** — deletes all rows in `buffer.sqlite` on the unit.
+  Loses any unsent telemetry. Use only when the buffer is corrupt.
+- **Deactivate unit** — sets `is_active=0`. The per-unit token stops
+  authenticating; historical data is retained.
+- **Delete unit + history** — `DELETE FROM grow_units` cascades to all
+  related rows. **Irreversible.** Confirm twice.
+
+The 3-click guard is deliberate — these are operations you should
+never click by accident.
+
+---
+
+## The Errors page (Phase 3)
+
+`https://mlss.local:5000/grow/errors` (admin nav link) is the
+fleet-wide error log. Every row from `grow_errors` across every unit,
+joined to the unit's display name. Filter by:
+
+- **Severity** — `error` / `warning` / `info`
+- **Kind** — buffer_eviction, sensor_unresponsive, safety_override_fired,
+  watering_cap_hit, online, offline, config_pull_failed, etc.
+- **Resolved** — show only unresolved (default), only resolved, or all
+- **Time range** — last 24h / 7d / 30d / all
+
+Per-row actions:
+
+- **Resolve** — sets `resolved_at = now()`. Use when you've
+  investigated and fixed the underlying cause; the row stays in the DB
+  for audit.
+- **Snooze** — temporarily suppresses notifications for this kind on
+  this unit. Useful when you know a transient issue will clear itself.
+
+The top-bar badge on the dashboard pulls from
+`SELECT COUNT(*) FROM grow_errors WHERE resolved_at IS NULL`, driven
+by the partial index `idx_grow_errors_unresolved` for snappiness even
+on a large fleet.
+
+---
+
 ## The History tab
 
 `https://mlss.local:5000/grow/units/<id>/history` opens a long-range

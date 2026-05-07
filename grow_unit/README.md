@@ -15,6 +15,7 @@ of every downloaded artifact (wheels + the systemd unit file).
 | Module | Purpose |
 |---|---|
 | `service.py` | Boot + main loop wiring; reads `/etc/mlss/grow.toml` (post-enrol) and `/boot/mlss-grow.yaml` (pre-enrol fallback) |
+| `config.py` | Pydantic models for the in-memory `LoopConfig` + `UnitConfig` — single source of truth for what the safety loop reads |
 | `enrol.py` | First-boot enrolment — POSTs `/api/grow/enroll` with the household key, persists per-unit bearer token to `/etc/mlss/grow.token` (mode 0600), deletes the YAML |
 | `ws_client.py` | Persistent authenticated WebSocket; routes commands to `dispatch`; handles buffer replay + reconnect-time prune + config pull |
 | `ws_protocol.py` | Frame encode/decode against `mlss_contracts.ws_messages` |
@@ -24,8 +25,11 @@ of every downloaded artifact (wheels + the systemd unit file).
 | `safety_loop.py` | 30-s tick: read sensors, run PID, execute pulses, persist state, emit telemetry |
 | `pid.py` | Pure decision function — `(moisture_pct, config, state) → Decision` |
 | `light_schedule.py` | Multi-window time-of-day evaluator (uses `grow_light_windows`) |
+| `light_budget.py` | Tracks DLI/cumulative light hours per phase against the schedule for advisory output |
 | `buffer.py` | SQLite outbox at `/var/lib/mlss-grow/buffer.sqlite` with three-layer disk-bounding: per-row delete on send, age-based prune on reconnect, hard size caps with FIFO eviction + `on_eviction` callback |
+| `photo_buffer.py` | Filesystem-backed offline buffer for JPEGs at `/var/lib/mlss-grow/photos/` (commit `7b24c15`); 1 GB byte cap + 7-day age prune; uploaded oldest-first on reconnect |
 | `camera.py` | picamera2 wrapper with JPEG compression knobs |
+| `state_persistence.py` | Last-known config (`config.json`) + PIDState (`watering_state.json`) read/write with atomic-rename safety |
 | `sensors/` | Sensor ABC + Seesaw soil-moisture driver; auto-detect at boot |
 | `actuators/` | Actuator ABC + Automation pHAT relay/output drivers |
 

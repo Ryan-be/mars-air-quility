@@ -3,6 +3,13 @@
 A lightweight environmental monitoring system for Raspberry Pi, designed as a prototype for Mars habitat life-support applications. Logs sensor data to SQLite, serves a live web dashboard with historical plots, controls effectors automatically via rule-based thresholds, and displays status on a small TFT screen. The web UI is built with [AstroUXDS](https://astrouxds.com), NASA / Lockheed Martin's open-source space-mission design system, giving the dashboard a consistent dark space-mission look befitting the project's theme.
 
 A list of know issues and feature improvements including recomended fixes can be found here: [Bugs, Improvements and Roadmap](docs/Bugs_Improvements_and_Roadmap.md)
+
+> **First time setting up a Plant Grow Unit?**
+> Start with [docs/PLANT_GROW_UNIT_SETUP.md](docs/PLANT_GROW_UNIT_SETUP.md)
+> — that's the deployment-critical path: prerequisites, the
+> `/boot/mlss-grow.yaml` file, the install one-liner, sense-only-mode
+> deployment posture, and token rotation / decommission flows. Hardware
+> wiring is in [docs/PLANT_GROW_UNIT_HARDWARE.md](docs/PLANT_GROW_UNIT_HARDWARE.md).
 ---
 
 ## Table of contents
@@ -808,11 +815,15 @@ authenticated WSS and receive control commands. Per-unit PID watering
 runs on the Pi itself so plants survive an MLSS outage; telemetry is
 buffered locally and replays on reconnect. The `/grow` tab on the main
 dashboard shows the fleet; each unit has its own detail page with Live,
-**Configure**, and **History** tabs (the Configure tab covers PID
-tunables, light windows, calibration, and 3-click safety override; the
-History tab shows long-range charts plus a photo timelapse). A
-household-wide **Settings → Grow** page covers enrollment-key rotation,
-default tunables, the plant profile editor, and holiday mode.
+**Configure** (with a **Diagnostics** subtab), and **History** tabs
+(Configure covers PID tunables, light windows, calibration, and 3-click
+safety override; Diagnostics shows firmware version, connection log,
+sensor sanity, buffer inspector, and a danger-zone for destructive
+ops; History shows long-range charts plus a photo timelapse). A
+fleet-wide **`/grow/errors`** page lists every error/warning row with
+filter + resolve/snooze actions. A household-wide **Settings → Grow**
+page covers enrollment-key rotation, default tunables, the plant
+profile editor, and holiday mode.
 
 | Doc | Audience | Content |
 |---|---|---|
