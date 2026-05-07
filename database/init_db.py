@@ -1,9 +1,12 @@
+import logging
 import sqlite3
 
 from config import config
 from database.grow_schema import create_grow_schema
 
 DB_FILE = config.get("DB_FILE", "data/sensor_data.db")
+
+log = logging.getLogger(__name__)
 
 
 def create_db():
@@ -394,6 +397,14 @@ def create_db():
 
     conn.commit()
     conn.close()
+
+    # Run historic-data migrations (idempotent — only touches rows that
+    # haven't been migrated yet). Empty case is fast (filtered by IS NULL
+    # / NOT EXISTS), so startup time on a fresh DB is unaffected.
+    from database.migrations import run_all_migrations
+    summary = run_all_migrations(DB_FILE)
+    if any(v > 0 for v in summary.values()):
+        log.info("data migrations complete: %s", summary)
 
 
 if __name__ == "__main__":
