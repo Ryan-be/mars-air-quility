@@ -437,3 +437,237 @@ async def test_on_reconnect_sync_optional_default_none_keeps_old_behavior(
         pass
 
     assert len(received) == 1
+
+
+# ----------------------------------------------------------------------------
+# C2: buffer_retention_days_provider — prune the local SQLite buffer on every
+# successful reconnect using the freshest value pulled from the server. The
+# provider closure is built by service.py and shares state with on_reconnect_sync;
+# from WSClient's POV it's just a callable returning Optional[int].
+# ----------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_run_forever_calls_prune_after_replay_with_retention_from_provider(
+    tmp_path,
+):
+    """Reconnect cycle: connect -> replay -> on_reconnect_sync -> prune ->
+    receive. The provider returns the latest pulled retention value;
+    WSClient passes it straight to LocalBuffer.prune.
+    """
+    fake_ws = FakeWSConnection()
+    prune_calls: list[int] = []
+
+    def provider() -> int:
+        return 7  # 7 days, the firmware default mirroring app_settings
+
+    client = WSClient(
+        url="ws://test", token="t",
+        buffer_db_path=str(tmp_path / "b.sqlite"),
+        on_command=lambda cmd: None,
+        connect_fn=AsyncMock(return_value=fake_ws),
+        buffer_retention_days_provider=provider,
+        backoff_base=0.0,
+    )
+    # Patch the buffer's prune method so we can observe the call without
+    # depending on the actual delete-by-cutoff behaviour (covered in
+    # test_buffer.py).
+    real_prune = client._buffer.prune
+
+    def spy_prune(retention_days, now=None):
+        prune_calls.append(retention_days)
+        return real_prune(retention_days, now)
+    client._buffer.prune = spy_prune
+
+    runner = asyncio.create_task(client.run_forever())
+    # Drive long enough for one connect → replay → prune cycle.
+    for _ in range(50):
+        if prune_calls:
+            break
+        await asyncio.sleep(0.02)
+
+    runner.cancel()
+    try:
+        await runner
+    except asyncio.CancelledError:
+        pass
+
+    assert prune_calls == [7], (
+        f"buffer.prune should be called exactly once with retention=7 "
+        f"per reconnect cycle; got {prune_calls}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_run_forever_skips_prune_when_provider_returns_none(tmp_path):
+    """Provider returns None → "no override / unconfigured" → prune is
+    skipped. Hard size caps in LocalBuffer.append still defend.
+    """
+    fake_ws = FakeWSConnection()
+    prune_calls: list[int] = []
+
+    def provider() -> None:
+        return None
+
+    client = WSClient(
+        url="ws://test", token="t",
+        buffer_db_path=str(tmp_path / "b.sqlite"),
+        on_command=lambda cmd: None,
+        connect_fn=AsyncMock(return_value=fake_ws),
+        buffer_retention_days_provider=provider,
+        backoff_base=0.0,
+    )
+
+    def spy_prune(retention_days, now=None):
+        prune_calls.append(retention_days)
+    client._buffer.prune = spy_prune
+
+    runner = asyncio.create_task(client.run_forever())
+    # Give the runner enough time to complete a full reconnect cycle and
+    # pass the prune call site.
+    await asyncio.sleep(0.15)
+
+    runner.cancel()
+    try:
+        await runner
+    except asyncio.CancelledError:
+        pass
+
+    assert prune_calls == [], (
+        f"prune must NOT be called when provider returns None; got {prune_calls}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_run_forever_continues_when_prune_raises(tmp_path):
+    """Buffer prune is best-effort — a raised exception inside prune
+    must NOT tear down the WS or skip the receive loop. Pin the same
+    semantics as on_reconnect_sync's error handling.
+    """
+    fake_ws = FakeWSConnection()
+    received: list[dict] = []
+
+    def provider() -> int:
+        return 3  # any positive value to enter the prune branch
+
+    client = WSClient(
+        url="ws://test", token="t",
+        buffer_db_path=str(tmp_path / "b.sqlite"),
+        on_command=lambda cmd: received.append(cmd),
+        connect_fn=AsyncMock(return_value=fake_ws),
+        buffer_retention_days_provider=provider,
+        backoff_base=0.0,
+    )
+
+    def boom(retention_days, now=None):
+        raise RuntimeError("simulated prune failure")
+    client._buffer.prune = boom
+
+    runner = asyncio.create_task(client.run_forever())
+    await asyncio.sleep(0.1)
+
+    # Receive loop must still be running — push a command, confirm it
+    # reaches the handler. If prune had torn down the WS, the runner
+    # would be stuck in a reconnect loop and the command would never
+    # dispatch.
+    await fake_ws.push_incoming(json.dumps({
+        "type": "command", "ts": "2026-05-06T12:00:00Z",
+        "payload": {"name": "identify", "args": {"duration_s": 5}},
+    }))
+    for _ in range(50):
+        if received:
+            break
+        await asyncio.sleep(0.02)
+
+    runner.cancel()
+    try:
+        await runner
+    except asyncio.CancelledError:
+        pass
+
+    assert len(received) == 1, (
+        "WS receive loop must continue after prune raises — buffer "
+        "prune is best-effort housekeeping, not a connection-killer"
+    )
+
+
+@pytest.mark.asyncio
+async def test_buffer_retention_days_provider_optional_default_no_prune(
+    tmp_path,
+):
+    """Existing call sites that don't pass a provider must keep working —
+    the default is a `lambda: None` that skips pruning entirely.
+    """
+    fake_ws = FakeWSConnection()
+    prune_calls: list[int] = []
+
+    client = WSClient(
+        url="ws://test", token="t",
+        buffer_db_path=str(tmp_path / "b.sqlite"),
+        on_command=lambda cmd: None,
+        connect_fn=AsyncMock(return_value=fake_ws),
+        # NB: no buffer_retention_days_provider — default lambda: None
+        # must skip the prune branch silently.
+        backoff_base=0.0,
+    )
+
+    def spy_prune(retention_days, now=None):
+        prune_calls.append(retention_days)
+    client._buffer.prune = spy_prune
+
+    runner = asyncio.create_task(client.run_forever())
+    await asyncio.sleep(0.15)
+    runner.cancel()
+    try:
+        await runner
+    except asyncio.CancelledError:
+        pass
+
+    assert prune_calls == []
+
+
+@pytest.mark.asyncio
+async def test_buffer_eviction_emits_event_on_buffer(tmp_path):
+    """When the buffer's size cap evicts, WSClient's eviction handler
+    appends a `buffer_eviction` event back into the same buffer. This
+    verifies the wiring: forcing an eviction must result in an event
+    row that ends up replayed once the WS is up.
+    """
+    fake_ws = FakeWSConnection()
+    client = WSClient(
+        url="ws://test", token="t",
+        buffer_db_path=str(tmp_path / "b.sqlite"),
+        on_command=lambda cmd: None,
+        connect_fn=AsyncMock(return_value=fake_ws),
+        backoff_base=0.0,
+    )
+
+    # Replace the buffer with one that has a tiny row cap so we can
+    # force eviction with just a handful of appends. Reuse the same
+    # on_eviction wiring (the WSClient sets it on construction; we
+    # rebuild via the same handler).
+    from mlss_grow.buffer import LocalBuffer as _LB
+    client._buffer = _LB(
+        db_path=str(tmp_path / "b2.sqlite"),
+        max_rows=3,
+        on_eviction=client._handle_buffer_eviction,
+    )
+
+    # Append 5 telemetry rows with cap=3 → 2 evictions.
+    for i in range(5):
+        client._buffer.append(
+            "telemetry", f'{{"i":{i}}}',
+            ts=datetime(2026, 1, 1),
+        )
+
+    # The buffer should now contain: at least one buffer_eviction event
+    # row (added by the handler) plus the most-recent telemetry rows.
+    rows = client._buffer.peek_all()
+    bodies = [r.body for r in rows]
+    eviction_event_present = any(
+        "buffer_eviction" in b for b in bodies
+    )
+    assert eviction_event_present, (
+        f"expected at least one buffer_eviction event row in the buffer "
+        f"after eviction; got bodies={bodies}"
+    )

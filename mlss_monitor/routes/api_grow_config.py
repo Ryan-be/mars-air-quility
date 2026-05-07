@@ -594,4 +594,12 @@ def get_unit_config(unit_id):
         "current_phase": unit_row["current_phase"],
         "plant_type":    unit_row["plant_type"],
         "holiday_mode":  holiday_mode,
+        # Per-unit buffer retention override (NULL → firmware uses its
+        # _DEFAULT_BUFFER_RETENTION_DAYS, which mirrors the
+        # `grow_default_buffer_retention_days` app_setting). Surfacing
+        # the raw value lets firmware apply it on every reconnect-pull
+        # without a separate API call. See ws_client.run_forever, which
+        # passes this to LocalBuffer.prune via the
+        # buffer_retention_days_provider closure built in service.py.
+        "buffer_retention_days": unit_row["buffer_retention_days"],
     })

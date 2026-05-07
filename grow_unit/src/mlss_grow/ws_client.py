@@ -74,10 +74,21 @@ class WSClient:
                  connect_fn=_default_connect,
                  backoff_base: float = 1.0, backoff_max: float = 60.0,
                  server_cert_path: "str | None" = None,
-                 on_reconnect_sync: Optional[Callable[[], None]] = None) -> None:
+                 on_reconnect_sync: Optional[Callable[[], None]] = None,
+                 buffer_retention_days_provider: Optional[
+                     Callable[[], "int | None"]
+                 ] = None) -> None:
         self._url = url
         self._token = token
-        self._buffer = LocalBuffer(buffer_db_path)
+        # Wire eviction events from the buffer to a grow_errors-shaped
+        # event over the WS. When the WS is down (the likely case when
+        # the buffer is filling) the eviction event itself goes into the
+        # buffer — acceptable, since once the WS comes back the eviction
+        # events flush along with everything else.
+        self._buffer = LocalBuffer(
+            buffer_db_path,
+            on_eviction=self._handle_buffer_eviction,
+        )
         self._on_command = on_command
         self._connect_fn = connect_fn
         self._backoff_base = backoff_base
@@ -89,7 +100,45 @@ class WSClient:
         # take effect on reconnect, not on the next online config push.
         # Failures are logged and swallowed — they must NOT tear down the WS.
         self._on_reconnect_sync = on_reconnect_sync
+        # Optional provider returning the latest buffer_retention_days
+        # value pulled from the server (or None to skip pruning). Wired
+        # by service.py from the same closure that captures pull_unit_config
+        # results, so prune always uses the freshest value. Default to a
+        # no-op lambda so existing call sites (no provider passed) keep
+        # working unchanged.
+        self._buffer_retention_days_provider = (
+            buffer_retention_days_provider
+            if buffer_retention_days_provider is not None
+            else (lambda: None)
+        )
         self._ws = None
+
+    def _handle_buffer_eviction(self, *, reason: str, evicted_count: int) -> None:
+        """Buffer eviction → grow_errors event. Best-effort; never raises.
+
+        Called from inside LocalBuffer.append's commit flow when one of
+        the size caps fires. We push a grow_errors-shaped event onto the
+        same buffer (or onto the WS if up). The event's own enqueue
+        could itself trigger another eviction, but only at the very edge
+        of the cap — the next 100 appends won't re-check the byte cap,
+        and the row cap only fires once per excess row, so we don't
+        recurse.
+        """
+        body = encode_text_message(
+            "event",
+            datetime.utcnow(),
+            {
+                "kind": "buffer_eviction",
+                "details": {
+                    "reason": reason,
+                    "evicted_count": evicted_count,
+                },
+            },
+        )
+        # Always go through the buffer — if the WS is up the next
+        # _replay_buffer (or send_text path) will pick it up; if not it
+        # rides out alongside the rest.
+        self._buffer.append("event", body, datetime.utcnow())
 
     async def _connect_once(self) -> bool:
         try:
@@ -236,6 +285,19 @@ class WSClient:
                         self._on_reconnect_sync()
                     except Exception as exc:
                         log.warning("on_reconnect_sync failed: %s", exc)
+                # Buffer housekeeping: prune old rows by retention policy
+                # AFTER on_reconnect_sync runs so we use the freshest
+                # buffer_retention_days value pulled from the server. A
+                # provider returning None (= no override / unconfigured)
+                # skips pruning; the hard size caps in LocalBuffer.append
+                # are still in force as defence-in-depth. Failures here
+                # MUST NOT tear down the WS — log and continue.
+                try:
+                    retention_days = self._buffer_retention_days_provider()
+                    if retention_days is not None and retention_days > 0:
+                        self._buffer.prune(retention_days)
+                except Exception as exc:
+                    log.warning("buffer prune failed: %s", exc)
                 await self._receive_loop()
             finally:
                 self._ws = None

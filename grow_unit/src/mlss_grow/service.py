@@ -165,25 +165,50 @@ def main() -> None:
     asyncio.run(_run_main_loop(state))
 
 
-def _build_reconnect_sync(server_url: str, unit_id: int, token: str,
-                          server_cert_path: "str | None", loop_cfg) -> "Callable[[], None]":
-    """Build a callback that pulls + applies the latest unit config.
+# Firmware default for buffer retention. Mirrors the server's
+# `grow_default_buffer_retention_days` app_setting (currently "7"). Used
+# when the per-unit override (grow_units.buffer_retention_days) is NULL
+# in the server response — the buffer_retention_days_provider closure
+# falls back to this value so prune always has something to work with.
+_DEFAULT_BUFFER_RETENTION_DAYS = 7
 
-    Used by WSClient on every successful reconnect (after outbound buffer
-    drain, before the receive loop) so config edits made while the unit
-    was offline take effect on reconnect — not on the next online edit.
 
-    The closure binds the same loop_cfg the safety loop reads from, so
-    apply_config's in-place mutation is visible to subsequent ticks
-    without any further plumbing.
+def _build_reconnect_sync_and_retention(
+    server_url: str, unit_id: int, token: str,
+    server_cert_path: "str | None", loop_cfg,
+) -> "tuple[Callable[[], None], Callable[[], int]]":
+    """Build (reconnect_sync_callback, buffer_retention_days_provider).
 
-    Failures (network blip, server down, malformed response) are logged
-    but do NOT raise — WSClient.run_forever's wrapper turns a raise into
-    a tear-down warning, which is also OK, but logging-then-returning
-    keeps the WS up so we still receive any config_changed push that
-    follows.
+    The reconnect-sync callback pulls + applies the latest unit config.
+    Used by WSClient on every successful reconnect (after outbound
+    buffer drain, before the receive loop) so config edits made while
+    the unit was offline take effect on reconnect — not on the next
+    online edit.
+
+    The retention-days provider returns the latest buffer_retention_days
+    pulled from the server, falling back to _DEFAULT_BUFFER_RETENTION_DAYS
+    when the server hasn't been pulled yet (first connect) or returned
+    NULL (no per-unit override). WSClient.run_forever calls it after
+    on_reconnect_sync, so by the time prune runs the value reflects the
+    pull that just landed.
+
+    Both closures are paired here (rather than two independent factories)
+    so they share the `latest_retention_days` cell — the sync callback
+    is the writer, the provider is the reader. Avoids bloating loop_cfg
+    with non-actuator state.
+
+    Failures (network blip, server down, malformed response) in the sync
+    callback are logged but do NOT raise — WSClient.run_forever's
+    wrapper turns a raise into a tear-down warning, which is also OK,
+    but logging-then-returning keeps the WS up so we still receive any
+    config_changed push that follows.
     """
     from mlss_grow.config_sync import pull_unit_config, apply_config
+
+    # Mutable cell holding the most recent retention value. List-of-one
+    # rather than `nonlocal` because the inner closures are independent
+    # functions and can't share a Python variable directly.
+    latest_retention_days: list[int] = [_DEFAULT_BUFFER_RETENTION_DAYS]
 
     def _sync() -> None:
         try:
@@ -192,10 +217,18 @@ def _build_reconnect_sync(server_url: str, unit_id: int, token: str,
                 server_cert_path=server_cert_path,
             )
             apply_config(unit_cfg, loop_cfg)
+            # Update the retention cell BEFORE logging so any failure in
+            # the log call below doesn't leave the cell stale.
+            if unit_cfg.buffer_retention_days is not None:
+                latest_retention_days[0] = unit_cfg.buffer_retention_days
+            else:
+                # Per-unit override cleared — revert to firmware default.
+                latest_retention_days[0] = _DEFAULT_BUFFER_RETENTION_DAYS
             log.info(
                 "reconnect: pulled fresh config and applied "
-                "(phase=%s, plant_type=%s)",
+                "(phase=%s, plant_type=%s, buffer_retention_days=%s)",
                 unit_cfg.current_phase, unit_cfg.plant_type,
+                latest_retention_days[0],
             )
         except Exception as exc:
             log.warning(
@@ -204,7 +237,24 @@ def _build_reconnect_sync(server_url: str, unit_id: int, token: str,
                 exc,
             )
 
-    return _sync
+    def _retention_provider() -> int:
+        return latest_retention_days[0]
+
+    return _sync, _retention_provider
+
+
+def _build_reconnect_sync(server_url: str, unit_id: int, token: str,
+                          server_cert_path: "str | None", loop_cfg) -> "Callable[[], None]":
+    """Backwards-compat wrapper around _build_reconnect_sync_and_retention.
+
+    Returns just the sync callback for callers that don't need the
+    retention provider (currently only the legacy test harness — main
+    runtime uses _build_reconnect_sync_and_retention directly).
+    """
+    sync, _ = _build_reconnect_sync_and_retention(
+        server_url, unit_id, token, server_cert_path, loop_cfg,
+    )
+    return sync
 
 
 async def _run_main_loop(state: BootstrappedState) -> None:
@@ -248,19 +298,25 @@ async def _run_main_loop(state: BootstrappedState) -> None:
     https_base_url = f"https://{state.mlss_host}:5000"
 
     received_commands = asyncio.Queue()
+    # Build paired sync + retention closures so the WS prune call always
+    # sees the freshest buffer_retention_days pulled from the server. The
+    # sync closure writes the cell; the retention provider reads it. See
+    # _build_reconnect_sync_and_retention docstring for shared-state notes.
+    on_reconnect_sync, retention_provider = _build_reconnect_sync_and_retention(
+        server_url=https_base_url,
+        unit_id=state.unit_id,
+        token=state.token,
+        server_cert_path=state.server_cert_path,
+        loop_cfg=loop_cfg,
+    )
     ws = WSClient(
         url=f"wss://{state.mlss_host}:5001/api/grow/{state.unit_id}/ws",
         token=state.token,
         buffer_db_path="/var/lib/mlss-grow/buffer.sqlite",
         on_command=lambda cmd: received_commands.put_nowait(cmd),
         server_cert_path=state.server_cert_path,
-        on_reconnect_sync=_build_reconnect_sync(
-            server_url=https_base_url,
-            unit_id=state.unit_id,
-            token=state.token,
-            server_cert_path=state.server_cert_path,
-            loop_cfg=loop_cfg,
-        ),
+        on_reconnect_sync=on_reconnect_sync,
+        buffer_retention_days_provider=retention_provider,
     )
 
     # Shared state between dispatcher (writer) and safety loop (reader)

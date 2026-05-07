@@ -1220,3 +1220,49 @@ def test_get_unit_config_includes_holiday_mode(bearer_client):
     )
     body = r.get_json()
     assert body["holiday_mode"] is True
+
+
+# ---------------------------------------------------------------------------
+# C2: GET /config now surfaces buffer_retention_days from the per-unit row.
+# Firmware reads it and applies on every reconnect-pull via the
+# buffer_retention_days_provider closure. NULL means "use the firmware
+# default" (currently 7 days, mirroring grow_default_buffer_retention_days).
+# ---------------------------------------------------------------------------
+
+
+def test_get_unit_config_buffer_retention_days_null_when_not_set(bearer_client):
+    """Default — no per-unit override — surfaces NULL so the firmware
+    falls back to its built-in default (mirrors the
+    grow_default_buffer_retention_days app_setting).
+    """
+    c, token, _ = bearer_client
+    r = c.get(
+        "/api/grow/units/1/config",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200
+    body = r.get_json()
+    assert "buffer_retention_days" in body
+    assert body["buffer_retention_days"] is None
+
+
+def test_get_unit_config_includes_buffer_retention_days_when_set(bearer_client):
+    """When the unit row has a buffer_retention_days override, the GET
+    response surfaces it as an integer for the firmware to apply on
+    reconnect.
+    """
+    c, token, db_path = bearer_client
+    # Set a per-unit override.
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "UPDATE grow_units SET buffer_retention_days=14 WHERE id=1"
+    )
+    conn.commit()
+    conn.close()
+    r = c.get(
+        "/api/grow/units/1/config",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["buffer_retention_days"] == 14

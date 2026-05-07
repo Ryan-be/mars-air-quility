@@ -81,6 +81,8 @@ The unit's safety loop runs every 30 seconds on the Pi itself, with the last-kno
 
 Bottom line: if your router dies for the weekend, your plants survive. The dashboard will show "Offline" — clicking refresh after MLSS is back will show the unit transitioning through "Stale" → "Online" as the buffer drains.
 
+**Buffer housekeeping & disk safety.** The local buffer is bounded two ways: an age-based prune that runs on every successful reconnect (driven by `grow_units.buffer_retention_days`, falling back to the firmware default of 7 days), and a hard size cap (100,000 rows / 50 MB) that evicts oldest-first regardless of retention setting. The size cap is defence-in-depth for misconfigured-server / cert-missing / MLSS-permanently-down scenarios where prune never gets to run — it stops the SD card from filling. When eviction does fire, the unit emits a `buffer_eviction` event so the dashboard surfaces the data loss explicitly rather than letting old telemetry silently disappear.
+
 ---
 
 ## Photos

@@ -47,6 +47,13 @@ class UnitConfig:
     loop suppresses pump pulses but keeps light schedule + telemetry
     going. Defaults False so older server responses (without the field)
     don't accidentally pause watering.
+
+    `buffer_retention_days` is the per-unit override of the firmware's
+    age-based buffer prune retention. None means "use the firmware
+    default" (_DEFAULT_BUFFER_RETENTION_DAYS, currently 7 — matches the
+    server's `grow_default_buffer_retention_days` app_setting). Read by
+    the buffer_retention_days_provider closure that ws_client passes
+    to LocalBuffer.prune on every successful reconnect.
     """
     overrides: dict
     calibration: dict
@@ -54,6 +61,7 @@ class UnitConfig:
     current_phase: str
     plant_type: str
     holiday_mode: bool = False
+    buffer_retention_days: Optional[int] = None
 
 
 # Maps overrides-key → PIDConfig attribute name. Any None values in the
@@ -106,6 +114,14 @@ def pull_unit_config(server_url: str, unit_id: int, token: str,
         current_phase=data["current_phase"],
         plant_type=data["plant_type"],
         holiday_mode=bool(data.get("holiday_mode", False)),
+        # Server returns NULL for "no override" — preserve that as None
+        # so the firmware default kicks in. Coerce to int when present
+        # in case older servers serialise as numeric string.
+        buffer_retention_days=(
+            int(data["buffer_retention_days"])
+            if data.get("buffer_retention_days") is not None
+            else None
+        ),
     )
 
 

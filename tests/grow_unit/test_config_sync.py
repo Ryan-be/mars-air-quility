@@ -251,3 +251,54 @@ def test_pull_unit_config_defaults_holiday_mode_false_when_absent():
             server_cert_path=None,
         )
         assert cfg.holiday_mode is False
+
+
+def test_pull_unit_config_parses_buffer_retention_days_when_set():
+    """C2: server response surfaces grow_units.buffer_retention_days; the
+    pull function copies the integer onto UnitConfig so the
+    buffer_retention_days_provider closure can hand it to LocalBuffer.prune.
+    """
+    payload = dict(_FULL_PAYLOAD)
+    payload["buffer_retention_days"] = 14
+    with patch("mlss_grow.config_sync.requests.get") as mock_get:
+        mock_get.return_value = _ok_response(payload)
+        cfg = pull_unit_config(
+            server_url="https://mlss.local:5000",
+            unit_id=1,
+            token="t",
+            server_cert_path=None,
+        )
+        assert cfg.buffer_retention_days == 14
+
+
+def test_pull_unit_config_buffer_retention_days_none_when_null():
+    """NULL in the DB → null in the response → None on UnitConfig. The
+    service.py provider closure falls back to _DEFAULT_BUFFER_RETENTION_DAYS
+    when this is None.
+    """
+    payload = dict(_FULL_PAYLOAD)
+    payload["buffer_retention_days"] = None
+    with patch("mlss_grow.config_sync.requests.get") as mock_get:
+        mock_get.return_value = _ok_response(payload)
+        cfg = pull_unit_config(
+            server_url="https://mlss.local:5000",
+            unit_id=1,
+            token="t",
+            server_cert_path=None,
+        )
+        assert cfg.buffer_retention_days is None
+
+
+def test_pull_unit_config_buffer_retention_days_none_when_absent():
+    """Older server responses (pre-C2) don't include
+    buffer_retention_days — must default to None rather than KeyError.
+    """
+    with patch("mlss_grow.config_sync.requests.get") as mock_get:
+        mock_get.return_value = _ok_response(_FULL_PAYLOAD)  # no field
+        cfg = pull_unit_config(
+            server_url="https://mlss.local:5000",
+            unit_id=1,
+            token="t",
+            server_cert_path=None,
+        )
+        assert cfg.buffer_retention_days is None
