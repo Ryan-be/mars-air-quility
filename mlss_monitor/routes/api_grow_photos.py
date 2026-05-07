@@ -26,6 +26,40 @@ from mlss_monitor.grow.photo_storage import _resolve_images_dir
 api_grow_photos_bp = Blueprint("api_grow_photos", __name__)
 
 
+# Cache lifetimes for the two photo endpoints below. The split matters:
+#
+# `/photo/latest` returns DIFFERENT bytes on different requests (the row
+# the query selects changes whenever a fresh snap-photo lands), so the
+# response is NOT immutable. We allow a tiny 5s window (long enough for
+# multiple page renders not to thrash, short enough that a freshly-
+# captured photo shows up within ~5s without hitting the cache-bust
+# hammer that the JS uses today).
+#
+# `/photos/<id>` returns the SAME bytes for the same id forever — the
+# (unit_id, photo_id) tuple is monotonic and we never overwrite a
+# committed JPEG. Aggressive 1-year cache + `immutable` directive lets
+# the browser skip revalidation entirely on timelapse re-scrub. This is
+# the fix for "timelapse reloads every photo every navigation": Flask's
+# default `send_from_directory` doesn't set Cache-Control unless we ask,
+# so the browser falls back to heuristic-freshness and re-validates
+# constantly.
+_LATEST_PHOTO_MAX_AGE_S = 5
+_PHOTO_BY_ID_MAX_AGE_S = 31536000  # 1 year, the conventional "forever" max
+
+
+def _make_immutable(response):
+    """Add `immutable` to a Cache-Control header that already carries a
+    `max-age=`. Flask's send_file/send_from_directory doesn't expose the
+    `immutable` directive directly, so we append it to the value Flask
+    set. RFC 8246 specifies the directive; Chrome / Firefox / Safari all
+    honour it (skip revalidation for the cached response's lifetime).
+    """
+    cc = response.headers.get("Cache-Control", "")
+    if "immutable" not in cc:
+        response.headers["Cache-Control"] = (cc + ", immutable").lstrip(", ")
+    return response
+
+
 @api_grow_photos_bp.route("/api/grow/units/<int:unit_id>/photo/latest", methods=["GET"])
 def latest_photo(unit_id):
     conn = sqlite3.connect(DB_FILE, timeout=5)
@@ -46,7 +80,10 @@ def latest_photo(unit_id):
     if not os.path.exists(abs_path):
         abort(404)
     directory, filename = os.path.split(abs_path)
-    return send_from_directory(directory, filename, mimetype="image/jpeg")
+    return send_from_directory(
+        directory, filename, mimetype="image/jpeg",
+        max_age=_LATEST_PHOTO_MAX_AGE_S,
+    )
 
 
 @api_grow_photos_bp.route("/api/grow/units/<int:unit_id>/photos", methods=["GET"])
@@ -107,4 +144,8 @@ def photo_by_id(unit_id, photo_id):
     if not os.path.exists(abs_path):
         abort(404)
     directory, filename = os.path.split(abs_path)
-    return send_from_directory(directory, filename, mimetype="image/jpeg")
+    response = send_from_directory(
+        directory, filename, mimetype="image/jpeg",
+        max_age=_PHOTO_BY_ID_MAX_AGE_S,
+    )
+    return _make_immutable(response)

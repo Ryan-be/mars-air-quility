@@ -291,3 +291,41 @@ def test_photo_by_id_404_when_photo_belongs_to_different_unit(list_setup):
     # The actual security assertion — unit 1 URL with unit 2 photo id
     r = list_setup["client"].get(f"/api/grow/units/1/photos/{other_unit_pid}")
     assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Cache headers — fix for "timelapse re-fetches every photo every navigation"
+# ---------------------------------------------------------------------------
+#
+# /photo/latest serves time-varying content (the latest row changes when a
+# new snap-photo lands), so it gets a tiny 5s cache window. /photos/<id>
+# is per-id immutable (we never overwrite committed JPEGs), so it gets the
+# conventional 1-year + immutable directive — letting the browser skip
+# revalidation entirely on timelapse re-scrub. Default Flask
+# send_from_directory ships no Cache-Control without max_age=, so the
+# browser's heuristic-freshness kicks in and re-validates constantly,
+# which is the bug we're closing.
+
+
+def test_latest_photo_sets_short_cache(setup):
+    """latest changes when a new photo lands → short max-age, no immutable."""
+    r = setup["client"].get("/api/grow/units/1/photo/latest")
+    assert r.status_code == 200
+    cc = r.headers.get("Cache-Control", "")
+    assert "max-age=5" in cc, f"expected max-age=5 on /photo/latest, got {cc!r}"
+    assert "immutable" not in cc, \
+        "/photo/latest must NOT be marked immutable — content varies"
+
+
+def test_photo_by_id_sets_immutable_long_cache(list_setup):
+    """photo_by_id is content-stable per id → long max-age + immutable so
+    timelapse re-scrub doesn't re-fetch every photo on every navigation."""
+    pid = list_setup["photo_ids"][0]
+    r = list_setup["client"].get(f"/api/grow/units/1/photos/{pid}")
+    assert r.status_code == 200
+    cc = r.headers.get("Cache-Control", "")
+    # 1 year = 31536000 seconds
+    assert "max-age=31536000" in cc, \
+        f"expected max-age=31536000 on /photos/<id>, got {cc!r}"
+    assert "immutable" in cc, \
+        f"expected `immutable` directive on /photos/<id>, got {cc!r}"
