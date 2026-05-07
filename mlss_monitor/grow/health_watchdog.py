@@ -133,6 +133,6 @@ def check_unresponsive(unit_id: int, channel: str, *,
     else:
         # Unknown actuator channel — be conservative and don't flag.
         # The UI fallback for unknown channels is "untested" via the
-        # default in details_json, which is fine.
+        # default on grow_unit_capabilities.health, which is fine.
         return False
     return True

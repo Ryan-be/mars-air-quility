@@ -1,5 +1,10 @@
-"""handle_telemetry: writes one grow_telemetry row + updates last_known_state."""
-import json
+"""handle_telemetry: writes one grow_telemetry row + updates grow_units.last_seen_at.
+
+Phase 2 schema cleanup (C1) removed the denormalised
+last_known_state_json cache from grow_units; the GET endpoints now
+read directly from grow_telemetry. handle_telemetry just inserts the
+row + bumps last_seen_at + promotes capability health where applicable.
+"""
 import sqlite3
 import tempfile
 from datetime import datetime
@@ -44,7 +49,10 @@ def test_handle_telemetry_inserts_row(db_with_unit):
     assert row == (612, 31.7, 1, 0, 21.4)
 
 
-def test_handle_telemetry_updates_last_known_state(db_with_unit):
+def test_handle_telemetry_updates_last_seen_at(db_with_unit):
+    """C1: the denormalised last_known_state_json cache is gone — the GET
+    endpoints SELECT against grow_telemetry directly. handle_telemetry
+    only needs to bump last_telemetry_at + last_seen_at on grow_units."""
     from mlss_monitor.grow.handlers import handle_telemetry
     handle_telemetry(unit_id=1, ts=datetime.utcnow(), payload={
         "soil_moisture_raw": 612,
@@ -53,13 +61,17 @@ def test_handle_telemetry_updates_last_known_state(db_with_unit):
         "pump_state": False,
     })
     conn = sqlite3.connect(db_with_unit)
-    state_json, last_seen = conn.execute(
-        "SELECT last_known_state_json, last_seen_at FROM grow_units WHERE id=1"
+    last_seen, last_tele = conn.execute(
+        "SELECT last_seen_at, last_telemetry_at FROM grow_units WHERE id=1"
     ).fetchone()
-    state = json.loads(state_json)
-    assert state["soil_moisture_pct"] == 31.7
-    assert state["light_state"] is True
     assert last_seen is not None
+    assert last_tele is not None
+    # And the row landed in grow_telemetry where future GETs will find it.
+    pct = conn.execute(
+        "SELECT soil_moisture_pct FROM grow_telemetry "
+        "WHERE unit_id=1 ORDER BY timestamp_utc DESC LIMIT 1"
+    ).fetchone()[0]
+    assert pct == 31.7
 
 
 def test_handle_telemetry_returns_inserted_id(db_with_unit):
@@ -72,15 +84,15 @@ def test_handle_telemetry_returns_inserted_id(db_with_unit):
 
 
 def _seed_capability(db_path, unit_id, channel, hardware, is_required, health):
-    """Helper: insert a grow_unit_capabilities row with details_json={'health': ...}."""
+    """Helper: insert a grow_unit_capabilities row with the typed health column."""
     conn = sqlite3.connect(db_path)
     conn.execute(
         "INSERT INTO grow_unit_capabilities "
         "(unit_id, channel, hardware, is_required, unit_label, "
-        " installed_at, details_json) "
+        " installed_at, health) "
         "VALUES (?, ?, ?, ?, ?, ?, ?)",
         (unit_id, channel, hardware, int(is_required), "bool",
-         datetime.utcnow(), json.dumps({"health": health})),
+         datetime.utcnow(), health),
     )
     conn.commit()
     conn.close()
@@ -89,14 +101,12 @@ def _seed_capability(db_path, unit_id, channel, hardware, is_required, health):
 def _read_capability_health(db_path, unit_id, channel):
     conn = sqlite3.connect(db_path)
     row = conn.execute(
-        "SELECT details_json FROM grow_unit_capabilities "
+        "SELECT health FROM grow_unit_capabilities "
         "WHERE unit_id=? AND channel=?",
         (unit_id, channel),
     ).fetchone()
     conn.close()
-    if not row or not row[0]:
-        return None
-    return json.loads(row[0]).get("health")
+    return row[0] if row else None
 
 
 def test_handle_telemetry_with_pump_state_1_promotes_pump_to_connected(db_with_unit):

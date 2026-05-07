@@ -216,11 +216,27 @@ def create_db():
         "ALTER TABLE sensor_data ADD COLUMN gas_nh3 REAL",
         "ALTER TABLE hot_tier ADD COLUMN pm1_ug_m3 REAL",
         "ALTER TABLE hot_tier ADD COLUMN pm10_ug_m3 REAL",
+        # Phase 2 schema cleanup: promote runtime-mutable JSON to typed columns
+        "ALTER TABLE grow_unit_capabilities ADD COLUMN health TEXT NOT NULL DEFAULT 'untested'",
+        "ALTER TABLE grow_unit_capabilities ADD COLUMN last_seen_at DATETIME",
+        # Note: SQLite doesn't support adding a CHECK constraint via ALTER. The
+        # CHECK is enforced via app-level pydantic + a partial recreate would
+        # require copying the table. Acceptable trade-off — pydantic enforces
+        # at every WS boundary; the column just receives the validated string.
+        "CREATE INDEX IF NOT EXISTS idx_grow_caps_unit_health "
+        "ON grow_unit_capabilities(unit_id, health)",
+        # Drop dead/redundant JSON cache columns. SQLite 3.35+ supports DROP
+        # COLUMN; Pi OS Lite ships 3.40+. light_phase_override_json was
+        # superseded by grow_light_windows in Phase 1; last_known_state_json
+        # was a per-frame denormalised cache now fetched live from
+        # grow_telemetry (already indexed by (unit_id, timestamp_utc DESC)).
+        "ALTER TABLE grow_units DROP COLUMN light_phase_override_json",
+        "ALTER TABLE grow_units DROP COLUMN last_known_state_json",
     ]:
         try:
             cur.execute(migration)
         except Exception:  # pylint: disable=broad-except
-            pass  # column already exists
+            pass  # column already exists / already dropped
 
     cur.execute("""
     CREATE TABLE IF NOT EXISTS users (

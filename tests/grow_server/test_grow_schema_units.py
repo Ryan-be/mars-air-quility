@@ -29,7 +29,12 @@ def test_grow_units_table_exists(monkeypatch, tmp_path):
     assert "soil_wet_raw" in cols
     assert "buffer_retention_days" in cols
     assert "last_seen_at" in cols
-    assert "last_known_state_json" in cols
+    # C1 schema cleanup: last_known_state_json was a denormalised JSON
+    # cache rewritten on every telemetry frame; the GET endpoints now
+    # SELECT directly from grow_telemetry. Same for
+    # light_phase_override_json (dead code superseded by grow_light_windows).
+    assert "last_known_state_json" not in cols
+    assert "light_phase_override_json" not in cols
 
 
 def test_grow_units_is_idempotent(monkeypatch, tmp_path):

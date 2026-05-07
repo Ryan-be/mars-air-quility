@@ -33,7 +33,6 @@ def create_grow_schema(cur):
                                     CHECK(medium_type IN ('soil','coco','rockwool','custom')),
       soil_dry_raw                INTEGER,
       soil_wet_raw                INTEGER,
-      light_phase_override_json   TEXT,
       watering_target_override    REAL,
       watering_kp_override        REAL,
       watering_ki_override        REAL,
@@ -44,8 +43,7 @@ def create_grow_schema(cur):
       photo_interval_min_override INTEGER,
       buffer_retention_days       INTEGER,
       last_seen_at                DATETIME,
-      last_telemetry_at           DATETIME,
-      last_known_state_json       TEXT
+      last_telemetry_at           DATETIME
     );
     """)
     cur.execute(
@@ -62,9 +60,16 @@ def create_grow_schema(cur):
       unit_label   TEXT,
       installed_at DATETIME NOT NULL,
       details_json TEXT,
+      health       TEXT NOT NULL DEFAULT 'untested'
+                     CHECK(health IN ('connected','untested','unresponsive','no_hardware')),
+      last_seen_at DATETIME,
       PRIMARY KEY (unit_id, channel)
     );
     """)
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_grow_caps_unit_health "
+        "ON grow_unit_capabilities(unit_id, health)"
+    )
 
     cur.execute("""
     CREATE TABLE IF NOT EXISTS grow_telemetry (

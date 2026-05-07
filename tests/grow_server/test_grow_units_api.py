@@ -17,17 +17,27 @@ def client(monkeypatch, tmp_path):
     now = datetime.utcnow()
     conn = sqlite3.connect(db_path)
     conn.execute(
-        "INSERT INTO grow_units (hardware_serial, label, enrolled_at, "
-        "bearer_token_hash, phase_set_at, last_seen_at, last_known_state_json) "
+        "INSERT INTO grow_units (id, hardware_serial, label, enrolled_at, "
+        "bearer_token_hash, phase_set_at, last_seen_at) "
         "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        ("hw-1", "Tomato 1", now, "hash1", now, now,
-         json.dumps({"soil_moisture_pct": 58, "light_state": True}))
+        (1, "hw-1", "Tomato 1", now, "hash1", now, now)
+    )
+    # C1 schema cleanup: previously last_known_state_json was a JSON
+    # cache rewritten on each telemetry frame. The GET endpoints now
+    # SELECT directly against grow_telemetry — seed a row there so the
+    # fleet view sees moisture_pct=58 + light_state=true.
+    conn.execute(
+        "INSERT INTO grow_telemetry "
+        "(unit_id, timestamp_utc, soil_moisture_raw, soil_moisture_pct, "
+        " light_state, pump_state) "
+        "VALUES (1, ?, 612, 58, 1, 0)",
+        (now,),
     )
     conn.execute(
-        "INSERT INTO grow_units (hardware_serial, label, enrolled_at, "
+        "INSERT INTO grow_units (id, hardware_serial, label, enrolled_at, "
         "bearer_token_hash, phase_set_at, last_seen_at) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        ("hw-2", "Basil 1", now, "hash2", now, now - timedelta(minutes=10)),
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (2, "hw-2", "Basil 1", now, "hash2", now, now - timedelta(minutes=10)),
     )
     conn.commit()
     conn.close()
@@ -215,15 +225,19 @@ def test_get_unit_existing_keys_unchanged(client):
 
 
 def _seed_capability(db_path, unit_id, channel, hardware, is_required, health):
-    """Helper for capability-health tests below."""
+    """Helper for capability-health tests below.
+
+    C1 schema cleanup: health is now a typed column, not nested in
+    details_json. Helper writes it directly to that column.
+    """
     conn = sqlite3.connect(db_path)
     conn.execute(
         "INSERT INTO grow_unit_capabilities "
         "(unit_id, channel, hardware, is_required, unit_label, "
-        " installed_at, details_json) "
+        " installed_at, health) "
         "VALUES (?, ?, ?, ?, ?, ?, ?)",
         (unit_id, channel, hardware, int(is_required), "bool",
-         datetime.utcnow(), json.dumps({"health": health})),
+         datetime.utcnow(), health),
     )
     conn.commit()
     conn.close()
@@ -244,15 +258,17 @@ def test_get_unit_response_includes_health_per_capability(client, tmp_path):
     assert caps["soil_moisture"]["health"] == "connected"
 
 
-def test_get_unit_health_defaults_to_untested_when_details_json_lacks_field(
+def test_get_unit_health_defaults_to_untested_when_column_is_default(
     client, tmp_path,
 ):
-    """A capability row inserted before the health-field migration (older
-    firmware) has details_json without "health". Surface it as "untested"
-    so the UI has a sane value to render."""
+    """C1: a capability row inserted without an explicit health value gets
+    the column default ("untested") thanks to NOT NULL DEFAULT 'untested'.
+    Heterogeneous details_json metadata (e.g. i2c_address) must NOT
+    affect the surfaced health — the column is the only source of truth."""
     db_path = str(tmp_path / "test.db")
     uid = _unit_id(client)
-    # Seed with details that have NO health key (just an i2c_address)
+    # Seed with details_json containing NON-health metadata, NO explicit
+    # health value — should default to "untested".
     conn = sqlite3.connect(db_path)
     conn.execute(
         "INSERT INTO grow_unit_capabilities "
@@ -268,6 +284,8 @@ def test_get_unit_health_defaults_to_untested_when_details_json_lacks_field(
     body = client.get(f"/api/grow/units/{uid}").get_json()
     caps = {c["channel"]: c for c in body["capabilities"]}
     assert caps["soil_moisture"]["health"] == "untested"
+    # The non-health metadata is surfaced under details (not double-posted).
+    assert caps["soil_moisture"]["details"] == {"i2c_address": "0x36"}
 
 
 def test_get_unit_watchdog_marks_pump_unresponsive_after_timeout_no_event(
@@ -329,6 +347,66 @@ def test_get_unit_watchdog_does_not_mark_unresponsive_when_event_arrived(
         assert caps["pump"]["health"] == "connected"
     finally:
         health_watchdog.clear()
+
+
+def test_get_unit_returns_latest_telemetry_when_no_cache_column(client, tmp_path):
+    """C1 schema cleanup: the JSON cache (last_known_state_json) is gone.
+    The GET response's `last_known_state` must now be built by SELECTing
+    the latest grow_telemetry row directly. Insert a SECOND telemetry row
+    so the older row inserted by the fixture is no longer the "latest" —
+    the response must reflect the new row's values across all keys the
+    frontend reads (CHANNEL_DISPLAY in unit_detail.mjs + grow-card.mjs).
+    """
+    db_path = str(tmp_path / "test.db")
+    uid = _unit_id(client)
+    later = datetime.utcnow() + timedelta(seconds=10)
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "INSERT INTO grow_telemetry "
+        "(unit_id, timestamp_utc, soil_moisture_raw, soil_moisture_pct, "
+        " light_state, pump_state, soil_temp_c, ambient_lux, air_temp_c, "
+        " air_humidity_pct, reservoir_level_pct) "
+        "VALUES (?, ?, 901, 72.5, 0, 1, 22.0, 18000, 23.5, 47.5, 88.0)",
+        (uid, later),
+    )
+    # Also insert a watering event so last_pulse_at is populated (the
+    # frontend reads it for the water-lock countdown — previous JSON
+    # cache never wrote it; SELECTing live closes that gap).
+    pulse_at = later - timedelta(minutes=5)
+    conn.execute(
+        "INSERT INTO grow_watering_events "
+        "(unit_id, timestamp_utc, trigger, duration_s, triggered_by) "
+        "VALUES (?, ?, 'manual', 4, 'user')",
+        (uid, pulse_at),
+    )
+    conn.commit()
+    conn.close()
+
+    body = client.get(f"/api/grow/units/{uid}").get_json()
+    state = body["last_known_state"]
+    # All keys the frontend reads — CHANNEL_DISPLAY's stateKey set:
+    assert state["soil_moisture_pct"] == 72.5
+    assert state["soil_moisture_raw"] == 901
+    assert state["light_state"] is False  # JSON-cache returned bool;
+    assert state["pump_state"] is True    #   match that contract.
+    assert state["soil_temp_c"] == 22.0
+    assert state["ambient_lux"] == 18000
+    assert state["air_temp_c"] == 23.5
+    assert state["air_humidity_pct"] == 47.5
+    assert state["reservoir_level_pct"] == 88.0
+    # last_pulse_at — surfaced from grow_watering_events. The previous
+    # JSON cache never populated this; the SELECT-LIMIT-1 path does.
+    assert state["last_pulse_at"] is not None
+
+
+def test_get_unit_last_known_state_is_none_when_no_telemetry(client, tmp_path):
+    """A unit that has never sent telemetry has no row to SELECT — the
+    response must surface last_known_state=None (matches the previous
+    cache-was-NULL behavior so existing frontend null-checks still
+    work)."""
+    uid = _unit_id(client, label="Basil 1")  # fixture inserted no telemetry
+    body = client.get(f"/api/grow/units/{uid}").get_json()
+    assert body["last_known_state"] is None
 
 
 def test_get_unit_light_windows_preserves_sort_order(client, tmp_path):

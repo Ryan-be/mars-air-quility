@@ -25,6 +25,18 @@ _STALE_AFTER = timedelta(seconds=30)
 _OFFLINE_AFTER = timedelta(minutes=5)
 
 
+# Telemetry columns surfaced in the `last_known_state` block on the GET
+# response. Phase 2 schema cleanup replaced a denormalised JSON cache
+# with a SELECT against grow_telemetry — the keys here match the
+# previous LastKnownState TypedDict + what the frontend reads in
+# unit_detail.mjs::CHANNEL_DISPLAY and grow-card.mjs.
+_TELEMETRY_STATE_COLUMNS = (
+    "soil_moisture_raw", "soil_moisture_pct", "light_state", "pump_state",
+    "soil_temp_c", "ambient_lux", "air_temp_c", "air_humidity_pct",
+    "reservoir_level_pct",
+)
+
+
 def _classify_status(last_seen_at: str | None) -> str:
     if last_seen_at is None:
         return "offline"
@@ -37,16 +49,50 @@ def _classify_status(last_seen_at: str | None) -> str:
     return "offline"
 
 
+def _last_known_state(conn: sqlite3.Connection, unit_id: int) -> dict | None:
+    """Build a `last_known_state` dict from the latest grow_telemetry row.
+
+    Returns None if no telemetry has ever been recorded for the unit.
+    Keys match what the frontend (grow-card.mjs, unit_detail.mjs) reads:
+    soil_moisture_pct/raw, light_state, pump_state, soil_temp_c,
+    ambient_lux, air_temp_c, air_humidity_pct, reservoir_level_pct.
+    Plus last_pulse_at — populated from grow_watering_events so the
+    Live tab's water-lock countdown actually has a value (the previous
+    JSON cache never wrote it).
+    """
+    row = conn.execute(
+        "SELECT soil_moisture_raw, soil_moisture_pct, light_state, pump_state, "
+        "       soil_temp_c, ambient_lux, air_temp_c, air_humidity_pct, "
+        "       reservoir_level_pct "
+        "FROM grow_telemetry WHERE unit_id=? "
+        "ORDER BY timestamp_utc DESC LIMIT 1",
+        (unit_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    state: dict = {col: row[col] for col in _TELEMETRY_STATE_COLUMNS}
+    # SQLite stores light/pump_state as INTEGER 0/1; surface as bool to
+    # match the previous JSON-cache shape the frontend expects.
+    state["light_state"] = bool(state["light_state"])
+    state["pump_state"] = bool(state["pump_state"])
+    pulse_row = conn.execute(
+        "SELECT timestamp_utc FROM grow_watering_events "
+        "WHERE unit_id=? ORDER BY timestamp_utc DESC LIMIT 1",
+        (unit_id,),
+    ).fetchone()
+    state["last_pulse_at"] = pulse_row["timestamp_utc"] if pulse_row else None
+    return state
+
+
 @api_grow_units_bp.route("/api/grow/units", methods=["GET"])
 def list_units():
     conn = sqlite3.connect(DB_FILE, timeout=5)
     conn.row_factory = sqlite3.Row
     rows = conn.execute(
         "SELECT id, label, plant_type, medium_type, current_phase, "
-        "       sown_at, enrolled_at, last_seen_at, last_known_state_json "
+        "       sown_at, enrolled_at, last_seen_at "
         "FROM grow_units WHERE is_active=1 ORDER BY label"
     ).fetchall()
-    conn.close()
 
     units = []
     for r in rows:
@@ -60,9 +106,9 @@ def list_units():
             "enrolled_at": r["enrolled_at"],
             "last_seen_at": r["last_seen_at"],
             "status": _classify_status(r["last_seen_at"]),
-            "last_known_state": json.loads(r["last_known_state_json"])
-                                if r["last_known_state_json"] else None,
+            "last_known_state": _last_known_state(conn, r["id"]),
         })
+    conn.close()
     return jsonify({"units": units})
 
 
@@ -78,7 +124,8 @@ def get_unit(unit_id):
         return jsonify({"error": "not_found"}), 404
 
     caps = conn.execute(
-        "SELECT channel, hardware, is_required, unit_label, details_json "
+        "SELECT channel, hardware, is_required, unit_label, details_json, "
+        "       health, last_seen_at "
         "FROM grow_unit_capabilities WHERE unit_id=?", (unit_id,)
     ).fetchall()
     lw_rows = conn.execute(
@@ -86,32 +133,23 @@ def get_unit(unit_id):
         "FROM grow_light_windows WHERE unit_id=? ORDER BY phase, sort_order",
         (unit_id,),
     ).fetchall()
+    last_known_state = _last_known_state(conn, unit_id)
     conn.close()
 
     body = {k: row[k] for k in row.keys()}
     body.pop("bearer_token_hash", None)  # never expose
     body["status"] = _classify_status(row["last_seen_at"])
-    body["last_known_state"] = (
-        json.loads(row["last_known_state_json"])
-        if row["last_known_state_json"] else None
-    )
-    body.pop("last_known_state_json", None)
+    body["last_known_state"] = last_known_state
     body["capabilities"] = []
     for c in caps:
-        details = json.loads(c["details_json"]) if c["details_json"] else {}
-        # Sense-only-mode (Phase 2): the persisted health drives UI
-        # degradation. Old rows written before the migration may not
-        # have a health key — fall back to "untested" so the frontend
-        # has a sane default to render.
-        persisted_health = details.get("health", "untested") if details else "untested"
-        # Strip `health` from the surfaced details payload so we don't
-        # double-expose the same value as both top-level and nested.
-        details_for_payload = {k: v for k, v in (details or {}).items() if k != "health"}
-        # Lazy watchdog overlay: if a recent command went unanswered,
-        # report unresponsive in this response only. The persisted
-        # health stays alone — the next confirming telemetry/event will
-        # promote it back via _promote_capability_health.
-        health = persisted_health
+        details = json.loads(c["details_json"]) if c["details_json"] else None
+        # Phase 2 sense-only-mode: the persisted `health` column drives UI
+        # degradation. Lazy watchdog overlay: if a recent command went
+        # unanswered, report unresponsive in this response only. The
+        # persisted health stays alone — the next confirming
+        # telemetry/event will promote it back via
+        # _promote_capability_health.
+        health = c["health"] or "untested"
         if c["channel"] in ("pump", "light"):
             if health_watchdog.check_unresponsive(unit_id, c["channel"]):
                 health = "unresponsive"
@@ -120,8 +158,9 @@ def get_unit(unit_id):
             "hardware": c["hardware"],
             "is_required": bool(c["is_required"]),
             "unit_label": c["unit_label"],
-            "details": details_for_payload or None,
+            "details": details or None,
             "health": health,
+            "last_seen_at": c["last_seen_at"],
         })
     # Configure-tab Task 5: surface PID/profile overrides + soil calibration +
     # light_windows so the frontend can render current values + "(default)" vs

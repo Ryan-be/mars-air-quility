@@ -93,17 +93,17 @@ def test_watering_pulse_promotes_pump_capability_to_connected(db_with_unit):
     evidence the pump works (the firmware only emits this AFTER the
     actuation completes). Promote pump capability to "connected" so a
     previously-untested or unresponsive flag clears immediately."""
-    import json
     from mlss_monitor.grow.handlers import handle_event
     # Seed pump capability with no_hardware (simulate the boot-time
-    # outcome before the user wires up the PSU)
+    # outcome before the user wires up the PSU). C1 schema cleanup:
+    # health is now a typed column.
     conn = sqlite3.connect(db_with_unit)
     conn.execute(
         "INSERT INTO grow_unit_capabilities "
         "(unit_id, channel, hardware, is_required, unit_label, "
-        " installed_at, details_json) "
-        "VALUES (1, 'pump', 'automation_phat', 0, 'bool', ?, ?)",
-        (datetime.utcnow(), json.dumps({"health": "no_hardware"})),
+        " installed_at, health) "
+        "VALUES (1, 'pump', 'automation_phat', 0, 'bool', ?, 'no_hardware')",
+        (datetime.utcnow(),),
     )
     conn.commit()
     conn.close()
@@ -114,11 +114,11 @@ def test_watering_pulse_promotes_pump_capability_to_connected(db_with_unit):
                     "triggered_by": "user"},
     })
     conn = sqlite3.connect(db_with_unit)
-    details_json = conn.execute(
-        "SELECT details_json FROM grow_unit_capabilities "
+    health = conn.execute(
+        "SELECT health FROM grow_unit_capabilities "
         "WHERE unit_id=1 AND channel='pump'"
     ).fetchone()[0]
-    assert json.loads(details_json)["health"] == "connected"
+    assert health == "connected"
 
 
 def test_sensor_recovered_only_resolves_matching_sensor(db_with_unit):

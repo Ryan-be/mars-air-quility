@@ -7,27 +7,9 @@ dispatches incoming text frames to these by message type.
 import json
 import sqlite3
 from datetime import datetime
-from typing import Optional, TypedDict
+from typing import Optional
 
 from database.init_db import DB_FILE
-
-
-class LastKnownState(TypedDict):
-    """Schema of the JSON blob written to grow_units.last_known_state_json.
-
-    Consumed by the fleet-view API (api_grow_units.py) to render unit cards
-    without joining grow_telemetry. Any field added/removed here must be
-    coordinated with the consumer.
-    """
-    soil_moisture_raw: int
-    soil_moisture_pct: Optional[float]
-    light_state: bool
-    pump_state: bool
-    soil_temp_c: Optional[float]
-    ambient_lux: Optional[float]
-    air_temp_c: Optional[float]
-    air_humidity_pct: Optional[float]
-    reservoir_level_pct: Optional[float]
 
 
 def _compute_moisture_pct(raw: int, dry: Optional[int], wet: Optional[int]) -> Optional[float]:
@@ -39,7 +21,7 @@ def _compute_moisture_pct(raw: int, dry: Optional[int], wet: Optional[int]) -> O
 
 
 def handle_telemetry(unit_id: int, ts: datetime, payload: dict) -> int:
-    """Insert one grow_telemetry row + refresh grow_units.last_known_state_json.
+    """Insert one grow_telemetry row + refresh grow_units.last_seen_at.
 
     If payload['soil_moisture_pct'] is missing but the unit has calibration
     set, computes pct server-side from the raw reading.
@@ -50,6 +32,12 @@ def handle_telemetry(unit_id: int, ts: datetime, payload: dict) -> int:
 
     Returns the inserted grow_telemetry.id (used by photo upload to backfill
     the telemetry_id join key).
+
+    Phase 2 schema cleanup: the previous implementation rewrote a
+    denormalised JSON blob (last_known_state_json) on every frame so the
+    fleet-view API could read state without a join. That cache has been
+    replaced with a SELECT against grow_telemetry ORDER BY timestamp_utc
+    DESC LIMIT 1 (already indexed) — eliminating a hot write path.
     """
     conn = sqlite3.connect(DB_FILE, timeout=10)
     conn.row_factory = sqlite3.Row
@@ -79,25 +67,12 @@ def handle_telemetry(unit_id: int, ts: datetime, payload: dict) -> int:
         )
         inserted_id = cur.lastrowid
 
-        # Update unit's cached last_known_state for fleet rendering
-        state: LastKnownState = {
-            "soil_moisture_raw": payload["soil_moisture_raw"],
-            "soil_moisture_pct": pct,
-            "light_state": bool(payload["light_state"]),
-            "pump_state": bool(payload["pump_state"]),
-            "soil_temp_c": payload.get("soil_temp_c"),
-            "ambient_lux": payload.get("ambient_lux"),
-            "air_temp_c": payload.get("air_temp_c"),
-            "air_humidity_pct": payload.get("air_humidity_pct"),
-            "reservoir_level_pct": payload.get("reservoir_level_pct"),
-        }
         # NOTE: both timestamps bound to payload `ts`. Once heartbeats land
         # (post-Phase 1), last_seen_at should be set from server clock so the
         # fleet view can show "online recently" independently of telemetry cadence.
         conn.execute(
-            "UPDATE grow_units SET last_known_state_json=?, "
-            "last_telemetry_at=?, last_seen_at=? WHERE id=?",
-            (json.dumps(state), ts, ts, unit_id),
+            "UPDATE grow_units SET last_telemetry_at=?, last_seen_at=? WHERE id=?",
+            (ts, ts, unit_id),
         )
 
         # Phase 2 sense-only-mode: promote actuator capabilities to
@@ -105,9 +80,9 @@ def handle_telemetry(unit_id: int, ts: datetime, payload: dict) -> int:
         # Because pump_state=0 / light_state=0 is the normal idle state,
         # not evidence of disconnection. The watchdog handles regression.
         if int(payload["pump_state"]):
-            _promote_capability_health(conn, unit_id, "pump", "connected")
+            _promote_capability_health(conn, unit_id, "pump", "connected", ts)
         if int(payload["light_state"]):
-            _promote_capability_health(conn, unit_id, "light", "connected")
+            _promote_capability_health(conn, unit_id, "light", "connected", ts)
 
         conn.commit()
         return inserted_id
@@ -122,28 +97,27 @@ def handle_capabilities(unit_id: int, ts: datetime, payload: dict) -> None:
     payload via pydantic. Idempotent: a re-pushed identical payload simply
     rewrites the same rows. A removed sensor disappears on next push.
 
-    The capability `health` field (Phase 2 sense-only-mode) is persisted
-    alongside any pre-existing details into `details_json` — there is no
-    schema migration; we just merge `health` into the JSON blob the
-    column already holds.
+    Phase 2 schema cleanup: `health` is now a typed column (TEXT NOT NULL
+    DEFAULT 'untested', CHECK enum on fresh schemas, indexed on
+    (unit_id, health)). Previously stored as details_json.health which
+    forced read-modify-write and prevented cross-fleet querying.
+    `details_json` retains driver-specific heterogeneous metadata only
+    (e.g. {"i2c_address": "0x36"}).
     """
     conn = sqlite3.connect(DB_FILE, timeout=10)
     try:
         conn.execute("DELETE FROM grow_unit_capabilities WHERE unit_id=?", (unit_id,))
         for cap in payload["capabilities"]:
-            # Merge cap.details (driver-specific blob like {i2c_address: 0x36})
-            # with the health flag. We always write SOMETHING so reads can
-            # rely on details_json.health being present.
-            details = dict(cap.get("details") or {})
-            details["health"] = cap.get("health", "untested")
+            details = cap.get("details") or None
+            details_json = json.dumps(details) if details else None
             conn.execute(
                 "INSERT INTO grow_unit_capabilities "
                 "(unit_id, channel, hardware, is_required, unit_label, "
-                " installed_at, details_json) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                " installed_at, details_json, health, last_seen_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (unit_id, cap["channel"], cap.get("hardware"),
                  int(cap["is_required"]), cap.get("unit_label"), ts,
-                 json.dumps(details)),
+                 details_json, cap.get("health", "untested"), ts),
             )
         conn.execute(
             "UPDATE grow_units SET last_seen_at=? WHERE id=?",
@@ -155,13 +129,13 @@ def handle_capabilities(unit_id: int, ts: datetime, payload: dict) -> None:
 
 
 def _promote_capability_health(conn: sqlite3.Connection, unit_id: int,
-                               channel: str, new_health: str) -> None:
-    """Update grow_unit_capabilities.details_json[health] in-place.
+                               channel: str, new_health: str,
+                               last_seen_at: Optional[datetime] = None) -> None:
+    """Update grow_unit_capabilities.health in-place.
 
     Promotes a capability to a stronger health state when telemetry or an
-    event proves the actuator is responding. Read-modify-write rather
-    than json_set() because the latter is only available on SQLite 3.38+
-    and we want this to work on older deployments.
+    event proves the actuator is responding. A single column UPDATE —
+    no JSON read-modify-write.
 
     Idempotent: if the capability already has the target health, this
     is a no-op write. Silently no-ops if the row doesn't exist (the
@@ -169,20 +143,18 @@ def _promote_capability_health(conn: sqlite3.Connection, unit_id: int,
     haven't yet been declared — that's a transient ordering quirk).
     """
     row = conn.execute(
-        "SELECT details_json FROM grow_unit_capabilities "
+        "SELECT health FROM grow_unit_capabilities "
         "WHERE unit_id=? AND channel=?",
         (unit_id, channel),
     ).fetchone()
     if row is None:
         return
-    details = json.loads(row[0]) if row[0] else {}
-    if details.get("health") == new_health:
+    if row[0] == new_health:
         return
-    details["health"] = new_health
     conn.execute(
-        "UPDATE grow_unit_capabilities SET details_json=? "
+        "UPDATE grow_unit_capabilities SET health=?, last_seen_at=? "
         "WHERE unit_id=? AND channel=?",
-        (json.dumps(details), unit_id, channel),
+        (new_health, last_seen_at or datetime.utcnow(), unit_id, channel),
     )
 
 
@@ -217,7 +189,7 @@ def handle_event(unit_id: int, ts: datetime, payload: dict) -> None:
             # strongest evidence the pump works. Promote regardless of
             # current health so a previously-"unresponsive" capability
             # snaps back to "connected" the moment evidence arrives.
-            _promote_capability_health(conn, unit_id, "pump", "connected")
+            _promote_capability_health(conn, unit_id, "pump", "connected", ts)
         elif kind == "sensor_degraded":
             sensor = details.get("sensor", "unknown")
             conn.execute(

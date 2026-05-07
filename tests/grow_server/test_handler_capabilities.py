@@ -47,11 +47,12 @@ def test_handle_capabilities_inserts_rows(db_with_unit):
     ]
 
 
-def test_handle_capabilities_writes_health_to_details_json(db_with_unit):
-    """Phase 2 sense-only-mode: the firmware sends `health` per capability.
-    The server must persist it into grow_unit_capabilities.details_json
-    so api_grow_units can surface it on GET (no schema migration needed —
-    we reuse the existing JSON column).
+def test_handle_capabilities_writes_health_to_column(db_with_unit):
+    """Phase 2 sense-only-mode + C1 schema cleanup: the firmware sends
+    `health` per capability. The server persists it into the typed
+    `grow_unit_capabilities.health` column (replaced details_json.health
+    in C1). details_json now retains heterogeneous metadata only
+    (e.g. i2c_address).
     """
     import json
     from mlss_monitor.grow.handlers import handle_capabilities
@@ -69,19 +70,21 @@ def test_handle_capabilities_writes_health_to_details_json(db_with_unit):
         "hardware_serial": "hw1",
     })
     conn = sqlite3.connect(db_with_unit)
-    rows = {r[0]: json.loads(r[1]) if r[1] else {} for r in conn.execute(
-        "SELECT channel, details_json FROM grow_unit_capabilities WHERE unit_id=1"
+    rows = {r[0]: (r[1], r[2]) for r in conn.execute(
+        "SELECT channel, health, details_json FROM grow_unit_capabilities "
+        "WHERE unit_id=1"
     ).fetchall()}
-    assert rows["pump"]["health"] == "no_hardware"
-    assert rows["soil_moisture"]["health"] == "connected"
-    # Pre-existing details survive — the merge must NOT clobber.
-    assert rows["soil_moisture"]["i2c_address"] == "0x36"
+    assert rows["pump"][0] == "no_hardware"
+    assert rows["soil_moisture"][0] == "connected"
+    # Heterogeneous metadata survives in details_json (no health key
+    # mixed in any more — that lives in its own column).
+    soil_details = json.loads(rows["soil_moisture"][1])
+    assert soil_details == {"i2c_address": "0x36"}
 
 
 def test_handle_capabilities_defaults_missing_health_to_untested(db_with_unit):
     """A firmware too old to send `health` shouldn't crash the handler — fall
     back to "untested" so the UI still has a value to render."""
-    import json
     from mlss_monitor.grow.handlers import handle_capabilities
     handle_capabilities(unit_id=1, ts=datetime.utcnow(), payload={
         "capabilities": [
@@ -91,11 +94,11 @@ def test_handle_capabilities_defaults_missing_health_to_untested(db_with_unit):
         "firmware_version": "0.1.0", "hardware_serial": "hw1",
     })
     conn = sqlite3.connect(db_with_unit)
-    details_json = conn.execute(
-        "SELECT details_json FROM grow_unit_capabilities "
+    health = conn.execute(
+        "SELECT health FROM grow_unit_capabilities "
         "WHERE unit_id=1 AND channel='pump'"
     ).fetchone()[0]
-    assert json.loads(details_json)["health"] == "untested"
+    assert health == "untested"
 
 
 def test_handle_capabilities_replaces_old_set(db_with_unit):
@@ -120,3 +123,27 @@ def test_handle_capabilities_replaces_old_set(db_with_unit):
         "SELECT channel FROM grow_unit_capabilities WHERE unit_id=1"
     ).fetchall()}
     assert channels == {"soil_moisture", "ambient_lux"}
+
+
+def test_grow_caps_health_check_constraint_at_db_level(db_with_unit):
+    """C1 schema cleanup: a fresh schema (CREATE TABLE path) enforces
+    `health IN ('connected','untested','unresponsive','no_hardware')` at
+    the SQLite layer. Bypasses pydantic by talking to the DB directly.
+
+    NOTE: SQLite cannot ADD a CHECK via ALTER TABLE, so this constraint
+    only exists on databases created from the CREATE TABLE definition
+    in grow_schema.py — DBs migrated forward via ALTER won't have it.
+    The fixture in this file creates the DB fresh, so the constraint
+    is present.
+    """
+    from datetime import datetime as _dt
+    conn = sqlite3.connect(db_with_unit)
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute(
+            "INSERT INTO grow_unit_capabilities "
+            "(unit_id, channel, hardware, is_required, unit_label, "
+            " installed_at, health) "
+            "VALUES (1, 'pump', 'x', 0, 'bool', ?, 'bogus')",
+            (_dt.utcnow(),),
+        )
+        conn.commit()
