@@ -1,0 +1,37 @@
+# MLSS Plant Grow Unit — boot-time enrolment config.
+#
+# Copy this file to /boot/mlss-grow.yaml on the SD card boot partition,
+# fill in the values below, and boot the Pi. The first-boot script
+# (/usr/local/sbin/mlss-firstboot.sh) reads it and starts mlss-grow.
+#
+# Once the unit enrols successfully (POST /api/grow/enroll), the
+# firmware moves the bearer token to /etc/mlss/grow.token (mode 0600)
+# and you can delete this yaml — it's only read once on first boot.
+
+# Hostname or IP of the MLSS server. Use a hostname that resolves on
+# your LAN (e.g. via DHCP DNS or a static entry in /etc/hosts on a
+# router). Examples:
+#   mlss_host: mlss.local
+#   mlss_host: 192.168.1.50
+mlss_host: REPLACE_ME
+
+# Port the MLSS server is listening on (default 5000 for Flask + nginx
+# frontend; 5001 is the WS endpoint, also discoverable from this).
+mlss_port: 5000
+
+# Household enrolment key. Mint via the MLSS UI:
+#   Settings → Grow → Add unit → reveal enrollment key (one-shot)
+# This key is consumed by the first enrolment and stored hashed; pasting
+# it into a second yaml on a different Pi gives that Pi its own bearer
+# token (multi-unit enrolment is a feature, not a bug).
+enrollment_key: REPLACE_ME
+
+# Optional friendly label shown in the MLSS fleet view. If omitted,
+# defaults to the hardware serial (cat /proc/cpuinfo | grep Serial).
+# label: "Tomato 1 - kitchen"
+
+# Optional plant type / medium / current phase. Operator can change
+# these after enrolment via the unit's Configure tab.
+# plant_type: tomato
+# medium_type: soil
+# current_phase: vegetative
