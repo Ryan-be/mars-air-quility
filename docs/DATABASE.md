@@ -177,10 +177,20 @@ constraint, with pydantic at the WS boundary as the enforcement layer.
 Index: `idx_grow_caps_unit_health(unit_id, health)` — drives the
 "any unhealthy capability?" badge on the dashboard cards.
 
-The `details_json` column is reserved for legitimately heterogeneous
-metadata per channel (e.g. I2C address, calibration coefficients). It
-is currently unused after the C1 cleanup — kept for forward
-compatibility.
+The `details_json` column carries legitimately heterogeneous
+metadata per channel (e.g. I2C address, calibration coefficients).
+The firmware `service.py::_build_capabilities` populates it with
+`{"i2c_address": "0x36"}` for the seesaw soil sensor; other drivers
+that have a stable address can do the same. NULL when there's nothing
+driver-specific worth surfacing.
+
+There is **no `CHECK` constraint on `channel`** at the DB level —
+SQLite's ALTER limitations made it inconvenient to add one in-place.
+The `Channel` pydantic enum at the WS boundary
+(`contracts/src/mlss_contracts/enums.py`) is the enforcement layer:
+any string the firmware sends that isn't in the enum is rejected
+before `handle_capabilities` runs. Worth a `CHECK(channel IN (...))`
+on the next table-recreate migration for defence-in-depth.
 
 #### `grow_telemetry` — wide time-series table
 
@@ -198,8 +208,15 @@ drives the History tab range queries and the photo→telemetry join.
 
 One row per pump activation. `trigger ∈ {pid, manual, identify_test}`.
 Records the PID decision components (`pid_p_term`, `pid_i_term`,
-`pid_d_term`, `pid_error`) for diagnostics. `soil_pct_after_5min` is
-filled in lazily from telemetry by a follow-up query.
+`pid_d_term`, `pid_error`) for diagnostics.
+
+`soil_pct_after_5min` was specced to be back-filled 5 minutes after
+each pulse by joining against `grow_telemetry`. **The back-fill job
+was never written**, so this column is NULL for every row today.
+Reserved for the future ML training pipeline (Phase 5 — see
+`docs/superpowers/audits/2026-05-08-grow-data-flow-audit.md` Flow 2 #3).
+The `'identify_test'` trigger value is also reserved — currently no
+firmware path emits it.
 
 Index: `idx_grow_watering_unit_time(unit_id, timestamp_utc DESC)`.
 
@@ -217,8 +234,18 @@ ML training queries become a simple JOIN, no fuzzy time-window matching
 at training time. See [PLANT_GROW_UNIT_ARCHITECTURE.md](PLANT_GROW_UNIT_ARCHITECTURE.md#image-storage--ml-join-key).
 
 `classified_phase` / `classifier_confidence` / `classified_at` are
-reserved for the future Phase 4 image classifier; NULL for all rows
-today.
+reserved for the future image classifier (Phase 5 in the current
+roadmap — Phase 4 is polish, Phase 5 is smarts after the 2026-05-08
+swap). NULL for all rows today; no producer or consumer in shipped
+code. See `docs/superpowers/audits/2026-05-08-grow-data-flow-audit.md`
+Flow 2 #2.
+
+`white_balance` is similarly reserved — the column is in the schema
+and the WS handler harvests it from the JPEG metadata header, but
+`mlss_grow.camera::Camera.capture` never produces a `white_balance`
+key, so it's always NULL. Drop in a future migration if the decision
+settles on "we never need this", or wire it up from picamera2's
+`ColourGains` metadata if we do.
 
 Indexes:
 - `idx_grow_photos_unit_time(unit_id, taken_at DESC)` — History tab timelapse

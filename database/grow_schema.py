@@ -40,6 +40,13 @@ def create_grow_schema(cur):
       soak_window_min_override    INTEGER,
       pulse_min_s_override        REAL,
       pulse_max_s_override        REAL,
+      -- Reserved for a future per-unit photo cadence editor. The firmware's
+      -- LoopConfig.photo_interval_min is currently a hardcoded 30 (the
+      -- photo-schedule editor exposes the *when* via photo_active_*_hour
+      -- but not the cadence). Pre-Phase-4 audit (Flow 4 #1) flagged this
+      -- as half-wired; we keep the column for forward-compat but no
+      -- endpoint reads or writes it. Drop in a future migration if the
+      -- decision settles on "cadence is invariant".
       photo_interval_min_override INTEGER,
       -- Photo capture schedule (Phase 4 polish):
       -- Both NULL => capture 24/7. Both set => capture only between
