@@ -1,7 +1,18 @@
-"""Plant + watering + light schedule schemas."""
+"""Plant + watering + light schedule schemas.
+
+Pre-Phase-4 audit Bucket C4: this module ships `LightWindow` +
+`WateringConfig` for forward-compat. Both were originally consumed by
+`ConfigPayload` in ws_messages.py — that model has been deleted as
+unused, so neither type is currently imported by production code.
+The values they declare ARE enforced via parallel definitions in
+`config_payloads.py` (the LightWindowsUpdate / PIDUpdate models that
+the live PUT endpoints validate against). Keep the file for now; if
+they're still unused after Phase 5 ships, drop the whole module.
+
+`PlantProfile` was also deleted from this module — same reason.
+"""
 import re
 from pydantic import BaseModel, Field, field_validator
-from mlss_contracts.enums import Phase
 
 _HH_MM = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
 
@@ -31,9 +42,8 @@ class WateringConfig(BaseModel):
     soak_window_min: int = Field(default=30, ge=0)
 
 
-class PlantProfile(BaseModel):
-    """A reusable bundle of watering + light defaults for a (plant_type, phase)."""
-    plant_type: str
-    phase: Phase
-    watering: WateringConfig
-    light_windows: list[LightWindow]
+# PlantProfile model removed in pre-Phase-4 audit Bucket C4 — only
+# tests imported it. Plant profile data lives in the grow_plant_profiles
+# DB table; the Settings → Grow plant-profile editor uses ad-hoc dicts
+# rather than a contract model. Re-introduce if a future feature needs
+# wire-format validation.

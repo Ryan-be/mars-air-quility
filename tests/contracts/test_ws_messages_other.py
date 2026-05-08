@@ -1,12 +1,10 @@
 import pytest
 
 from mlss_contracts.ws_messages import (
-    EventPayload, CapabilitiesPayload, CommandPayload,
-    ConfigPayload,
+    EventPayload, CapabilitiesPayload,
 )
-from mlss_contracts.enums import EventKind, CommandName, Phase
+from mlss_contracts.enums import EventKind
 from mlss_contracts.capabilities import Capability
-from mlss_contracts.plant_profiles import LightWindow, WateringConfig
 
 
 def test_event_payload():
@@ -35,32 +33,13 @@ def test_capabilities_payload_round_trip():
     assert parsed.firmware_version == "0.1.0"
 
 
-def test_command_payload_with_args():
-    c = CommandPayload(name=CommandName.IDENTIFY, args={"duration_s": 10})
-    assert c.name == CommandName.IDENTIFY
-    assert c.args == {"duration_s": 10}
-
-
-def test_command_payload_no_args():
-    c = CommandPayload(name=CommandName.RELOAD_CONFIG)
-    assert c.args is None
-
-
-def test_config_payload_round_trip():
-    cfg = ConfigPayload(
-        plant_type="tomato",
-        current_phase=Phase.VEGETATIVE,
-        light_windows=[LightWindow(start_hh_mm="06:00", end_hh_mm="22:00")],
-        watering=WateringConfig(target_moisture_pct=55),
-        photo_interval_min=30,
-        photo_active_hours=(6, 22),
-        soil_dry_raw=200,
-        soil_wet_raw=1500,
-        buffer_retention_days=7,
-    )
-    blob = cfg.model_dump_json()
-    parsed = ConfigPayload.model_validate_json(blob)
-    assert parsed == cfg
+# CommandPayload + ConfigPayload round-trip tests removed in pre-Phase-4
+# audit Bucket C4 — the models were deleted from ws_messages.py because
+# no production endpoint validated against them. The actual command
+# framing is the loose `{type, ts, payload: {name|kind, args}}` shape
+# in mlss_grow.dispatch, and config pushes use a `kind: config_changed`
+# notification + a separate bearer-authenticated GET to fetch the
+# resolved-overrides dict. See ws_messages.py module-level comment.
 
 
 def test_capabilities_accepts_optional_uptime_s():

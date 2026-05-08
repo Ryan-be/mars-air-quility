@@ -18,9 +18,8 @@ from datetime import datetime
 from typing import Literal
 from pydantic import BaseModel, Field
 
-from mlss_contracts.enums import EventKind, CommandName, Phase
+from mlss_contracts.enums import EventKind
 from mlss_contracts.capabilities import Capability
-from mlss_contracts.plant_profiles import LightWindow, WateringConfig
 
 MessageType = Literal[
     "telemetry", "event", "capabilities",
@@ -87,24 +86,21 @@ class CapabilitiesPayload(BaseModel):
     uptime_s: float | None = None
 
 
-class CommandPayload(BaseModel):
-    """MLSS → unit command, e.g. {name: 'identify', args: {duration_s: 10}}."""
-    name: CommandName
-    args: dict | None = None
-
-
-class ConfigPayload(BaseModel):
-    """Full config push from MLSS to unit. Resolved values (no NULLs)."""
-    plant_type: str
-    current_phase: Phase
-    light_windows: list[LightWindow]
-    watering: WateringConfig
-    photo_interval_min: int = Field(ge=1, le=1440)
-    photo_active_hours: tuple[int, int] | None = None  # (start_hour, end_hour)
-    soil_dry_raw: int | None = None
-    soil_wet_raw: int | None = None
-    buffer_retention_days: int = Field(default=7, ge=1)
-
+# CommandPayload + ConfigPayload were removed in the pre-Phase-4 audit
+# cleanup (Bucket C4): both were defined here but no production endpoint
+# validated against them — the actual command framing is the loose
+# `{type: "command", payload: {name|kind, args}}` shape that the
+# firmware dispatcher accepts (mlss_grow.dispatch.dispatch_command).
+# Config pushes use a `kind: config_changed` notification + a separate
+# bearer-authenticated GET /api/grow/units/<id>/config (api_grow_config.
+# get_unit_config) that returns a resolved-overrides dict, not a
+# ConfigPayload model. See docs/superpowers/audits/2026-05-08-grow-data-flow-audit.md
+# Flow 3 #3 + Flow 4 #1.
+#
+# CommandName + Phase + LightWindow + WateringConfig stay defined in
+# their respective modules — they're imported by config_payloads.py for
+# the per-unit Configure-tab PUT endpoints, which IS the live config
+# surface.
 
 # AckPayload was removed in Commit C2 (2026-05-07). See module docstring
 # for the rationale: the firmware never emitted acks, and the existing

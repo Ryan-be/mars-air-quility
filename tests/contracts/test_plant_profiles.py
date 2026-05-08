@@ -1,5 +1,4 @@
-from mlss_contracts.plant_profiles import PlantProfile, LightWindow, WateringConfig
-from mlss_contracts.enums import Phase
+from mlss_contracts.plant_profiles import LightWindow, WateringConfig
 from pydantic import ValidationError
 import pytest
 
@@ -31,13 +30,7 @@ def test_watering_config_defaults():
     assert w.soak_window_min == 30
 
 
-def test_plant_profile_round_trip():
-    p = PlantProfile(
-        plant_type="tomato",
-        phase=Phase.VEGETATIVE,
-        watering=WateringConfig(target_moisture_pct=55),
-        light_windows=[LightWindow(start_hh_mm="06:00", end_hh_mm="22:00")],
-    )
-    blob = p.model_dump_json()
-    parsed = PlantProfile.model_validate_json(blob)
-    assert parsed == p
+# PlantProfile round-trip test removed in pre-Phase-4 audit Bucket C4 —
+# the model itself was deleted (no production import). The remaining
+# tests pin LightWindow + WateringConfig which are kept for forward-
+# compat (see plant_profiles.py module docstring).
