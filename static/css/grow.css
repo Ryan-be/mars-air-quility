@@ -1444,3 +1444,113 @@
 }
 .ps-status.ok { color: #6fcf6f; }
 .ps-status.err { color: #ff5252; }
+
+/* ===========================================================================
+   Phase 4 polish #5: mobile-optimised fleet view + unit detail
+   ===========================================================================
+   The grow tab was designed desktop-first; on a phone (~375px viewport) a
+   few specific things felt cramped:
+     1. .grow-grid had a 24px page padding that ate ~13% of width per side.
+     2. .grow-pageheader's summary + Add Unit button could land on different
+        rows or get squashed onto a single row with the button below the fold.
+     3. .du-tabs (4 tabs at ~120px each = 480px) did not fit at all.
+     4. Buttons sized to .grow-fs-sm (12px) with 8px vertical padding fell
+        short of the iOS HIG 44pt touch-target minimum.
+
+   Two breakpoints:
+     * max-width: 540px — narrow-phone layout (existing breakpoint, extend it)
+     * (hover: none) and (pointer: coarse) — touch devices regardless of width
+       (a Pixel Tab held in landscape is still a touch device but >540px wide,
+       so the touch-target sizing has to key off pointer type, not viewport).
+   =========================================================================== */
+
+@media (max-width: 540px) {
+  /* Narrow page padding — at 375px viewport, 24px each side ate 48px of the
+     ~330px we had to render cards in. Drop to var(--grow-space-3) so cards
+     get more breathing room without bumping into the screen edge. */
+  .grow-grid {
+    padding: var(--grow-space-3);
+    /* Allow cards to fill the row at narrow widths — the desktop 360px max
+       leaves visible whitespace on a 375px screen. */
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .grow-pageheader {
+    /* Stack the summary block above the + Add Unit button so the button
+       doesn't get pushed off-screen when the summary line wraps. */
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--grow-space-3);
+    padding: var(--grow-space-3) var(--grow-space-3);
+  }
+  .grow-summary {
+    /* Wrap the count tiles into a 2-up grid on phones so they don't horizontal-
+       scroll. The desktop "4 numbers in a row" works at 600px+ but breaks down
+       below that. */
+    flex-wrap: wrap;
+    gap: var(--grow-space-4) var(--grow-space-5);
+  }
+  .grow-pageheader > .px-btn {
+    /* + Add Unit gets full-width on phones — easier to tap and signals it
+       as the page-level primary action. */
+    width: 100%;
+    text-align: center;
+  }
+  .fleet-filter-row {
+    /* Tighten the filter row's padding to match the narrower grid above. */
+    padding: var(--grow-space-2) var(--grow-space-3);
+    gap: var(--grow-space-3);
+  }
+
+  /* Per-unit detail page: tabs need to scroll horizontally on phones. With
+     4 tabs at ~120px each, the row overflows a 375px viewport. The original
+     desktop layout used `display: flex` without overflow handling, so the
+     overflow tabs just got clipped. Switch to horizontal scroll with the
+     scrollbar hidden (the visual cue is the cut-off final tab — operators
+     learn to swipe). -webkit-overflow-scrolling preserves momentum on iOS. */
+  .du-tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none; /* Firefox */
+    padding: 0 var(--grow-space-3);
+    /* Prevent flex items from shrinking smaller than their min-content,
+       which would just compress the labels into ellipsis instead of
+       triggering horizontal scroll. */
+    flex-wrap: nowrap;
+  }
+  .du-tabs::-webkit-scrollbar {
+    display: none; /* Chrome/Safari */
+  }
+  .du-tab {
+    flex-shrink: 0; /* Each tab keeps its full width — overflow scrolls. */
+    padding: var(--grow-space-3) var(--grow-space-4);
+  }
+}
+
+@media (hover: none) and (pointer: coarse) {
+  /* Touch-target sizing — Apple HIG / Google Material both call for a
+     minimum 44x44pt (≈ 44px CSS px) hit area for primary interactive
+     elements. The desktop 12px font + 8px vertical padding gives a
+     ~28px hit area, which is fine for a mouse cursor but easy to mis-tap
+     with a thumb. Apply only to coarse pointers so trackpad/mouse users
+     don't get oversized buttons. */
+  .px-btn,
+  .gu-btn,
+  .du-act-btn,
+  .fleet-filter-chip,
+  .fleet-filter-sort,
+  .du-tab {
+    min-height: 44px;
+    /* Center the label vertically inside the bumped-up box. inline-flex
+       with align-items:center is more robust than line-height tricks
+       across icon-bearing buttons (e.g. the buffered badge emoji). */
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  /* The .gu-actions row uses display:flex; keep its child .gu-btn elements
+     readable as inline-flex at min-height 44 without changing the row layout. */
+  .gu-actions .gu-btn {
+    flex: 0 0 auto;
+  }
+}
+
