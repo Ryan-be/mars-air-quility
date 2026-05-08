@@ -6,6 +6,11 @@
 
 {% block content %}
   {% include "_grow_subnav.html" %}
+  {# Stamp the user's role on the body so the add-unit modal can gate
+     its admin-only reveal button. The button below is also hidden for
+     non-admins — defence in depth, since the peek-once endpoint is
+     also admin-gated server-side. #}
+  <script>document.body.dataset.role = "{{ current_role }}";</script>
   {% if storage_status and storage_status.is_warning %}
   <div class="storage-warning" role="alert">
     ⚠️ Photo storage is at {{ "%.1f"|format(storage_status.used_pct) }}%
@@ -17,7 +22,9 @@
   <section class="grow-fleet" id="grow-fleet">
     <header class="grow-pageheader">
       <div class="grow-summary" id="grow-summary"></div>
+      {% if current_role == 'admin' %}
       <button class="px-btn primary" id="grow-add-btn">+ Add Unit</button>
+      {% endif %}
     </header>
 
     <div id="grow-filter">

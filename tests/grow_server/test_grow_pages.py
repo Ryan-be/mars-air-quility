@@ -217,6 +217,53 @@ def test_top_nav_no_longer_includes_grow_settings_link(client):
     assert "/settings/grow" not in nav_block
 
 
+# ---------------------------------------------------------------------------
+# "+ Add Unit" button on the fleet header (admin-only entry point for the
+# enrollment-key reveal modal). The peek-once endpoint is also admin-gated
+# server-side; the template-level hide is defence in depth so non-admins
+# don't see a button that 403s when they click it.
+# ---------------------------------------------------------------------------
+
+def test_grow_fleet_admin_sees_add_unit_button(client):
+    _set_session(client, role="admin")
+    r = client.get("/grow")
+    body = r.data.decode("utf-8")
+    assert r.status_code == 200
+    assert 'id="grow-add-btn"' in body
+    # The role is also stamped on body.dataset.role so the modal can gate
+    # its reveal button on the client side.
+    assert 'document.body.dataset.role = "admin"' in body
+
+
+def test_grow_fleet_viewer_does_not_see_add_unit_button(client):
+    _set_session(client, logged_in=True, role="viewer")
+    r = client.get("/grow")
+    body = r.data.decode("utf-8")
+    assert r.status_code == 200
+    assert 'id="grow-add-btn"' not in body
+    assert 'document.body.dataset.role = "viewer"' in body
+
+
+def test_grow_fleet_controller_does_not_see_add_unit_button(client):
+    _set_session(client, logged_in=True, role="controller")
+    r = client.get("/grow")
+    body = r.data.decode("utf-8")
+    assert r.status_code == 200
+    assert 'id="grow-add-btn"' not in body
+
+
+def test_grow_fleet_loads_add_unit_modal_module(client):
+    """The fleet view's JS module imports add-unit-modal.mjs to wire up
+    the button click handler. Verifying the file exists keeps a missing
+    import from silently breaking the button at runtime."""
+    _set_session(client, role="admin")
+    r = client.get("/static/js/grow/components/add-unit-modal.mjs")
+    assert r.status_code == 200
+    body = r.data.decode("utf-8")
+    assert "openAddUnitModal" in body
+    assert "/api/grow/enrollment-key/peek-once" in body
+
+
 # /grow/docs/<name> — serves grow markdown docs from the repo so the empty-
 # state's "Full setup guide" link works without depending on Flask's
 # static handler (which only serves /static/, not /docs/).

@@ -26,6 +26,7 @@ import {
   renderFleetFilterRow,
   applyFilters,
 } from "./components/fleet-filter-row.mjs";
+import { openAddUnitModal } from "./components/add-unit-modal.mjs";
 
 
 const STATE = {
@@ -166,6 +167,16 @@ export function boot() {
       btn.disabled = false; btn.textContent = "Identify";
     }
   });
+
+  // "+ Add Unit" → open the enrollment-key reveal modal. The modal
+  // itself does the admin gating; the button is also hidden in the
+  // template for non-admins so this is defence in depth.
+  const addBtn = document.getElementById("grow-add-btn");
+  if (addBtn) {
+    addBtn.addEventListener("click", () => {
+      openAddUnitModal({ ownerDocument: document });
+    });
+  }
 
   refresh();
   setInterval(refresh, 5000);

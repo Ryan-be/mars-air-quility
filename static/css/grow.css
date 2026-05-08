@@ -922,6 +922,66 @@
 .empty-foot { margin-top: 24px; padding-top: 18px; border-top: 1px solid #1c2733; }
 .doc-link { color: #4dacff; font-size: 12px; text-decoration: none; }
 
+/* Add-unit modal — opened from the "+ Add Unit" button on the fleet
+   header. Admin-only entry point; the modal itself also gates the
+   reveal button on body.dataset.role === "admin". Visual style mirrors
+   the photo lightbox (dim backdrop, centred panel) but uses the empty-
+   state card chrome inside so the reveal/instructions feel familiar. */
+.add-unit-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 9999;
+  font-family: Roboto, sans-serif;
+}
+.add-unit-box {
+  background: #142028; border: 1px solid #1f2e3c; border-radius: 4px;
+  max-width: 640px; width: 90%; max-height: 90vh; overflow-y: auto;
+  display: flex; flex-direction: column;
+}
+.add-unit-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px; border-bottom: 1px solid #1c2733;
+}
+.add-unit-head h3 { margin: 0; color: #fff; font-size: 16px; font-weight: 500; }
+.add-unit-close {
+  background: none; border: none; color: #c2d2e3;
+  font-size: 1.6rem; line-height: 1; cursor: pointer; padding: 0 4px;
+}
+.add-unit-close:hover { color: #4dacff; }
+.add-unit-body { padding: 18px 20px; }
+.add-unit-blurb { color: #c2d2e3; font-size: 13px; line-height: 1.55; margin: 0 0 14px; }
+.add-unit-error {
+  color: #ff5252; background: rgba(255, 82, 82, 0.08);
+  border: 1px solid rgba(255, 82, 82, 0.3); border-radius: 2px;
+  padding: 8px 12px; font-size: 12px; margin-bottom: 12px;
+}
+.add-unit-idle { display: flex; flex-direction: column; gap: 8px; }
+.add-unit-admin-only { color: #7d92a8; font-size: 12px; margin: 0; font-style: italic; }
+.add-unit-reveal-head {
+  color: #56f000; font-size: 13px; margin-bottom: 10px; font-weight: 500;
+}
+.add-unit-key-row { display: flex; gap: 8px; margin-bottom: 14px; }
+.add-unit-key-input {
+  flex: 1; background: #0a1219; color: #ffb302;
+  border: 1px solid #1c2733; border-radius: 2px;
+  padding: 8px 10px; font-family: 'SFMono-Regular', Consolas, monospace;
+  font-size: 12px;
+}
+.add-unit-instructions { padding-left: 20px; margin: 0 0 8px; color: #c2d2e3; font-size: 13px; line-height: 1.55; }
+.add-unit-instructions li { margin-bottom: 8px; }
+.add-unit-instructions pre {
+  background: #0a1219; padding: 8px 12px; border-radius: 2px;
+  border: 1px solid #1c2733; overflow-x: auto; font-size: 11px; margin: 6px 0;
+}
+.add-unit-instructions pre code { color: #56f000; font-family: 'SFMono-Regular', Consolas, monospace; }
+.add-unit-gone-msg { color: #c2d2e3; font-size: 13px; margin: 0 0 12px; line-height: 1.55; }
+.add-unit-rotate-link { display: inline-block; text-decoration: none; }
+.add-unit-foot {
+  display: flex; justify-content: flex-end;
+  padding: 12px 20px; border-top: 1px solid #1c2733; margin: 18px -20px -18px;
+}
+
 /* ── Diagnostics tab (Phase 3 Task 4) ────────────────────────────────── */
 
 /* Firmware info card — three-up grid */

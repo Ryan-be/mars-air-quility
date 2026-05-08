@@ -48,8 +48,15 @@ def grow_fleet():
     # "storage almost full" banner when the grow_images mount point is
     # at/over the configured threshold. None on any check failure → the
     # template renders nothing (best-effort; never crashes the page).
+    #
+    # current_role is also passed through so the "+ Add Unit" button can
+    # be hidden for non-admins (the underlying peek-once endpoint is
+    # admin-only — defence in depth) and the add-unit modal can read
+    # body.dataset.role to gate its reveal button.
     return render_template(
-        "grow_fleet.html", storage_status=get_storage_status()
+        "grow_fleet.html",
+        storage_status=get_storage_status(),
+        current_role=session.get("user_role", "viewer"),
     )
 
 
