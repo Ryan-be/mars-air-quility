@@ -125,6 +125,30 @@ def handle_telemetry(unit_id: int, ts: datetime, payload: dict) -> int:
         if int(payload["light_state"]):
             _promote_capability_health(conn, unit_id, "light", "connected", ts)
 
+        # Pre-Phase-4 audit fix (Flow 1 #3): bump last_seen_at on each
+        # sensor capability whose channel reported a real reading in
+        # this frame. Pre-fix only the actuator-promotion path bumped
+        # the timestamp, and only when state=1, so soil_moisture /
+        # soil_temp_c / ambient_lux / etc. stayed forever stale in the
+        # Diagnostics → Sensor sanity panel even when telemetry was
+        # streaming.
+        #
+        # `soil_moisture_raw` is always present in the payload (firmware
+        # sends 0 when there's no sensor, otherwise the raw value). We
+        # treat raw > 0 as "sensor read produced a value" — the seesaw's
+        # sane range is 200..2000 so 0 unambiguously means "no sensor"
+        # vs every other channel which is nullable.
+        if payload.get("soil_moisture_raw", 0) > 0:
+            _promote_capability_health(
+                conn, unit_id, "soil_moisture", "connected", ts,
+            )
+        for channel in ("soil_temp_c", "ambient_lux", "air_temp_c",
+                        "air_humidity_pct", "reservoir_level_pct"):
+            if payload.get(channel) is not None:
+                _promote_capability_health(
+                    conn, unit_id, channel, "connected", ts,
+                )
+
         conn.commit()
         return inserted_id
     finally:
@@ -269,6 +293,38 @@ def handle_event(unit_id: int, ts: datetime, payload: dict) -> None:
                 "VALUES (?, ?, 'warning', 'safety_cap_hit', ?, ?)",
                 (unit_id, ts, f"Safety cap hit: {details.get('cap', '')}",
                  json.dumps(details)),
+            )
+        elif kind == "buffer_eviction":
+            # Pre-Phase-4 audit fix (Flow 6 #1): firmware emits this
+            # when its LocalBuffer hits a row/byte cap and rotates
+            # rows out FIFO-style. Surfaces as a warning-severity
+            # grow_errors row so operators see "your unit dropped data"
+            # in the UI rather than discovering it from journalctl.
+            reason = details.get("reason", "unknown")
+            evicted = details.get("evicted_count", "?")
+            conn.execute(
+                "INSERT INTO grow_errors "
+                "(unit_id, timestamp_utc, severity, kind, message, details_json) "
+                "VALUES (?, ?, 'warning', 'buffer_eviction', ?, ?)",
+                (unit_id, ts,
+                 f"Buffer eviction ({reason}): {evicted} row(s) dropped",
+                 json.dumps(details)),
+            )
+        elif kind in ("buffer_replay_started", "buffer_replay_complete"):
+            # Info-severity diagnostic event — useful in the connection log
+            # ("unit replayed 200 buffered messages after a 12m outage")
+            # but not an alert. The errors page filters info-severity
+            # rows by default (commit 2f3aa51) so this doesn't add noise.
+            count = details.get("count")
+            msg = (
+                f"Buffer replay {'started' if kind == 'buffer_replay_started' else 'complete'}"
+                + (f": {count} messages" if count is not None else "")
+            )
+            conn.execute(
+                "INSERT INTO grow_errors "
+                "(unit_id, timestamp_utc, severity, kind, message, details_json) "
+                "VALUES (?, ?, 'info', ?, ?, ?)",
+                (unit_id, ts, kind, msg, json.dumps(details)),
             )
         # Other event kinds (startup, shutdown, identify_complete, etc.) are
         # logged-only — no DB row needed in Phase 1.

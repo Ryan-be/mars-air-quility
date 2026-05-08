@@ -143,3 +143,65 @@ def test_sensor_recovered_only_resolves_matching_sensor(db_with_unit):
     by_sensor = {r[0]: r[1] for r in rows}
     assert by_sensor["Seesaw"] is not None
     assert by_sensor["TSL2591"] is None
+
+
+# ─── Buffer eviction + replay events (Bucket A2) ─────────────────
+
+
+def test_buffer_eviction_writes_grow_errors_warning(db_with_unit):
+    """Pre-Phase-4 audit fix: firmware emits kind=buffer_eviction when
+    LocalBuffer hits a cap. Server must write a warning-severity row
+    so the SD-card-fill notification reaches the operator."""
+    from mlss_monitor.grow.handlers import handle_event
+    handle_event(unit_id=1, ts=datetime(2026, 5, 8, 12, 0, 0), payload={
+        "kind": "buffer_eviction",
+        "details": {"reason": "row_cap", "evicted_count": 50},
+    })
+    conn = sqlite3.connect(db_with_unit)
+    rows = conn.execute(
+        "SELECT severity, kind, message, details_json FROM grow_errors "
+        "WHERE unit_id=1"
+    ).fetchall()
+    conn.close()
+    assert len(rows) == 1
+    severity, kind, message, details_json = rows[0]
+    assert severity == "warning"
+    assert kind == "buffer_eviction"
+    assert "row_cap" in message
+    assert "50" in message
+
+
+def test_buffer_replay_events_write_info_rows(db_with_unit):
+    """buffer_replay_started + buffer_replay_complete are info-severity
+    rows. The /grow/errors page filters info-online noise, but these
+    show up under their own kinds + are useful in the connection log."""
+    from mlss_monitor.grow.handlers import handle_event
+    handle_event(unit_id=1, ts=datetime(2026, 5, 8, 12, 0, 0), payload={
+        "kind": "buffer_replay_started",
+        "details": {"count": 200},
+    })
+    handle_event(unit_id=1, ts=datetime(2026, 5, 8, 12, 0, 5), payload={
+        "kind": "buffer_replay_complete",
+        "details": {"count": 200},
+    })
+    conn = sqlite3.connect(db_with_unit)
+    rows = conn.execute(
+        "SELECT severity, kind FROM grow_errors WHERE unit_id=1 "
+        "ORDER BY timestamp_utc"
+    ).fetchall()
+    conn.close()
+    assert rows == [
+        ("info", "buffer_replay_started"),
+        ("info", "buffer_replay_complete"),
+    ]
+
+
+def test_buffer_eviction_kind_validates_against_event_payload():
+    """Round-trip the full envelope through pydantic to pin that
+    BUFFER_EVICTION is in the EventKind enum (the audit's Flow 6 #1
+    bug was that this validation FAILED and the frame got dropped)."""
+    from mlss_contracts.ws_messages import EventPayload
+    EventPayload(kind="buffer_eviction", details={"reason": "row_cap"})
+    # Same for replay events — both should validate
+    EventPayload(kind="buffer_replay_started", details={"count": 10})
+    EventPayload(kind="buffer_replay_complete", details={"count": 10})

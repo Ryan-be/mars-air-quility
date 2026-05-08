@@ -30,17 +30,12 @@ class Phase(str, Enum):
     DORMANT = "dormant"
 
 
-class MediumType(str, Enum):
-    SOIL = "soil"
-    COCO = "coco"
-    ROCKWOOL = "rockwool"
-    CUSTOM = "custom"
-
-
-class Severity(str, Enum):
-    INFO = "info"
-    WARNING = "warning"
-    CRITICAL = "critical"
+# MediumType + Severity were removed in the pre-Phase-4 audit cleanup
+# (Bucket C4): both were defined in this module but never imported by
+# production code — the corresponding `_MEDIUM` Literal in
+# config_payloads.py and the bare 'info'/'warning'/'critical' strings
+# in handlers.py are the actual enforcement points. See
+# docs/superpowers/audits/2026-05-08-grow-data-flow-audit.md item 10.
 
 
 class EventKind(str, Enum):
@@ -54,6 +49,13 @@ class EventKind(str, Enum):
     SHUTDOWN = "shutdown"
     BUFFER_REPLAY_STARTED = "buffer_replay_started"
     BUFFER_REPLAY_COMPLETE = "buffer_replay_complete"
+    # Pre-Phase-4 audit fix: firmware's WSClient._handle_buffer_eviction
+    # emits this kind when LocalBuffer hits a row/byte cap, but the
+    # server-side EventKind enum was missing the value, so pydantic
+    # validation rejected the frame and the SD-card-fill notification
+    # path silently dropped. See docs/superpowers/audits/2026-05-08-grow-data-flow-audit.md
+    # Flow 6 #1.
+    BUFFER_EVICTION = "buffer_eviction"
 
 
 class CommandName(str, Enum):

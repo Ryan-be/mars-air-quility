@@ -313,3 +313,87 @@ def test_handle_telemetry_computes_pct_when_unit_calibrated(db_with_unit):
     ).fetchone()[0]
     # (850-200)/(1500-200) = 0.5 → 50%
     assert pct == pytest.approx(50.0, abs=0.5)
+
+
+# ─── Sensor last_seen_at + connected promotion (Bucket A4) ──────────
+
+
+def _read_capability_last_seen(db_path, unit_id, channel):
+    conn = sqlite3.connect(db_path)
+    row = conn.execute(
+        "SELECT last_seen_at FROM grow_unit_capabilities "
+        "WHERE unit_id=? AND channel=?",
+        (unit_id, channel),
+    ).fetchone()
+    conn.close()
+    return row[0] if row else None
+
+
+def test_handle_telemetry_bumps_last_seen_at_for_soil_moisture(db_with_unit):
+    """Pre-Phase-4 audit fix (Flow 1 #3): soil_moisture capability
+    last_seen_at must update on every telemetry frame with a real
+    raw reading (raw > 0). Without this fix, sensor sanity always
+    showed soil_moisture as "🔌 never seen" even when streaming."""
+    from mlss_monitor.grow.handlers import handle_telemetry
+    _seed_capability(db_with_unit, 1, "soil_moisture", "Adafruit_Seesaw",
+                     True, "untested")
+    ts = datetime(2026, 5, 8, 12, 0, 0)
+    handle_telemetry(unit_id=1, ts=ts, payload={
+        "soil_moisture_raw": 612, "light_state": False, "pump_state": False,
+    })
+    last_seen = _read_capability_last_seen(db_with_unit, 1, "soil_moisture")
+    assert last_seen is not None
+    assert _read_capability_health(db_with_unit, 1, "soil_moisture") == "connected"
+
+
+def test_handle_telemetry_does_not_bump_soil_when_raw_is_zero(db_with_unit):
+    """Firmware sends soil_moisture_raw=0 when no sensor is wired
+    (the safety_loop fallback). That MUST NOT be treated as a sensor
+    reading — promoting in this case would tell the operator the
+    sensor is connected when it isn't."""
+    from mlss_monitor.grow.handlers import handle_telemetry
+    _seed_capability(db_with_unit, 1, "soil_moisture", "unknown",
+                     True, "no_hardware")
+    ts = datetime(2026, 5, 8, 12, 0, 0)
+    handle_telemetry(unit_id=1, ts=ts, payload={
+        "soil_moisture_raw": 0,  # firmware fallback for "no sensor"
+        "light_state": False, "pump_state": False,
+    })
+    # Health stays at "no_hardware"; not promoted to "connected"
+    assert _read_capability_health(db_with_unit, 1, "soil_moisture") == "no_hardware"
+
+
+def test_handle_telemetry_bumps_last_seen_for_optional_sensor_channels(
+    db_with_unit,
+):
+    """Optional sensors (soil_temp_c, ambient_lux, etc.) follow the
+    null=missing convention — non-null reading means the sensor
+    fired, regardless of value range."""
+    from mlss_monitor.grow.handlers import handle_telemetry
+    _seed_capability(db_with_unit, 1, "soil_temp_c", "Adafruit_Seesaw",
+                     False, "untested")
+    _seed_capability(db_with_unit, 1, "ambient_lux", "TSL2591",
+                     False, "untested")
+    ts = datetime(2026, 5, 8, 12, 0, 0)
+    handle_telemetry(unit_id=1, ts=ts, payload={
+        "soil_moisture_raw": 612,
+        "soil_temp_c": 21.4, "ambient_lux": 15420,
+        "light_state": False, "pump_state": False,
+    })
+    assert _read_capability_health(db_with_unit, 1, "soil_temp_c") == "connected"
+    assert _read_capability_health(db_with_unit, 1, "ambient_lux") == "connected"
+
+
+def test_handle_telemetry_does_not_bump_null_optional_channels(db_with_unit):
+    """Optional channels that are absent from the payload (or null)
+    must NOT have their health flipped to connected just because
+    a different channel reported."""
+    from mlss_monitor.grow.handlers import handle_telemetry
+    _seed_capability(db_with_unit, 1, "ambient_lux", "TSL2591",
+                     False, "no_hardware")
+    handle_telemetry(unit_id=1, ts=datetime(2026, 5, 8, 12, 0, 0), payload={
+        "soil_moisture_raw": 612,  # only soil sensor active
+        "light_state": False, "pump_state": False,
+    })
+    # ambient_lux not in payload → stays no_hardware
+    assert _read_capability_health(db_with_unit, 1, "ambient_lux") == "no_hardware"
