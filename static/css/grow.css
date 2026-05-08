@@ -1,4 +1,70 @@
 /* Plant Grow Unit styles — Grow tab + per-unit detail page */
+
+/* ============================================================
+   Design tokens (introduced in the 2026-05-08 design-critique
+   pass — see docs/superpowers/audits/2026-05-08-grow-ui-design-
+   critique.md for the rationale). The grow stylesheet had drifted
+   to 6 letter-spacing values, 5 small font sizes, 5 "dark" blacks,
+   3 border greys, and 5 text greys — many of those pairs differing
+   by ~8% lightness, almost certainly copy-paste inconsistency.
+   These tokens collapse the drift to ~3 values per category.
+
+   Every numeric value used in margin/padding/gap on the grow pages
+   should resolve to one of the --space-* steps below — that's how
+   we get consistent button + card edge spacing across components.
+   ============================================================ */
+:root {
+  /* Spacing scale (4px base; padding + gap + margin) */
+  --grow-space-1: 4px;
+  --grow-space-2: 8px;
+  --grow-space-3: 12px;
+  --grow-space-4: 16px;
+  --grow-space-5: 20px;
+  --grow-space-6: 24px;
+  --grow-space-7: 32px;
+
+  /* Surfaces (page → panel → sub-panel → input) */
+  --grow-bg-page: #080c11;
+  --grow-bg-panel: #142028;
+  --grow-bg-sub: #0e1722;
+  --grow-bg-input: #0a1219;
+
+  /* Borders */
+  --grow-border-subtle: #1c2733;     /* hairline separator inside panels */
+  --grow-border-panel: #1f2e3c;      /* panel outline */
+  --grow-border-emph: #2a3d50;       /* input + button borders */
+
+  /* Text */
+  --grow-text-primary: #fff;
+  --grow-text-body: #c2d2e3;
+  --grow-text-muted: #7d92a8;
+
+  /* Accents */
+  --grow-accent: #4dacff;
+  --grow-accent-on: #001028;          /* foreground on accent-blue bg */
+  --grow-good: #56f000;
+  --grow-warn: #ffb302;
+  --grow-bad: #ff5252;
+
+  /* Typography */
+  --grow-fs-xs: 10px;
+  --grow-fs-sm: 12px;
+  --grow-fs-md: 13px;
+  --grow-fs-lg: 14px;
+  --grow-fs-xl: 22px;
+  --grow-ls-body: 0;
+  --grow-ls-headline: 0.04em;
+  --grow-ls-allcaps: 0.08em;
+
+  /* Border radius */
+  --grow-radius-sm: 2px;
+  --grow-radius-md: 3px;
+
+  /* Card / panel sizing caps */
+  --grow-card-photo-max-h: 220px;     /* fleet card thumbnail */
+  --grow-detail-photo-max-h: 360px;   /* unit-detail Live-tab hero */
+}
+
 .grow-fleet { padding: 0; }
 
 /* ============================================================
@@ -26,117 +92,296 @@
 /* Grow tab fleet view */
 .grow-pageheader {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 16px 20px; border-bottom: 1px solid #1c2733;
-  background: linear-gradient(180deg, #0e1722, #0a1219);
-  gap: 16px; flex-wrap: wrap;
+  padding: var(--grow-space-4) var(--grow-space-5);
+  border-bottom: 1px solid var(--grow-border-subtle);
+  background: linear-gradient(180deg, var(--grow-bg-sub), #0a1219);
+  gap: var(--grow-space-4); flex-wrap: wrap;
   font-family: Roboto, sans-serif;
 }
-.grow-summary { display: flex; gap: 28px; align-items: baseline; color: #c2d2e3; flex-wrap: wrap; }
-.grow-summary .num { font-size: 22px; font-weight: 500; color: #fff; margin-right: 6px; }
-.grow-summary .num.warn { color: #ffb302; }
-.grow-summary .num.crit { color: #ff5252; }
-.grow-summary .num.ok { color: #56f000; }
-.grow-summary .lbl { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #7d92a8; }
-.px-btn { background: #4dacff; color: #001028; border: none; padding: 9px 16px; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; font-family: Roboto, sans-serif; cursor: pointer; border-radius: 2px; font-weight: 500; }
+.grow-summary {
+  display: flex; gap: var(--grow-space-7); align-items: baseline;
+  color: var(--grow-text-body); flex-wrap: wrap;
+}
+.grow-summary .num {
+  font-size: var(--grow-fs-xl); font-weight: 500;
+  color: var(--grow-text-primary); margin-right: var(--grow-space-2);
+}
+.grow-summary .num.warn { color: var(--grow-warn); }
+.grow-summary .num.crit { color: var(--grow-bad); }
+.grow-summary .num.ok { color: var(--grow-good); }
+.grow-summary .lbl {
+  font-size: var(--grow-fs-xs); letter-spacing: var(--grow-ls-allcaps);
+  text-transform: uppercase; color: var(--grow-text-muted);
+}
+.px-btn {
+  background: var(--grow-accent); color: var(--grow-accent-on); border: none;
+  padding: var(--grow-space-2) var(--grow-space-4);
+  font-size: var(--grow-fs-sm); letter-spacing: var(--grow-ls-allcaps);
+  text-transform: uppercase; font-family: Roboto, sans-serif;
+  cursor: pointer; border-radius: var(--grow-radius-sm); font-weight: 500;
+}
 
 /* Fleet filter/sort row (Phase 2 Task 4) — sits between the page-header
    summary and the card grid. Phase + status chips render statically;
    plant-type chips are derived from the fleet's plant_type values, so
    the chip list matches whatever plants are actually enrolled. */
 .fleet-filter-row {
-  display: flex; flex-wrap: wrap; gap: 14px; align-items: center;
-  padding: 10px 20px; background: #0e1722;
-  border-bottom: 1px solid #1c2733;
+  display: flex; flex-wrap: wrap; gap: var(--grow-space-4);
+  align-items: center;
+  padding: var(--grow-space-3) var(--grow-space-5);
+  background: var(--grow-bg-sub);
+  border-bottom: 1px solid var(--grow-border-subtle);
   font-family: Roboto, sans-serif;
 }
-.fleet-filter-group { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; }
+.fleet-filter-group {
+  display: flex; gap: var(--grow-space-1); align-items: center;
+  flex-wrap: wrap;
+}
 .fleet-filter-label {
-  color: #7d92a8; font-size: 10px; letter-spacing: 0.08em;
-  text-transform: uppercase; margin-right: 4px;
+  color: var(--grow-text-muted); font-size: var(--grow-fs-xs);
+  letter-spacing: var(--grow-ls-allcaps);
+  text-transform: uppercase; margin-right: var(--grow-space-1);
 }
 .fleet-filter-chip {
-  padding: 4px 10px; border-radius: 12px;
-  background: transparent; border: 1px solid #2a3d50;
-  color: #c2d2e3; cursor: pointer; font-size: 11px;
-  letter-spacing: 0.04em; font-family: Roboto, sans-serif;
+  padding: var(--grow-space-1) var(--grow-space-3); border-radius: 12px;
+  background: transparent; border: 1px solid var(--grow-border-emph);
+  color: var(--grow-text-body); cursor: pointer; font-size: var(--grow-fs-sm);
+  letter-spacing: var(--grow-ls-headline); font-family: Roboto, sans-serif;
   transition: border-color 0.12s, background 0.12s, color 0.12s;
 }
-.fleet-filter-chip:hover { border-color: #4dacff; color: #4dacff; }
+.fleet-filter-chip:hover { border-color: var(--grow-accent); color: var(--grow-accent); }
 .fleet-filter-chip.active {
-  background: #4dacff; color: #001028; border-color: #4dacff;
+  background: var(--grow-accent); color: var(--grow-accent-on);
+  border-color: var(--grow-accent);
 }
-.fleet-filter-chip.active:hover { color: #001028; }
+.fleet-filter-chip.active:hover { color: var(--grow-accent-on); }
 .fleet-filter-sort {
-  background: #0a1219; color: #c2d2e3;
-  border: 1px solid #2a3d50; border-radius: 2px;
-  padding: 4px 8px; font-size: 11px; font-family: Roboto, sans-serif;
+  background: var(--grow-bg-input); color: var(--grow-text-body);
+  border: 1px solid var(--grow-border-emph); border-radius: var(--grow-radius-sm);
+  padding: var(--grow-space-1) var(--grow-space-2); font-size: var(--grow-fs-sm);
+  font-family: Roboto, sans-serif;
 }
-.fleet-filter-sort:focus { outline: none; border-color: #4dacff; }
+.fleet-filter-sort:focus { outline: none; border-color: var(--grow-accent); }
 
-.grow-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; padding: 18px 20px; background: #080c11; }
+.grow-grid {
+  display: grid;
+  /* Cap card max-width to 360px so a single unit doesn't sprawl across
+     the full viewport with its photo. minmax(280px, 360px) keeps cards
+     visually consistent on desktop sizes while still wrapping to single-
+     column on phones. */
+  grid-template-columns: repeat(auto-fit, minmax(280px, 360px));
+  gap: var(--grow-space-4);
+  padding: var(--grow-space-5);
+  background: var(--grow-bg-page);
+  justify-content: start;
+}
 
-.gu-card { background: #142028; border: 1px solid #1f2e3c; border-radius: 3px; display: flex; flex-direction: column; overflow: hidden; font-family: Roboto, sans-serif; color: #c2d2e3; font-size: 13px; transition: border-color 0.15s, transform 0.15s; }
-.gu-card:hover { border-color: #4dacff; transform: translateY(-2px); cursor: pointer; }
+.gu-card {
+  background: var(--grow-bg-panel);
+  border: 1px solid var(--grow-border-panel);
+  border-radius: var(--grow-radius-md);
+  display: flex; flex-direction: column; overflow: hidden;
+  font-family: Roboto, sans-serif; color: var(--grow-text-body);
+  font-size: var(--grow-fs-md);
+  transition: border-color 0.15s, transform 0.15s;
+}
+.gu-card:hover { border-color: var(--grow-accent); transform: translateY(-2px); cursor: pointer; }
 .gu-card.stale { opacity: 0.78; }
 .gu-card.offline { opacity: 0.55; border-color: #5a3014; }
 
-.gu-head { padding: 10px 12px 8px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #1c2733; gap: 8px; }
-.gu-name { font-size: 14px; font-weight: 500; color: #fff; }
-.gu-meta { font-size: 11px; color: #7d92a8; margin-top: 2px; letter-spacing: 0.02em; }
+.gu-head {
+  padding: var(--grow-space-3) var(--grow-space-3) var(--grow-space-2);
+  display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid var(--grow-border-subtle); gap: var(--grow-space-2);
+}
+.gu-name { font-size: var(--grow-fs-lg); font-weight: 500; color: var(--grow-text-primary); }
+.gu-meta {
+  font-size: var(--grow-fs-sm); color: var(--grow-text-muted);
+  margin-top: 2px; letter-spacing: var(--grow-ls-body);
+}
 
-.gu-status { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; padding: 3px 7px; border-radius: 2px; background: #0c151c; flex-shrink: 0; }
-.st-normal { color: #56f000; }
-.st-caution { color: #ffb302; }
-.st-standby { color: #4dacff; }
-.st-serious { color: #ff5252; }
+.gu-status {
+  display: inline-flex; align-items: center; gap: var(--grow-space-1);
+  font-size: var(--grow-fs-xs); letter-spacing: var(--grow-ls-allcaps);
+  text-transform: uppercase; padding: 3px 7px;
+  border-radius: var(--grow-radius-sm); background: #0c151c; flex-shrink: 0;
+}
+.st-normal { color: var(--grow-good); }
+.st-caution { color: var(--grow-warn); }
+.st-standby { color: var(--grow-accent); }
+.st-serious { color: var(--grow-bad); }
 /* Group the status pill and (optional) buffered badge stacked on the
    right of the card header. Phase 3 Task 6: buffered badge surfaces
    `last_buffer_size` so operators see at a glance which units had a
    recent connection drop and are still draining their queue. */
-.gu-head-right { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; }
+.gu-head-right {
+  display: flex; flex-direction: column; align-items: flex-end;
+  gap: var(--grow-space-1); flex-shrink: 0;
+}
 .gu-card-buffered-badge {
-  display: inline-flex; align-items: center; gap: 4px;
-  font-size: 10px; letter-spacing: 0.04em;
-  padding: 2px 6px; border-radius: 2px;
-  background: rgba(255, 179, 2, 0.12); color: #ffb302;
+  display: inline-flex; align-items: center; gap: var(--grow-space-1);
+  font-size: var(--grow-fs-xs); letter-spacing: var(--grow-ls-headline);
+  padding: 2px 6px; border-radius: var(--grow-radius-sm);
+  background: rgba(255, 179, 2, 0.12); color: var(--grow-warn);
   font-family: Roboto, sans-serif;
 }
 
-.gu-photo { aspect-ratio: 4 / 3; background: #0a1219 center/cover no-repeat; }
-.gu-photo.no-photo { display: flex; align-items: center; justify-content: center; color: #4a5d72; font-size: 12px; }
+/* Fleet-card photo: 4:3 aspect ratio, but capped to --grow-card-photo-max-h
+   (default 220px). Without the cap, a single-card row at 1232px viewport
+   would render the photo ~924px tall — burying the rest of the card
+   below the fold. The cap turns it into a wider letterbox once the cap
+   bites; background-size: cover handles the crop. */
+.gu-photo {
+  aspect-ratio: 4 / 3;
+  max-height: var(--grow-card-photo-max-h);
+  background: var(--grow-bg-input) center/cover no-repeat;
+}
+.gu-photo.no-photo {
+  display: flex; align-items: center; justify-content: center;
+  color: #4a5d72; font-size: var(--grow-fs-sm);
+  /* When there's no photo, don't reserve the full thumbnail height —
+     a 100px placeholder is enough chrome for "no photo" to be obvious
+     without wasting card real estate. */
+  aspect-ratio: auto; min-height: 100px; max-height: 100px;
+}
 
-.gu-stats { padding: 10px 12px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; align-items: end; border-bottom: 1px solid #1c2733; }
-.gu-stat .v { font-size: 18px; font-weight: 500; color: #fff; line-height: 1; }
-.gu-stat .v.warn { color: #ffb302; }
-.gu-stat .l { font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: #7d92a8; margin-top: 4px; }
+.gu-stats {
+  padding: var(--grow-space-3); display: grid;
+  grid-template-columns: 1fr 1fr 1fr; gap: var(--grow-space-2);
+  align-items: end; border-bottom: 1px solid var(--grow-border-subtle);
+}
+.gu-stat .v {
+  font-size: 18px; font-weight: 500;
+  color: var(--grow-text-primary); line-height: 1;
+}
+.gu-stat .v.warn { color: var(--grow-warn); }
+.gu-stat .l {
+  font-size: var(--grow-fs-xs); letter-spacing: var(--grow-ls-allcaps);
+  text-transform: uppercase; color: var(--grow-text-muted);
+  margin-top: var(--grow-space-1);
+}
 
-.gu-foot { padding: 8px 12px; display: flex; align-items: center; justify-content: space-between; background: #0e1722; gap: 8px; }
-.gu-lastseen { font-size: 10px; color: #7d92a8; letter-spacing: 0.04em; }
-.gu-actions { display: flex; gap: 6px; }
-.gu-btn { background: transparent; border: 1px solid #2a3d50; color: #c2d2e3; padding: 4px 9px; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; border-radius: 2px; font-family: Roboto, sans-serif; text-decoration: none; }
-.gu-btn:hover { border-color: #4dacff; color: #4dacff; }
+.gu-foot {
+  padding: var(--grow-space-2) var(--grow-space-3);
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--grow-bg-sub); gap: var(--grow-space-2);
+}
+.gu-lastseen {
+  font-size: var(--grow-fs-xs); color: var(--grow-text-muted);
+  letter-spacing: var(--grow-ls-headline);
+}
+.gu-actions { display: flex; gap: var(--grow-space-2); }
+.gu-btn {
+  background: transparent; border: 1px solid var(--grow-border-emph);
+  color: var(--grow-text-body);
+  padding: var(--grow-space-1) var(--grow-space-3);
+  font-size: var(--grow-fs-xs); letter-spacing: var(--grow-ls-allcaps);
+  text-transform: uppercase; cursor: pointer;
+  border-radius: var(--grow-radius-sm); font-family: Roboto, sans-serif;
+  text-decoration: none;
+}
+.gu-btn:hover { border-color: var(--grow-accent); color: var(--grow-accent); }
 
 /* Per-unit detail page */
-.du-page { font-family: Roboto, sans-serif; color: #c2d2e3; background: #080c11; min-height: 100vh; }
-.du-header { padding: 14px 20px; border-bottom: 1px solid #1c2733; background: linear-gradient(180deg, #0e1722, #0a1219); }
-.du-back { color: #7d92a8; font-size: 12px; letter-spacing: 0.05em; text-decoration: none; text-transform: uppercase; display: inline-block; margin-bottom: 10px; }
-.du-back:hover { color: #4dacff; }
-.du-title { display: flex; align-items: baseline; gap: 12px; }
-.du-title h2 { color: #fff; font-size: 22px; font-weight: 500; margin: 0; }
-.du-pill { background: rgba(77, 172, 255, 0.12); color: #4dacff; padding: 3px 9px; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; border-radius: 2px; }
-.du-pill.phase { background: rgba(86, 240, 0, 0.1); color: #56f000; }
+.du-page {
+  font-family: Roboto, sans-serif; color: var(--grow-text-body);
+  background: var(--grow-bg-page); min-height: 100vh;
+}
+.du-header {
+  padding: var(--grow-space-4) var(--grow-space-5);
+  border-bottom: 1px solid var(--grow-border-subtle);
+  background: linear-gradient(180deg, var(--grow-bg-sub), #0a1219);
+}
+.du-back {
+  color: var(--grow-text-muted); font-size: var(--grow-fs-sm);
+  letter-spacing: var(--grow-ls-allcaps); text-decoration: none;
+  text-transform: uppercase; display: inline-block;
+  margin-bottom: var(--grow-space-3);
+}
+.du-back:hover { color: var(--grow-accent); }
+.du-title {
+  display: flex; align-items: baseline; gap: var(--grow-space-3);
+  flex-wrap: wrap;
+}
+.du-title h2 {
+  color: var(--grow-text-primary); font-size: var(--grow-fs-xl);
+  font-weight: 500; margin: 0;
+}
+/* Pill harmonisation (design-critique #5): all four pill flavours
+   (du-pill default / phase / medium / status) share the same
+   transparent-tint translucent style so they read as a uniform pill row
+   varying only by colour. Previously phase used solid-green-bg, status
+   was a different element entirely. */
+.du-pill {
+  background: rgba(77, 172, 255, 0.12); color: var(--grow-accent);
+  padding: 3px var(--grow-space-2); font-size: var(--grow-fs-xs);
+  letter-spacing: var(--grow-ls-allcaps); text-transform: uppercase;
+  border-radius: var(--grow-radius-sm);
+}
+.du-pill.phase {
+  background: rgba(86, 240, 0, 0.12); color: var(--grow-good);
+}
+.du-pill.medium {
+  background: rgba(194, 210, 227, 0.10); color: var(--grow-text-body);
+}
+.du-pill.status-normal {
+  background: rgba(86, 240, 0, 0.12); color: var(--grow-good);
+}
+.du-pill.status-caution {
+  background: rgba(255, 179, 2, 0.15); color: var(--grow-warn);
+}
+.du-pill.status-serious {
+  background: rgba(255, 82, 82, 0.15); color: var(--grow-bad);
+}
+.du-pill.status-standby {
+  background: rgba(77, 172, 255, 0.12); color: var(--grow-accent);
+}
 
-.du-tabs { display: flex; gap: 0; padding: 0 20px; background: #0a1219; border-bottom: 1px solid #1c2733; }
-.du-tab { padding: 12px 18px; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: #7d92a8; cursor: pointer; border-bottom: 2px solid transparent; background: none; border-left: none; border-right: none; border-top: none; font-family: Roboto, sans-serif; }
-.du-tab:hover:not(.disabled) { color: #c2d2e3; }
-.du-tab.active { color: #4dacff; border-bottom-color: #4dacff; }
+.du-tabs {
+  display: flex; gap: 0;
+  padding: 0 var(--grow-space-5);
+  background: #0a1219;
+  border-bottom: 1px solid var(--grow-border-subtle);
+}
+.du-tab {
+  padding: var(--grow-space-3) var(--grow-space-5);
+  font-size: var(--grow-fs-sm); letter-spacing: var(--grow-ls-allcaps);
+  text-transform: uppercase; color: var(--grow-text-muted);
+  cursor: pointer; border-bottom: 2px solid transparent;
+  background: none; border-left: none; border-right: none; border-top: none;
+  font-family: Roboto, sans-serif;
+}
+.du-tab:hover:not(.disabled) { color: var(--grow-text-body); }
+/* Active tab: bolder underline + weight (was a thin 2px line, easy to
+   miss). Also brighter foreground color so scan-ability improves. */
+.du-tab.active {
+  color: var(--grow-accent); border-bottom-color: var(--grow-accent);
+  font-weight: 500;
+  border-bottom-width: 3px;
+}
 .du-tab.disabled { opacity: 0.4; cursor: not-allowed; }
 
-.du-quick { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; padding: 12px; }
-.du-act-btn { background: transparent; border: 1px solid #2a3d50; color: #c2d2e3; padding: 9px 10px; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; border-radius: 2px; font-family: Roboto, sans-serif; }
-.du-act-btn:hover:not(:disabled) { border-color: #4dacff; color: #4dacff; }
-.du-act-btn.primary { background: #4dacff; color: #001028; border-color: #4dacff; }
-.du-act-btn.locked, .du-act-btn:disabled { background: #0e1722; color: #4a5d72; border-color: #1f2e3c; cursor: not-allowed; opacity: 0.85; }
+.du-quick {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--grow-space-2); padding: var(--grow-space-3);
+}
+.du-act-btn {
+  background: transparent; border: 1px solid var(--grow-border-emph);
+  color: var(--grow-text-body);
+  padding: var(--grow-space-2) var(--grow-space-3);
+  font-size: var(--grow-fs-sm); letter-spacing: var(--grow-ls-allcaps);
+  text-transform: uppercase; cursor: pointer;
+  border-radius: var(--grow-radius-sm); font-family: Roboto, sans-serif;
+}
+.du-act-btn:hover:not(:disabled) { border-color: var(--grow-accent); color: var(--grow-accent); }
+.du-act-btn.primary {
+  background: var(--grow-accent); color: var(--grow-accent-on);
+  border-color: var(--grow-accent);
+}
+.du-act-btn.locked, .du-act-btn:disabled {
+  background: var(--grow-bg-sub); color: #4a5d72;
+  border-color: var(--grow-border-panel); cursor: not-allowed; opacity: 0.85;
+}
 /* Sense-only-mode (Phase 2): health-state styling for capability buttons.
    .greyed alone = "untested" (clickable so user can kick off a test).
    .greyed + .unresponsive / .no-hardware = button also disabled by JS. */
@@ -151,7 +396,29 @@
 .cap-health-pill.untested { background: #2a3a4d; color: #7d92a8; }
 .cap-health-pill.unresponsive { background: #4d2424; color: #c84747; }
 .cap-health-pill.no-hardware { background: #2c3540; color: #888; }
-.du-photo-hero { aspect-ratio: 16/9; background: #0a1219; }
+/* Live-tab photo hero. 16:9 aspect ratio capped at --grow-detail-photo-max-h
+   (default 360px). Without the cap, a viewport-width photo of 1232px
+   renders ~693px tall — the entire Quick Controls row gets pushed below
+   the fold. Cap turns it into a wider letterbox once the cap bites;
+   background-size cover handles the crop. Cursor:pointer signals the
+   click-to-lightbox affordance. */
+.du-photo-hero {
+  aspect-ratio: 16/9;
+  max-height: var(--grow-detail-photo-max-h);
+  background: var(--grow-bg-input);
+}
+
+/* Empty-state placeholder used inside .du-panel when a panel has no
+   data to render. Centred body-muted text, generous padding so it
+   doesn't sit flush against the panel head divider. */
+.du-empty-state {
+  padding: var(--grow-space-6) var(--grow-space-5);
+  text-align: center;
+  color: var(--grow-text-muted);
+  font-size: var(--grow-fs-sm);
+  line-height: 1.5;
+  letter-spacing: var(--grow-ls-body);
+}
 
 .du-schedule-bar { padding: 14px; }
 .du-schedule-track { height: 24px; background: #0a1219; border-radius: 2px; position: relative; overflow: hidden; }
@@ -159,33 +426,102 @@
 .du-schedule-now { position: absolute; top: -4px; bottom: -4px; width: 2px; background: #56f000; box-shadow: 0 0 8px #56f000; }
 .du-schedule-now .lbl { position: absolute; top: -16px; left: 4px; font-size: 9px; color: #56f000; letter-spacing: 0.08em; white-space: nowrap; }
 
-/* Configure-tab editor panels (profile + PID + light-windows + calibration + safety) */
-.du-panel { background: #142028; border: 1px solid #1f2e3c; border-radius: 3px; margin: 12px 20px; }
-.du-panel-head { padding: 10px 14px; border-bottom: 1px solid #1c2733; color: #fff; font-size: 13px; font-weight: 500; letter-spacing: 0.04em; }
-.cfg-profile, .cfg-pid { padding-bottom: 12px; }
-.cfg-form { padding: 10px 14px; }
-.cfg-row { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
-.cfg-row label { min-width: 130px; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: #7d92a8; }
-.cfg-row input[type=text], .cfg-row input[type=date], .cfg-row input[type=number], .cfg-row select, .cfg-row textarea {
-  flex: 1; min-width: 140px;
-  background: #0a1219; color: #c2d2e3; border: 1px solid #2a3d50; border-radius: 2px;
-  padding: 6px 9px; font-size: 12px; font-family: Roboto, sans-serif;
+/* Configure-tab editor panels (profile + PID + light-windows + calibration + safety)
+   All panels use the same outer .du-panel wrapper for consistent edge
+   spacing across the page. Inner content is padded by .cfg-form / etc.
+   so panels never butt against the panel border. */
+.du-panel {
+  background: var(--grow-bg-panel);
+  border: 1px solid var(--grow-border-panel);
+  border-radius: var(--grow-radius-md);
+  margin: var(--grow-space-3) var(--grow-space-5);
+}
+.du-panel-head {
+  padding: var(--grow-space-3) var(--grow-space-4);
+  border-bottom: 1px solid var(--grow-border-subtle);
+  color: var(--grow-text-primary); font-size: var(--grow-fs-md);
+  font-weight: 500; letter-spacing: var(--grow-ls-headline);
+}
+.cfg-profile, .cfg-pid { padding-bottom: var(--grow-space-3); }
+.cfg-form { padding: var(--grow-space-3) var(--grow-space-4); }
+/* Form row: 2-column layout (label + input). Labels get a fixed column
+   width so inputs of varying lengths don't stagger across rows.
+   Previous flex-wrap layout caused "KP" and "SOAK WINDOW (MIN)" to
+   produce different input-start columns. */
+.cfg-row {
+  display: grid;
+  grid-template-columns: 160px 1fr auto auto;
+  gap: var(--grow-space-3); align-items: center;
+  margin-bottom: var(--grow-space-2);
+}
+@media (max-width: 540px) {
+  /* Phones stack rows; restore wrap behaviour. */
+  .cfg-row {
+    grid-template-columns: 1fr;
+    gap: var(--grow-space-1);
+    margin-bottom: var(--grow-space-3);
+  }
+}
+.cfg-row label {
+  font-size: var(--grow-fs-sm); letter-spacing: var(--grow-ls-allcaps);
+  text-transform: uppercase; color: var(--grow-text-muted);
+}
+.cfg-row input[type=text], .cfg-row input[type=date], .cfg-row input[type=number],
+.cfg-row select, .cfg-row textarea {
+  background: var(--grow-bg-input); color: var(--grow-text-body);
+  border: 1px solid var(--grow-border-emph); border-radius: var(--grow-radius-sm);
+  padding: var(--grow-space-2) var(--grow-space-2);
+  font-size: var(--grow-fs-sm); font-family: Roboto, sans-serif;
+  min-width: 0; /* prevents flex/grid blowout on long values */
 }
 .cfg-row textarea { resize: vertical; }
-.cfg-row input:focus, .cfg-row select:focus, .cfg-row textarea:focus { outline: none; border-color: #4dacff; }
-.cfg-pid-row input[type=number] { max-width: 120px; flex: 0 0 auto; }
-.cfg-badge { font-size: 10px; padding: 2px 6px; border-radius: 2px; letter-spacing: 0.04em; text-transform: uppercase; flex-shrink: 0; }
-.cfg-badge.default { background: #1c2733; color: #7d92a8; }
-.cfg-badge.custom { background: rgba(255, 179, 2, 0.15); color: #ffb302; }
-.cfg-reset { background: transparent; border: 1px solid #2a3d50; color: #7d92a8; padding: 3px 9px; font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; border-radius: 2px; font-family: Roboto, sans-serif; }
-.cfg-reset:hover:not(:disabled) { border-color: #4dacff; color: #4dacff; }
+.cfg-row input:focus, .cfg-row select:focus, .cfg-row textarea:focus {
+  outline: none; border-color: var(--grow-accent);
+}
+.cfg-pid-row input[type=number] { max-width: 120px; }
+/* PID controller row: design-critique #13 dropped the (DEFAULT) text
+   badge in favour of a single-character status dot — far less visual
+   noise next to the (default) input placeholder. Filled dot = override
+   active; hollow dot = inheriting plant-profile default. */
+.cfg-badge {
+  display: inline-block; width: 10px; height: 10px;
+  border-radius: 50%; flex-shrink: 0;
+  border: 1.5px solid var(--grow-border-emph);
+  /* Visually hide the (default) / (custom) text content while keeping it
+     accessible to screen readers + tests. The dot itself is the visual,
+     and a `title` attribute on the element provides a hover tooltip for
+     sighted users. text-indent moves the text off-canvas; overflow:hidden
+     keeps the dot at its 10×10 footprint. */
+  font-size: 0; line-height: 1; text-indent: -9999px; overflow: hidden;
+  vertical-align: middle;
+}
+.cfg-badge.default { background: transparent; }
+.cfg-badge.custom { background: var(--grow-warn); border-color: var(--grow-warn); }
+.cfg-badge[title]:hover { cursor: help; }
+.cfg-reset {
+  background: transparent; border: 1px solid var(--grow-border-emph);
+  color: var(--grow-text-muted);
+  padding: var(--grow-space-1) var(--grow-space-3);
+  font-size: var(--grow-fs-xs); letter-spacing: var(--grow-ls-allcaps);
+  text-transform: uppercase; cursor: pointer;
+  border-radius: var(--grow-radius-sm); font-family: Roboto, sans-serif;
+}
+.cfg-reset:hover:not(:disabled) { border-color: var(--grow-accent); color: var(--grow-accent); }
 .cfg-reset:disabled { opacity: 0.35; cursor: not-allowed; }
-.cfg-actions { margin-top: 12px; padding-top: 10px; border-top: 1px solid #1c2733; }
-.cfg-save { padding: 8px 18px; }
+.cfg-actions {
+  margin-top: var(--grow-space-3);
+  padding: var(--grow-space-3) 0 0 0;
+  border-top: 1px solid var(--grow-border-subtle);
+  display: flex; align-items: center; gap: var(--grow-space-3);
+  flex-wrap: wrap;
+}
+.cfg-save { padding: var(--grow-space-2) var(--grow-space-5); }
 .cfg-save:disabled { opacity: 0.6; cursor: progress; }
-.cfg-status { font-size: 11px; letter-spacing: 0.04em; }
-.cfg-status.ok { color: #56f000; }
-.cfg-status.err { color: #ff5252; }
+.cfg-status {
+  font-size: var(--grow-fs-sm); letter-spacing: var(--grow-ls-headline);
+}
+.cfg-status.ok { color: var(--grow-good); }
+.cfg-status.err { color: var(--grow-bad); }
 
 /* Per-unit bearer-token rotator (Phase 1 spec §5) — mounted in the
    Configure tab below the profile editor. State machine: idle → armed
@@ -231,11 +567,59 @@
   padding: 8px 10px; border-radius: 2px; background: rgba(255, 82, 82, 0.1);
 }
 
-/* Light-windows editor (Task 7) — per-phase grouping with rows of HH:MM ranges */
-.cfg-light-windows { padding-bottom: 12px; }
-.cfg-lw-phase { margin: 8px 14px; padding: 10px; border: 1px solid #1c2733; border-radius: 2px; background: #0e1722; }
-.cfg-lw-phase-head { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: #c2d2e3; margin-bottom: 8px; }
-.cfg-lw-phase-head strong { color: #fff; font-weight: 500; }
+/* Light-windows editor (Task 7) — per-phase grouping with rows of HH:MM ranges.
+   Phase 4 polish: phases now render as <details> accordions, current
+   phase open by default, others collapsed. Reduces 10 visible buttons
+   (5 phases × Add+Save) to 2. The summary header is clickable. */
+.cfg-light-windows { padding-bottom: var(--grow-space-3); }
+.cfg-lw-phase {
+  margin: var(--grow-space-2) var(--grow-space-4);
+  padding: var(--grow-space-3);
+  border: 1px solid var(--grow-border-subtle);
+  border-radius: var(--grow-radius-sm);
+  background: var(--grow-bg-sub);
+}
+.cfg-lw-phase[open] {
+  border-color: var(--grow-border-emph);
+}
+.cfg-lw-phase-head {
+  font-size: var(--grow-fs-sm); letter-spacing: var(--grow-ls-allcaps);
+  text-transform: uppercase; color: var(--grow-text-body);
+  margin-bottom: 0; cursor: pointer;
+  display: flex; align-items: center; gap: var(--grow-space-3);
+  list-style: none;
+}
+.cfg-lw-phase-head::-webkit-details-marker { display: none; }
+.cfg-lw-phase-head::before {
+  content: "▶";
+  font-size: 8px;
+  color: var(--grow-text-muted);
+  transition: transform 0.15s;
+  display: inline-block;
+}
+.cfg-lw-phase[open] > .cfg-lw-phase-head::before {
+  transform: rotate(90deg);
+}
+.cfg-lw-phase-head strong {
+  color: var(--grow-text-primary); font-weight: 500;
+  flex-shrink: 0;
+}
+.cfg-lw-phase[open] > .cfg-lw-phase-head { margin-bottom: var(--grow-space-2); }
+.cfg-lw-current-tag {
+  display: inline-block;
+  font-size: var(--grow-fs-xs); letter-spacing: var(--grow-ls-headline);
+  background: rgba(86, 240, 0, 0.12); color: var(--grow-good);
+  padding: 2px var(--grow-space-2);
+  border-radius: var(--grow-radius-sm);
+  text-transform: uppercase;
+}
+.cfg-lw-summary-hint {
+  margin-left: auto;
+  font-size: var(--grow-fs-xs); letter-spacing: var(--grow-ls-headline);
+  color: var(--grow-text-muted);
+  text-transform: none;
+  font-style: italic;
+}
 .cfg-lw-rows { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
 .cfg-lw-row { display: flex; align-items: center; gap: 8px; }
 .cfg-lw-time {
