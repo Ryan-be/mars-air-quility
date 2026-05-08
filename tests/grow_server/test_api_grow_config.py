@@ -1320,3 +1320,163 @@ def test_pid_field_registry_profile_columns_unique():
     from mlss_monitor.routes.api_grow_config import _PID_FIELDS
     cols = [f.profile_column for f in _PID_FIELDS]
     assert len(cols) == len(set(cols))
+
+
+# ---------------------------------------------------------------------------
+# /photo_schedule (Phase 4 polish)
+# ---------------------------------------------------------------------------
+
+
+def test_put_photo_schedule_writes_both_columns(client):
+    """admin PUT with explicit window → both columns set."""
+    c, fake_ws, db_path = client
+    r = c.put(
+        "/api/grow/units/1/photo_schedule",
+        data=json.dumps({"start_hour": 6, "end_hour": 22}),
+        content_type="application/json",
+    )
+    assert r.status_code == 200, r.data
+    row = _row(db_path, 1)
+    assert row["photo_active_start_hour"] == 6
+    assert row["photo_active_end_hour"] == 22
+
+
+def test_put_photo_schedule_24x7_clears_columns(client):
+    """Both null → both columns set to NULL (24/7 capture)."""
+    c, _ws, db_path = client
+    # First set a window
+    c.put(
+        "/api/grow/units/1/photo_schedule",
+        data=json.dumps({"start_hour": 6, "end_hour": 22}),
+        content_type="application/json",
+    )
+    # Then clear it
+    r = c.put(
+        "/api/grow/units/1/photo_schedule",
+        data=json.dumps({"start_hour": None, "end_hour": None}),
+        content_type="application/json",
+    )
+    assert r.status_code == 200, r.data
+    row = _row(db_path, 1)
+    assert row["photo_active_start_hour"] is None
+    assert row["photo_active_end_hour"] is None
+
+
+def test_put_photo_schedule_wrap_midnight_accepted(client):
+    """22..6 (overnight capture) is a valid window — server stores it."""
+    c, _ws, db_path = client
+    r = c.put(
+        "/api/grow/units/1/photo_schedule",
+        data=json.dumps({"start_hour": 22, "end_hour": 6}),
+        content_type="application/json",
+    )
+    assert r.status_code == 200
+    row = _row(db_path, 1)
+    assert row["photo_active_start_hour"] == 22
+    assert row["photo_active_end_hour"] == 6
+
+
+def test_put_photo_schedule_only_one_set_400(client):
+    c, _ws, _db_path = client
+    r = c.put(
+        "/api/grow/units/1/photo_schedule",
+        data=json.dumps({"start_hour": 6, "end_hour": None}),
+        content_type="application/json",
+    )
+    assert r.status_code == 400
+    assert r.get_json()["error"] == "invalid_payload"
+
+
+def test_put_photo_schedule_equal_hours_400(client):
+    c, _ws, _db_path = client
+    r = c.put(
+        "/api/grow/units/1/photo_schedule",
+        data=json.dumps({"start_hour": 12, "end_hour": 12}),
+        content_type="application/json",
+    )
+    assert r.status_code == 400
+
+
+def test_put_photo_schedule_out_of_range_400(client):
+    c, _ws, _db_path = client
+    r = c.put(
+        "/api/grow/units/1/photo_schedule",
+        data=json.dumps({"start_hour": 6, "end_hour": 24}),
+        content_type="application/json",
+    )
+    assert r.status_code == 400
+
+
+def test_put_photo_schedule_404_unknown_unit(client):
+    c, _ws, _db_path = client
+    r = c.put(
+        "/api/grow/units/9999/photo_schedule",
+        data=json.dumps({"start_hour": 6, "end_hour": 22}),
+        content_type="application/json",
+    )
+    assert r.status_code == 404
+
+
+def test_put_photo_schedule_pushes_config_changed(client):
+    """Successful PUT should fire a best-effort config_changed WS push
+    with section='photo_schedule' (mirrors how /pid + /profile work)."""
+    c, fake_ws, _db_path = client
+    r = c.put(
+        "/api/grow/units/1/photo_schedule",
+        data=json.dumps({"start_hour": 6, "end_hour": 22}),
+        content_type="application/json",
+    )
+    assert r.status_code == 200
+    # Listener loop is async-threadsafe-scheduled; give it a moment
+    import time
+    for _ in range(20):
+        if fake_ws.sent:
+            break
+        time.sleep(0.05)
+    assert fake_ws.sent, "config_changed should be pushed"
+    cmd = json.loads(fake_ws.sent[-1])
+    assert cmd["payload"]["kind"] == "config_changed"
+    assert cmd["payload"]["section"] == "photo_schedule"
+
+
+def test_get_unit_config_includes_photo_active_hours(client, monkeypatch):
+    """Firmware GET /config response must include photo_active_hours so
+    config_sync can populate LoopConfig.photo_active_hours."""
+    c, _ws, db_path = client
+    # Set a window on the unit
+    c.put(
+        "/api/grow/units/1/photo_schedule",
+        data=json.dumps({"start_hour": 6, "end_hour": 22}),
+        content_type="application/json",
+    )
+    # Bearer auth: the bearer hash on the unit row is just 'h' from the
+    # fixture (not a real argon2 hash), so we monkeypatch _validate_bearer
+    # to accept anything for this single-purpose test.
+    monkeypatch.setattr(
+        "mlss_monitor.routes.api_grow_config._validate_bearer",
+        lambda uid, tok: True,
+    )
+    r = c.get(
+        "/api/grow/units/1/config",
+        headers={"Authorization": "Bearer fake"},
+    )
+    assert r.status_code == 200, r.data
+    body = r.get_json()
+    assert body["photo_active_hours"] == [6, 22]
+
+
+def test_get_unit_config_photo_active_hours_null_for_24x7(client, monkeypatch):
+    """When both columns are NULL, the response field is null (firmware
+    sees None → keeps its default 24/7 behaviour)."""
+    c, _ws, db_path = client
+    # Default unit has both NULL — confirm response is null
+    monkeypatch.setattr(
+        "mlss_monitor.routes.api_grow_config._validate_bearer",
+        lambda uid, tok: True,
+    )
+    r = c.get(
+        "/api/grow/units/1/config",
+        headers={"Authorization": "Bearer fake"},
+    )
+    assert r.status_code == 200
+    assert r.get_json()["photo_active_hours"] is None

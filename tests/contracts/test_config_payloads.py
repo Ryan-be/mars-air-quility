@@ -9,7 +9,7 @@ import pytest
 from pydantic import ValidationError
 from mlss_contracts.config_payloads import (
     ProfileUpdate, PIDUpdate, LightWindowsUpdate,
-    CalibrationUpdate, SafetyOverrideRequest,
+    CalibrationUpdate, PhotoScheduleUpdate, SafetyOverrideRequest,
 )
 
 
@@ -74,3 +74,48 @@ def test_safety_override_rejects_excessive_duration():
     with pytest.raises(ValidationError):
         SafetyOverrideRequest(action="force_pump_on", duration_s=600,
                               acknowledged_warnings=["pump_safety"])
+
+
+# ─── PhotoScheduleUpdate ────────────────────────────────────────────
+
+
+def test_photo_schedule_both_none_means_24x7():
+    p = PhotoScheduleUpdate(start_hour=None, end_hour=None)
+    assert p.start_hour is None
+    assert p.end_hour is None
+
+
+def test_photo_schedule_both_set_means_window():
+    p = PhotoScheduleUpdate(start_hour=6, end_hour=22)
+    assert (p.start_hour, p.end_hour) == (6, 22)
+
+
+def test_photo_schedule_wrap_midnight_allowed():
+    """22..06 means "capture overnight" — explicit and useful (e.g. for a
+    seedling grown under artificial light during human-night hours)."""
+    p = PhotoScheduleUpdate(start_hour=22, end_hour=6)
+    assert (p.start_hour, p.end_hour) == (22, 6)
+
+
+def test_photo_schedule_only_one_set_rejected():
+    """Half-set is ambiguous between "open-ended capture" and "user error"
+    — surface the ambiguity at the boundary rather than guessing."""
+    with pytest.raises(ValidationError):
+        PhotoScheduleUpdate(start_hour=6, end_hour=None)
+    with pytest.raises(ValidationError):
+        PhotoScheduleUpdate(start_hour=None, end_hour=22)
+
+
+def test_photo_schedule_equal_hours_rejected():
+    """start == end is zero-length on the firmware (silent never-capture)."""
+    with pytest.raises(ValidationError):
+        PhotoScheduleUpdate(start_hour=12, end_hour=12)
+
+
+def test_photo_schedule_out_of_range_rejected():
+    with pytest.raises(ValidationError):
+        PhotoScheduleUpdate(start_hour=-1, end_hour=22)
+    with pytest.raises(ValidationError):
+        PhotoScheduleUpdate(start_hour=6, end_hour=24)
+    with pytest.raises(ValidationError):
+        PhotoScheduleUpdate(start_hour=25, end_hour=22)

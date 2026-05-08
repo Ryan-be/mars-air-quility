@@ -107,6 +107,44 @@ class CalibrationUpdate(BaseModel):
         return self
 
 
+class PhotoScheduleUpdate(BaseModel):
+    """Per-unit photo capture window. Both fields together (or both None).
+
+    * Both `None` ⇒ capture 24/7 (no schedule gating). The firmware will
+      rely on its 30-min interval and just take photos whatever the
+      hour. Dark frames are fine — they're informational ("this is what
+      it looked like at 03:00 with the lights off").
+    * Both set ⇒ capture only between `start_hour` (inclusive) and
+      `end_hour` (exclusive), wall-clock UTC on the firmware. Wraps
+      over midnight when `start_hour > end_hour` (e.g. 22..6 means
+      capture from 22:00 through 06:00 — useful for the inverse
+      "only at night" case).
+
+    `start_hour == end_hour` is rejected because (a) start==end is
+    interpreted as zero-length by the firmware (silent never-capture
+    bug), and (b) if the user really wants 24/7 they should send both
+    None.
+    """
+    start_hour: Optional[int] = Field(None, ge=0, le=23)
+    end_hour: Optional[int] = Field(None, ge=0, le=23)
+
+    @model_validator(mode="after")
+    def _both_or_neither(self):
+        a = self.start_hour is None
+        b = self.end_hour is None
+        if a != b:
+            raise ValueError(
+                "start_hour and end_hour must both be set or both be None "
+                "(set both to None for 24/7 capture)"
+            )
+        if (not a) and self.start_hour == self.end_hour:
+            raise ValueError(
+                "start_hour and end_hour must differ "
+                "(set both to None for 24/7 capture)"
+            )
+        return self
+
+
 _SAFETY_ACTION = Literal[
     "force_pump_on", "force_pump_off",
     "force_light_on", "force_light_off",

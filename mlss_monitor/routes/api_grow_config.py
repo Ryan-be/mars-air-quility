@@ -42,6 +42,7 @@ from database.init_db import DB_FILE
 from mlss_contracts.config_payloads import (
     CalibrationUpdate,
     LightWindowsUpdate,
+    PhotoScheduleUpdate,
     PIDUpdate,
     ProfileUpdate,
     SafetyOverrideRequest,
@@ -364,6 +365,55 @@ def put_calibration(unit_id):
 
 
 # ---------------------------------------------------------------------------
+# /photo_schedule
+# ---------------------------------------------------------------------------
+
+
+@api_grow_config_bp.route(
+    "/api/grow/units/<int:unit_id>/photo_schedule", methods=["PUT"]
+)
+@require_role("controller", "admin")
+def put_photo_schedule(unit_id):
+    """Set the photo-capture window for one unit.
+
+    Body (PhotoScheduleUpdate):
+      * `{"start_hour": null, "end_hour": null}` — capture 24/7 (default)
+      * `{"start_hour": 6, "end_hour": 22}` — capture between 06:00-22:00 UTC
+      * Wraps midnight when start > end (e.g. 22..6 = 22:00 through 06:00)
+
+    Wraps the same best-effort `config_changed` push as the rest of the
+    Configure-tab endpoints — DB write is durable, firmware re-pulls
+    on next reconnect if the push misses.
+    """
+    body = request.get_json(silent=True) or {}
+    try:
+        payload = PhotoScheduleUpdate(**body)
+    except ValidationError as exc:
+        return jsonify({
+            "error": "invalid_payload",
+            "detail": serialise_validation_errors(exc.errors()),
+        }), 400
+
+    conn = sqlite3.connect(DB_FILE, timeout=10)
+    try:
+        cur = conn.execute(
+            "UPDATE grow_units SET "
+            "photo_active_start_hour=?, photo_active_end_hour=? "
+            "WHERE id=?",
+            (payload.start_hour, payload.end_hour, unit_id),
+        )
+        if cur.rowcount == 0:
+            conn.rollback()
+            return jsonify({"error": "unit_not_found"}), 404
+        conn.commit()
+    finally:
+        conn.close()
+
+    _push_config_changed(unit_id, "photo_schedule")
+    return jsonify({"ok": True})
+
+
+# ---------------------------------------------------------------------------
 # /safety_override (admin-only, synchronous push)
 # ---------------------------------------------------------------------------
 
@@ -572,6 +622,18 @@ def get_unit_config(unit_id):
             {"start": r["start_hh_mm"], "end": r["end_hh_mm"]}
         )
 
+    # Photo capture schedule. Surfaces as a 2-tuple [start, end] so the
+    # firmware can map directly to its `LoopConfig.photo_active_hours`
+    # tuple field. Both NULL ⇒ capture 24/7 (the new default replacing
+    # the previous hardcoded (6, 22) — see PhotoScheduleUpdate docstring
+    # for why the old assumption was wrong).
+    photo_active_hours = (
+        [unit_row["photo_active_start_hour"], unit_row["photo_active_end_hour"]]
+        if unit_row["photo_active_start_hour"] is not None
+        and unit_row["photo_active_end_hour"] is not None
+        else None
+    )
+
     return jsonify({
         "overrides":     _resolve_overrides(unit_row, profile_row),
         "calibration":   {
@@ -590,4 +652,5 @@ def get_unit_config(unit_id):
         # passes this to LocalBuffer.prune via the
         # buffer_retention_days_provider closure built in service.py.
         "buffer_retention_days": unit_row["buffer_retention_days"],
+        "photo_active_hours":    photo_active_hours,
     })

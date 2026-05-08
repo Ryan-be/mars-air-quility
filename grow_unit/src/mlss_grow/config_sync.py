@@ -62,6 +62,12 @@ class UnitConfig:
     plant_type: str
     holiday_mode: bool = False
     buffer_retention_days: Optional[int] = None
+    # Per-unit photo capture window (Phase 4 polish). None ⇒ capture
+    # 24/7. Tuple (start_hour, end_hour) ⇒ capture between those wall-
+    # clock hours UTC. Older servers that don't emit the field default
+    # to None here, which matches the new firmware default — operators
+    # who never set a window get 24/7 capture.
+    photo_active_hours: Optional[tuple[int, int]] = None
 
 
 # Maps overrides-key → PIDConfig attribute name. Any None values in the
@@ -107,6 +113,20 @@ def pull_unit_config(server_url: str, unit_id: int, token: str,
     data = r.json()
     # current_phase / plant_type are required because apply_config uses them
     # to pick which phase's light_windows to load.
+    # photo_active_hours: server emits a 2-element list [start, end] or
+    # null. Defensive coerce to tuple so apply_config can write it
+    # straight onto LoopConfig.photo_active_hours (declared as tuple).
+    pah_raw = data.get("photo_active_hours")
+    photo_active_hours: Optional[tuple[int, int]] = None
+    if pah_raw is not None:
+        try:
+            photo_active_hours = (int(pah_raw[0]), int(pah_raw[1]))
+        except (TypeError, ValueError, IndexError) as exc:
+            log.warning(
+                "ignoring malformed photo_active_hours %r from server: %s",
+                pah_raw, exc,
+            )
+
     return UnitConfig(
         overrides=data.get("overrides", {}) or {},
         calibration=data.get("calibration", {}) or {},
@@ -122,6 +142,7 @@ def pull_unit_config(server_url: str, unit_id: int, token: str,
             if data.get("buffer_retention_days") is not None
             else None
         ),
+        photo_active_hours=photo_active_hours,
     )
 
 
@@ -169,3 +190,9 @@ def apply_config(unit_cfg: UnitConfig, loop_cfg: LoopConfig) -> None:
     # are unaffected — operator going on vacation wants the plant to
     # keep being lit and logged, just not over-watered while away.
     loop_cfg.holiday_mode = bool(unit_cfg.holiday_mode)
+
+    # 5. Photo capture window. None ⇒ capture 24/7 (the new default;
+    # see LoopConfig.photo_active_hours docstring). The SafetyLoop's
+    # _photo_due() short-circuits when the current hour is outside the
+    # tuple's range; setting None disables that gate entirely.
+    loop_cfg.photo_active_hours = unit_cfg.photo_active_hours

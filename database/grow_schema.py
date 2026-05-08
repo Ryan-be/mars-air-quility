@@ -41,6 +41,15 @@ def create_grow_schema(cur):
       pulse_min_s_override        REAL,
       pulse_max_s_override        REAL,
       photo_interval_min_override INTEGER,
+      -- Photo capture schedule (Phase 4 polish):
+      -- Both NULL => capture 24/7. Both set => capture only between
+      -- start_hour (inclusive) and end_hour (exclusive), wall-clock UTC.
+      -- Wraps over midnight when start > end (e.g. 22..6 = 22:00..06:00).
+      -- Replaces the previous firmware-side hardcoded (6, 22) default
+      -- whose assumption "no grow light => no useful photo" was wrong
+      -- whenever ambient light was available (windows, room lamps).
+      photo_active_start_hour     INTEGER,
+      photo_active_end_hour       INTEGER,
       buffer_retention_days       INTEGER,
       last_seen_at                DATETIME,
       last_telemetry_at           DATETIME,

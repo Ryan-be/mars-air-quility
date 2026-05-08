@@ -261,6 +261,14 @@ def create_db():
         # with snoozed_until > now() render muted client-side but are
         # NOT filtered server-side (admins can still un-snooze them).
         "ALTER TABLE grow_errors ADD COLUMN snoozed_until DATETIME",
+        # Phase 4 polish: per-unit photo capture schedule. Both NULL ⇒
+        # capture 24/7 (the new default). Both set ⇒ capture only
+        # between start (inclusive) and end (exclusive), wrapping over
+        # midnight when start > end. Replaces the firmware-side
+        # hardcoded (6, 22) whose "no grow light → no useful photo"
+        # assumption broke whenever ambient light was available.
+        "ALTER TABLE grow_units ADD COLUMN photo_active_start_hour INTEGER",
+        "ALTER TABLE grow_units ADD COLUMN photo_active_end_hour INTEGER",
         # Promotion of ``inferences.evidence`` (JSON-in-TEXT) → typed
         # columns + extras blob. The legacy ``evidence`` TEXT column
         # was dropped after the historic-data back-fill completed —

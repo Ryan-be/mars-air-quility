@@ -227,6 +227,13 @@ def get_unit(unit_id):
         "dry_raw": row["soil_dry_raw"],
         "wet_raw": row["soil_wet_raw"],
     }
+    # Photo capture schedule. Same shape as PhotoScheduleUpdate so the UI
+    # can round-trip the value into a PUT without translation. Both null
+    # ⇒ capture 24/7 (new default); both set ⇒ capture between hours.
+    body["photo_schedule"] = {
+        "start_hour": row["photo_active_start_hour"],
+        "end_hour":   row["photo_active_end_hour"],
+    }
     light_windows: dict[str, list] = {}
     for r in lw_rows:
         light_windows.setdefault(r["phase"], []).append(

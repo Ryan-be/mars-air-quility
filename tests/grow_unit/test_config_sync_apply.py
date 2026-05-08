@@ -187,3 +187,41 @@ def test_apply_config_clears_holiday_mode_when_server_says_off():
     )
     apply_config(new_cfg, loop_cfg)
     assert loop_cfg.holiday_mode is False
+
+
+# ─── photo_active_hours (Phase 4 polish) ────────────────────────────
+
+
+def test_apply_config_writes_photo_active_hours_to_loop_config():
+    """apply_config copies photo_active_hours from UnitConfig onto
+    LoopConfig so SafetyLoop._photo_due() can gate captures by hour."""
+    loop_cfg = _basic_loop_config()
+    assert loop_cfg.photo_active_hours is None  # new default
+    new_cfg = UnitConfig(
+        overrides={},
+        calibration={"dry_raw": 220, "wet_raw": 1600},
+        light_windows={},
+        current_phase="vegetative",
+        plant_type="tomato",
+        photo_active_hours=(6, 22),
+    )
+    apply_config(new_cfg, loop_cfg)
+    assert loop_cfg.photo_active_hours == (6, 22)
+
+
+def test_apply_config_clears_photo_active_hours_when_server_says_24x7():
+    """A unit that previously had a window, then has it cleared via the
+    UI (start_hour=null, end_hour=null), should resume 24/7 capture
+    on the next config_changed pull."""
+    loop_cfg = _basic_loop_config()
+    loop_cfg.photo_active_hours = (6, 22)  # was windowed
+    new_cfg = UnitConfig(
+        overrides={},
+        calibration={"dry_raw": 220, "wet_raw": 1600},
+        light_windows={},
+        current_phase="vegetative",
+        plant_type="tomato",
+        photo_active_hours=None,
+    )
+    apply_config(new_cfg, loop_cfg)
+    assert loop_cfg.photo_active_hours is None

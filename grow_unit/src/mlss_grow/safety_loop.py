@@ -46,7 +46,19 @@ class LoopConfig:
     light_windows: list
     pid: PIDConfig
     photo_interval_min: int = 30
-    photo_active_hours: tuple[int, int] | None = (6, 22)
+    # Photo capture window. Both-None ⇒ capture 24/7 (the new default).
+    # Tuple ⇒ capture only between (start_hour, end_hour) wall-clock UTC,
+    # wrapping over midnight when start > end.
+    #
+    # Default changed from (6, 22) to None because the previous bake-in
+    # made an assumption that broke whenever ambient light was available
+    # (windows, room lamps): "no grow light → no useful photo" is wrong
+    # when the photo only needs the plant to be illuminated, not by the
+    # grow light specifically. Operators can re-enable a window via the
+    # Configure-tab Photo schedule editor (PUT /photo_schedule), which
+    # writes grow_units.photo_active_*_hour and pushes a config_changed
+    # so config_sync.apply_config can populate this field at runtime.
+    photo_active_hours: tuple[int, int] | None = None
     soil_calibration: tuple[int, int] | None = None
     # Household-wide vacation flag. When True, the SafetyLoop suppresses
     # pump pulses (PID still runs and emits debug-level info, but no

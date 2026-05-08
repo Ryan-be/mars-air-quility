@@ -6,6 +6,7 @@ import { renderProfileEditor } from "./components/profile-editor.mjs";
 import { renderPIDEditor } from "./components/pid-editor.mjs";
 import { renderLightWindowsEditor } from "./components/light-windows-editor.mjs";
 import { renderCalibrationWizard } from "./components/calibration-wizard.mjs";
+import { renderPhotoScheduleEditor } from "./components/photo-schedule-editor.mjs";
 import { renderSafetyOverride } from "./components/safety-override.mjs";
 import { renderHistoryPanel } from "./components/history-panel.mjs";
 import { renderDiagnosticsPanel } from "./components/diagnostics-panel.mjs";
@@ -368,7 +369,24 @@ async function renderLiveContent(body, unit, doc = document) {
   body.appendChild(renderPhotoPanel(unit, doc));
   body.appendChild(renderLiveReadings(unit, doc));
   body.appendChild(renderLightSchedulePanel(unit, doc));
-  body.appendChild(await renderWateringHistoryPanel(unit, doc));
+  // Watering history panel is wrapped in try/catch so a Plotly /
+  // chart-data shape regression can't take out the rest of the Live
+  // tab (in particular: Quick Controls below — losing those means
+  // operators can't snap-photo or light-toggle, which is much worse
+  // than missing one chart). On failure we surface the error inline
+  // and keep going.
+  try {
+    body.appendChild(await renderWateringHistoryPanel(unit, doc));
+  } catch (exc) {
+    console.error("renderWateringHistoryPanel failed:", exc);
+    const errPanel = doc.createElement("div");
+    errPanel.className = "du-panel";
+    errPanel.innerHTML =
+      "<div class='du-panel-head'><span>💧 Watering history</span></div>" +
+      "<div style='padding:14px;color:#ff5252;font-size:12px;'>" +
+      "Chart failed to render — see browser console.</div>";
+    body.appendChild(errPanel);
+  }
 
   // Compute water-lock from unit.last_known_state.last_pulse_at +
   // unit.soak_window_min_resolved.
@@ -393,6 +411,7 @@ function renderConfigureContent(body, unit, doc = document) {
   body.appendChild(renderPIDEditor(unit, { ownerDocument: doc }));
   body.appendChild(renderLightWindowsEditor(unit, { ownerDocument: doc }));
   body.appendChild(renderCalibrationWizard(unit, { ownerDocument: doc }));
+  body.appendChild(renderPhotoScheduleEditor(unit, { ownerDocument: doc }));
   body.appendChild(renderSafetyOverride(unit, { ownerDocument: doc }));
 }
 
