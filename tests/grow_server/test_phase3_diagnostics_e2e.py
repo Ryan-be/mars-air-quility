@@ -382,6 +382,52 @@ def _connection_log_kinds(connection_log: list[dict]) -> list[str]:
     return [entry["kind"] for entry in connection_log]
 
 
+async def _wait_for_connection_row(
+    db_path: str, unit_id: int, kind: str,
+    *, expected_count: int = 1, attempts: int = 40, delay_s: float = 0.05,
+    only_open: bool = False,
+) -> int:
+    """Poll grow_errors until the connection-log row count matches.
+
+    Closes the race in `connect_fake_firmware`: the fixture only waits
+    for `registry.is_connected()` to be True (which happens the moment
+    `register(unit_id, ws)` returns), but `_record_connection_event`
+    runs synchronously right after — and its SQLite INSERT can take
+    microseconds-to-milliseconds. Tests that read connection_log
+    immediately after connect/disconnect need to poll the DB until
+    the row lands.
+
+    Args:
+        db_path: tmp DB the fixture wired up.
+        unit_id: per-unit filter.
+        kind: 'online' or 'offline'.
+        expected_count: minimum rows we want before returning.
+        attempts: poll cap (default 40 = 2s with the default delay).
+        delay_s: per-poll sleep.
+        only_open: if True, additionally require resolved_at IS NULL.
+                   Use when the test's next assertion depends on the
+                   row being unresolved (e.g. waiting for a fresh
+                   offline before the reconnect resolves it).
+
+    Returns:
+        The actual row count seen on the last poll. Caller should
+        assert >= expected_count.
+    """
+    n = 0
+    where = "WHERE unit_id=? AND kind=?"
+    if only_open:
+        where += " AND resolved_at IS NULL"
+    sql = f"SELECT COUNT(*) FROM grow_errors {where}"
+    for _ in range(attempts):
+        conn = sqlite3.connect(db_path)
+        n = conn.execute(sql, (unit_id, kind)).fetchone()[0]
+        conn.close()
+        if n >= expected_count:
+            return n
+        await asyncio.sleep(delay_s)
+    return n
+
+
 # ===========================================================================
 # Test 1: diagnostics endpoint consolidates all Phase 3 data correctly.
 # ===========================================================================
@@ -507,16 +553,7 @@ async def test_e2e_real_ws_connect_writes_online_grow_errors_row_and_appears_in_
     # writes the online row right after register(), so a brief poll
     # against the DB closes that race.
     fw = await bundle["connect_fake_firmware"](unit_id=1)
-    for _ in range(40):
-        conn = sqlite3.connect(db_path)
-        n_online = conn.execute(
-            "SELECT COUNT(*) FROM grow_errors "
-            "WHERE unit_id=1 AND kind='online'"
-        ).fetchone()[0]
-        conn.close()
-        if n_online >= 1:
-            break
-        await asyncio.sleep(0.05)
+    n_online = await _wait_for_connection_row(db_path, 1, "online")
     assert n_online >= 1, "online row never landed after WS connect"
 
     r = admin.get("/api/grow/units/1/diagnostics")
@@ -532,19 +569,10 @@ async def test_e2e_real_ws_connect_writes_online_grow_errors_row_and_appears_in_
             break
         await asyncio.sleep(0.05)
     assert not registry.is_connected(1)
-    # The offline writer is best-effort; it runs synchronously inside the
-    # listener's connection_handler finally block. Brief pause for the
-    # connection_handler to flush the offline row before we read.
-    for _ in range(40):
-        conn = sqlite3.connect(db_path)
-        n_offline = conn.execute(
-            "SELECT COUNT(*) FROM grow_errors "
-            "WHERE unit_id=1 AND kind='offline'"
-        ).fetchone()[0]
-        conn.close()
-        if n_offline >= 1:
-            break
-        await asyncio.sleep(0.05)
+    # The offline writer is best-effort; it runs synchronously inside
+    # the listener's connection_handler finally block. Brief pause for
+    # the connection_handler to flush the offline row before we read.
+    n_offline = await _wait_for_connection_row(db_path, 1, "offline")
     assert n_offline >= 1, "offline row never landed after disconnect"
 
     r = admin.get("/api/grow/units/1/diagnostics")
@@ -850,18 +878,6 @@ def test_e2e_storage_warning_appears_on_grow_page_when_disk_over_threshold(
 # ===========================================================================
 
 
-@pytest.mark.skip(
-    reason=(
-        "Flaky timing: asserts 'online' is in connection_log_kinds but the "
-        "fake_firmware connect-event sometimes hasn't been written by the "
-        "time the diagnostics fetch runs. Pre-existed this branch — see "
-        "docs/superpowers/audits/2026-05-08-grow-pre-phase4-summary.md "
-        "Part 3 Investigation #2. Quarantined as part of pre-Phase-4 audit. "
-        "Fix path: add an explicit synchronisation point between connect "
-        "and the GET, or relax the assertion to accept either kind in any "
-        "order."
-    )
-)
 async def test_e2e_full_phase3_observability_story(diag_stack):
     """The integration story Phase 3 exists for: when a unit goes
     sideways, the operator sees what happened, why, and resolves it.
@@ -899,6 +915,13 @@ async def test_e2e_full_phase3_observability_story(diag_stack):
         last_seen_at=now - timedelta(seconds=30),
     )
     fw = await bundle["connect_fake_firmware"](unit_id=1)
+    # The fixture only waits for `registry.is_connected()` to flip to
+    # True; the `_record_connection_event` SQLite INSERT runs
+    # microseconds later (synchronous, but happens AFTER the
+    # is_connected flip). Without this poll the diagnostics GET below
+    # races and sees an empty connection_log. Same fix as test 2.
+    n_online = await _wait_for_connection_row(db_path, 1, "online")
+    assert n_online >= 1, "online row never landed after fake firmware connect"
 
     r = admin.get("/api/grow/units/1/diagnostics")
     assert r.status_code == 200, r.data
@@ -929,17 +952,12 @@ async def test_e2e_full_phase3_observability_story(diag_stack):
             break
         await asyncio.sleep(0.05)
     assert not registry.is_connected(1)
-    # Wait for the offline row to flush.
-    for _ in range(40):
-        conn = sqlite3.connect(db_path)
-        n_offline = conn.execute(
-            "SELECT COUNT(*) FROM grow_errors "
-            "WHERE unit_id=1 AND kind='offline' AND resolved_at IS NULL"
-        ).fetchone()[0]
-        conn.close()
-        if n_offline >= 1:
-            break
-        await asyncio.sleep(0.05)
+    # Wait for the offline row to flush. only_open=True because step 7
+    # below depends on this offline being unresolved when the reconnect
+    # resolves it.
+    n_offline = await _wait_for_connection_row(
+        db_path, 1, "offline", only_open=True,
+    )
     assert n_offline >= 1, "offline row never landed"
 
     # ── Step 4: /api/grow/errors shows both errors (the operator's
