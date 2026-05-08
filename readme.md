@@ -967,6 +967,16 @@ failed step aborts before bouncing the service. Use this in preference to
 `git pull && sudo systemctl restart mlss-monitor` — that older shorthand
 skips the poetry install and the wheel rebuild.
 
+### Running off SD vs. USB SSD
+
+The MLSS server's SQLite WAL plus sensor / weather / inference / photo writes
+will wear out a consumer SD card in 2-6 months. For 24/7 stability, migrate
+the root filesystem onto a USB-attached SSD. See
+[`docs/USB_SSD_BOOT_GUIDE.md`](docs/USB_SSD_BOOT_GUIDE.md) for the full
+hardware list and migration recipe (live `rsync`, no data loss, ~30 minutes).
+Pi Zero W grow units don't need this — they're write-light enough that SD is
+fine.
+
 ---
 
 ## Web interface
