@@ -77,7 +77,8 @@ class SafetyLoop:
                  uptime_provider: Optional[Callable[[], float]] = None,
                  buffer: Optional[Any] = None,
                  photo_buffer: Optional[Any] = None,
-                 state_path: Optional[str] = None) -> None:
+                 state_path: Optional[str] = None,
+                 override_state: Optional[Any] = None) -> None:
         self._sensors = sensors
         self._pump = pump
         self._light = light
@@ -85,6 +86,13 @@ class SafetyLoop:
         self._config = config
         self._emit = emit
         self._now = now_fn
+        # Pre-Phase-4 audit fix (Flow 3 #1): the safety_override
+        # `skip_next_soak` action sets a flag on this shared state, but
+        # the SafetyLoop never read it pre-fix — admin clicks were a
+        # silent no-op. Now the PID block consumes the flag at the top
+        # of each tick. None is allowed for backwards-compat with tests
+        # that don't care about overrides; the consume call is None-safe.
+        self._override_state = override_state
         self._pid_state = pid_state or PIDState(
             last_pulse_at=datetime(2000, 1, 1))
         # Phase 3 Task 7: persist PID integral + last_pulse_at across
@@ -241,8 +249,24 @@ class SafetyLoop:
                         self._pid_state.pump_cooldown_until,
                     )
                 else:
+                    # Pre-Phase-4 audit fix (Flow 3 #1): consume the
+                    # admin "skip next soak" override here so it
+                    # actually has an effect. The flag is consumed
+                    # once-per-tick via the atomic consume helper —
+                    # if no override has been set, this returns False
+                    # and pid_decide enforces the soak window normally.
+                    bypass_soak = (
+                        self._override_state is not None
+                        and self._override_state.consume_skip_next_soak()
+                    )
+                    if bypass_soak:
+                        log.info(
+                            "safety_override: skip_next_soak consumed — "
+                            "bypassing soak window for this tick",
+                        )
                     d = pid_decide(
                         pct, self._config.pid, self._pid_state, now,
+                        bypass_soak=bypass_soak,
                     )
                     if d.pulse_s > 0:
                         # Hard cap regardless of config.max_pulse_s. The

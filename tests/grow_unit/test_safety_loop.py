@@ -798,3 +798,147 @@ def test_safety_loop_does_not_save_when_in_deadband(tmp_path):
     # File still has the seeded values — no rewrite happened.
     on_disk = json.loads(state_path.read_text())
     assert on_disk == seed
+
+
+# ─── safety_override:skip_next_soak wiring (Bucket A3) ──────────────
+
+
+def test_skip_next_soak_bypasses_soak_window(tmp_path):
+    """Pre-Phase-4 audit fix (Flow 3 #1): when an admin sets the
+    skip_next_soak override, the next tick must bypass the soak-
+    window guard. Pre-fix the flag was set but never consumed —
+    PID happily kept enforcing the soak window."""
+    from mlss_grow.safety_override import SafetyOverrideState
+    sensor = MagicMock(
+        channels=lambda: ["soil_moisture"],
+        read=lambda: {"soil_moisture": 280},  # very dry → PID wants to fire
+        healthy=lambda: True,
+    )
+    pump = MagicMock(state=lambda: False)
+    light = MagicMock(state=lambda: False)
+
+    cfg = _basic_config()
+    cfg.soil_calibration = (200, 1500)
+    cfg.pid = PIDConfig(target_pct=55, kp=2.0, soak_window_min=60,
+                        min_pulse_s=2, max_pulse_s=8)
+
+    override = SafetyOverrideState()
+    override.skip_next_soak = True
+
+    # last_pulse_at is recent so we'd normally be in soak window
+    state = PIDState(last_pulse_at=datetime(2026, 5, 3, 11, 30))
+
+    loop = SafetyLoop(
+        sensors=[sensor], pump=pump, light=light, camera=None,
+        config=cfg, emit=lambda *a, **k: None,
+        now_fn=lambda: datetime(2026, 5, 3, 12, 0),  # 30min after last pulse
+        pid_state=state, override_state=override,
+        state_path=str(tmp_path / "state.json"),
+    )
+    loop.tick()
+
+    # Pulse fired despite being in the 60-minute soak window
+    pump.pulse.assert_called_once()
+    # Flag was consumed (now False)
+    assert override.skip_next_soak is False
+
+
+def test_no_skip_means_soak_window_still_enforced(tmp_path):
+    """Pin the inverse: without the override flag, the soak window
+    still blocks pulses (i.e. consume_skip_next_soak returning False
+    flows through to pid_decide's normal early-return)."""
+    from mlss_grow.safety_override import SafetyOverrideState
+    sensor = MagicMock(
+        channels=lambda: ["soil_moisture"],
+        read=lambda: {"soil_moisture": 280},
+        healthy=lambda: True,
+    )
+    pump = MagicMock(state=lambda: False)
+    light = MagicMock(state=lambda: False)
+
+    cfg = _basic_config()
+    cfg.soil_calibration = (200, 1500)
+    cfg.pid = PIDConfig(target_pct=55, kp=2.0, soak_window_min=60,
+                        min_pulse_s=2, max_pulse_s=8)
+
+    override = SafetyOverrideState()  # no flag set
+
+    state = PIDState(last_pulse_at=datetime(2026, 5, 3, 11, 30))
+
+    loop = SafetyLoop(
+        sensors=[sensor], pump=pump, light=light, camera=None,
+        config=cfg, emit=lambda *a, **k: None,
+        now_fn=lambda: datetime(2026, 5, 3, 12, 0),
+        pid_state=state, override_state=override,
+        state_path=str(tmp_path / "state.json"),
+    )
+    loop.tick()
+
+    # No pulse — still in soak window, no override
+    pump.pulse.assert_not_called()
+
+
+def test_safety_loop_works_without_override_state(tmp_path):
+    """Backwards-compat: existing tests + non-production callers don't
+    pass override_state. The consume call must be None-safe."""
+    sensor = MagicMock(
+        channels=lambda: ["soil_moisture"],
+        read=lambda: {"soil_moisture": 612},
+        healthy=lambda: True,
+    )
+    pump = MagicMock(state=lambda: False)
+    light = MagicMock(state=lambda: False)
+
+    cfg = _basic_config()
+    cfg.soil_calibration = (200, 1500)
+
+    loop = SafetyLoop(
+        sensors=[sensor], pump=pump, light=light, camera=None,
+        config=cfg, emit=lambda *a, **k: None,
+        now_fn=lambda: datetime(2026, 5, 3, 12, 0),
+        # override_state intentionally omitted
+        state_path=str(tmp_path / "state.json"),
+    )
+    loop.tick()  # must not raise
+
+
+# ─── Product-policy default pinning (Bucket B3) ──────────────────
+
+
+def test_loop_config_default_photo_active_hours_is_none():
+    """Pre-Phase-4 audit fix Bug 5 regression guard: the firmware
+    default for photo_active_hours is None (capture 24/7), NOT
+    (6, 22) — the original wall-clock-based default was an
+    assumption bug that gave the user a 22:00–06:00 photo gap.
+    Now that this is configurable per-unit via the photo-schedule
+    editor, the firmware-level default must remain None.
+
+    See docs/superpowers/audits/2026-05-08-grow-e2e-gap-analysis.md
+    Bug 5 + commit b9aef67 for the original fix."""
+    cfg = LoopConfig(
+        light_windows=[parse_window("06:00", "22:00")],
+        pid=PIDConfig(target_pct=55),
+    )
+    assert cfg.photo_active_hours is None
+
+
+def test_loop_config_default_photo_interval_min_is_30():
+    """Default cadence is 30 minutes. This is hardcoded in firmware
+    until/unless someone wires up the half-built photo_interval_min_override
+    column (audit Flow 4 #1). The pin is here so a future refactor
+    that changes the constant has to update this test deliberately."""
+    cfg = LoopConfig(
+        light_windows=[parse_window("06:00", "22:00")],
+        pid=PIDConfig(target_pct=55),
+    )
+    assert cfg.photo_interval_min == 30
+
+
+def test_loop_config_default_holiday_mode_is_false():
+    """Pin: a fresh LoopConfig is NOT in holiday mode. A regression
+    here would silently disable watering on every fresh boot."""
+    cfg = LoopConfig(
+        light_windows=[parse_window("06:00", "22:00")],
+        pid=PIDConfig(target_pct=55),
+    )
+    assert cfg.holiday_mode is False

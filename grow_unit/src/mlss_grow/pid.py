@@ -56,12 +56,25 @@ _INTEGRAL_CLAMP = 100  # anti-windup
 
 
 def pid_decide(current_pct: float, config: PIDConfig, state: PIDState,
-               now: datetime, tick_seconds: float = 30) -> Decision:
+               now: datetime, tick_seconds: float = 30,
+               bypass_soak: bool = False) -> Decision:
+    """Compute the watering decision for this tick.
+
+    `bypass_soak` is the admin-side `safety_override:skip_next_soak`
+    escape hatch: when True, the in-soak-window early-return is
+    skipped for this tick only. The flag is consumed once per
+    invocation; the safety loop is responsible for not passing it
+    twice in a row (see SafetyOverrideState.consume_skip_next_soak,
+    which atomically reads + clears).
+    """
     error = config.target_pct - current_pct
     if error <= config.deadband_pct:
         return Decision(pulse_s=0, reason="within_deadband")
 
-    if (now - state.last_pulse_at) < timedelta(minutes=config.soak_window_min):
+    if (not bypass_soak
+            and (now - state.last_pulse_at) < timedelta(
+                minutes=config.soak_window_min,
+            )):
         return Decision(pulse_s=0, reason="in_soak_window")
 
     # Update integral with anti-windup
