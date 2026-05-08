@@ -110,6 +110,146 @@ def _read_with_health(sensor, channel_name: str):
     return reading, "connected"
 
 
+# ─── Capability declaration helpers ──────────────────────────────────
+# Required channels (per Channel enum + spec): every unit declares these
+# four even when hardware is absent (health="no_hardware"), so the UI
+# can render grey-out tiles consistently. Optional channels are only
+# emitted when their sensor is actually present.
+_REQUIRED_CHANNELS = ("soil_moisture", "light", "pump", "camera")
+
+# Display unit per channel — surfaced as `Capability.unit_label` so the
+# UI doesn't have to maintain its own lookup. Empty string for booleans
+# (light/pump state) and the camera (no scalar value).
+_CHANNEL_UNIT_LABELS = {
+    "soil_moisture": "raw",
+    "soil_temp_c": "°C",
+    "ambient_lux": "lux",
+    "air_temp_c": "°C",
+    "air_humidity_pct": "%",
+    "reservoir_level_pct": "%",
+    "light": "",
+    "pump": "",
+    "camera": "",
+}
+
+
+def _build_capabilities(
+    *, sensors: list, sensor_healths: dict, pump, pump_health: str,
+    light, light_health: str, camera, camera_health: str,
+    hardware_serial: str,
+) -> list[dict]:
+    """Build the per-channel capability list emitted in the boot frame.
+
+    Walks the wired-up hardware + the health states recorded by
+    `_try_init_with_health` / `_read_with_health` and produces one entry
+    per channel the unit declares. Always emits the four REQUIRED
+    channels (soil_moisture, light, pump, camera), even when their
+    health is `no_hardware`, so the UI can render greyed tiles for
+    missing required hardware. Optional sensor channels (soil_temp_c,
+    ambient_lux, etc.) are only emitted when their sensor is present.
+
+    Args:
+        sensors: list of Sensor instances that successfully initialised
+                 (init may have succeeded but read may have failed —
+                 those carry health="no_hardware" via sensor_healths).
+        sensor_healths: dict mapping sensor → health string. Sensors
+                        that failed init are NOT in `sensors`; their
+                        absence means each declared channel falls
+                        through to `no_hardware`.
+        pump / light / camera: driver instance or None.
+        pump_health / light_health / camera_health: health string from
+                        the matching `_try_init_with_health` call.
+        hardware_serial: Pi's hardware serial (`/proc/cpuinfo`-derived).
+
+    Returns:
+        A list of dicts shaped to match `mlss_contracts.Capability`
+        (channel / hardware / is_required / unit_label / details / health).
+    """
+    out: list[dict] = []
+    seen_channels: set[str] = set()
+
+    # Sensors — emit one entry per declared channel.
+    for sensor in sensors:
+        health = sensor_healths.get(id(sensor), "untested")
+        for ch in sensor.channels():
+            seen_channels.add(ch)
+            details = None
+            # Surface I2C address for sensors that expose one — handy for
+            # ops debugging when a sensor stops responding ("which 0x36
+            # device is misbehaving?"). The seesaw is the only one
+            # currently emitting, but the pattern generalises.
+            i2c_addr = getattr(sensor, "_driver", None)
+            if i2c_addr is not None and hasattr(i2c_addr, "address"):
+                try:
+                    details = {"i2c_address": f"0x{i2c_addr.address:02x}"}
+                except Exception:  # noqa: BLE001
+                    details = None
+            out.append({
+                "channel": ch,
+                "hardware": type(sensor).__name__,
+                "is_required": ch in _REQUIRED_CHANNELS,
+                "unit_label": _CHANNEL_UNIT_LABELS.get(ch, ""),
+                "details": details,
+                "health": health,
+            })
+
+    # Actuators — pump, light. Always emit (required channels), with
+    # health "no_hardware" when init failed.
+    out.append({
+        "channel": "pump",
+        "hardware": type(pump).__name__ if pump is not None else "AutomationPHATPump",
+        "is_required": True,
+        "unit_label": _CHANNEL_UNIT_LABELS["pump"],
+        "details": None,
+        "health": pump_health,
+    })
+    seen_channels.add("pump")
+
+    out.append({
+        "channel": "light",
+        "hardware": type(light).__name__ if light is not None else "AutomationPHATLight",
+        "is_required": True,
+        "unit_label": _CHANNEL_UNIT_LABELS["light"],
+        "details": None,
+        "health": light_health,
+    })
+    seen_channels.add("light")
+
+    # Camera — required, but unlike actuators "untested" doesn't quite
+    # fit (a successfully-initialised picamera2 is functionally
+    # equivalent to "connected" — the only failure mode beyond init is
+    # the picamera2 daemon dying mid-capture, which would surface as a
+    # photo-frame error not a capability state).
+    out.append({
+        "channel": "camera",
+        "hardware": type(camera).__name__ if camera is not None else "Camera",
+        "is_required": True,
+        "unit_label": _CHANNEL_UNIT_LABELS["camera"],
+        "details": None,
+        "health": camera_health,
+    })
+    seen_channels.add("camera")
+
+    # Required channels with no producer at all — emit a no_hardware
+    # placeholder so the UI gets a row to grey out. Currently the only
+    # required sensor channel is `soil_moisture`; if it didn't show up
+    # in any wired sensor the unit has no soil sensor, which is the
+    # camera-only first-deployment posture.
+    for ch in _REQUIRED_CHANNELS:
+        if ch in seen_channels:
+            continue
+        out.append({
+            "channel": ch,
+            "hardware": "unknown",
+            "is_required": True,
+            "unit_label": _CHANNEL_UNIT_LABELS.get(ch, ""),
+            "details": None,
+            "health": "no_hardware",
+        })
+
+    return out
+
+
 @dataclass
 class BootstrappedState:
     unit_id: int
@@ -312,6 +452,12 @@ async def _run_main_loop(state: BootstrappedState) -> None:
     # the UI greys out controls for hardware that didn't come up. The
     # firmware is happy to run with just a camera, just a soil sensor,
     # just actuators, or any subset.
+    #
+    # We use _try_init_with_health / _read_with_health here so each
+    # piece carries a health string forward into the capabilities frame
+    # — a refactor from the old pattern where init swallowed exceptions
+    # silently and the UI couldn't tell the difference between "unwired
+    # hardware" and "I just haven't tested this yet".
     try:
         i2c = busio.I2C(board.SCL, board.SDA)
     except Exception as exc:
@@ -320,32 +466,48 @@ async def _run_main_loop(state: BootstrappedState) -> None:
                     "to enable I2C.", exc)
         i2c = None
 
+    sensor_healths: dict = {}  # id(sensor) → "connected" | "no_hardware"
     if i2c is not None:
         try:
-            sensors = auto_detect(i2c)
+            detected = auto_detect(i2c)
         except Exception as exc:
             log.warning("sensor auto-detect failed: %s — no sensors active", exc)
-            sensors = []
+            detected = []
     else:
-        sensors = []
+        detected = []
 
-    try:
-        pump = AutomationPHATPump()
-    except Exception as exc:
-        log.warning("pump init failed: %s — pump unavailable", exc)
-        pump = None
+    # Probe each detected sensor with a single read to confirm it's
+    # actually emitting data. Sensors that fail the read are dropped
+    # from the active list (so safety_loop doesn't include them in
+    # telemetry) but tracked separately so capabilities still
+    # surface "no_hardware" for their declared channels.
+    sensors = []
+    for sensor in detected:
+        sensor_name = type(sensor).__name__
+        reading, health = _read_with_health(sensor, sensor_name)
+        sensor_healths[id(sensor)] = health
+        if health == "connected":
+            sensors.append(sensor)
+        # Sensors that failed the first read still show up in the
+        # capabilities frame (so the UI knows the channel exists but
+        # is dead) — keep them in `detected` for the capabilities
+        # builder. They're NOT added to `sensors` so the safety_loop
+        # never tries to call .read() on them again.
+    detected_for_caps = detected  # pass to _build_capabilities
 
-    try:
-        light = AutomationPHATLight()
-    except Exception as exc:
-        log.warning("light init failed: %s — light unavailable", exc)
-        light = None
-
+    pump, pump_health = _try_init_with_health(AutomationPHATPump, "pump")
+    light, light_health = _try_init_with_health(AutomationPHATLight, "light")
+    # Camera.detect returns None on no hardware (instead of raising), so
+    # adapt: treat None as the "no_hardware" health, an instance as
+    # "connected" (picamera2 init has already succeeded if we got an
+    # instance back).
     try:
         camera = Camera.detect()
-    except Exception as exc:
-        log.warning("camera init failed: %s — photos disabled", exc)
+        camera_health = "connected" if camera is not None else "no_hardware"
+    except Exception as exc:  # noqa: BLE001
+        log.warning("camera detect failed: %s — photos disabled", exc)
         camera = None
+        camera_health = "no_hardware"
 
     # Default config until MLSS sends an explicit one. The first
     # `config_changed` push (or the first explicit pull) replaces the
@@ -398,6 +560,31 @@ async def _run_main_loop(state: BootstrappedState) -> None:
         photo_buffer=photo_buffer,
     )
 
+    # Build + emit the capabilities frame ONCE at boot. send_text falls
+    # through to the local buffer when the WS isn't connected yet, so
+    # the frame is held + replayed on first connection. The server's
+    # handle_capabilities is idempotent (DELETE+INSERT), so re-emits
+    # don't duplicate rows. Without this frame, every downstream UI
+    # (Live readings tiles, sensor sanity panel, health pills,
+    # firmware_version) renders empty even when telemetry is streaming.
+    capabilities_payload = {
+        "capabilities": _build_capabilities(
+            sensors=detected_for_caps,
+            sensor_healths=sensor_healths,
+            pump=pump, pump_health=pump_health,
+            light=light, light_health=light_health,
+            camera=camera, camera_health=camera_health,
+            hardware_serial=get_hardware_serial(),
+        ),
+        "firmware_version": _get_firmware_version(),
+        "hardware_serial": get_hardware_serial(),
+        "uptime_s": _service_uptime_s(),
+    }
+    log.info("emitting capabilities frame: %d channels (%s)",
+             len(capabilities_payload["capabilities"]),
+             ", ".join(c["channel"] for c in capabilities_payload["capabilities"]))
+    await ws.send_text("capabilities", datetime.utcnow(), capabilities_payload)
+
     # Shared state between dispatcher (writer) and safety loop (reader)
     # for safety_override. The safety loop polls
     # override_state.consume_skip_next_soak each tick.
@@ -420,6 +607,11 @@ async def _run_main_loop(state: BootstrappedState) -> None:
         # .size() each tick.
         uptime_provider=_service_uptime_s,
         buffer=ws._buffer,
+        # Pre-Phase-4 audit fix (Flow 3 #1): wire the shared override
+        # state so the safety loop actually consumes the
+        # `skip_next_soak` flag the dispatcher sets. Pre-fix this was
+        # a dead branch — admin clicks set the flag but no reader.
+        override_state=override_state,
     )
 
     # Bundle of state the dispatcher needs. Reuses https_base_url so

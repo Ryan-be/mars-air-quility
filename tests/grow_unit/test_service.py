@@ -141,3 +141,136 @@ def test_build_reconnect_sync_swallows_apply_failure():
         )
         # Must not raise.
         sync()
+
+
+# ─── Capability frame building (Bucket A1) ────────────────────────
+
+
+from mlss_grow.service import _build_capabilities
+
+
+class _FakeSensor:
+    """Test stub mirroring Sensor.channels() — minimal surface so
+    _build_capabilities can iterate it. Mirrors the real SeesawSoilSensor's
+    multi-channel emit (one driver, two channels)."""
+    def __init__(self, channels_list):
+        self._channels = channels_list
+
+    def channels(self):
+        return self._channels
+
+
+def test_build_capabilities_camera_only_posture():
+    """Pi user's first-deployment posture: camera detected but no
+    soil sensor / pHAT wired. Should emit the four required channels
+    with health="no_hardware" for the missing three."""
+    caps = _build_capabilities(
+        sensors=[],
+        sensor_healths={},
+        pump=None, pump_health="no_hardware",
+        light=None, light_health="no_hardware",
+        camera=object(), camera_health="connected",
+        hardware_serial="abc123",
+    )
+    by_channel = {c["channel"]: c for c in caps}
+    assert set(by_channel) == {"pump", "light", "camera", "soil_moisture"}
+    assert by_channel["camera"]["health"] == "connected"
+    assert by_channel["pump"]["health"] == "no_hardware"
+    assert by_channel["light"]["health"] == "no_hardware"
+    assert by_channel["soil_moisture"]["health"] == "no_hardware"
+    # All required
+    assert all(c["is_required"] for c in caps)
+
+
+def test_build_capabilities_full_deployment():
+    """Soil sensor + pump + light + camera all wired and reading."""
+    sensor = _FakeSensor(["soil_moisture", "soil_temp_c"])
+    caps = _build_capabilities(
+        sensors=[sensor],
+        sensor_healths={id(sensor): "connected"},
+        pump=object(), pump_health="untested",
+        light=object(), light_health="untested",
+        camera=object(), camera_health="connected",
+        hardware_serial="abc123",
+    )
+    by_channel = {c["channel"]: c for c in caps}
+    # Required + optional sensor channel both present
+    assert set(by_channel) == {
+        "pump", "light", "camera", "soil_moisture", "soil_temp_c",
+    }
+    assert by_channel["soil_moisture"]["health"] == "connected"
+    assert by_channel["soil_moisture"]["is_required"] is True
+    # Optional sensor channel
+    assert by_channel["soil_temp_c"]["health"] == "connected"
+    assert by_channel["soil_temp_c"]["is_required"] is False
+    # Actuators are "untested" until first command echo
+    assert by_channel["pump"]["health"] == "untested"
+    assert by_channel["light"]["health"] == "untested"
+
+
+def test_build_capabilities_dead_sensor_still_declares_channels():
+    """A sensor that detected on the bus but failed first-read still
+    declares its channels — the UI needs to know the channel exists
+    even if it's currently broken."""
+    sensor = _FakeSensor(["soil_moisture"])
+    caps = _build_capabilities(
+        sensors=[sensor],
+        sensor_healths={id(sensor): "no_hardware"},
+        pump=None, pump_health="no_hardware",
+        light=None, light_health="no_hardware",
+        camera=None, camera_health="no_hardware",
+        hardware_serial="abc123",
+    )
+    by_channel = {c["channel"]: c for c in caps}
+    assert by_channel["soil_moisture"]["health"] == "no_hardware"
+    # Still has hardware metadata so ops debugging knows what driver was tried
+    assert by_channel["soil_moisture"]["hardware"] == "_FakeSensor"
+
+
+def test_build_capabilities_required_channels_always_emitted():
+    """Even with zero hardware, the four required channels must all
+    appear (the placeholder 'unknown' hardware path) so the UI tile
+    grid renders consistently across postures."""
+    caps = _build_capabilities(
+        sensors=[],
+        sensor_healths={},
+        pump=None, pump_health="no_hardware",
+        light=None, light_health="no_hardware",
+        camera=None, camera_health="no_hardware",
+        hardware_serial="abc123",
+    )
+    required = {"soil_moisture", "light", "pump", "camera"}
+    assert required.issubset({c["channel"] for c in caps})
+    # The soil_moisture placeholder uses "unknown" as the hardware
+    soil = next(c for c in caps if c["channel"] == "soil_moisture")
+    assert soil["hardware"] == "unknown"
+
+
+def test_build_capabilities_payload_validates_against_contract():
+    """Round-trip the firmware-built dicts through the pydantic
+    Capability + CapabilitiesPayload models so a future contract
+    change (e.g. a new required field) breaks here, not in production."""
+    from mlss_contracts.ws_messages import CapabilitiesPayload
+
+    sensor = _FakeSensor(["soil_moisture", "soil_temp_c"])
+    caps = _build_capabilities(
+        sensors=[sensor],
+        sensor_healths={id(sensor): "connected"},
+        pump=object(), pump_health="untested",
+        light=object(), light_health="untested",
+        camera=object(), camera_health="connected",
+        hardware_serial="abc123",
+    )
+    # CapabilitiesPayload(capabilities=caps, ...) raises ValidationError
+    # on any drift — channel must match the Channel enum, health must
+    # match the CapabilityHealth literal, etc.
+    payload = CapabilitiesPayload(
+        capabilities=caps,
+        firmware_version="1.0.0",
+        hardware_serial="abc123",
+        uptime_s=1.5,
+    )
+    # Ensure the round-trip preserves every channel
+    assert {c.channel.value for c in payload.capabilities} == {
+        c["channel"] for c in caps
+    }
