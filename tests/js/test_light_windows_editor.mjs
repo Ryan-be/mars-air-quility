@@ -207,3 +207,69 @@ test("light-windows editor: caps at 8 windows per phase (Add disables)", () => {
   assert.ok(addBtn);
   assert.equal(addBtn.disabled, true, "Add disabled at 8 windows");
 });
+
+
+// ─── Accordion behaviour (design-critique #12) ────────────────────
+
+
+test("accordion: current phase open by default, others collapsed", () => {
+  const el = renderLightWindowsEditor({
+    id: 7, light_windows: {}, current_phase: "vegetative",
+  }, { ownerDocument: document });
+  // The current phase's <details> has the `open` attribute
+  const veg = el.querySelector("[data-testid='lw-phase-vegetative']");
+  assert.ok(veg.hasAttribute("open"),
+    "vegetative (current phase) should be open by default");
+  // Other phases are NOT open
+  for (const phase of ["seedling", "flowering", "fruiting", "dormant"]) {
+    const group = el.querySelector(`[data-testid='lw-phase-${phase}']`);
+    assert.ok(!group.hasAttribute("open"),
+      `${phase} should be collapsed by default`);
+  }
+});
+
+
+test("accordion: current phase shows 'current' tag", () => {
+  const el = renderLightWindowsEditor({
+    id: 7, light_windows: {}, current_phase: "flowering",
+  }, { ownerDocument: document });
+  const flowering = el.querySelector("[data-testid='lw-phase-flowering']");
+  assert.match(flowering.querySelector("summary").textContent, /current/i);
+  // Non-current phases don't carry the tag
+  const seedling = el.querySelector("[data-testid='lw-phase-seedling']");
+  assert.doesNotMatch(seedling.querySelector("summary").textContent, /current/i);
+});
+
+
+test("accordion: summary hint reports window count or 'profile default'", () => {
+  const el = renderLightWindowsEditor({
+    id: 7,
+    light_windows: {
+      vegetative: [
+        { start: "06:00", end: "12:00" },
+        { start: "14:00", end: "20:00" },
+      ],
+    },
+    current_phase: "vegetative",
+  }, { ownerDocument: document });
+  const vegHint = el.querySelector(
+    "[data-testid='lw-summary-hint-vegetative']"
+  );
+  assert.match(vegHint.textContent, /2 windows/);
+  // Empty phase reports profile-default
+  const seedlingHint = el.querySelector(
+    "[data-testid='lw-summary-hint-seedling']"
+  );
+  assert.match(seedlingHint.textContent.toLowerCase(), /default|inheriting/);
+});
+
+
+test("accordion: defaults to vegetative when current_phase is missing", () => {
+  // Backward-compat: tests that pre-date the accordion don't pass
+  // current_phase. We default to 'vegetative' so behaviour is consistent.
+  const el = renderLightWindowsEditor({
+    id: 7, light_windows: {},
+  }, { ownerDocument: document });
+  const veg = el.querySelector("[data-testid='lw-phase-vegetative']");
+  assert.ok(veg.hasAttribute("open"));
+});

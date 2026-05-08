@@ -55,3 +55,34 @@ test("low moisture renders warn variant", () => {
     .find(t => /Moisture/i.test(t.textContent));
   assert.match(moistTile.querySelector(".v").className, /warn/);
 });
+
+
+test("empty unit (no capabilities, no telemetry) shows placeholder", () => {
+  // Camera-only first-deployment posture (design-critique #9): the
+  // panel previously rendered a header-only empty div which looked
+  // broken / failed-to-load. Now it renders a friendly explainer.
+  const unit = {
+    capabilities: [],
+    last_known_state: null,
+  };
+  const el = renderLiveReadings(unit, document);
+  const empty = el.querySelector("[data-testid='live-readings-empty']");
+  assert.ok(empty, "empty-state placeholder rendered");
+  assert.match(empty.textContent, /no telemetry/i);
+});
+
+
+test("capabilities present but values null shows placeholder", () => {
+  // Capabilities reported but no readings yet (e.g. sensor wired but
+  // not initialised) — same UX: don't show an empty tile grid.
+  const unit = {
+    capabilities: [
+      { channel: "soil_moisture", is_required: true, unit_label: "raw" },
+    ],
+    last_known_state: { soil_moisture_pct: null, light_state: null },
+  };
+  const el = renderLiveReadings(unit, document);
+  // No tiles rendered → empty state should appear
+  const empty = el.querySelector("[data-testid='live-readings-empty']");
+  assert.ok(empty);
+});

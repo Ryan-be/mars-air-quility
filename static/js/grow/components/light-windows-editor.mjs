@@ -46,6 +46,7 @@ function _validateWindow(start, end) {
 export function renderLightWindowsEditor(unit, opts = {}) {
   const doc = opts.ownerDocument || document;
   const lwIn = unit.light_windows || {};
+  const currentPhase = unit.current_phase || "vegetative";
 
   const wrap = doc.createElement("div");
   wrap.className = "du-panel cfg-light-windows";
@@ -65,23 +66,47 @@ export function renderLightWindowsEditor(unit, opts = {}) {
   const state = {};
   for (const phase of PHASES) {
     state[phase] = [...(lwIn[phase] || [])];
-    form.appendChild(_buildPhaseGroup(doc, unit, phase, state));
+    form.appendChild(_buildPhaseGroup(doc, unit, phase, state, currentPhase));
   }
 
   return wrap;
 }
 
 
-function _buildPhaseGroup(doc, unit, phase, state) {
-  const group = doc.createElement("div");
+function _buildPhaseGroup(doc, unit, phase, state, currentPhase) {
+  // Design-critique #12: each phase becomes a <details> accordion. The
+  // current phase opens by default; the four others stay collapsed so
+  // operators don't see ten Add/Save buttons (5 phases × 2 each) when
+  // only one phase is active. Native <details> means keyboard + screen-
+  // reader support are free, and the summary is clickable as a whole.
+  const group = doc.createElement("details");
   group.className = "cfg-lw-phase";
   group.dataset.testid = `lw-phase-${phase}`;
+  if (phase === currentPhase) {
+    group.open = true;
+  }
 
-  const head = doc.createElement("div");
+  const head = doc.createElement("summary");
   head.className = "cfg-lw-phase-head";
   const title = doc.createElement("strong");
   title.textContent = phase.charAt(0).toUpperCase() + phase.slice(1);
   head.appendChild(title);
+  if (phase === currentPhase) {
+    const tag = doc.createElement("span");
+    tag.className = "cfg-lw-current-tag";
+    tag.textContent = "current";
+    head.appendChild(tag);
+  }
+  // Status hint inside the summary so collapsed sections still tell you
+  // whether they have a custom schedule or are inheriting the default.
+  const summaryHint = doc.createElement("span");
+  summaryHint.className = "cfg-lw-summary-hint";
+  summaryHint.dataset.testid = `lw-summary-hint-${phase}`;
+  const haveCustom = (state[phase] && state[phase].length > 0);
+  summaryHint.textContent = haveCustom
+    ? `${state[phase].length} window${state[phase].length === 1 ? "" : "s"}`
+    : "using profile default";
+  head.appendChild(summaryHint);
   group.appendChild(head);
 
   const rowsHost = doc.createElement("div");
@@ -132,6 +157,12 @@ function _buildPhaseGroup(doc, unit, phase, state) {
     empty.style.display = state[phase].length === 0 ? "" : "none";
     // Cap Add at MAX_WINDOWS_PER_PHASE
     addBtn.disabled = state[phase].length >= MAX_WINDOWS_PER_PHASE;
+    // Keep the accordion summary hint in sync with row count so collapsed
+    // sections always tell you whether they're "using profile default"
+    // vs "N windows" without having to expand them.
+    summaryHint.textContent = state[phase].length > 0
+      ? `${state[phase].length} window${state[phase].length === 1 ? "" : "s"}`
+      : "using profile default";
   }
 
   addBtn.addEventListener("click", () => {

@@ -102,9 +102,19 @@ export function renderPIDEditor(unit, opts = {}) {
     input.placeholder = "(default)";
     row.appendChild(input);
 
+    // Status dot (design-critique #13): replaces the previous "(DEFAULT)"
+    // / "(CUSTOM)" text badge — that label was duplicative with the
+    // input's "(default)" placeholder text. The dot is filled when an
+    // override is active (custom value), hollow when inheriting the
+    // plant-profile default. Hover shows the descriptive label so
+    // accessibility / screen-reader users still get the verbose text.
     const badge = doc.createElement("span");
     badge.className = "cfg-badge " + (overrideVal == null ? "default" : "custom");
     badge.textContent = overrideVal == null ? "(default)" : "(custom)";
+    badge.title = overrideVal == null
+      ? "Inheriting plant-profile default"
+      : "Custom override active for this unit";
+    badge.setAttribute("aria-label", badge.title);
     row.appendChild(badge);
 
     const reset = doc.createElement("button");

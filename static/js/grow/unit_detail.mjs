@@ -41,8 +41,13 @@ export function renderDetailHeader(unit, doc = document) {
   phasePill.textContent = (unit.current_phase || "").toUpperCase();
   title.appendChild(phasePill);
 
+  // Medium pill uses the .medium variant so the three header pills
+  // (phase / medium / status) all read as a uniform pill row varying
+  // only by color category. Without the .medium class the pill picks
+  // up the blue-accent base color, which clashed with the green phase
+  // pill + green status pill (design-critique #5).
   const mediumPill = doc.createElement("span");
-  mediumPill.className = "du-pill";
+  mediumPill.className = "du-pill medium";
   const dayCount = unit.sown_at
     ? Math.floor((Date.now() - new Date(unit.sown_at).getTime()) / 86400000)
     : null;
@@ -130,7 +135,22 @@ export function renderLiveReadings(unit, doc = document) {
     grid.appendChild(tile);
   }
 
-  wrap.appendChild(grid);
+  // Empty-state placeholder (design-critique #9): when no capabilities
+  // have produced readable telemetry yet (camera-only deployment, or
+  // brand-new unit before its first telemetry frame), render a friendly
+  // explainer instead of an empty header — the empty grid was making
+  // the panel look broken / failed-to-load.
+  if (!grid.hasChildNodes()) {
+    const empty = doc.createElement("div");
+    empty.className = "du-empty-state";
+    empty.dataset.testid = "live-readings-empty";
+    empty.textContent =
+      "No telemetry yet. Connect a soil / temperature / light sensor on " +
+      "the unit, or wait for the first reading to arrive.";
+    wrap.appendChild(empty);
+  } else {
+    wrap.appendChild(grid);
+  }
   return wrap;
 }
 
