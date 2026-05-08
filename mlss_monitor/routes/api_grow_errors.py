@@ -11,6 +11,12 @@ Two endpoints on this blueprint:
       - kind (string)
       - since (ISO8601 timestamp)
       - limit (int, default 100, hard cap 500)
+      - include_reconnects (bool, default false) — by default we filter
+        out info-severity unit-reconnect events, which would otherwise
+        dominate the page (Diagnostics → Connection log is the canonical
+        home for that churn — see design-critique #19). Setting this
+        to true brings them back. An explicit `kind=online` filter
+        also bypasses the noise filter (admin asking for them).
     Snoozed rows are NOT filtered out server-side; the client renders
     them muted when snoozed_until > now. Keeping the API simple this way
     means admins can still see + un-snooze them, and the muted vs
@@ -90,6 +96,15 @@ def list_errors():
         limit = _DEFAULT_LIMIT
     limit = min(limit, _MAX_LIMIT)
 
+    # include_reconnects (default false) — design-critique #19. By default
+    # filter out info-severity unit-reconnect events; they drown out the
+    # actual alerts on /grow/errors. Diagnostics → Connection log is the
+    # canonical home for that churn. An explicit `kind=online` filter
+    # bypasses the noise filter (admin actively asked for them, so don't
+    # second-guess).
+    include_reconnects_raw = (args.get("include_reconnects") or "").strip().lower()
+    include_reconnects = include_reconnects_raw in ("1", "true", "yes")
+
     # Build the query. JOIN to grow_units so each row carries unit_label.
     where = []
     params = []
@@ -107,6 +122,11 @@ def list_errors():
     if since_dt is not None:
         where.append("e.timestamp_utc >= ?")
         params.append(since_dt)
+    # Suppress reconnect noise unless either:
+    #   * include_reconnects=1 query param is set, OR
+    #   * the caller explicitly filtered on kind=online (so they want them)
+    if not include_reconnects and kind != "online":
+        where.append("NOT (e.kind='online' AND e.severity='info')")
 
     where_sql = ("WHERE " + " AND ".join(where)) if where else ""
     sql = (

@@ -98,6 +98,11 @@ def _insert_error(
 
 
 def test_returns_all_when_no_filters(client):
+    """Default response excludes info-severity reconnect noise (kind=online).
+    With three rows seeded — one info/online, one warning/offline,
+    one warning/sensor_degraded — the default response returns the
+    two warnings; the info/online row is filtered out (design-critique
+    #19). Use include_reconnects=1 to bring it back."""
     c, db_path = client
     _insert_error(db_path, kind="online", severity="info", message="up")
     _insert_error(db_path, kind="offline", severity="warning", message="down")
@@ -105,7 +110,51 @@ def test_returns_all_when_no_filters(client):
     r = c.get("/api/grow/errors")
     assert r.status_code == 200, r.data
     rows = r.get_json()
-    assert len(rows) == 3
+    # Default: noise filter excludes info/online; only the two warning rows remain.
+    assert len(rows) == 2
+    assert {r["kind"] for r in rows} == {"offline", "sensor_degraded"}
+
+
+def test_default_filters_out_info_severity_reconnect_events(client):
+    """Pin the noise filter: kind=online + severity=info is excluded by
+    default. A warning-severity online event would NOT be filtered (only
+    info-severity counts as noise)."""
+    c, db_path = client
+    _insert_error(db_path, kind="online", severity="info", message="up1")
+    _insert_error(db_path, kind="online", severity="info", message="up2")
+    _insert_error(db_path, kind="online", severity="warning",
+                  message="reconnected unexpectedly")
+    r = c.get("/api/grow/errors")
+    rows = r.get_json()
+    # Two info-severity online filtered out; the warning-severity one kept.
+    assert len(rows) == 1
+    assert rows[0]["severity"] == "warning"
+
+
+def test_include_reconnects_param_brings_noise_back(client):
+    """Power-user opt-in: ?include_reconnects=1 returns info/online too."""
+    c, db_path = client
+    _insert_error(db_path, kind="online", severity="info", message="up")
+    _insert_error(db_path, kind="sensor_degraded", severity="warning", message="d")
+    r = c.get("/api/grow/errors?include_reconnects=1")
+    rows = r.get_json()
+    assert len(rows) == 2
+
+
+def test_explicit_kind_online_filter_bypasses_noise_filter(client):
+    """If the caller explicitly filters on kind=online they're actively
+    asking for those rows — don't second-guess by also applying the
+    noise filter."""
+    c, db_path = client
+    _insert_error(db_path, kind="online", severity="info", message="up1")
+    _insert_error(db_path, kind="online", severity="info", message="up2")
+    _insert_error(db_path, kind="sensor_degraded", severity="warning", message="d")
+    r = c.get("/api/grow/errors?kind=online")
+    rows = r.get_json()
+    # Explicit kind=online filter ⇒ both online rows returned despite
+    # being info-severity (the user clearly wants them).
+    assert len(rows) == 2
+    assert all(row["kind"] == "online" for row in rows)
 
 
 def test_unresolved_only_filters_resolved_out(client):
