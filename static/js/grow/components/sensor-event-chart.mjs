@@ -1,21 +1,46 @@
 /**
  * Sensor-event chart: moisture % line + watering event vertical bars.
- * Uses Plotly (already loaded by base.html) for the actual rendering.
- * Reusable for any (sensor series, discrete events, target band) chart.
+ * Uses Plotly (already loaded by base.html / grow_unit_detail.html) for
+ * the actual rendering. Reusable for any (sensor series, discrete
+ * events, target band) chart.
+ *
+ * Defensive about input shape: the /history endpoint returns the
+ * events array under the key `watering_events` (not `events`); raw
+ * moisture rows use `pct` while downsampled rows use `pct_avg`.
+ * Handle both. An empty unit (no data yet) shows a placeholder
+ * rather than crashing — important for the camera-only first-
+ * deployment posture where moisture readings don't exist yet.
  */
 
 export function renderSensorEventChart(container, data) {
-  const { moisture, events, targetPct = 55, deadband = 5 } = data;
+  // Accept both the API contract (`watering_events`) and the legacy
+  // shorthand (`events`). Default empty array so a unit with no data
+  // renders an empty chart instead of throwing on undefined.map().
+  const moisture = data.moisture || [];
+  const events = data.watering_events || data.events || [];
+  const targetPct = data.targetPct ?? 55;
+  const deadband = data.deadband ?? 5;
 
   if (typeof Plotly === "undefined") {
     container.textContent = "Plotly not loaded";
     return;
   }
 
+  if (moisture.length === 0 && events.length === 0) {
+    // Camera-only / brand-new unit: nothing to chart yet. Render a
+    // soft placeholder so the panel doesn't look broken.
+    container.textContent = "No moisture or watering data yet.";
+    container.style.padding = "20px";
+    container.style.color = "#9aa6b2";
+    container.style.fontSize = "12px";
+    return;
+  }
+
   const traces = [
     {
       x: moisture.map(m => m.ts),
-      y: moisture.map(m => m.pct),
+      // Raw rows have `pct`; downsampled rows have `pct_avg`. Handle both.
+      y: moisture.map(m => m.pct ?? m.pct_avg ?? null),
       mode: "lines",
       line: { color: "#56f000", width: 2 },
       name: "Moisture %",
