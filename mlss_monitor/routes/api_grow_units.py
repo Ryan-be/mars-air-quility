@@ -24,7 +24,10 @@ from database.init_db import DB_FILE
 from mlss_monitor import state
 from mlss_monitor.grow import health_watchdog
 from mlss_monitor.grow.auth import hash_secret
-from mlss_monitor.grow.photo_storage import _resolve_images_dir
+from mlss_monitor.grow.photo_storage import (
+    _resolve_images_dir,
+    clear_thumbnail_cache_for_unit,
+)
 from mlss_monitor.rbac import require_role
 from mlss_monitor.routes.api_grow_ws import _invalidate_auth_cache_for_unit
 
@@ -604,6 +607,12 @@ def clear_photos(unit_id):
                 "clear_photos: failed to unlink %s for unit %d: %s",
                 abs_path, unit_id, exc,
             )
+
+    # Wipe the thumbnail cache for this unit so the next ?size=thumb
+    # request doesn't serve a stale derivative of a deleted source.
+    # Best-effort — see clear_thumbnail_cache_for_unit() docstring for
+    # the partial-failure rationale.
+    clear_thumbnail_cache_for_unit(unit_id)
 
     log.info(
         "clear_photos: unit=%d deleted_rows=%d files_unlinked=%d files_attempted=%d",

@@ -94,3 +94,46 @@ test("grow card: omits buffered badge when zero or null", () => {
     );
   }
 });
+
+test("grow card: uses ?size=thumb when last_photo_url is set", () => {
+  // Phase 4 polish: fleet card renders ~340px wide, so the full ~2MB
+  // capture is wasted bytes. The renderer should append `?size=thumb`
+  // to the photo URL so the server returns the cached 320px-wide
+  // thumbnail instead of the original.
+  const withPhoto = {
+    ...sampleUnit,
+    last_known_state: {
+      ...sampleUnit.last_known_state,
+      last_photo_url: "/api/grow/units/3/photos/42",
+    },
+  };
+  const card = renderGrowCard(withPhoto, document);
+  const photoEl = card.querySelector(".gu-photo");
+  assert.ok(photoEl, "photo element should be present");
+  assert.match(
+    photoEl.style.backgroundImage,
+    /size=thumb/,
+    "photo backgroundImage should request the thumbnail variant",
+  );
+  assert.match(
+    photoEl.style.backgroundImage,
+    /\/api\/grow\/units\/3\/photos\/42/,
+    "photo URL should still point at the original endpoint",
+  );
+});
+
+test("grow card: ?size=thumb uses & if URL already has a query", () => {
+  // Defensive: if last_photo_url ever evolves to include a query
+  // string (e.g. ?v=cachebuster), the renderer must use & not ?
+  // for the size param so the URL remains valid.
+  const withPhoto = {
+    ...sampleUnit,
+    last_known_state: {
+      ...sampleUnit.last_known_state,
+      last_photo_url: "/api/grow/units/3/photos/42?v=1",
+    },
+  };
+  const card = renderGrowCard(withPhoto, document);
+  const photoEl = card.querySelector(".gu-photo");
+  assert.match(photoEl.style.backgroundImage, /\?v=1&size=thumb/);
+});

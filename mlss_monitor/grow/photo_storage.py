@@ -10,14 +10,27 @@ On receipt: write the JPEG to MLSS_GROW_IMAGES_DIR/<unit_dir>/<date>/<HHMMSS>.jp
 path, and back-fill telemetry_id by joining to the closest grow_telemetry
 row for the same unit within ±60 seconds. The denormalised join key makes
 ML training queries cheap.
+
+Thumbnail cache (Phase 4):
+  Fleet view + History timelapse don't need the full ~2MB camera capture —
+  a 320px-wide JPEG is ~20-50KB and renders identically at fleet-card
+  resolution. ``get_or_create_thumbnail`` lazily resizes the original JPEG
+  via Pillow on first request and caches the result under
+  ``data/grow_thumbnails/<unit>/<...>``. Subsequent requests return the
+  cached file without re-encoding. Both the source and thumbnail trees are
+  per-unit, so ``DELETE /photos`` can blow away the unit's thumbnail dir
+  alongside the originals.
 """
 import json
 import logging
 import os
 import sqlite3
 import struct
+import shutil
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+
+from PIL import Image
 
 from database.init_db import DB_FILE
 
@@ -38,6 +51,17 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 GROW_IMAGES_DIR = os.environ.get(
     "MLSS_GROW_IMAGES_DIR", str(_PROJECT_ROOT / "data" / "grow_images")
 )
+GROW_THUMBNAILS_DIR = os.environ.get(
+    "MLSS_GROW_THUMBNAILS_DIR", str(_PROJECT_ROOT / "data" / "grow_thumbnails")
+)
+
+# Allowed thumbnail widths. One entry today (320 — fleet card width) but
+# extensible: a future History-tab scrubber thumbnail could add 96 here
+# without touching the route layer. Any width outside this set is a
+# 400 from the route, not a silent resize, so callers can't generate
+# arbitrary on-disk artefacts by spamming `?size=N`.
+THUMB_WIDTHS = (320,)
+THUMB_QUALITY = 75  # subjective sweet spot — ~30KB at 320×240
 
 _JOIN_WINDOW_SECONDS = 60
 
@@ -55,6 +79,115 @@ def _resolve_images_dir() -> str:
     except Exception:
         pass
     return GROW_IMAGES_DIR
+
+
+def _resolve_thumbnails_dir() -> str:
+    """app_settings override > env var > built-in default. Mirrors
+    ``_resolve_images_dir`` so an admin who relocates the photo tree can
+    relocate the thumbnail cache in lockstep without code changes.
+    """
+    try:
+        conn = sqlite3.connect(DB_FILE, timeout=2)
+        row = conn.execute(
+            "SELECT value FROM app_settings WHERE key='grow_thumbnails_dir'"
+        ).fetchone()
+        conn.close()
+        if row and row[0]:
+            return row[0]
+    except Exception:
+        pass
+    return GROW_THUMBNAILS_DIR
+
+
+def get_or_create_thumbnail(photo_relpath: str, width: int) -> str:
+    """Return the absolute path to a cached thumbnail of ``photo_relpath``
+    at ``width`` pixels wide.
+
+    Cache layout mirrors the source tree: thumbnail of
+    ``unit_001/2026-05-08/120000.jpg`` at width 320 lives at
+    ``<thumbnails_dir>/unit_001/2026-05-08/120000_w320.jpg``. Per-width
+    suffix means we can extend ``THUMB_WIDTHS`` later without a migration
+    — the 320 cache and a hypothetical 96 cache co-exist for the same
+    source image without colliding.
+
+    First-request flow:
+      1. Compute the cache path. If it already exists, return it
+         (idempotent).
+      2. Open the source JPEG, downscale to ``width`` preserving aspect
+         ratio (``Image.thumbnail`` uses LANCZOS).
+      3. Write the cached JPEG with quality 75 (the subjective sweet
+         spot — ~30KB at 320×240 vs ~2MB for the source).
+
+    Raises:
+        ValueError: ``width`` not in ``THUMB_WIDTHS``.
+        FileNotFoundError: source JPEG doesn't exist.
+
+    Anything else (PIL.UnidentifiedImageError, OSError on the cache
+    write) propagates — the caller decides whether to 500 or fall back
+    to the original. Today the route falls back to the original on any
+    Pillow exception so a corrupted source frame doesn't take down the
+    fleet card; see ``api_grow_photos._serve_thumbnail_or_fallback``.
+    """
+    if width not in THUMB_WIDTHS:
+        raise ValueError(
+            f"unsupported thumbnail width {width}; allowed: {THUMB_WIDTHS}"
+        )
+
+    images_dir = _resolve_images_dir()
+    thumbs_dir = _resolve_thumbnails_dir()
+    src_abs = os.path.join(images_dir, photo_relpath)
+    if not os.path.exists(src_abs):
+        raise FileNotFoundError(src_abs)
+
+    rel_dir, filename = os.path.split(photo_relpath)
+    stem, _ext = os.path.splitext(filename)
+    thumb_filename = f"{stem}_w{width}.jpg"
+    thumb_rel = os.path.join(rel_dir, thumb_filename) if rel_dir else thumb_filename
+    thumb_abs = os.path.join(thumbs_dir, thumb_rel)
+
+    if os.path.exists(thumb_abs):
+        return thumb_abs
+
+    # Cache miss — generate. mkdir -p the cache subdir; same failure
+    # modes as photo_storage's images dir (PermissionError / read-only).
+    Path(os.path.dirname(thumb_abs)).mkdir(parents=True, exist_ok=True)
+    with Image.open(src_abs) as img:
+        # Image.thumbnail() preserves aspect ratio. We want width=320,
+        # height auto. The (w, very-large-h) trick downscales to fit
+        # within that box, which for landscape sources collapses to
+        # height proportional to width.
+        img.thumbnail((width, width * 10), Image.LANCZOS)
+        # Strip alpha / palette (some camera frames may include them);
+        # JPEG cannot represent alpha. RGB is the safe target.
+        if img.mode != "RGB":
+            img = img.convert("RGB")
+        img.save(thumb_abs, "JPEG", quality=THUMB_QUALITY, optimize=True)
+
+    return thumb_abs
+
+
+def clear_thumbnail_cache_for_unit(unit_id: int) -> None:
+    """Delete the thumbnail cache directory for one unit, if present.
+
+    Called from ``DELETE /api/grow/units/<id>/photos`` so the cache
+    doesn't drift out of sync with the source tree. Best-effort: a
+    missing cache dir is fine (returns silently); a permission error
+    is logged and swallowed (the originals are already gone, so a
+    stale thumbnail is the lesser evil vs. a 500 on the wipe path).
+    """
+    thumbs_dir = _resolve_thumbnails_dir()
+    unit_thumbs_dir = os.path.join(thumbs_dir, f"unit_{unit_id:03d}")
+    try:
+        shutil.rmtree(unit_thumbs_dir)
+    except FileNotFoundError:
+        # Cache never existed for this unit (no thumbnail ever requested,
+        # or it was already cleaned up). Idempotent — fine.
+        pass
+    except OSError as exc:
+        log.warning(
+            "clear_thumbnail_cache_for_unit: rmtree(%s) failed: %s",
+            unit_thumbs_dir, exc,
+        )
 
 
 def handle_photo_frame(unit_id: int, frame: bytes) -> None:

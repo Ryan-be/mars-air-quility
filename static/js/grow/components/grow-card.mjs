@@ -49,12 +49,18 @@ export function renderGrowCard(unit, doc = document) {
   head.appendChild(headRight);
   card.appendChild(head);
 
-  // Photo
+  // Photo. Fleet cards render at ~340px wide, so the full ~2MB camera
+  // capture is wasted bytes — request the server-side ~30KB thumbnail
+  // variant via `?size=thumb`. The thumbnail endpoint generates lazily
+  // on first request and caches under data/grow_thumbnails/, so the
+  // second-and-later visit is "send from disk" speed. See
+  // mlss_monitor/grow/photo_storage.py::get_or_create_thumbnail.
   const photo = doc.createElement("div");
   photo.className = "gu-photo";
   const photoUrl = unit.last_known_state?.last_photo_url || null;
   if (photoUrl) {
-    photo.style.backgroundImage = `url(${photoUrl})`;
+    const thumbUrl = photoUrl + (photoUrl.includes("?") ? "&" : "?") + "size=thumb";
+    photo.style.backgroundImage = `url(${thumbUrl})`;
   } else {
     photo.classList.add("no-photo");
     photo.textContent = "— No photo yet —";

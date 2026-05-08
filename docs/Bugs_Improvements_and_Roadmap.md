@@ -339,7 +339,7 @@ To generate explanations like:
 >
 > **Already landed in this overnight session:** `bin/deploy` script + readme; "wall wart" → "USB power adapter" sweep across `PLANT_GROW_UNIT_HARDWARE.md` and `PLANT_GROW_UNIT_SETUP.md`.
 
-- **Server-side photo thumbnail/resize endpoint** — e.g. `GET /api/grow/units/<id>/photo/latest?size=thumb` returns a 320px-wide JPEG, vs the full ~2MB camera capture. Fleet view currently can't show photo thumbnails efficiently because every card would have to fetch the full-res image. Recommended impl: Pillow resize on first request, cache to `data/grow_thumbnails/<unit_id>/<filename>.jpg`, set long `Cache-Control` on response, invalidate on new photo write. Pairs naturally with the fleet-card photo enhancement.
+- ~~**Server-side photo thumbnail/resize endpoint**~~ — **shipped:** `GET /api/grow/units/<id>/photo/latest?size=thumb` and `GET /api/grow/units/<id>/photos/<photo_id>?size=thumb`. Pillow downscales to 320px on first request, caches to `data/grow_thumbnails/<unit_id>/<...>_w320.jpg`, reuses on subsequent hits. Fleet view (`grow-card.mjs`) now requests `?size=thumb` instead of the full ~2MB capture. `DELETE /api/grow/units/<id>/photos` invalidates the per-unit thumbnail cache.
 - ~~**USB SSD boot guide for MLSS server and grow units**~~ — **shipped:** [`docs/USB_SSD_BOOT_GUIDE.md`](USB_SSD_BOOT_GUIDE.md). Hardware list, live `rsync` migration recipe with `fstab` / `cmdline.txt` PARTUUID fix-up, validation, rollback, troubleshooting. Notes that Pi Zero W grow units don't need this.
 - Custom Pi SD-card .img for one-step provisioning
 - Public PyPI release of `mlss-grow`
