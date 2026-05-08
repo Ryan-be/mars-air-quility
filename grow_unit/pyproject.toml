@@ -3,6 +3,25 @@ name = "mlss-grow"
 version = "0.1.0"
 description = "Plant Grow Unit firmware — runs on Raspberry Pi Zero with Pimoroni Automation pHAT"
 authors = ["MLSS"]
+license = "MIT"
+readme = "README.md"
+homepage = "https://github.com/Ryan-be/mars-air-quility"
+repository = "https://github.com/Ryan-be/mars-air-quility"
+documentation = "https://github.com/Ryan-be/mars-air-quility/tree/main/docs"
+keywords = ["raspberry-pi", "iot", "plant", "grow", "automation", "horticulture", "mlss"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Home Automation",
+    "Topic :: System :: Hardware",
+    "Topic :: Scientific/Engineering",
+]
 packages = [{include = "mlss_grow", from = "src"}]
 
 [tool.poetry.dependencies]
@@ -17,6 +36,10 @@ pyyaml = "^6.0"
 # bound stays at 10 for dev compat but Trixie Pis will install 11.x.
 Pillow = ">=10.0,<12.0"
 requests = "^2.31"
+# In-tree dev: path-dependency keeps the contracts package live for editing.
+# PyPI release: scripts/prepare_pypi_release.py rewrites this line to a
+# versioned dep (`mlss-contracts = ">=0.1.0,<0.2.0"`) before `poetry build`,
+# then restores the path entry on completion. See docs/RELEASE_PROCESS.md.
 mlss-contracts = {path = "../contracts", develop = true}
 
 # Pi-only deps marked with markers so dev laptops can install without them.

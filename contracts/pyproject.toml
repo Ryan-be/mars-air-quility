@@ -1,12 +1,28 @@
 [tool.poetry]
 name = "mlss-contracts"
 version = "0.1.0"
-description = "Shared pydantic schemas between MLSS server and grow unit firmware"
+description = "Shared pydantic schemas between MLSS server and Plant Grow Unit firmware"
 authors = ["MLSS"]
+license = "MIT"
+readme = "README.md"
+homepage = "https://github.com/Ryan-be/mars-air-quility"
+repository = "https://github.com/Ryan-be/mars-air-quility"
+keywords = ["mlss", "contracts", "pydantic", "schemas"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 packages = [{include = "mlss_contracts", from = "src"}]
 
 [tool.poetry.dependencies]
-python = "^3.11"
+python = ">=3.11,<4.0"
 pydantic = "^2.0"
 
 [tool.poetry.group.dev.dependencies]

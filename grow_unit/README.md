@@ -43,6 +43,26 @@ of every downloaded artifact (wheels + the systemd unit file).
 | `/var/lib/mlss-grow/config.json` | Last-known config, used by safety loop when MLSS is unreachable |
 | `/var/lib/mlss-grow/watering_state.json` | Persisted PIDState (last pulse, integral, last error) so service restarts don't reset accumulated history |
 
+## Install from PyPI (production, on a Pi)
+
+Once a release is cut (see [`docs/RELEASE_PROCESS.md`](../docs/RELEASE_PROCESS.md)),
+the firmware is `pip install`-able like any other package:
+
+```bash
+sudo apt install python3-pip i2c-tools
+pip install mlss-grow
+mlss-grow --help
+```
+
+This is the recommended posture for a fresh Pi after the SD-card image
+flow ([`docs/PI_IMAGE_BUILD.md`](../docs/PI_IMAGE_BUILD.md)) — the image
+ships `pip install mlss-grow` baked into its first-boot script, so the
+operator only has to drop a `mlss-grow.yaml` onto the boot partition.
+
+For pre-PyPI-release deployments, the per-MLSS-server [`install.sh`](install.sh)
+flow continues to work (fetches a wheel from `/api/grow/dist/` with TOFU
+cert pinning + SHA256 verification).
+
 ## Install (dev, on a non-Pi machine — Pi-only deps are skipped via markers)
 
 ```

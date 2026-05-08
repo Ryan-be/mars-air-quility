@@ -1,0 +1,82 @@
+# Publish mlss-grow to PyPI on a `mlss-grow-vX.Y.Z` tag push.
+#
+# Maintainer setup (one-time):
+#   1. Create a project-scoped API token at https://pypi.org/manage/account/token/
+#      with scope "Project: mlss-grow" (after the first manual upload makes
+#      the project exist).
+#   2. Add it as a repository secret named PYPI_API_TOKEN.
+#
+# Cutting a release (every time):
+#   1. Bump version in grow_unit/pyproject.toml.
+#   2. git tag mlss-grow-v0.1.0 && git push --tags
+#   3. This workflow runs: prepare → poetry build → twine upload → restore.
+#
+# See docs/RELEASE_PROCESS.md for the full lifecycle, semver guidance,
+# and the manual-fallback recipe if this workflow fails.
+
+name: Publish mlss-grow
+
+on:
+  push:
+    tags:
+      - "mlss-grow-v*"
+  # Hand-fire from the Actions tab if the tag-trigger ever needs reruning.
+  workflow_dispatch:
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # release-asset upload step needs this
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install poetry + twine
+        run: |
+          python -m pip install --upgrade pip
+          pip install poetry==1.8.* twine==5.*
+
+      # Rewrite the path-dep on mlss-contracts to a versioned dep so PyPI
+      # accepts the wheel. See scripts/prepare_pypi_release.py.
+      - name: Prepare grow_unit/pyproject.toml for PyPI
+        run: python scripts/prepare_pypi_release.py grow_unit/pyproject.toml prepare
+
+      - name: Build wheel + sdist
+        working-directory: grow_unit
+        run: poetry build
+
+      # Sanity-check the wheel before upload — twine check catches metadata
+      # bugs (bad classifier, malformed README) that would otherwise silently
+      # fail the upload.
+      - name: twine check
+        run: twine check grow_unit/dist/*
+
+      - name: Publish to PyPI
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: twine upload grow_unit/dist/*
+
+      # Always restore the path-dep so a subsequent in-tree dev run doesn't
+      # see the rewritten pyproject. The release tag already captured the
+      # rewritten state if anyone needs it.
+      - name: Restore grow_unit/pyproject.toml
+        if: always()
+        run: python scripts/prepare_pypi_release.py grow_unit/pyproject.toml restore
+
+      # Mirror the wheel onto the GitHub Release for the tag — handy
+      # fallback for install.sh which can fetch directly from a release
+      # asset URL even if PyPI is down.
+      - name: Upload wheel to GitHub release
+        if: startsWith(github.ref, 'refs/tags/mlss-grow-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: grow_unit/dist/*
+          fail_on_unmatched_files: true
+          generate_release_notes: true
