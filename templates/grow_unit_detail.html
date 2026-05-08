@@ -5,6 +5,14 @@
 {% endblock %}
 {% block content %}
 {% include "_grow_subnav.html" %}
+{# Phase 4 #7: stamp role + user on the body so the journal editor can
+   gate edit/delete buttons by author/role. Server-side auth on every
+   write enforces the actual rules; this just hides UI affordances the
+   user can't act on. #}
+<script>
+  document.body.dataset.role = "{{ current_role }}";
+  document.body.dataset.user = "{{ current_user }}";
+</script>
 <div class="du-page" data-unit-id="{{ unit_id }}">
   <header id="du-header"></header>
   <nav id="du-tabs"></nav>

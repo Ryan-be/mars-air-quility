@@ -55,7 +55,16 @@ def grow_fleet():
 
 @pages_bp.route("/grow/<int:unit_id>")
 def grow_unit_detail(unit_id):
-    return render_template("grow_unit_detail.html", unit_id=unit_id)
+    # Pass role + user through so the template can stamp them on body.dataset
+    # for the journal editor's edit/delete-author gating (Phase 4 #7). The
+    # server still enforces auth on every PATCH/DELETE — this is purely
+    # visual.
+    return render_template(
+        "grow_unit_detail.html",
+        unit_id=unit_id,
+        current_role=session.get("user_role", "viewer"),
+        current_user=session.get("user", ""),
+    )
 
 
 @pages_bp.route("/grow/errors")

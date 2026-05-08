@@ -24,6 +24,7 @@ from .api_grow_history import api_grow_history_bp
 from .api_grow_settings import api_grow_settings_bp
 from .api_grow_diagnostics import api_grow_diagnostics_bp
 from .api_grow_errors import api_grow_errors_bp
+from .api_grow_journal import api_grow_journal_bp
 
 
 def register_routes(app):
@@ -51,3 +52,4 @@ def register_routes(app):
     app.register_blueprint(api_grow_settings_bp)
     app.register_blueprint(api_grow_diagnostics_bp)
     app.register_blueprint(api_grow_errors_bp)
+    app.register_blueprint(api_grow_journal_bp)

@@ -1446,6 +1446,84 @@
 .ps-status.err { color: #ff5252; }
 
 /* ===========================================================================
+   Phase 4 polish #7: plant journal editor
+   ===========================================================================
+   Mounted in the History tab below the photo-timelapse. Each entry pins
+   a free-form operator note to a timestamp on the unit's history. RBAC is
+   gated server-side — buttons just hide what the current role can't do. */
+
+.journal-editor .journal-body {
+  padding: var(--grow-space-3);
+}
+.journal-composer {
+  display: flex; flex-direction: column; gap: var(--grow-space-2);
+  padding: var(--grow-space-3);
+  border: 1px solid var(--grow-border-subtle);
+  border-radius: var(--grow-radius-sm);
+  background: var(--grow-bg-sub);
+  margin-bottom: var(--grow-space-3);
+}
+.journal-composer-ts {
+  background: var(--grow-bg-input); color: var(--grow-text-body);
+  border: 1px solid var(--grow-border-emph); border-radius: var(--grow-radius-sm);
+  padding: var(--grow-space-2);
+  font-size: var(--grow-fs-sm); font-family: Roboto, sans-serif;
+  align-self: flex-start;
+}
+.journal-composer-body {
+  background: var(--grow-bg-input); color: var(--grow-text-body);
+  border: 1px solid var(--grow-border-emph); border-radius: var(--grow-radius-sm);
+  padding: var(--grow-space-2);
+  font-family: Roboto, sans-serif; font-size: var(--grow-fs-sm);
+  min-height: 60px; resize: vertical;
+}
+.journal-composer-submit {
+  align-self: flex-end;
+}
+.journal-list {
+  display: flex; flex-direction: column; gap: var(--grow-space-2);
+}
+.journal-entry {
+  padding: var(--grow-space-3);
+  background: var(--grow-bg-sub);
+  border: 1px solid var(--grow-border-subtle);
+  border-radius: var(--grow-radius-sm);
+}
+.journal-entry-meta {
+  font-size: var(--grow-fs-xs); color: var(--grow-text-muted);
+  letter-spacing: var(--grow-ls-headline); margin-bottom: var(--grow-space-2);
+}
+.journal-entry-ts {
+  color: var(--grow-text-body); font-weight: 500;
+}
+.journal-entry-edited {
+  font-style: italic; opacity: 0.7;
+}
+.journal-entry-body {
+  color: var(--grow-text-primary); font-size: var(--grow-fs-md);
+  white-space: pre-wrap; line-height: 1.4;
+}
+.journal-entry-actions {
+  display: flex; gap: var(--grow-space-2); margin-top: var(--grow-space-2);
+}
+.journal-entry-actions .gu-btn {
+  padding: var(--grow-space-1) var(--grow-space-3);
+  font-size: var(--grow-fs-xs);
+}
+.journal-edit-textarea {
+  width: 100%;
+  background: var(--grow-bg-input); color: var(--grow-text-body);
+  border: 1px solid var(--grow-border-emph); border-radius: var(--grow-radius-sm);
+  padding: var(--grow-space-2);
+  font-family: Roboto, sans-serif; font-size: var(--grow-fs-sm);
+  min-height: 60px; resize: vertical;
+}
+.journal-empty {
+  color: var(--grow-text-muted); font-style: italic;
+  font-size: var(--grow-fs-sm); margin: 0;
+}
+
+/* ===========================================================================
    Phase 4 polish #5: mobile-optimised fleet view + unit detail
    ===========================================================================
    The grow tab was designed desktop-first; on a phone (~375px viewport) a

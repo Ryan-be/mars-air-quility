@@ -246,6 +246,31 @@ def create_grow_schema(cur):
         "ON grow_errors(unit_id, kind, subject_sensor, resolved_at)"
     )
 
+    # Phase 4 #7: operator-authored notes pinned to a timestamp on a
+    # unit's history. Surfaces as markers on the moisture chart and
+    # the photo-timelapse scrubber so an operator can write "started
+    # blooming nutrients today" against the moment it happened and
+    # have the chart show that context next to the soil-moisture
+    # curve. RBAC: viewer reads, controller+admin write; only the
+    # original author or an admin can edit/delete a given entry
+    # (enforced in the route layer, not the schema, so admin override
+    # works without a special-case column).
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS grow_journal_entries (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      unit_id        INTEGER NOT NULL REFERENCES grow_units(id) ON DELETE CASCADE,
+      timestamp_utc  DATETIME NOT NULL,  -- the moment the entry pertains to
+      author         TEXT NOT NULL,      -- session["user"] of the writer
+      body           TEXT NOT NULL,      -- free-form note (markdown not rendered)
+      created_at     DATETIME NOT NULL,
+      updated_at     DATETIME            -- NULL until first edit
+    );
+    """)
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_grow_journal_unit_time "
+        "ON grow_journal_entries(unit_id, timestamp_utc DESC)"
+    )
+
     _seed_grow_data(cur)
 
 
