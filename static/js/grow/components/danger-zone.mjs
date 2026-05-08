@@ -101,7 +101,11 @@ function _renderDecommission(unit, doc, fetchFn) {
 
   const title = doc.createElement("h4");
   title.className = "diag-danger-title";
-  title.textContent = "🗑 Decommission unit";
+  // Danger-ramp icon: ⚠ for the most destructive action — decommission
+  // hides the unit from the fleet view + breaks its WS auth and can't
+  // be undone from the UI (only via manual DB UPDATE). See danger-zone
+  // module docstring + design-critique #18 for the full ramp spec.
+  title.textContent = "⚠ Decommission unit";
   panel.appendChild(title);
 
   const desc = doc.createElement("p");
@@ -120,7 +124,7 @@ function _renderDecommission(unit, doc, fetchFn) {
   const armBtn = doc.createElement("button");
   armBtn.type = "button";
   armBtn.className = "px-btn danger diag-decom-arm";
-  armBtn.textContent = "🗑 Decommission unit";
+  armBtn.textContent = "⚠ Decommission unit";
   armBtn.dataset.testid = "decom-arm-btn";
   armRow.appendChild(armBtn);
 
@@ -252,7 +256,11 @@ function _renderClearBuffer(unit, doc, fetchFn) {
 
   const title = doc.createElement("h4");
   title.className = "diag-danger-title";
-  title.textContent = "🗑 Clear remote buffer";
+  // Danger-ramp icon: 🧹 for "sweep / clear" — the buffer is firmware-
+  // side state (offline outbox); clearing loses unreplayed telemetry
+  // but the unit keeps running normally. Less destructive than
+  // clear-photos (🗑) or decommission (⚠).
+  title.textContent = "🧹 Clear remote buffer";
   panel.appendChild(title);
 
   const desc = doc.createElement("p");
@@ -270,7 +278,7 @@ function _renderClearBuffer(unit, doc, fetchFn) {
   const armBtn = doc.createElement("button");
   armBtn.type = "button";
   armBtn.className = "px-btn danger diag-cb-arm";
-  armBtn.textContent = "🗑 Clear remote buffer";
+  armBtn.textContent = "🧹 Clear remote buffer";
   armBtn.dataset.testid = "clear-buffer-arm-btn";
   armRow.appendChild(armBtn);
 

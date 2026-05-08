@@ -67,7 +67,11 @@ export function renderTokenRotator(unit, opts = {}) {
   const rotateBtn = doc.createElement("button");
   rotateBtn.type = "button";
   rotateBtn.className = "px-btn danger tr-rotate-btn";
-  rotateBtn.textContent = "🔑 Rotate bearer token";
+  // Danger-ramp icon (design-critique #18): rotate uses 🔄 because the
+  // action is reversible — rotating again replaces the old token. The
+  // other danger-zone actions ramp up: 🧹 clear-buffer (recoverable),
+  // 🗑 clear-photos (gone for good), ⚠ decommission (most destructive).
+  rotateBtn.textContent = "🔄 Rotate bearer token";
   rotateBtn.dataset.testid = "tr-rotate-btn";
   armRow.appendChild(rotateBtn);
 

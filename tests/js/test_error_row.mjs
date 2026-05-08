@@ -236,3 +236,32 @@ test("error-row applies 'snoozed' class when snoozed_until > now", () => {
   });
   assert.match(el.className, /snoozed/);
 });
+
+
+// ─── Snooze dropdown collapse (design-critique #20) ──────────────
+
+
+test("admin actions: snooze options live inside a Snooze ▾ dropdown", () => {
+  _newDom("admin");
+  const el = renderErrorRow(
+    _row({ id: 7 }),
+    { ownerDocument: document },
+  );
+  // The dropdown summary is now the only visible "Snooze" trigger;
+  // the inner buttons live inside the <details>.
+  const summary = el.querySelector("[data-testid='error-row-snooze-summary']");
+  assert.ok(summary, "Snooze ▾ summary rendered");
+  assert.match(summary.textContent, /Snooze/);
+  const menu = el.querySelector("[data-testid='error-row-snooze-menu']");
+  assert.ok(menu, "snooze menu wraps the duration buttons");
+  // Inner buttons are still present (testids unchanged) so existing
+  // tests + automation keep working.
+  assert.ok(el.querySelector("[data-testid='error-row-snooze-1h']"));
+  assert.ok(el.querySelector("[data-testid='error-row-snooze-24h']"));
+  // Inner button labels updated to clearer "1 hour" / "24 hours" copy
+  // (the testid is the contract; the text is just chrome).
+  const opt1h = el.querySelector("[data-testid='error-row-snooze-1h']");
+  const opt24h = el.querySelector("[data-testid='error-row-snooze-24h']");
+  assert.match(opt1h.textContent, /1 hour/);
+  assert.match(opt24h.textContent, /24 hours/);
+});

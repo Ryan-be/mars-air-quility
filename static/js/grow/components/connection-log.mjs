@@ -59,6 +59,24 @@ function _formatTime(iso) {
 }
 
 
+/** Format a duration in milliseconds as a short relative-time phrase.
+ *  Design-critique #17: a flat list of HH:MM:SS timestamps was hard
+ *  to scan ("when did this happen?") — adding a "5m ago" / "2h ago"
+ *  on each row makes recency immediately obvious. Returns null when
+ *  the input isn't a finite positive number. */
+export function _formatRelative(ms) {
+  if (!Number.isFinite(ms) || ms < 0) return null;
+  const sec = Math.floor(ms / 1000);
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  return `${day}d ago`;
+}
+
+
 /**
  * For each `offline` row, find the resolving `online` (id > offline.id,
  * closest in time). Returns a Map keyed by offline.id → resolving online
@@ -97,11 +115,15 @@ export function _pairOfflineToOnline(rows) {
  *
  * @param {Array<object>} log  `connection_log` slice from the diagnostics
  *                             response — list of {id, timestamp_utc, kind, resolved_at}
- * @param {object} opts  { ownerDocument? }
+ * @param {object} opts  { ownerDocument?, now? }
+ *   - now: thunk returning a Date (or ms epoch) used for "Xm ago"
+ *          relative-time formatting. Default real-clock; tests pass
+ *          a fixed timestamp.
  * @returns {HTMLElement}
  */
 export function renderConnectionLog(log, opts = {}) {
   const doc = opts.ownerDocument || document;
+  const nowFn = opts.now || (() => Date.now());
 
   const wrap = doc.createElement("div");
   wrap.className = "du-panel diag-connection-log";
@@ -148,14 +170,39 @@ export function renderConnectionLog(log, opts = {}) {
     tr.dataset.testid = `conn-row-${row.id}`;
     tr.dataset.kind = row.kind;
 
+    // Time cell: HH:MM:SS plus a "Xm ago" muted suffix so the operator
+    // sees both absolute (matches journalctl) and relative (recency) at
+    // a glance. Title still carries the full ISO for copy-paste.
     const tdTime = doc.createElement("td");
-    tdTime.textContent = _formatTime(row.timestamp_utc);
     tdTime.title = row.timestamp_utc || "";
+    const absSpan = doc.createElement("span");
+    absSpan.className = "diag-conn-time-abs";
+    absSpan.textContent = _formatTime(row.timestamp_utc);
+    tdTime.appendChild(absSpan);
+    if (row.timestamp_utc) {
+      const ageMs = nowFn() - new Date(row.timestamp_utc).getTime();
+      const rel = _formatRelative(ageMs);
+      if (rel) {
+        const relSpan = doc.createElement("span");
+        relSpan.className = "diag-conn-time-rel";
+        relSpan.textContent = ` ${rel}`;
+        tdTime.appendChild(relSpan);
+      }
+    }
     tr.appendChild(tdTime);
 
+    // Event cell: status dot + word. The dot's colour encodes the kind
+    // (online = green, offline = red) so the table reads visually as a
+    // sparkline of unit health rather than a wall of text labels.
     const tdEvent = doc.createElement("td");
     tdEvent.className = `diag-event diag-event-${row.kind}`;
-    tdEvent.textContent = row.kind;
+    const dot = doc.createElement("span");
+    dot.className = `diag-event-dot diag-event-dot-${row.kind}`;
+    dot.setAttribute("aria-hidden", "true");
+    tdEvent.appendChild(dot);
+    const eventLabel = doc.createElement("span");
+    eventLabel.textContent = row.kind;
+    tdEvent.appendChild(eventLabel);
     tr.appendChild(tdEvent);
 
     const tdDur = doc.createElement("td");

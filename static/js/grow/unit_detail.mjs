@@ -27,7 +27,9 @@ export function renderDetailHeader(unit, doc = document) {
   const back = doc.createElement("a");
   back.className = "du-back";
   back.href = "/grow";
-  back.textContent = "← Grow units";
+  // Chevron comes from .du-back::before (CSS); textContent is just the
+  // label so screen readers read "Back to grow units" cleanly.
+  back.textContent = "Grow units";
   wrap.appendChild(back);
 
   const title = doc.createElement("div");

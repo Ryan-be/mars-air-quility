@@ -202,13 +202,27 @@ function _renderWizard(doc, unit, state, setMode) {
     actions.appendChild(wetBtn);
   }
 
-  // Save button — only enabled in review mode
+  // Save button — only enabled in review mode (after both captures).
+  // Design-critique #14: previously the button looked like a normal
+  // primary action even before prerequisites were met, making
+  // operators wonder if they could click it. Now we add an explicit
+  // tooltip + cursor:not-allowed (via CSS) and keep the button visibly
+  // separate from the capture buttons. Only when both raw values are
+  // present + state.mode is "review" does it become clickable.
   const saveBtn = doc.createElement("button");
   saveBtn.type = "button";
   saveBtn.className = "cfg-save px-btn";
   saveBtn.textContent = "Save";
   saveBtn.dataset.testid = "cal-save";
-  saveBtn.disabled = !(state.dry_raw != null && state.wet_raw != null);
+  const ready = (state.dry_raw != null && state.wet_raw != null);
+  saveBtn.disabled = !ready;
+  if (!ready) {
+    saveBtn.title = state.dry_raw == null
+      ? "Capture dry-soil reading first (Step 1)"
+      : "Capture wet-soil reading first (Step 2)";
+  } else {
+    saveBtn.title = "Save calibration to the unit";
+  }
   saveBtn.addEventListener("click", async () => {
     if (state.dry_raw == null || state.wet_raw == null) return;
     if (state.dry_raw >= state.wet_raw) {
@@ -218,6 +232,7 @@ function _renderWizard(doc, unit, state, setMode) {
       return;
     }
     saveBtn.disabled = true;
+    saveBtn.classList.add("is-saving");
     saveBtn.textContent = "Saving…";
     status.textContent = "";
     status.className = "cfg-status";
@@ -244,6 +259,7 @@ function _renderWizard(doc, unit, state, setMode) {
       status.className = "cfg-status err";
     } finally {
       saveBtn.disabled = false;
+      saveBtn.classList.remove("is-saving");
       saveBtn.textContent = "Save";
     }
   });

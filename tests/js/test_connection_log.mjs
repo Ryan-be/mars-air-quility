@@ -114,3 +114,49 @@ test("_pairOfflineToOnline: online rows aren't keyed in the map", () => {
   assert.equal(pairs.has(2), false, "online rows are not keys");
   assert.equal(pairs.has(1), true, "offline rows are keys");
 });
+
+
+// ─── Relative time + status dot (design-critique #17) ─────────────
+
+
+test("connection log: time cell shows relative-ago suffix", () => {
+  // Fix "now" at 14:35 — a 14:32 event is 3 minutes ago.
+  const log = [
+    { id: 5, timestamp_utc: "2026-05-06T14:32:00Z", kind: "online", resolved_at: null },
+  ];
+  const fakeNow = () => new Date("2026-05-06T14:35:00Z").getTime();
+  const el = renderConnectionLog(log, { ownerDocument: document, now: fakeNow });
+  const rel = el.querySelector(".diag-conn-time-rel");
+  assert.ok(rel, "relative-time span rendered");
+  assert.match(rel.textContent, /3m ago/);
+});
+
+
+test("connection log: event cell has a colour-coded status dot", () => {
+  const log = [
+    { id: 5, timestamp_utc: "2026-05-06T14:32:00Z", kind: "online", resolved_at: null },
+    { id: 4, timestamp_utc: "2026-05-06T14:20:00Z", kind: "offline", resolved_at: null },
+  ];
+  const el = renderConnectionLog(log, { ownerDocument: document });
+  const onlineDot = el.querySelector(
+    "[data-testid='conn-row-5'] .diag-event-dot-online"
+  );
+  const offlineDot = el.querySelector(
+    "[data-testid='conn-row-4'] .diag-event-dot-offline"
+  );
+  assert.ok(onlineDot, "online row has a green dot");
+  assert.ok(offlineDot, "offline row has a red dot");
+});
+
+
+test("_formatRelative: handles boundary unit transitions", async () => {
+  const { _formatRelative } = await import(
+    "../../static/js/grow/components/connection-log.mjs"
+  );
+  assert.equal(_formatRelative(45 * 1000), "45s ago");
+  assert.equal(_formatRelative(60 * 1000), "1m ago");
+  assert.equal(_formatRelative(2 * 60 * 60 * 1000), "2h ago");
+  assert.equal(_formatRelative(36 * 60 * 60 * 1000), "1d ago");
+  assert.equal(_formatRelative(-100), null);
+  assert.equal(_formatRelative(NaN), null);
+});

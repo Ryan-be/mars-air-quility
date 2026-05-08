@@ -134,45 +134,64 @@ export function renderErrorRow(row, opts = {}) {
     });
     actions.appendChild(resolveBtn);
 
-    const snooze1hBtn = doc.createElement("button");
-    snooze1hBtn.type = "button";
-    snooze1hBtn.className = "error-row-btn snooze";
-    snooze1hBtn.dataset.testid = "error-row-snooze-1h";
-    snooze1hBtn.textContent = "Snooze 1h";
-    snooze1hBtn.addEventListener("click", async () => {
-      const until = new Date((opts.now || (() => Date.now()))() + 60 * 60 * 1000)
-        .toISOString();
-      try {
-        await _patchError(row.id, { snoozed_until: until });
-        wrap.dispatchEvent(new doc.defaultView.CustomEvent("error-updated", {
-          bubbles: true, composed: true,
-          detail: { id: row.id, action: "snooze_1h", until },
-        }));
-      } catch (e) {
-        console.error("snooze 1h failed", e);
-      }
-    });
-    actions.appendChild(snooze1hBtn);
+    // Snooze options collapsed into a <details> dropdown (design-
+    // critique #20). Previously two equal-weight "Snooze 1h" / "Snooze
+    // 24h" buttons sat next to Resolve, which encouraged accidental
+    // snooze clicks and visually competed with the primary Resolve
+    // action. Now Resolve is the only top-level action; "Snooze ▾"
+    // collapses the durations beneath it. testids on the inner
+    // buttons are unchanged so existing tests + automation keep
+    // working — only the layout chrome around them changed.
+    const snoozeMenu = doc.createElement("details");
+    snoozeMenu.className = "error-row-snooze-menu";
+    snoozeMenu.dataset.testid = "error-row-snooze-menu";
 
-    const snooze24hBtn = doc.createElement("button");
-    snooze24hBtn.type = "button";
-    snooze24hBtn.className = "error-row-btn snooze";
-    snooze24hBtn.dataset.testid = "error-row-snooze-24h";
-    snooze24hBtn.textContent = "Snooze 24h";
-    snooze24hBtn.addEventListener("click", async () => {
-      const until = new Date((opts.now || (() => Date.now()))() + 24 * 60 * 60 * 1000)
-        .toISOString();
-      try {
-        await _patchError(row.id, { snoozed_until: until });
-        wrap.dispatchEvent(new doc.defaultView.CustomEvent("error-updated", {
-          bubbles: true, composed: true,
-          detail: { id: row.id, action: "snooze_24h", until },
-        }));
-      } catch (e) {
-        console.error("snooze 24h failed", e);
-      }
-    });
-    actions.appendChild(snooze24hBtn);
+    const snoozeSummary = doc.createElement("summary");
+    snoozeSummary.className = "error-row-btn snooze";
+    snoozeSummary.dataset.testid = "error-row-snooze-summary";
+    snoozeSummary.textContent = "Snooze ▾";
+    snoozeMenu.appendChild(snoozeSummary);
+
+    const snoozeOptions = doc.createElement("div");
+    snoozeOptions.className = "error-row-snooze-options";
+
+    function _makeSnoozeOption(durationMs, label, testid, action) {
+      const btn = doc.createElement("button");
+      btn.type = "button";
+      btn.className = "error-row-snooze-opt";
+      btn.dataset.testid = testid;
+      btn.textContent = label;
+      btn.addEventListener("click", async () => {
+        const until = new Date(
+          (opts.now || (() => Date.now()))() + durationMs,
+        ).toISOString();
+        try {
+          await _patchError(row.id, { snoozed_until: until });
+          // Close the menu after a successful snooze so the operator
+          // sees a clean row state, not a still-open dropdown.
+          snoozeMenu.open = false;
+          wrap.dispatchEvent(new doc.defaultView.CustomEvent("error-updated", {
+            bubbles: true, composed: true,
+            detail: { id: row.id, action, until },
+          }));
+        } catch (e) {
+          console.error(`${action} failed`, e);
+        }
+      });
+      return btn;
+    }
+
+    snoozeOptions.appendChild(_makeSnoozeOption(
+      60 * 60 * 1000, "1 hour",
+      "error-row-snooze-1h", "snooze_1h",
+    ));
+    snoozeOptions.appendChild(_makeSnoozeOption(
+      24 * 60 * 60 * 1000, "24 hours",
+      "error-row-snooze-24h", "snooze_24h",
+    ));
+
+    snoozeMenu.appendChild(snoozeOptions);
+    actions.appendChild(snoozeMenu);
 
     bodyCol.appendChild(actions);
   }

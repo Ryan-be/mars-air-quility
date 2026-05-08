@@ -89,13 +89,19 @@
   letter-spacing: 0.02em;
 }
 
-/* Grow tab fleet view */
+/* Grow tab fleet view.
+   Design-critique #2: + Add Unit lives next to the count summary on
+   the left rather than floating in the top-right. justify-content
+   was previously space-between which pushed the button to the
+   opposite edge — operators looking at the cards then had to scan
+   right to find the way to add another. Left-aligned with a wide
+   gap reads as "summary, then call-to-action". */
 .grow-pageheader {
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex; align-items: center; justify-content: flex-start;
   padding: var(--grow-space-4) var(--grow-space-5);
   border-bottom: 1px solid var(--grow-border-subtle);
   background: linear-gradient(180deg, var(--grow-bg-sub), #0a1219);
-  gap: var(--grow-space-4); flex-wrap: wrap;
+  gap: var(--grow-space-7); flex-wrap: wrap;
   font-family: Roboto, sans-serif;
 }
 .grow-summary {
@@ -119,6 +125,19 @@
   font-size: var(--grow-fs-sm); letter-spacing: var(--grow-ls-allcaps);
   text-transform: uppercase; font-family: Roboto, sans-serif;
   cursor: pointer; border-radius: var(--grow-radius-sm); font-weight: 500;
+  transition: opacity 0.12s, background 0.12s;
+}
+/* Disabled state: clear "can't click yet" cursor + reduced opacity.
+   Design-critique #14 — previously cursor:progress (the spinner) was
+   used for both "currently saving" AND "prerequisites not met". The
+   spinner cursor mis-communicates the latter; not-allowed is correct.
+   The is-saving class (set by JS during the actual fetch) overrides
+   cursor back to progress so the in-flight state still reads right. */
+.px-btn:disabled {
+  opacity: 0.45; cursor: not-allowed;
+}
+.px-btn.is-saving:disabled {
+  cursor: progress; opacity: 0.7;
 }
 
 /* Fleet filter/sort row (Phase 2 Task 4) — sits between the page-header
@@ -181,7 +200,9 @@
   border: 1px solid var(--grow-border-panel);
   border-radius: var(--grow-radius-md);
   display: flex; flex-direction: column; overflow: hidden;
-  font-family: Roboto, sans-serif; color: var(--grow-text-body);
+  font-family: Roboto, "Apple Color Emoji", "Segoe UI Emoji",
+               "Noto Color Emoji", sans-serif;
+  color: var(--grow-text-body);
   font-size: var(--grow-fs-md);
   transition: border-color 0.15s, transform 0.15s;
 }
@@ -200,12 +221,25 @@
   margin-top: 2px; letter-spacing: var(--grow-ls-body);
 }
 
+/* Status pill (NOMINAL / CAUTION / STALE / OFFLINE). Bumped from
+   --grow-fs-xs (10px) to --grow-fs-sm (12px) and font-weight 500
+   for design-critique #4 — the smaller size + low-saturation green
+   on dark blue was borderline-legible. The tinted background per
+   variant gives more contrast than the plain dark background. */
 .gu-status {
   display: inline-flex; align-items: center; gap: var(--grow-space-1);
-  font-size: var(--grow-fs-xs); letter-spacing: var(--grow-ls-allcaps);
-  text-transform: uppercase; padding: 3px 7px;
+  font-size: var(--grow-fs-sm); letter-spacing: var(--grow-ls-allcaps);
+  text-transform: uppercase; padding: 3px var(--grow-space-2);
   border-radius: var(--grow-radius-sm); background: #0c151c; flex-shrink: 0;
+  font-weight: 500;
 }
+/* Per-status tinted backgrounds — extends the bare colour assignments
+   below. Each variant gets a soft halo so the pill reads as a chip
+   rather than just text. */
+.gu-status.st-normal { background: rgba(86, 240, 0, 0.14); }
+.gu-status.st-caution { background: rgba(255, 179, 2, 0.14); }
+.gu-status.st-standby { background: rgba(77, 172, 255, 0.14); }
+.gu-status.st-serious { background: rgba(255, 82, 82, 0.14); }
 .st-normal { color: var(--grow-good); }
 .st-caution { color: var(--grow-warn); }
 .st-standby { color: var(--grow-accent); }
@@ -282,9 +316,15 @@
 }
 .gu-btn:hover { border-color: var(--grow-accent); color: var(--grow-accent); }
 
-/* Per-unit detail page */
+/* Per-unit detail page.
+   font-family includes platform emoji fonts so the camera / soil /
+   light glyphs in panel heads render as intended (design-critique
+   #11). Without them, some Linux systems substituted a "□" missing-
+   glyph or a low-fidelity TUI box character. */
 .du-page {
-  font-family: Roboto, sans-serif; color: var(--grow-text-body);
+  font-family: Roboto, "Apple Color Emoji", "Segoe UI Emoji",
+               "Noto Color Emoji", sans-serif;
+  color: var(--grow-text-body);
   background: var(--grow-bg-page); min-height: 100vh;
 }
 .du-header {
@@ -292,13 +332,33 @@
   border-bottom: 1px solid var(--grow-border-subtle);
   background: linear-gradient(180deg, var(--grow-bg-sub), #0a1219);
 }
+/* Back-to-fleet link. Design-critique #6 raised contrast (text-body,
+   not text-muted, so it reads as nav rather than metadata) and
+   added a chevron prefix via ::before pseudo so the literal "←"
+   character isn't the only visual signal. */
 .du-back {
-  color: var(--grow-text-muted); font-size: var(--grow-fs-sm);
+  color: var(--grow-text-body); font-size: var(--grow-fs-sm);
   letter-spacing: var(--grow-ls-allcaps); text-decoration: none;
-  text-transform: uppercase; display: inline-block;
+  text-transform: uppercase; display: inline-flex; align-items: center;
+  gap: var(--grow-space-1);
   margin-bottom: var(--grow-space-3);
+  padding: var(--grow-space-1) var(--grow-space-2);
+  border-radius: var(--grow-radius-sm);
+  border: 1px solid transparent;
+  transition: border-color 0.12s, color 0.12s;
 }
-.du-back:hover { color: var(--grow-accent); }
+.du-back::before {
+  content: "‹";
+  font-size: 18px; line-height: 1; font-weight: 500;
+  color: var(--grow-text-muted);
+  transition: color 0.12s, transform 0.12s;
+}
+.du-back:hover {
+  color: var(--grow-accent); border-color: var(--grow-border-emph);
+}
+.du-back:hover::before {
+  color: var(--grow-accent); transform: translateX(-2px);
+}
 .du-title {
   display: flex; align-items: baseline; gap: var(--grow-space-3);
   flex-wrap: wrap;
@@ -420,11 +480,59 @@
   letter-spacing: var(--grow-ls-body);
 }
 
-.du-schedule-bar { padding: 14px; }
-.du-schedule-track { height: 24px; background: #0a1219; border-radius: 2px; position: relative; overflow: hidden; }
-.du-schedule-on { position: absolute; top: 0; bottom: 0; background: linear-gradient(180deg, #4dacff, #2476b8); opacity: 0.7; }
-.du-schedule-now { position: absolute; top: -4px; bottom: -4px; width: 2px; background: #56f000; box-shadow: 0 0 8px #56f000; }
-.du-schedule-now .lbl { position: absolute; top: -16px; left: 4px; font-size: 9px; color: #56f000; letter-spacing: 0.08em; white-space: nowrap; }
+/* 24h schedule bar — track + tick marks + NOW indicator + axis labels.
+   Design-critique #10: the bar previously had no axis markers, just
+   a coloured slab. Operators couldn't tell where in the 24h day the
+   green NOW tick was. Six ticks at 4h spacing + a labels row below
+   give enough resolution without clutter. */
+.du-schedule-bar {
+  padding: var(--grow-space-4);
+  /* Allow room beneath the track for the labels row that's positioned
+     after the track, plus headroom above for the NOW label.            */
+  padding-top: var(--grow-space-5);
+}
+.du-schedule-track {
+  height: 24px; background: var(--grow-bg-input);
+  border-radius: var(--grow-radius-sm);
+  position: relative; overflow: visible;
+  margin-bottom: 4px;
+}
+.du-schedule-on {
+  position: absolute; top: 0; bottom: 0;
+  background: linear-gradient(180deg, var(--grow-accent), #2476b8);
+  opacity: 0.75;
+}
+.du-schedule-tick {
+  position: absolute; top: -2px; bottom: -2px; width: 1px;
+  background: var(--grow-border-emph);
+  pointer-events: none;
+}
+.du-schedule-now {
+  position: absolute; top: -4px; bottom: -4px; width: 2px;
+  background: var(--grow-good);
+  box-shadow: 0 0 8px var(--grow-good);
+  z-index: 2;
+}
+.du-schedule-now .lbl {
+  position: absolute; top: -16px; left: 4px;
+  font-size: var(--grow-fs-xs); color: var(--grow-good);
+  letter-spacing: var(--grow-ls-allcaps);
+  white-space: nowrap; font-weight: 500;
+}
+.du-schedule-labels {
+  position: relative; height: 14px;
+  margin-top: 2px;
+}
+.du-schedule-label {
+  position: absolute;
+  font-size: var(--grow-fs-xs); color: var(--grow-text-muted);
+  letter-spacing: var(--grow-ls-headline);
+  white-space: nowrap;
+  /* Center each label under its tick by translating left half its
+     own width — labels are short enough that 18px works for HH:00. */
+  transform: translateX(-50%);
+  font-family: 'SFMono-Regular', Consolas, monospace;
+}
 
 /* Configure-tab editor panels (profile + PID + light-windows + calibration + safety)
    All panels use the same outer .du-panel wrapper for consistent edge
@@ -516,7 +624,9 @@
   flex-wrap: wrap;
 }
 .cfg-save { padding: var(--grow-space-2) var(--grow-space-5); }
-.cfg-save:disabled { opacity: 0.6; cursor: progress; }
+/* :disabled state inherits from .px-btn:disabled — cursor:not-allowed
+   for "prerequisites not met"; .is-saving overrides to cursor:progress
+   while a save is in flight. */
 .cfg-status {
   font-size: var(--grow-fs-sm); letter-spacing: var(--grow-ls-headline);
 }
@@ -840,9 +950,41 @@
 .diag-table th { text-align: left; padding: 6px 8px; color: #7d92a8; font-weight: 500; border-bottom: 1px solid #1c2733; letter-spacing: 0.04em; text-transform: uppercase; font-size: 10px; }
 .diag-table td { padding: 6px 8px; color: #c2d2e3; border-bottom: 1px solid #14202c; font-family: 'SFMono-Regular', Consolas, monospace; }
 .diag-table tr:last-child td { border-bottom: none; }
-.diag-event { font-family: Roboto, sans-serif; text-transform: uppercase; letter-spacing: 0.08em; font-size: 10px; }
-.diag-event-online { color: #56f000; }
-.diag-event-offline { color: #ff5252; }
+.diag-event {
+  font-family: Roboto, sans-serif;
+  text-transform: uppercase;
+  letter-spacing: var(--grow-ls-allcaps);
+  font-size: var(--grow-fs-xs);
+  display: inline-flex; align-items: center; gap: var(--grow-space-1);
+}
+.diag-event-online { color: var(--grow-good); }
+.diag-event-offline { color: var(--grow-bad); }
+/* Status dot prefix (design-critique #17): the table reads as a
+   sparkline of unit health rather than a wall of text labels. */
+.diag-event-dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.diag-event-dot-online {
+  background: var(--grow-good);
+  box-shadow: 0 0 6px rgba(86, 240, 0, 0.5);
+}
+.diag-event-dot-offline {
+  background: var(--grow-bad);
+  box-shadow: 0 0 6px rgba(255, 82, 82, 0.45);
+}
+/* Time cell: absolute time + muted relative time stacked / inline. */
+.diag-conn-time-abs {
+  font-family: 'SFMono-Regular', Consolas, monospace;
+  color: var(--grow-text-body);
+}
+.diag-conn-time-rel {
+  color: var(--grow-text-muted);
+  font-family: Roboto, sans-serif;
+  font-size: var(--grow-fs-xs);
+}
 .diag-duration-ongoing { color: #ffb302; font-style: italic; }
 .diag-empty { padding: 8px 14px; color: #7d92a8; font-style: italic; font-size: 12px; }
 
@@ -911,15 +1053,65 @@
 .error-row-head { color: #fff; font-size: 12px; letter-spacing: 0.02em; }
 .error-row-msg { color: #c2d2e3; font-size: 13px; line-height: 1.4; word-wrap: break-word; }
 
-.error-row-actions { display: flex; gap: 6px; margin-top: 6px; }
-.error-row-btn {
-  background: transparent; border: 1px solid #2a3d50;
-  color: #c2d2e3; padding: 4px 9px; font-size: 10px;
-  letter-spacing: 0.08em; text-transform: uppercase;
-  cursor: pointer; border-radius: 2px; font-family: Roboto, sans-serif;
+.error-row-actions {
+  display: flex; gap: var(--grow-space-2);
+  margin-top: var(--grow-space-2);
+  align-items: center; flex-wrap: wrap;
 }
-.error-row-btn:hover { border-color: #4dacff; color: #4dacff; }
-.error-row-btn.resolve:hover { border-color: #56f000; color: #56f000; }
+.error-row-btn {
+  background: transparent; border: 1px solid var(--grow-border-emph);
+  color: var(--grow-text-body);
+  padding: var(--grow-space-1) var(--grow-space-3);
+  font-size: var(--grow-fs-xs);
+  letter-spacing: var(--grow-ls-allcaps); text-transform: uppercase;
+  cursor: pointer; border-radius: var(--grow-radius-sm);
+  font-family: Roboto, sans-serif;
+  display: inline-flex; align-items: center; gap: var(--grow-space-1);
+}
+.error-row-btn:hover { border-color: var(--grow-accent); color: var(--grow-accent); }
+.error-row-btn.resolve:hover { border-color: var(--grow-good); color: var(--grow-good); }
+
+/* Snooze ▾ dropdown — design-critique #20 collapsed the two equal-
+   weight Snooze 1h / Snooze 24h buttons into one summary that
+   reveals durations on click. Reduces visual weight; Resolve becomes
+   the sole top-level action.
+
+   Implemented as a native <details> for keyboard + screen-reader
+   support out of the box. The summary has the ::-webkit-details-
+   marker hidden so it looks like a normal button rather than the
+   default browser disclosure triangle. */
+.error-row-snooze-menu {
+  position: relative; display: inline-block;
+}
+.error-row-snooze-menu > summary {
+  list-style: none;
+}
+.error-row-snooze-menu > summary::-webkit-details-marker {
+  display: none;
+}
+.error-row-snooze-options {
+  position: absolute; top: 100%; left: 0; z-index: 5;
+  margin-top: 4px;
+  background: var(--grow-bg-panel);
+  border: 1px solid var(--grow-border-emph);
+  border-radius: var(--grow-radius-sm);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  display: flex; flex-direction: column;
+  min-width: 100px;
+}
+.error-row-snooze-opt {
+  background: transparent; border: none;
+  color: var(--grow-text-body);
+  padding: var(--grow-space-2) var(--grow-space-3);
+  font-size: var(--grow-fs-sm);
+  letter-spacing: var(--grow-ls-headline);
+  cursor: pointer; text-align: left;
+  font-family: Roboto, sans-serif;
+}
+.error-row-snooze-opt:hover {
+  background: rgba(77, 172, 255, 0.12);
+  color: var(--grow-accent);
+}
 
 .grow-errors-empty {
   padding: 32px 20px; text-align: center; color: #7d92a8;
@@ -1062,30 +1254,39 @@
 .pp-status.ok { color: #56f000; }
 .pp-status.err { color: #ff5252; }
 
+/* Plant-profile rows. Design-critique #21 sharpened the hover state
+   so the cards visually announce themselves as clickable. Previously
+   the hover only nudged the border colour; now the border + a soft
+   accent halo + a subtle lift make the affordance unmissable. */
 .pp-row {
-  border: 1px solid #1f2e3c;
-  border-radius: 2px;
-  background: #0e1722;
+  border: 1px solid var(--grow-border-panel);
+  border-radius: var(--grow-radius-sm);
+  background: var(--grow-bg-sub);
   overflow: hidden;
-  transition: border-color 0.12s;
+  transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
 }
-.pp-row:hover { border-color: #2a3d50; }
+.pp-row:hover {
+  border-color: var(--grow-accent);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(77, 172, 255, 0.15);
+}
 .pp-row-head {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--grow-space-3);
   width: 100%;
-  padding: 10px 14px;
+  padding: var(--grow-space-3) var(--grow-space-4);
   background: transparent;
   border: none;
   color: inherit;
   font: inherit;
-  font-family: Roboto, sans-serif;
+  font-family: Roboto, "Apple Color Emoji", "Segoe UI Emoji",
+               "Noto Color Emoji", sans-serif;
   text-align: left;
   cursor: pointer;
 }
 .pp-row-head:hover {
-  background: rgba(77, 172, 255, 0.06);
+  background: rgba(77, 172, 255, 0.08);
 }
 .pp-row-head:focus-visible {
   outline: 2px solid #4dacff;

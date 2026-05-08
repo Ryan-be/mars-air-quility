@@ -296,7 +296,11 @@ export function renderPlantProfilesEditor(opts = {}) {
       for (const p of profiles) {
         tbody.appendChild(_renderRow(p));
       }
-      _setStatus(`Loaded ${profiles.length} profiles.`, "info");
+      // Design-critique #22: previously rendered "Loaded N profiles."
+      // here on success — felt like debug output and added chrome
+      // below the list. The list itself is self-evidently populated;
+      // success doesn't need its own status line.
+      _setStatus("", "");
     } catch (exc) {
       _setStatus(`✗ ${exc.message || "Network error"}`, "err");
     }
