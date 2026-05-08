@@ -170,7 +170,9 @@ def test_list_plant_profiles_returns_all_seeded(client):
     r = c.get("/api/grow/plant-profiles")
     assert r.status_code == 200
     rows = r.get_json()
-    assert len(rows) == 11, f"expected 11 shipped profiles, got {len(rows)}"
+    # 15 profiles: original 11 + 4 chili variants added later. Update the
+    # count whenever _SHIPPED_PROFILES grows.
+    assert len(rows) == 15, f"expected 15 shipped profiles, got {len(rows)}"
     # Each row has every field the editor needs
     expected_keys = {
         "id", "plant_type", "phase", "target_moisture_pct", "deadband_pct",
