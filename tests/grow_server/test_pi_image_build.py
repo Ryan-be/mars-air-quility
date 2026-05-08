@@ -87,6 +87,30 @@ def test_chroot_script_pip_installs_mlss_grow():
     assert "piwheels" in content
 
 
+def test_chroot_script_installs_from_local_wheels_not_pypi():
+    """We are NOT publishing mlss-grow to PyPI — the image bakes the
+    locally-built wheel in instead. Guard against a regression that
+    re-introduces a PyPI fetch for our own packages."""
+    content = (SUBSTAGE_DIR / "01-run-chroot.sh").read_text()
+    # The chroot script must point pip at the staged wheels dir.
+    assert "/tmp/wheels" in content, (
+        "chroot script must --find-links /tmp/wheels (where the host-side "
+        "stage script staged the locally-built wheels)"
+    )
+    assert "--find-links" in content
+
+
+def test_host_stage_copies_local_wheels_into_rootfs():
+    """The host-side stage must stage wheels from MLSS_LOCAL_WHEELS_DIR
+    into the rootfs. Without this step, the chroot script's
+    --find-links /tmp/wheels would point at an empty directory."""
+    content = (SUBSTAGE_DIR / "01-run.sh").read_text()
+    assert "MLSS_LOCAL_WHEELS_DIR" in content
+    assert "/tmp/wheels" in content
+    assert "mlss_grow" in content
+    assert "mlss_contracts" in content
+
+
 def test_chroot_script_creates_mlss_grow_user():
     content = (SUBSTAGE_DIR / "01-run-chroot.sh").read_text()
     assert "adduser" in content
@@ -153,6 +177,39 @@ def test_doc_exists_and_calls_out_linux_only():
     doc = (REPO_ROOT / "docs" / "PI_IMAGE_BUILD.md").read_text()
     assert "Linux-only" in doc or "Linux box" in doc
     assert "pi-gen" in doc
-    # Cross-link to the release process (since the image depends on
-    # mlss-grow being on PyPI)
+    # Cross-link to the release process (versioning + local wheel build
+    # happen there).
     assert "RELEASE_PROCESS.md" in doc
+
+
+def test_build_pi_image_calls_local_wheel_builder():
+    """build_pi_image.sh must call build_local_wheels.sh so the wheels
+    are present before pi-gen runs the stage. Without this the stage
+    script fails fast with 'wheel directory not found'."""
+    content = (REPO_ROOT / "scripts" / "build_pi_image.sh").read_text()
+    assert "build_local_wheels.sh" in content, (
+        "build_pi_image.sh must invoke build_local_wheels.sh before pi-gen"
+    )
+    # And it must export the wheels dir into pi-gen's config so the
+    # stage scripts can find it.
+    assert "MLSS_LOCAL_WHEELS_DIR" in content
+
+
+def test_no_pypi_publish_workflows_exist():
+    """The maintainer decided not to publish to PyPI. Guard against a
+    regression that re-introduces auto-publish workflows on tag push."""
+    workflows_dir = REPO_ROOT / ".github" / "workflows"
+    if not workflows_dir.exists():
+        return  # nothing to assert
+    for wf in workflows_dir.glob("*.yml"):
+        text = wf.read_text()
+        # If a workflow references twine upload OR PYPI_API_TOKEN it's
+        # almost certainly trying to publish to PyPI, which we don't do.
+        assert "twine upload" not in text, (
+            f"{wf.name} contains 'twine upload' — this repo does not "
+            "publish to PyPI. See docs/RELEASE_PROCESS.md."
+        )
+        assert "PYPI_API_TOKEN" not in text, (
+            f"{wf.name} references PYPI_API_TOKEN — this repo does not "
+            "publish to PyPI. See docs/RELEASE_PROCESS.md."
+        )

@@ -2,15 +2,20 @@
 # Build a custom Raspberry Pi OS .img.xz pre-loaded with mlss-grow.
 #
 # Wraps the official pi-gen tool (https://github.com/RPi-Distro/pi-gen)
-# with our stage-mlss-grow customisations: pip-installs mlss-grow on
-# first boot (or from PyPI bundle), drops the systemd unit, hooks
+# with our stage-mlss-grow customisations: bakes locally-built mlss-grow
+# + mlss-contracts wheels into the image, drops the systemd unit, hooks
 # rc.local so a yaml on the boot partition triggers automatic enrolment.
 #
 # Output: dist/mlss-pi-os-<version>.img.xz
 #
 # Usage:
-#   bash scripts/build_pi_image.sh                  # default — uses PyPI mlss-grow
-#   MLSS_GROW_VERSION=0.2.0 bash scripts/build_pi_image.sh
+#   bash scripts/build_pi_image.sh
+#
+# The script first runs scripts/build_local_wheels.sh to produce both
+# wheels in dist/wheels/, then bakes them into the pi-gen stage. No
+# external package index is consulted at provision time for our two
+# packages (transitive deps still come from PyPI / piwheels — see
+# 01-run-chroot.sh comments).
 #
 # Linux-only: pi-gen uses chroot + binfmt_misc which Windows / macOS
 # can't run. On a non-Linux machine, run this inside a Linux VM or
@@ -24,16 +29,12 @@ WORK_DIR="${REPO_ROOT}/dist/pi-image-build"
 PI_GEN_DIR="${WORK_DIR}/pi-gen"
 STAGE_NAME="stage-mlss-grow"
 STAGE_DIR_SRC="${REPO_ROOT}/scripts/${STAGE_NAME}"
+WHEELS_DIR="${REPO_ROOT}/dist/wheels"
 
 # Pin the pi-gen branch we've tested against. Bookworm = Debian 12, the
 # stable target as of mid-2026. Bullseye is older and still supported
 # by pi-gen but the stage scripts assume Bookworm package names.
 PI_GEN_BRANCH="${PI_GEN_BRANCH:-bookworm}"
-
-# Version of mlss-grow to bake into the image. Defaults to "latest from
-# PyPI" — bump this when cutting an image release that pins to a known-
-# good firmware version.
-MLSS_GROW_VERSION="${MLSS_GROW_VERSION:-latest}"
 
 # Image release tag — appears in the output filename.
 IMAGE_VERSION="${IMAGE_VERSION:-0.1.0}"
@@ -52,6 +53,25 @@ if ! command -v git >/dev/null 2>&1; then
 fi
 if [[ "$EUID" -ne 0 ]]; then
     echo "Note: pi-gen will run sudo internally; you may be prompted." >&2
+fi
+
+# ── Build local wheels ─────────────────────────────────────────────
+#
+# Run the local wheel builder first so the stage script can bake
+# fresh wheels into the image. This is intentionally ahead of the
+# pi-gen clone so we fail fast if poetry isn't installed or a build
+# fails — saves the operator a 30-minute pi-gen run for nothing.
+
+echo "==> Building local wheels (mlss_grow + mlss_contracts)"
+bash "${SCRIPT_DIR}/build_local_wheels.sh"
+
+if ! ls "${WHEELS_DIR}"/mlss_grow-*.whl >/dev/null 2>&1; then
+    echo "Error: build_local_wheels.sh did not produce a mlss_grow wheel." >&2
+    exit 1
+fi
+if ! ls "${WHEELS_DIR}"/mlss_contracts-*.whl >/dev/null 2>&1; then
+    echo "Error: build_local_wheels.sh did not produce a mlss_contracts wheel." >&2
+    exit 1
 fi
 
 # ── Clone or update pi-gen ─────────────────────────────────────────
@@ -100,8 +120,9 @@ TIMEZONE_DEFAULT="Etc/UTC"
 FIRST_USER_NAME="mlss"
 FIRST_USER_PASS="mlss-grow-default-CHANGE-ME"
 DISABLE_FIRST_BOOT_USER_RENAME=1
-# Pass-through for our stage scripts
-MLSS_GROW_VERSION="${MLSS_GROW_VERSION}"
+# Pass-through for our stage scripts — points 01-run.sh at the
+# locally-built wheels so they can be staged into the rootfs.
+MLSS_LOCAL_WHEELS_DIR="${WHEELS_DIR}"
 EOF
 
 # ── Build ──────────────────────────────────────────────────────────

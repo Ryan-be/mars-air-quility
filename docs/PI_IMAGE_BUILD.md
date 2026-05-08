@@ -34,10 +34,12 @@ the MLSS server).
   this in a Linux VM (UTM, Multipass, WSL2 with `binfmt-support`).
 - ~10 GB free disk for the build cache + output.
 - 4-8 GB RAM (the build does parallel apt installs in the chroot).
-- A valid `mlss-grow` package on PyPI — see
-  [`docs/RELEASE_PROCESS.md`](RELEASE_PROCESS.md). The image runs
-  `pip install mlss-grow` at build time, so this depends on item #4
-  having shipped first.
+- `poetry` installed locally — `build_pi_image.sh` calls
+  `scripts/build_local_wheels.sh` internally to produce the
+  mlss-grow + mlss-contracts wheels that get baked into the image.
+  No public package index is consulted for our two packages at
+  provision time. See [`docs/RELEASE_PROCESS.md`](RELEASE_PROCESS.md)
+  for the local-wheels build flow.
 
 The build itself takes 30-60 minutes depending on hardware. CI doesn't
 build it — it's a manual maintainer step before cutting an image
@@ -54,34 +56,37 @@ bash scripts/build_pi_image.sh
 
 What this does:
 
-1. **Clones pi-gen** (the official Pi OS image builder, ~50 MB) into
+1. **Builds local wheels** — runs `scripts/build_local_wheels.sh` to
+   produce `mlss_grow-*.whl` + `mlss_contracts-*.whl` in `dist/wheels/`
+   (path-dep stripped, ready for offline `pip install`).
+2. **Clones pi-gen** (the official Pi OS image builder, ~50 MB) into
    `dist/pi-image-build/pi-gen/`. Cached for subsequent builds.
-2. **Symlinks `scripts/stage-mlss-grow/`** into pi-gen as a custom
+3. **Symlinks `scripts/stage-mlss-grow/`** into pi-gen as a custom
    stage that runs after pi-gen's stage 0 / 1 / 2 (the lite Pi OS
    rootfs). Stages 3-5 (full desktop) are SKIPPED.
-3. **Writes `pi-gen/config`** — image name, locale, timezone, default
+4. **Writes `pi-gen/config`** — image name, locale, timezone, default
    user (`mlss` with a placeholder password — change it on first
-   login).
-4. **Runs `pi-gen/build.sh`** — apt-installs system packages into the
-   chroot, pip-installs `mlss-grow` from PyPI, drops the systemd unit,
-   the firstboot hook, and the yaml template into `/boot/`.
-5. **Compresses + outputs** the image to
+   login), and exports `MLSS_LOCAL_WHEELS_DIR` so the stage scripts
+   know where to pick up the wheels.
+5. **Runs `pi-gen/build.sh`** — apt-installs system packages into the
+   chroot, copies the local wheels into `/tmp/wheels/` of the rootfs,
+   pip-installs from those wheels (no public-index lookup for our two
+   packages — transitive deps still come from PyPI / piwheels), drops
+   the systemd unit, the firstboot hook, and the yaml template into
+   `/boot/`.
+6. **Compresses + outputs** the image to
    `dist/mlss-pi-os-<version>.img.xz` (~700 MB).
 
 ### Pinning a specific firmware version
 
-Default: latest from PyPI.
-
-```bash
-MLSS_GROW_VERSION=0.2.0 bash scripts/build_pi_image.sh
-```
-
-When cutting an image release, always pin so the image is reproducible.
+The version is whatever's in `grow_unit/pyproject.toml` and
+`contracts/pyproject.toml` at build time. Bump those before running
+the build script (see [`docs/RELEASE_PROCESS.md`](RELEASE_PROCESS.md)).
 
 ### Bumping the image version tag
 
 ```bash
-IMAGE_VERSION=0.2.0 MLSS_GROW_VERSION=0.2.0 bash scripts/build_pi_image.sh
+IMAGE_VERSION=0.2.0 bash scripts/build_pi_image.sh
 # → dist/mlss-pi-os-0.2.0.img.xz
 ```
 
@@ -94,8 +99,8 @@ The stage-mlss-grow customisation is structured as one substage:
 | Layer | Contents |
 |---|---|
 | `00-packages` (apt) | `python3`, `python3-pip`, `python3-venv`, `python3-picamera2`, `libcamera-apps`, `i2c-tools`, `build-essential`, `libffi-dev`, `libjpeg-dev`, `ffmpeg` |
-| `01-run.sh` (host-side) | Stages our service unit + firstboot script + yaml template into `${ROOTFS_DIR}/tmp/` |
-| `01-run-chroot.sh` (chroot) | Creates the `mlss-grow` system user, `/opt/mlss-grow/.venv` venv, `pip install mlss-grow` (via piwheels for ARM wheels), drops the systemd unit (NOT enabled), enables I2C, hooks `/etc/rc.local` to call firstboot |
+| `01-run.sh` (host-side) | Stages our service unit + firstboot script + yaml template + locally-built wheels into `${ROOTFS_DIR}/tmp/` |
+| `01-run-chroot.sh` (chroot) | Creates the `mlss-grow` system user, `/opt/mlss-grow/.venv` venv, `pip install mlss-grow mlss-contracts` from `/tmp/wheels` (via piwheels for transitive ARM wheels), drops the systemd unit (NOT enabled), enables I2C, hooks `/etc/rc.local` to call firstboot |
 
 After build, the image contains:
 
@@ -136,24 +141,21 @@ boots anyway, since `/var/lib/mlss-grow/.firstboot-done` shortcircuits).
 
 ---
 
-## Publishing a release
+## Distributing a built image
 
-This is a **manual** process today (no GitHub Actions workflow because
-pi-gen needs Linux + ~30 min of CPU + sudo, none of which the standard
-GH-hosted runner does well).
+The image is a private build artefact today — there's no automated
+publish step (pi-gen needs Linux + ~30 min of CPU + sudo, none of
+which the standard GH-hosted runner does well, and we're not pushing
+images to a public location anyway).
 
-1. Build on a Linux box: `IMAGE_VERSION=0.1.0 MLSS_GROW_VERSION=0.1.0 bash scripts/build_pi_image.sh`
+Local handoff is straightforward:
+
+1. Build on a Linux box: `IMAGE_VERSION=0.1.0 bash scripts/build_pi_image.sh`
 2. Compute SHA256: `sha256sum dist/mlss-pi-os-0.1.0.img.xz`
-3. Tag: `git tag pi-image-v0.1.0 && git push --tags`
-4. Create a GitHub Release attached to the tag at
-   <https://github.com/Ryan-be/mars-air-quility/releases/new?tag=pi-image-v0.1.0>
-5. Upload the `.img.xz` and the SHA256 as release assets.
-6. In the release notes, paste the SHA256 + a quick changelog of what
-   changed since the last image.
+3. Move the `.img.xz` + the SHA256 into wherever the operator picks it up
+   (a shared drive, a laptop, an internal release server).
 
-A future Phase 5 enhancement would automate this on a self-hosted
-Linux runner (the build is too slow for GH-hosted runners), but for
-now manual is fine — image releases are rare (every few months).
+If/when distribution policy changes, that's a separate ticket.
 
 ---
 
@@ -173,7 +175,8 @@ now manual is fine — image releases are rare (every few months).
 ## Related
 
 - [`scripts/build_pi_image.sh`](../scripts/build_pi_image.sh) — the wrapper
+- [`scripts/build_local_wheels.sh`](../scripts/build_local_wheels.sh) — produces the wheels baked into the image
 - [`scripts/stage-mlss-grow/`](../scripts/stage-mlss-grow/) — the pi-gen stage
-- [`docs/RELEASE_PROCESS.md`](RELEASE_PROCESS.md) — how `mlss-grow` lands on PyPI in the first place (item #4)
-- [`grow_unit/install.sh`](../grow_unit/install.sh) — the manual install path the image replaces
+- [`docs/RELEASE_PROCESS.md`](RELEASE_PROCESS.md) — local-only release flow + version bumps
+- [`grow_unit/install.sh`](../grow_unit/install.sh) — the manual install path (alternative to the image flow)
 - [pi-gen upstream](https://github.com/RPi-Distro/pi-gen) — the tool we wrap
