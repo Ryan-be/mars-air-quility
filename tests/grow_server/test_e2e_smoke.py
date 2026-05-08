@@ -129,3 +129,34 @@ async def test_full_lifecycle(setup):
     # 5. Verify image file actually written to disk
     import os
     assert os.path.exists(os.path.join(img_dir, photos[0][0]))
+
+    # 6. Bucket B1 (e2e gap closure): GET /api/grow/units/<id> and assert
+    # that `last_known_state.last_photo_url` is populated. This is the
+    # contract bug we hit in deployment (commit 94b08aa) — the client
+    # read the field but the server never put it there. Pinning it
+    # here ensures the regression can't recur.
+    from mlss_monitor.routes.api_grow_units import api_grow_units_bp
+    fleet_app = Flask(__name__)
+    fleet_app.register_blueprint(api_grow_units_bp)
+    fleet_client = fleet_app.test_client()
+    fleet_resp = fleet_client.get("/api/grow/units")
+    assert fleet_resp.status_code == 200
+    units = fleet_resp.get_json()["units"]
+    our_unit = next(u for u in units if u["id"] == unit_id)
+    assert our_unit["last_known_state"] is not None
+    photo_url = our_unit["last_known_state"]["last_photo_url"]
+    assert photo_url is not None, (
+        "fleet API must surface last_photo_url after a photo lands "
+        "(commit 94b08aa regression guard — see "
+        "docs/superpowers/audits/2026-05-08-grow-e2e-gap-analysis.md Bug 1)"
+    )
+    # The URL points at the immutable /photos/<id> endpoint (cacheable),
+    # not /photo/latest (which would defeat the cache headers).
+    assert "/photos/" in photo_url
+
+    # 7. Also assert the detail endpoint surfaces the same fields. Closes
+    # the asymmetry where one API contract diverges from the other.
+    detail_resp = fleet_client.get(f"/api/grow/units/{unit_id}")
+    assert detail_resp.status_code == 200
+    detail = detail_resp.get_json()
+    assert detail["last_known_state"]["last_photo_url"] == photo_url
