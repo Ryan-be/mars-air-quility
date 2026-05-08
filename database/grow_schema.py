@@ -271,6 +271,39 @@ def create_grow_schema(cur):
         "ON grow_journal_entries(unit_id, timestamp_utc DESC)"
     )
 
+    # Phase 4 #8: time-lapse video render job queue. An operator picks
+    # a range + framerate via the History tab; the row enters the
+    # `queued` state and a background worker (mlss_monitor.grow.
+    # timelapse_jobs) picks it up, calls ffmpeg against the unit's
+    # grow_photos in date order, drops an MP4 under
+    # data/timelapses/<unit>/<job_id>.mp4, and flips status to
+    # complete (or failed with an error_message). No Celery/RQ — the
+    # in-process daemon thread polls every 30s for v1.
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS grow_timelapse_jobs (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      unit_id        INTEGER NOT NULL REFERENCES grow_units(id) ON DELETE CASCADE,
+      requested_by   TEXT NOT NULL,
+      requested_at   DATETIME NOT NULL,
+      range          TEXT NOT NULL,              -- '24h' / '7d' / '30d' / '90d' / 'all'
+      fps            INTEGER NOT NULL DEFAULT 10,
+      status         TEXT NOT NULL DEFAULT 'queued'
+                       CHECK(status IN ('queued','running','complete','failed')),
+      output_path    TEXT,                        -- relative to data/timelapses/
+      error_message  TEXT,                        -- populated when status='failed'
+      started_at     DATETIME,
+      completed_at   DATETIME
+    );
+    """)
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_grow_timelapse_status "
+        "ON grow_timelapse_jobs(status, requested_at)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_grow_timelapse_unit "
+        "ON grow_timelapse_jobs(unit_id, requested_at DESC)"
+    )
+
     _seed_grow_data(cur)
 
 

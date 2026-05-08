@@ -854,6 +854,9 @@ idempotent migrations, additive-only schema policy).
 - Python 3.11+
 - I2C enabled (the setup script handles this)
 - UART enabled (required for the PM sensor -- see below)
+- ffmpeg (for grow-unit time-lapse video rendering — `sudo apt install ffmpeg`).
+  Optional: the History tab's time-lapse generator returns a clear 503 with
+  install instructions if missing.
 
 ### First-time setup
 

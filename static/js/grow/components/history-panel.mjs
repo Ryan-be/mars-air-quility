@@ -24,6 +24,7 @@
 import { renderMoistureHistoryChart } from "./moisture-history-chart.mjs";
 import { renderPhotoTimelapse } from "./photo-timelapse.mjs";
 import { renderJournalEditor } from "./journal-editor.mjs";
+import { renderTimelapseGenerator } from "./timelapse-generator.mjs";
 
 
 function _readSessionRole(doc) {
@@ -56,12 +57,22 @@ export function renderHistoryPanel(unit, opts = {}) {
   wrap.appendChild(renderMoistureHistoryChart(unit, opts));
   wrap.appendChild(renderPhotoTimelapse(unit, opts));
 
+  const sessionRole = opts.currentRole ?? _readSessionRole(doc);
+  const sessionUser = opts.currentUser ?? _readSessionUser(doc);
+
   const journalOpts = {
     ownerDocument: doc,
-    currentUser: opts.currentUser ?? _readSessionUser(doc),
-    currentRole: opts.currentRole ?? _readSessionRole(doc),
+    currentUser: sessionUser,
+    currentRole: sessionRole,
     fetchFn: opts.fetchFn,
   };
   wrap.appendChild(renderJournalEditor(unit, journalOpts));
+
+  const tlapseOpts = {
+    ownerDocument: doc,
+    currentRole: sessionRole,
+    fetchFn: opts.fetchFn,
+  };
+  wrap.appendChild(renderTimelapseGenerator(unit, tlapseOpts));
   return wrap;
 }

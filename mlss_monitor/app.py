@@ -846,6 +846,16 @@ def _start_background_services():
     # River learn_one() calls inside bootstrap_from_db() compete for the GIL.
     Timer(20, _bootstrap).start()
 
+    # Phase 4 #8: timelapse render worker. Polls every 30s for queued
+    # rows in grow_timelapse_jobs and shells out to ffmpeg. Daemon
+    # thread, lives inside this worker process — same pattern as the
+    # other grow background services above.
+    try:
+        from mlss_monitor.grow.timelapse_jobs import start_runner_thread
+        start_runner_thread()
+    except Exception as exc:  # pylint: disable=broad-except
+        log.warning("timelapse_jobs.start_runner_thread failed: %s", exc)
+
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 

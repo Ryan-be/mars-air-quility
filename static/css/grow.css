@@ -1524,6 +1524,54 @@
 }
 
 /* ===========================================================================
+   Phase 4 polish #8: time-lapse generator
+   =========================================================================== */
+
+.timelapse-generator .tlg-body {
+  padding: var(--grow-space-3);
+  display: flex; flex-direction: column; gap: var(--grow-space-3);
+}
+.tlg-form {
+  display: flex; gap: var(--grow-space-3); align-items: flex-end;
+  flex-wrap: wrap;
+  padding: var(--grow-space-3);
+  border: 1px solid var(--grow-border-subtle);
+  border-radius: var(--grow-radius-sm);
+  background: var(--grow-bg-sub);
+}
+.tlg-field {
+  display: flex; flex-direction: column; gap: var(--grow-space-1);
+  font-size: var(--grow-fs-xs); letter-spacing: var(--grow-ls-allcaps);
+  text-transform: uppercase; color: var(--grow-text-muted);
+  font-family: Roboto, sans-serif;
+}
+.tlg-field select {
+  background: var(--grow-bg-input); color: var(--grow-text-body);
+  border: 1px solid var(--grow-border-emph); border-radius: var(--grow-radius-sm);
+  padding: var(--grow-space-2); font-size: var(--grow-fs-sm);
+  font-family: Roboto, sans-serif;
+}
+.tlg-status {
+  font-size: var(--grow-fs-sm); letter-spacing: var(--grow-ls-headline);
+}
+.tlg-status-info { color: var(--grow-text-body); }
+.tlg-status-ok   { color: var(--grow-good); }
+.tlg-status-err  { color: var(--grow-bad); }
+.tlg-output {
+  display: flex; flex-direction: column; gap: var(--grow-space-2);
+}
+.tlg-video {
+  width: 100%; max-width: 720px;
+  border-radius: var(--grow-radius-sm);
+  background: #000;
+}
+.tlg-download {
+  align-self: flex-start;
+  color: var(--grow-accent); text-decoration: underline;
+  font-size: var(--grow-fs-sm); font-family: Roboto, sans-serif;
+}
+
+/* ===========================================================================
    Phase 4 polish #5: mobile-optimised fleet view + unit detail
    ===========================================================================
    The grow tab was designed desktop-first; on a phone (~375px viewport) a
