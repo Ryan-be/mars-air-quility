@@ -63,17 +63,41 @@ def test_stage_dir_layout():
 
 def test_apt_package_list_contains_mlss_essentials():
     """The packages we ship in the image — essential for grow-unit
-    operation. Includes ffmpeg (for time-lapse) and i2c-tools (for the
-    Seesaw sensor)."""
+    operation. i2c-tools is needed for the Seesaw soil sensor,
+    libcamera-apps + python3-picamera2 for the camera capture path."""
     pkg_list = (SUBSTAGE_DIR / "00-packages").read_text().splitlines()
     pkg_set = {line.strip() for line in pkg_list if line.strip()}
     expected = {
         "python3", "python3-pip", "python3-venv",
         "python3-picamera2", "libcamera-apps",
-        "i2c-tools", "ffmpeg",
+        "i2c-tools",
     }
     missing = expected - pkg_set
     assert not missing, f"apt list is missing essentials: {missing}"
+
+
+def test_apt_package_list_does_not_contain_ffmpeg():
+    """ffmpeg must NOT be in the grow-unit SD image.
+
+    Time-lapse video rendering happens server-side on the MLSS box
+    (mlss_monitor/grow/timelapse_jobs.py), NOT on the grow unit. The
+    grow-unit firmware only captures still JPEGs (camera.py) and
+    uploads them via the WS protocol — it never shells out to ffmpeg.
+
+    Keeping ffmpeg out of the grow-unit image saves ~30 MB on every
+    SD card we flash and removes a dependency surface that doesn't
+    earn its keep. If you find yourself wanting to add ffmpeg here,
+    first add a reference from grow_unit/ that actually uses it —
+    otherwise this assertion is locking in the right answer.
+    """
+    pkg_list = (SUBSTAGE_DIR / "00-packages").read_text().splitlines()
+    pkg_set = {line.strip() for line in pkg_list if line.strip()}
+    assert "ffmpeg" not in pkg_set, (
+        "ffmpeg is in the grow-unit SD image's apt list but the "
+        "grow-unit firmware doesn't render video (it only captures "
+        "JPEGs and uploads them — see grow_unit/src/mlss_grow/camera.py). "
+        "Remove it from scripts/stage-mlss-grow/00-install-mlss-grow/00-packages."
+    )
 
 
 def test_chroot_script_pip_installs_mlss_grow():

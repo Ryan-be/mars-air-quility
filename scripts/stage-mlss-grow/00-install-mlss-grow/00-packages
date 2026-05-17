@@ -8,4 +8,3 @@ i2c-tools
 build-essential
 libffi-dev
 libjpeg-dev
-ffmpeg
