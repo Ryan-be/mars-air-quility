@@ -22,6 +22,7 @@ from http import HTTPStatus
 from threading import Lock as _ThreadLock
 
 import websockets
+from websockets.exceptions import ConnectionClosedError, ConnectionClosedOK
 from pydantic import BaseModel, ValidationError
 
 from database.init_db import DB_FILE
@@ -245,37 +246,58 @@ async def _connection_handler(ws, path: str, registry):
     _record_connection_event(unit_id, "online")
     log.info("grow unit %s connected", unit_id)
     try:
-        async for message in ws:
-            try:
-                if isinstance(message, bytes):
-                    handle_photo_frame(unit_id, message)
-                else:
-                    msg = json.loads(message)
-                    msg_type = msg.get("type")
-                    ts = datetime.fromisoformat(
-                        msg["ts"].replace("Z", "+00:00")
-                    ).replace(tzinfo=None)
-                    payload = msg.get("payload") or {}
-                    # I1: Validate against the shared pydantic schema
-                    # BEFORE touching the stateful handlers. A failure
-                    # logs a warning and drops the frame — the
-                    # connection stays up so a unit running buggy
-                    # firmware doesn't get torn down for one bad message.
-                    if not _validate_payload(msg_type, payload):
-                        continue
-                    if msg_type == "telemetry":
-                        handle_telemetry(unit_id, ts, payload)
-                    elif msg_type == "capabilities":
-                        handle_capabilities(unit_id, ts, payload)
-                    elif msg_type == "event":
-                        handle_event(unit_id, ts, payload)
-                    elif msg_type == "ack":
-                        log.debug("ack from unit %s: %s", unit_id, payload)
+        # Wrap the recv loop so routine client-side disconnects (firmware
+        # restart, WiFi blip, TCP RST — no WS close frame) don't escape
+        # this handler. Without these catches the websockets library's
+        # outer wrapper sees the exception as "unexpected" and logs
+        # "connection handler failed" at ERROR with a full traceback,
+        # which pollutes the log for an event that is in fact routine for
+        # IoT clients. The inner try/except below (per-message handler) is
+        # a different concern and stays as-is — one bad message must not
+        # tear down the connection.
+        try:
+            async for message in ws:
+                try:
+                    if isinstance(message, bytes):
+                        handle_photo_frame(unit_id, message)
                     else:
-                        log.warning("unknown message type from unit %s: %r",
-                                    unit_id, msg_type)
-            except Exception as exc:
-                log.exception("error handling msg from unit %s: %s", unit_id, exc)
+                        msg = json.loads(message)
+                        msg_type = msg.get("type")
+                        ts = datetime.fromisoformat(
+                            msg["ts"].replace("Z", "+00:00")
+                        ).replace(tzinfo=None)
+                        payload = msg.get("payload") or {}
+                        # I1: Validate against the shared pydantic schema
+                        # BEFORE touching the stateful handlers. A failure
+                        # logs a warning and drops the frame — the
+                        # connection stays up so a unit running buggy
+                        # firmware doesn't get torn down for one bad message.
+                        if not _validate_payload(msg_type, payload):
+                            continue
+                        if msg_type == "telemetry":
+                            handle_telemetry(unit_id, ts, payload)
+                        elif msg_type == "capabilities":
+                            handle_capabilities(unit_id, ts, payload)
+                        elif msg_type == "event":
+                            handle_event(unit_id, ts, payload)
+                        elif msg_type == "ack":
+                            log.debug("ack from unit %s: %s", unit_id, payload)
+                        else:
+                            log.warning("unknown message type from unit %s: %r",
+                                        unit_id, msg_type)
+                except Exception as exc:
+                    log.exception("error handling msg from unit %s: %s", unit_id, exc)
+        except ConnectionClosedOK:
+            # Clean close — the finally block already logs "disconnected".
+            pass
+        except (ConnectionClosedError, asyncio.IncompleteReadError) as exc:
+            # Abrupt close (firmware restart, WiFi blip, TCP RST). Routine
+            # for IoT clients, so INFO rather than WARNING — operators
+            # chasing real bugs shouldn't have to filter these out.
+            log.info(
+                "grow unit %s connection closed unexpectedly: %s",
+                unit_id, exc,
+            )
     finally:
         registry.unregister(unit_id)
         _record_connection_event(unit_id, "offline")

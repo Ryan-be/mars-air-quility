@@ -396,6 +396,88 @@ async def test_real_ws_connect_and_disconnect_writes_grow_errors_rows(server):
     assert offline[0] == "warning"
 
 
+# ───────────────────────────────────────────────────────────────────────────
+# Abrupt disconnect handling — no WS close frame (firmware restart, WiFi
+# blip, TCP RST). The handler must NOT let ConnectionClosedError /
+# IncompleteReadError propagate as a traceback — those are routine for IoT
+# clients and were spamming the production log. They get logged at INFO
+# instead; only truly unexpected exceptions still surface a traceback.
+# ───────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_abrupt_tcp_close_does_not_log_traceback(server, caplog):
+    """Simulate the in-the-wild disconnect: client sends a valid frame,
+    then drops the underlying TCP socket WITHOUT a WS close frame. The
+    server must:
+      - NOT let the exception escape `_connection_handler` — the websockets
+        library would otherwise log "connection handler failed" at ERROR
+        level with a full traceback, which was spamming production logs
+      - log an INFO line about the unexpected close
+      - still run the finally block (registry unregister)
+    """
+    import logging
+    port, token, _, registry = server
+
+    # Capture across all loggers — the noisy "connection handler failed"
+    # traceback comes from the per-connection websockets logger, not ours.
+    with caplog.at_level(logging.DEBUG):
+        ws = await websockets.connect(
+            f"ws://127.0.0.1:{port}/api/grow/1/ws",
+            extra_headers={"Authorization": f"Bearer {token}"},
+        )
+        # Send one valid frame so the server is sitting inside the
+        # `async for message in ws:` loop when the rug gets pulled.
+        await ws.send(json.dumps({
+            "type": "telemetry",
+            "ts": "2026-05-03T12:34:18Z",
+            "payload": {"soil_moisture_raw": 612, "light_state": True,
+                        "pump_state": False},
+        }))
+        await asyncio.sleep(0.1)
+
+        # Pull the rug: close the underlying TCP socket directly, bypassing
+        # the websockets close handshake. The server-side `async for` will
+        # then raise ConnectionClosedError (or IncompleteReadError on some
+        # paths) — exactly what firmware restarts / WiFi blips trigger in
+        # production.
+        ws.transport.close()
+        await asyncio.sleep(0.3)
+
+    # The connection must have been torn down on the server side (finally
+    # ran).
+    assert registry.is_connected(1) is False, (
+        "registry should reflect the disconnect even after abrupt close"
+    )
+
+    # The exact production smell we're fixing: websockets logs
+    # "connection handler failed" at ERROR with exc_info when the handler
+    # lets a connection-closed exception propagate. If our handler catches
+    # cleanly, this log line never appears.
+    handler_failed = [
+        r for r in caplog.records
+        if "connection handler failed" in r.getMessage()
+    ]
+    assert handler_failed == [], (
+        "websockets must not see the connection-closed exception escape "
+        "our handler; got "
+        f"{[(r.name, r.levelname, r.getMessage()) for r in handler_failed]}"
+    )
+
+    # And there must be at least one INFO-level message about the close
+    # from our handler — either the existing "disconnected" line from the
+    # finally block or the new "connection closed unexpectedly" line.
+    info_msgs = [
+        r.getMessage() for r in caplog.records
+        if r.levelno == logging.INFO
+        and r.name == "mlss_monitor.routes.api_grow_ws"
+    ]
+    assert any("closed unexpectedly" in m or "disconnected" in m
+               for m in info_msgs), (
+        f"expected an INFO log line about the disconnect; got {info_msgs}"
+    )
+
+
 def _make_fake_serve(captured):
     """Build a fake websockets.serve() that captures kwargs and returns a
     mock server whose wait_closed() blocks forever (until close() fires the
