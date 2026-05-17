@@ -22,6 +22,10 @@ echo "=============================="
 echo ""
 
 # ── 1. System packages ────────────────────────────────────────────────────────
+# ffmpeg is required by mlss_monitor/grow/timelapse_jobs.py for grow-unit
+# time-lapse video rendering on the History tab. Without it the POST
+# endpoint returns 503 ffmpeg_not_installed on first use — install it
+# here so a fresh setup is ready to go end-to-end.
 info "Installing system build dependencies..."
 sudo apt-get update -q
 sudo apt-get install -y \
@@ -33,7 +37,8 @@ sudo apt-get install -y \
     zlib1g-dev \
     i2c-tools \
     git \
-    curl
+    curl \
+    ffmpeg
 success "System packages installed"
 
 # ── 2. Enable I2C ─────────────────────────────────────────────────────────────
