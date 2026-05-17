@@ -18,6 +18,18 @@ git pull --ff-only
 echo "==> poetry install (production deps only)"
 poetry install --without dev
 
+# Phase 4 #8: grow-unit time-lapse rendering shells out to ffmpeg. The
+# Python service degrades gracefully when ffmpeg is missing (clear
+# 503 + journalctl WARNING), but flag it here so the operator sees
+# the message inline with the deploy output rather than discovering
+# it the first time someone clicks "Generate" on the History tab.
+if ! command -v ffmpeg >/dev/null 2>&1; then
+    # Yellow + reset; falls back to plain text if the terminal doesn't
+    # support ANSI colours (no tput dependency).
+    printf '\033[33m==> WARNING: ffmpeg not on PATH — time-lapse video '
+    printf 'generation will fail until you run: sudo apt install ffmpeg\033[0m\n'
+fi
+
 # Detect whether grow firmware code changed since last deploy.
 # If yes, rebuild wheels so the Pi installer's manifest reflects
 # the new versions on next first-boot. The wheel-build is idempotent

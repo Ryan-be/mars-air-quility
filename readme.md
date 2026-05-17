@@ -854,9 +854,18 @@ idempotent migrations, additive-only schema policy).
 - Python 3.11+
 - I2C enabled (the setup script handles this)
 - UART enabled (required for the PM sensor -- see below)
-- ffmpeg (for grow-unit time-lapse video rendering — `sudo apt install ffmpeg`).
-  Optional: the History tab's time-lapse generator returns a clear 503 with
-  install instructions if missing.
+- `ffmpeg` -- required for grow-unit time-lapse video rendering (Phase 4
+  feature; see the History tab on `/grow/<id>`). Install on the MLSS
+  server with:
+  ```bash
+  sudo apt install ffmpeg
+  ```
+  If missing, the time-lapse runner logs a clear `WARNING` at startup
+  (visible in `journalctl -u mlss-monitor`), `bin/deploy` prints a yellow
+  warning, the POST endpoint returns `503 ffmpeg_not_installed`, and any
+  jobs created out-of-band are marked `failed` with
+  `error_message='ffmpeg_not_installed'`. The rest of the system is
+  unaffected — install the package and restart the service to enable.
 
 ### First-time setup
 

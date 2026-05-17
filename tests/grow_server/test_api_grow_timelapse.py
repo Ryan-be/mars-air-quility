@@ -11,10 +11,18 @@ Runner tests:
   ffmpeg-missing produces a clean failed status with error_message.
   No photos in range produces a clean failed status.
 
+Startup-check tests:
+  log_ffmpeg_status_at_startup() logs WARNING when ffmpeg missing,
+  INFO with version when present, and never raises.
+  start_runner_thread() emits the startup log line and keeps polling
+  even when ffmpeg is missing (queued jobs are marked failed at render
+  time, not by the polling loop).
+
 We don't actually invoke ffmpeg in tests (CI may not have it). The
 runner tests stub out subprocess.run / shutil.which so the unit-under-
 test is the bookkeeping logic, not ffmpeg itself.
 """
+import logging
 import os
 import shutil
 import sqlite3
@@ -465,3 +473,142 @@ def test_render_job_skips_non_queued_rows(runner_setup):
     status, out, _err = _job_status(db, jid)
     assert status == "complete"
     assert out == "fake/path.mp4"
+
+
+# ---------------------------------------------------------------------------
+# Startup-check: log_ffmpeg_status_at_startup() / start_runner_thread()
+# ---------------------------------------------------------------------------
+
+
+def test_log_ffmpeg_status_warns_when_missing(caplog):
+    """Missing ffmpeg: a single WARNING with the install command, the
+    function returns False, and no exception escapes. This is the line
+    the operator sees in journalctl after a fresh install where they
+    forgot ``sudo apt install ffmpeg``."""
+    from mlss_monitor.grow import timelapse_jobs
+    with caplog.at_level(logging.WARNING,
+                         logger="mlss_monitor.grow.timelapse_jobs"), \
+         patch.object(timelapse_jobs, "ffmpeg_available", return_value=False):
+        result = timelapse_jobs.log_ffmpeg_status_at_startup()
+    assert result is False
+    warning_records = [
+        r for r in caplog.records
+        if r.levelno == logging.WARNING
+        and r.name == "mlss_monitor.grow.timelapse_jobs"
+    ]
+    assert len(warning_records) == 1, [
+        (r.levelname, r.message) for r in caplog.records
+    ]
+    msg = warning_records[0].getMessage()
+    assert "ffmpeg not found" in msg
+    assert "sudo apt install ffmpeg" in msg
+
+
+def test_log_ffmpeg_status_info_when_present(caplog):
+    """When ffmpeg is on PATH, log an INFO line with the version string
+    so operators can confirm the binary version in journalctl. Falls
+    back to a placeholder when the version call returns nothing."""
+    from mlss_monitor.grow import timelapse_jobs
+    fake_version = "ffmpeg version 4.4.2-test-build"
+    with caplog.at_level(logging.INFO,
+                         logger="mlss_monitor.grow.timelapse_jobs"), \
+         patch.object(timelapse_jobs, "ffmpeg_available",
+                      return_value=True), \
+         patch.object(timelapse_jobs, "_ffmpeg_version_line",
+                      return_value=fake_version):
+        result = timelapse_jobs.log_ffmpeg_status_at_startup()
+    assert result is True
+    info_records = [
+        r for r in caplog.records
+        if r.levelno == logging.INFO
+        and r.name == "mlss_monitor.grow.timelapse_jobs"
+        and "ffmpeg detected" in r.getMessage()
+    ]
+    assert len(info_records) == 1
+    assert fake_version in info_records[0].getMessage()
+
+
+def test_log_ffmpeg_status_info_when_version_call_returns_none(caplog):
+    """If ffmpeg is on PATH but the version subprocess fails/hangs, the
+    log line still goes out — just with a placeholder. Operators still
+    get the 'detected' signal."""
+    from mlss_monitor.grow import timelapse_jobs
+    with caplog.at_level(logging.INFO,
+                         logger="mlss_monitor.grow.timelapse_jobs"), \
+         patch.object(timelapse_jobs, "ffmpeg_available",
+                      return_value=True), \
+         patch.object(timelapse_jobs, "_ffmpeg_version_line",
+                      return_value=None):
+        result = timelapse_jobs.log_ffmpeg_status_at_startup()
+    assert result is True
+    info_records = [
+        r for r in caplog.records
+        if r.levelno == logging.INFO
+        and "ffmpeg detected" in r.getMessage()
+    ]
+    assert len(info_records) == 1
+    assert "version unknown" in info_records[0].getMessage()
+
+
+def test_ffmpeg_version_line_returns_none_when_missing():
+    """Defensive: if shutil.which returns None, _ffmpeg_version_line()
+    must short-circuit without invoking subprocess.run (so tests don't
+    spawn random binaries on a dev box and so missing-ffmpeg doesn't
+    raise FileNotFoundError)."""
+    from mlss_monitor.grow import timelapse_jobs
+    with patch.object(timelapse_jobs, "ffmpeg_available",
+                      return_value=False), \
+         patch.object(timelapse_jobs.subprocess, "run") as mock_run:
+        result = timelapse_jobs._ffmpeg_version_line()
+    assert result is None
+    mock_run.assert_not_called()
+
+
+def test_start_runner_thread_emits_startup_log_when_ffmpeg_missing(caplog):
+    """start_runner_thread() must call log_ffmpeg_status_at_startup() so
+    the operator sees the warning in journalctl during service boot.
+    The thread is still started — missing-ffmpeg jobs fail at render
+    time rather than crashing the daemon."""
+    from mlss_monitor.grow import timelapse_jobs
+
+    # Make sure no previous test left a thread running.
+    timelapse_jobs.stop_runner_thread(timeout=2.0)
+
+    try:
+        with caplog.at_level(logging.WARNING,
+                             logger="mlss_monitor.grow.timelapse_jobs"), \
+             patch.object(timelapse_jobs, "ffmpeg_available",
+                          return_value=False):
+            timelapse_jobs.start_runner_thread()
+        # Thread should be running despite missing ffmpeg.
+        assert timelapse_jobs._runner_thread is not None
+        assert timelapse_jobs._runner_thread.is_alive()
+        # And the WARNING should have been logged at startup.
+        warnings = [
+            r for r in caplog.records
+            if r.levelno == logging.WARNING
+            and "ffmpeg not found" in r.getMessage()
+        ]
+        assert len(warnings) == 1
+    finally:
+        timelapse_jobs.stop_runner_thread(timeout=2.0)
+
+
+def test_runner_loop_keeps_polling_when_ffmpeg_missing(runner_setup, monkeypatch):
+    """When ffmpeg is missing the runner does NOT crash and does NOT
+    spin — it picks up the queued row, render_job() marks it failed
+    with the actionable error_message, and the loop continues. This
+    is the 'install ffmpeg, restart, jobs resume' guarantee."""
+    db, _tmp = runner_setup
+    jid = _seed_runner_job(db)
+
+    # Run render_job directly to confirm the fail-then-continue posture
+    # at the job layer (the loop is exercised in the start_runner_thread
+    # test above; combining them would require a real sleep).
+    with patch("mlss_monitor.grow.timelapse_jobs.ffmpeg_available",
+               return_value=False):
+        from mlss_monitor.grow.timelapse_jobs import render_job
+        render_job(jid)
+    status, _out, err = _job_status(db, jid)
+    assert status == "failed"
+    assert err == "ffmpeg_not_installed"

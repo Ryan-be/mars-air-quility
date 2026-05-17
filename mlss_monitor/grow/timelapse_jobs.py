@@ -63,6 +63,52 @@ def ffmpeg_available() -> bool:
     return shutil.which("ffmpeg") is not None
 
 
+def _ffmpeg_version_line() -> str | None:
+    """Return the first line of ``ffmpeg -version`` (e.g.
+    ``ffmpeg version 4.4.2-0ubuntu0.22.04.1 ...``) for the startup log,
+    or None if the binary is missing or the call fails. Bounded by a
+    short timeout so a wedged binary can't stall startup.
+
+    Pure best-effort — used only for an INFO log line so operators can
+    confirm which build is in use. Never raises."""
+    if not ffmpeg_available():
+        return None
+    try:
+        proc = subprocess.run(
+            ["ffmpeg", "-version"],
+            capture_output=True, text=True, timeout=5, check=False,
+        )
+        first_line = (proc.stdout or "").splitlines()[0].strip()
+        return first_line or None
+    except Exception:  # pylint: disable=broad-except
+        return None
+
+
+def log_ffmpeg_status_at_startup() -> bool:
+    """Emit a clear, actionable startup log line about ffmpeg availability.
+
+    Returns True if ffmpeg is on PATH, False otherwise. Called once when
+    the daemon thread starts so operators see the state in the same
+    journal entry as the other background-service startup messages.
+
+    When missing: a single WARNING with the install command. The runner
+    still starts and keeps polling — that way, ``sudo apt install
+    ffmpeg`` + a service restart immediately picks up new jobs without
+    further intervention. Queued jobs are marked ``failed`` with
+    ``error_message='ffmpeg_not_installed'`` by render_job() so they
+    surface in the UI rather than spinning forever.
+    """
+    if ffmpeg_available():
+        version = _ffmpeg_version_line() or "ffmpeg (version unknown)"
+        log.info("timelapse_jobs: ffmpeg detected — %s", version)
+        return True
+    log.warning(
+        "ffmpeg not found on PATH — time-lapse video generation will "
+        "fail at job runtime. Install with: sudo apt install ffmpeg"
+    )
+    return False
+
+
 def _photos_in_range(conn, unit_id: int, range_str: str):
     """Fetch (file_path, taken_at) for a unit's photos within ``range_str``,
     sorted ASC. Returns [] if the range token is invalid (the route
@@ -279,10 +325,17 @@ def start_runner_thread() -> None:
     """Start the daemon-thread runner if not already running. Idempotent
     — repeated calls are no-ops. Call from gunicorn's post_fork hook so
     the runner lives inside the worker process (matches the existing
-    safety-loop / inference-engine pattern in app.py)."""
+    safety-loop / inference-engine pattern in app.py).
+
+    Logs ffmpeg detection state at startup so operators see a clear
+    'ffmpeg detected (vX.Y)' / 'ffmpeg missing — install with...' line
+    in journalctl alongside the other background-service startup
+    messages. The runner starts either way; missing-ffmpeg jobs are
+    marked failed rather than crashing the thread."""
     global _runner_thread  # pylint: disable=global-statement
     if _runner_thread is not None and _runner_thread.is_alive():
         return
+    log_ffmpeg_status_at_startup()
     _runner_stop.clear()
     _runner_thread = threading.Thread(
         target=_runner_loop, name="timelapse-runner", daemon=True,
