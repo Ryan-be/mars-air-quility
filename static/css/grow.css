@@ -513,6 +513,21 @@
 }
 .du-stat.required-marker { border-left-color: var(--grow-good); }
 .du-stat.optional-marker { border-left-color: var(--grow-accent); }
+/* Plant-happiness border-colour overrides. These rules sit AFTER
+   required/optional-marker so the cascade picks them up on equal-
+   specificity ties — see stat-tile.mjs::renderStatTile where the
+   happy-* class is appended after the marker class on .className.
+   Three colour buckets map onto five zones (critical_low +
+   critical_high → happy-critical; tolerated_low + tolerated_high →
+   happy-tolerated; ideal → happy-ideal). */
+.du-stat.happy-ideal     { border-left-color: var(--grow-good); }
+.du-stat.happy-tolerated { border-left-color: var(--grow-warn); }
+.du-stat.happy-critical  { border-left-color: var(--grow-bad); }
+.du-stat .happy-range {
+  font-size: var(--grow-fs-xs);
+  color: var(--grow-text-muted);
+  letter-spacing: var(--grow-ls-body);
+}
 .du-stat .v {
   font-size: var(--grow-fs-xl);
   font-weight: 500;

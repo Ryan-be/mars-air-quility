@@ -124,13 +124,51 @@ export function renderLiveReadings(unit, doc = document) {
         label: meta.label, isRequired: cap.is_required,
         ownerDocument: doc,
       });
-    } else {
-      const variant = (cap.channel === "soil_moisture" && value < 35) ? "warn" : "normal";
+    } else if (cap.channel === "soil_temp_c") {
+      // Plant-happiness wire-through for soil temp. The API surfaces
+      // unit.happiness.soil_temp_c as
+      //   { zone, ideal_range, current, thresholds }
+      // when thresholds + telemetry both exist; the dimension key is
+      // omitted (or zone is null) when either is missing — defensive
+      // `?.` chain handles both cases without crashing.
+      const h = unit.happiness?.soil_temp_c;
+      tile = renderStatTile({
+        value: meta.format(value),
+        label: meta.label,
+        isRequired: cap.is_required,
+        happiness: h?.zone ?? null,
+        idealRange: h?.ideal_range ?? null,
+        ownerDocument: doc,
+      });
+    } else if (cap.channel === "soil_moisture") {
+      // Same wire-through for moisture. The legacy `warn` variant
+      // (<35 % triggers `v.warn`) is preserved for now — the
+      // happy-* border colour and the v.warn text colour are
+      // orthogonal signals (border = zone-against-plant-profile,
+      // value-colour = legacy "anything under 35 is bad" heuristic
+      // which doesn't know about the plant). Future polish: drop
+      // the legacy heuristic once happiness covers every unit, but
+      // for now keeping it means units on plant_type='generic'
+      // without happiness data still get a useful warn signal.
+      const variant = (value < 35) ? "warn" : "normal";
+      const h = unit.happiness?.soil_moisture_pct;
       tile = renderStatTile({
         value: meta.format(value),
         label: meta.label,
         isRequired: cap.is_required,
         variant,
+        happiness: h?.zone ?? null,
+        idealRange: h?.ideal_range ?? null,
+        ownerDocument: doc,
+      });
+    } else {
+      // Air temp / humidity / lux / reservoir: no happiness signal
+      // yet (those dimensions are planned for the grow-unit hardware
+      // ships when the air sensor lands). Render as before.
+      tile = renderStatTile({
+        value: meta.format(value),
+        label: meta.label,
+        isRequired: cap.is_required,
         ownerDocument: doc,
       });
     }

@@ -41,6 +41,163 @@ _STALE_AFTER = timedelta(seconds=30)
 _OFFLINE_AFTER = timedelta(minutes=5)
 
 
+def _zone(value, t):
+    """Classify a sensor reading into a happiness zone.
+
+    Boundaries (deliberate inclusivity choices):
+
+      value < critical_min            => "critical_low"
+      critical_min <= value < ideal_min  => "tolerated_low"
+      ideal_min <= value <= ideal_max     => "ideal"   (BOTH ends inclusive)
+      ideal_max < value <= critical_max   => "tolerated_high"
+      value > critical_max            => "critical_high"
+
+    The inclusive top end on "ideal" matches operator intuition: 27 °C
+    is still ideal for a chili-vegetative unit (its ideal_max is 27),
+    not the start of tolerated_high. Mirrored on the bottom end so the
+    range remains symmetric.
+
+    Returns None when the value is None OR when any of the four
+    thresholds is None — both cases mean "no happiness signal here"
+    and the API surfaces the dimension with the value omitted so the
+    frontend's defensive `?.` chain falls through to the variant-
+    based colouring.
+    """
+    if value is None:
+        return None
+    if (t["critical_min"] is None or t["ideal_min"] is None
+            or t["ideal_max"] is None or t["critical_max"] is None):
+        return None
+    if value < t["critical_min"]:
+        return "critical_low"
+    if value < t["ideal_min"]:
+        return "tolerated_low"
+    if value <= t["ideal_max"]:
+        return "ideal"
+    if value <= t["critical_max"]:
+        return "tolerated_high"
+    return "critical_high"
+
+
+def _fetch_plant_profile_thresholds(conn, plant_type, phase):
+    """Look up the soil_temp + soil_moisture thresholds for a unit's
+    (plant_type, phase). Falls back to ("generic", phase) when the
+    specific plant_type isn't in grow_plant_profiles — handles custom
+    plant_type strings the operator typed manually or shipped after
+    the SDUI Phase-4 sub-project lands.
+
+    Returns a dict with keys "soil_temp" and "soil_moisture", each
+    holding a 4-key threshold dict (critical_min / ideal_min / ideal_max
+    / critical_max). Returns None when neither the specific nor the
+    generic fallback row exists in the DB (true edge case: a user
+    DELETEd the generic seed manually).
+    """
+    row = conn.execute(
+        "SELECT soil_temp_critical_min_c, soil_temp_ideal_min_c, "
+        "       soil_temp_ideal_max_c, soil_temp_critical_max_c, "
+        "       soil_moisture_critical_min_pct, soil_moisture_ideal_min_pct, "
+        "       soil_moisture_ideal_max_pct, soil_moisture_critical_max_pct "
+        "FROM grow_plant_profiles WHERE plant_type=? AND phase=?",
+        (plant_type, phase),
+    ).fetchone()
+    if row is None and plant_type != "generic":
+        # Specific row missing — fall back to generic for the same
+        # phase. We do NOT fall back across phases because dormant
+        # tomato is a different beast from vegetative tomato.
+        row = conn.execute(
+            "SELECT soil_temp_critical_min_c, soil_temp_ideal_min_c, "
+            "       soil_temp_ideal_max_c, soil_temp_critical_max_c, "
+            "       soil_moisture_critical_min_pct, soil_moisture_ideal_min_pct, "
+            "       soil_moisture_ideal_max_pct, soil_moisture_critical_max_pct "
+            "FROM grow_plant_profiles WHERE plant_type='generic' AND phase=?",
+            (phase,),
+        ).fetchone()
+    if row is None:
+        return None
+    return {
+        "soil_temp": {
+            "critical_min": row["soil_temp_critical_min_c"],
+            "ideal_min":    row["soil_temp_ideal_min_c"],
+            "ideal_max":    row["soil_temp_ideal_max_c"],
+            "critical_max": row["soil_temp_critical_max_c"],
+        },
+        "soil_moisture": {
+            "critical_min": row["soil_moisture_critical_min_pct"],
+            "ideal_min":    row["soil_moisture_ideal_min_pct"],
+            "ideal_max":    row["soil_moisture_ideal_max_pct"],
+            "critical_max": row["soil_moisture_critical_max_pct"],
+        },
+    }
+
+
+def _format_ideal_range(ideal_min, ideal_max, unit_suffix):
+    """Format an "ideal_min–ideal_max unit" string for the UI subtext.
+
+    Drops trailing .0 on whole-number thresholds so "21 °C" reads
+    cleaner than "21.0 °C". The en-dash matches the spec
+    ("21–27 °C") rather than a hyphen.
+    """
+    def _fmt(n):
+        if n is None:
+            return ""
+        # Drop trailing .0 on integer-valued floats (21.0 -> 21).
+        return str(int(n)) if float(n).is_integer() else str(n)
+    return f"{_fmt(ideal_min)}–{_fmt(ideal_max)} {unit_suffix}"
+
+
+def _build_happiness(conn, plant_type, phase, last_known_state):
+    """Compute the `happiness` response block for one unit.
+
+    Returns {} (empty dict — NOT None) when there's no usable signal
+    so the frontend's defensive code stays a single `unit.happiness?.
+    soil_temp_c?.zone` chain rather than two layers of nullability.
+    The empty-dict path is taken when:
+      * last_known_state is None (no telemetry rows yet for the unit), or
+      * thresholds are unavailable for (plant_type, phase) AND for
+        (generic, phase) — true edge case described above.
+
+    On the happy path, returns a dict keyed by dimension:
+      {
+        "soil_temp_c": {
+          "zone": "ideal" | "tolerated_low" | "tolerated_high"
+                  | "critical_low" | "critical_high",
+          "ideal_range": "21–27 °C",
+          "current": 22.8,
+          "thresholds": {critical_min, ideal_min, ideal_max, critical_max}
+        },
+        "soil_moisture_pct": { ... same shape ... }
+      }
+
+    A dimension whose current reading is None (e.g. unit reports
+    soil_moisture only — no soil_temp sensor) gets `zone: None`.
+    Keeping the dimension key with a null zone (rather than omitting
+    it) lets the frontend tell "no sensor" apart from "we forgot to
+    wire that dimension".
+    """
+    if last_known_state is None:
+        return {}
+    thresholds = _fetch_plant_profile_thresholds(conn, plant_type, phase)
+    if thresholds is None:
+        return {}
+
+    out = {}
+    for state_key, dim_key, unit_suffix in (
+        ("soil_temp_c",       "soil_temp",     "°C"),
+        ("soil_moisture_pct", "soil_moisture", "%"),
+    ):
+        current = last_known_state.get(state_key)
+        t = thresholds[dim_key]
+        out[state_key] = {
+            "zone": _zone(current, t),
+            "ideal_range": _format_ideal_range(
+                t["ideal_min"], t["ideal_max"], unit_suffix,
+            ),
+            "current": current,
+            "thresholds": t,
+        }
+    return out
+
+
 # Telemetry columns surfaced in the `last_known_state` block on the GET
 # response. Phase 2 schema cleanup replaced a denormalised JSON cache
 # with a SELECT against grow_telemetry — the keys here match the
@@ -195,12 +352,23 @@ def get_unit(unit_id):
         (unit_id,),
     ).fetchall()
     last_known_state = _last_known_state(conn, unit_id)
+    # Plant-happiness lookup: one extra SELECT against grow_plant_profiles
+    # per request, keyed on the unit's current (plant_type, phase). Cheap
+    # — the table has ~35 rows and (plant_type, phase) is UNIQUE so the
+    # lookup hits a covering index. The block is purely additive on the
+    # response; consumers that don't know about `happiness` are
+    # unaffected. See _zone() / _build_happiness() for the classification
+    # algorithm + fallback chain (specific → generic → empty dict).
+    happiness = _build_happiness(
+        conn, row["plant_type"], row["current_phase"], last_known_state,
+    )
     conn.close()
 
     body = {k: row[k] for k in row.keys()}
     body.pop("bearer_token_hash", None)  # never expose
     body["status"] = _classify_status(row["last_seen_at"])
     body["last_known_state"] = last_known_state
+    body["happiness"] = happiness
     body["capabilities"] = []
     for c in caps:
         details = json.loads(c["details_json"]) if c["details_json"] else None

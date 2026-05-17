@@ -75,3 +75,22 @@ def test_cap_health_pill_is_styled():
         "grow.css must style .cap-health-pill (the health badge appended "
         "to a tile's label when the capability isn't reporting cleanly)."
     )
+
+
+def test_plant_happiness_classes_styled():
+    """The 3 happy-* CSS rules drive the border-colour of soil_temp /
+    soil_moisture tiles when the unit reports a plant-happiness zone.
+    Without these rules the tile renders with the default
+    required/optional-marker colour and the operator gets no visual
+    feedback on whether the reading is ideal / tolerated / critical."""
+    text = GROW_CSS.read_text(encoding="utf-8")
+    for selector in (".du-stat.happy-ideal",
+                     ".du-stat.happy-tolerated",
+                     ".du-stat.happy-critical"):
+        assert _has_rule(text, selector), (
+            f"grow.css must define {selector} for plant-happiness border-colour."
+        )
+    # The ideal_range subtext sits beneath the label; small muted text.
+    assert _has_rule(text, ".du-stat .happy-range"), (
+        "grow.css must style .du-stat .happy-range (the ideal-range subtext)."
+    )

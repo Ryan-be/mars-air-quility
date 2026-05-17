@@ -170,9 +170,15 @@ def test_list_plant_profiles_returns_all_seeded(client):
     r = c.get("/api/grow/plant-profiles")
     assert r.status_code == 200
     rows = r.get_json()
-    # 15 profiles: original 11 + 4 chili variants added later. Update the
-    # count whenever _SHIPPED_PROFILES grows.
-    assert len(rows) == 15, f"expected 15 shipped profiles, got {len(rows)}"
+    # 35 profiles: 7 plant_types (chili, pepper, tomato, basil, lettuce,
+    # microgreens, generic) × 5 phases (seedling, vegetative, flowering,
+    # fruiting, dormant). The matrix is fully populated since the
+    # plant-happiness work materialised rows for every (plant_type,
+    # phase) so the API can look up thresholds for dormant /
+    # microgreens-fruiting / etc — those rows previously didn't exist
+    # because they had no PID/profile values to seed. Update the count
+    # whenever _SHIPPED_PROFILES or THRESHOLD_SEEDS grows.
+    assert len(rows) == 35, f"expected 35 seeded profiles, got {len(rows)}"
     # Each row has every field the editor needs
     expected_keys = {
         "id", "plant_type", "phase", "target_moisture_pct", "deadband_pct",
@@ -186,6 +192,11 @@ def test_list_plant_profiles_returns_all_seeded(client):
     combos = {(r["plant_type"], r["phase"]) for r in rows}
     assert ("tomato", "vegetative") in combos
     assert ("generic", "seedling") in combos
+    # Phase 4: dormant rows now materialised for every plant_type
+    # so the API can serve happiness thresholds for over-wintered
+    # units.
+    assert ("tomato", "dormant") in combos
+    assert ("generic", "dormant") in combos
 
 
 def test_list_plant_profiles_requires_controller_or_admin(client):

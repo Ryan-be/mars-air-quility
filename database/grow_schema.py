@@ -10,6 +10,35 @@ from argon2 import PasswordHasher
 _seed_hasher = PasswordHasher()
 
 
+def _add_column_if_missing(cur, table, col_def):
+    """ALTER TABLE … ADD COLUMN, skipped if the column already exists.
+
+    The codebase's primary migration channel is the raw try/except ALTER
+    list in ``database/init_db.py``. That works fine for the
+    air-quality side of the schema where columns are added once and the
+    catch-all `except` is fine. For grow_plant_profiles we prefer the
+    PRAGMA-guarded path because:
+
+      * It's co-located with the CREATE TABLE for the same table, so
+        a future reviewer can see both the canonical column list AND
+        the migration that brings older DBs up to that list in one
+        place.
+      * The PRAGMA lookup tells us *why* the ALTER was skipped (column
+        already present) vs the try/except path which swallows any
+        ALTER failure indiscriminately (e.g. a typo in the column
+        definition would silently no-op).
+
+    `col_def` is the full column DDL — e.g.
+    ``"soil_temp_ideal_min_c REAL"`` — column name first whitespace-
+    delimited word.
+    """
+    col_name = col_def.split()[0]
+    cur.execute(f"PRAGMA table_info({table})")
+    existing = {row[1] for row in cur.fetchall()}
+    if col_name not in existing:
+        cur.execute(f"ALTER TABLE {table} ADD COLUMN {col_def}")
+
+
 def create_grow_schema(cur):
     """Create all grow_* tables. Idempotent (uses CREATE TABLE IF NOT EXISTS)."""
     cur.execute("""
@@ -188,9 +217,41 @@ def create_grow_schema(cur):
       default_light_hours   REAL NOT NULL DEFAULT 16,
       is_shipped            INTEGER NOT NULL DEFAULT 0,
       notes                 TEXT,
+      -- Plant-happiness thresholds (per plant_type + phase). Each
+      -- dimension carves the value space into 5 zones via a 4-threshold
+      -- ladder: critical_low / tolerated_low / ideal / tolerated_high /
+      -- critical_high. All nullable — a row with any threshold NULL
+      -- means "no happiness signal for that dimension on this plant +
+      -- phase" and the API + UI fall through to the existing variant-
+      -- based colouring. Added in a later migration; see
+      -- _add_column_if_missing below for the on-existing-DB path.
+      soil_temp_critical_min_c        REAL,
+      soil_temp_ideal_min_c           REAL,
+      soil_temp_ideal_max_c           REAL,
+      soil_temp_critical_max_c        REAL,
+      soil_moisture_critical_min_pct  REAL,
+      soil_moisture_ideal_min_pct     REAL,
+      soil_moisture_ideal_max_pct     REAL,
+      soil_moisture_critical_max_pct  REAL,
       UNIQUE(plant_type, phase)
     );
     """)
+    # Migration for already-deployed DBs whose grow_plant_profiles was
+    # created before the 8 happiness-threshold columns existed.
+    # CREATE TABLE IF NOT EXISTS doesn't ALTER, so we need explicit
+    # column-add calls — guarded by a PRAGMA table_info lookup so this
+    # is idempotent and safe to re-run on already-migrated DBs.
+    for col_def in (
+        "soil_temp_critical_min_c REAL",
+        "soil_temp_ideal_min_c REAL",
+        "soil_temp_ideal_max_c REAL",
+        "soil_temp_critical_max_c REAL",
+        "soil_moisture_critical_min_pct REAL",
+        "soil_moisture_ideal_min_pct REAL",
+        "soil_moisture_ideal_max_pct REAL",
+        "soil_moisture_critical_max_pct REAL",
+    ):
+        _add_column_if_missing(cur, "grow_plant_profiles", col_def)
 
     cur.execute("""
     CREATE TABLE IF NOT EXISTS grow_light_windows (
@@ -337,6 +398,76 @@ _SHIPPED_MEDIUMS = [
 ]
 
 
+# Plant-happiness thresholds, keyed by (plant_type, phase). Format per
+# dimension: (critical_min, ideal_min, ideal_max, critical_max). Values
+# below critical_min => critical_low; below ideal_min => tolerated_low;
+# between ideal_min and ideal_max (inclusive on both) => ideal; up to
+# critical_max (inclusive) => tolerated_high; above critical_max =>
+# critical_high. See _zone() in mlss_monitor.routes.api_grow_units for
+# the exact algorithm.
+#
+# Values are the user-approved set — do not tune in-place without going
+# back to that approval cycle. Markers like "= veg" in the original
+# table have been expanded inline so the seed is fully explicit.
+# Microgreens has no biological dormancy so the dormant row reuses the
+# vegetative tuning rather than introducing arbitrary "cold storage"
+# numbers.
+THRESHOLD_SEEDS = {
+    # (plant_type, phase): {
+    #   "soil_temp":     (cmin, imin, imax, cmax)   °C
+    #   "soil_moisture": (cmin, imin, imax, cmax)   %
+    # }
+    ("chili",       "seedling"):   {"soil_temp": (15, 24, 30, 35), "soil_moisture": (40, 50, 70, 85)},
+    ("chili",       "vegetative"): {"soil_temp": (13, 21, 27, 32), "soil_moisture": (20, 35, 60, 85)},
+    ("chili",       "flowering"):  {"soil_temp": (16, 21, 27, 32), "soil_moisture": (25, 40, 65, 85)},
+    ("chili",       "fruiting"):   {"soil_temp": (16, 21, 27, 32), "soil_moisture": (30, 45, 70, 85)},
+    ("chili",       "dormant"):    {"soil_temp": (5,  10, 18, 25), "soil_moisture": (10, 20, 40, 60)},
+
+    # pepper mirrors chili in the same Solanaceae family.
+    ("pepper",      "seedling"):   {"soil_temp": (15, 24, 30, 35), "soil_moisture": (40, 50, 70, 85)},
+    ("pepper",      "vegetative"): {"soil_temp": (13, 21, 27, 32), "soil_moisture": (20, 35, 60, 85)},
+    ("pepper",      "flowering"):  {"soil_temp": (16, 21, 27, 32), "soil_moisture": (25, 40, 65, 85)},
+    ("pepper",      "fruiting"):   {"soil_temp": (16, 21, 27, 32), "soil_moisture": (30, 45, 70, 85)},
+    ("pepper",      "dormant"):    {"soil_temp": (5,  10, 18, 25), "soil_moisture": (10, 20, 40, 60)},
+
+    ("tomato",      "seedling"):   {"soil_temp": (13, 21, 27, 35), "soil_moisture": (40, 55, 75, 90)},
+    ("tomato",      "vegetative"): {"soil_temp": (10, 18, 24, 32), "soil_moisture": (25, 40, 70, 85)},
+    ("tomato",      "flowering"):  {"soil_temp": (13, 18, 24, 32), "soil_moisture": (30, 45, 70, 85)},
+    ("tomato",      "fruiting"):   {"soil_temp": (13, 18, 24, 35), "soil_moisture": (35, 50, 75, 90)},
+    ("tomato",      "dormant"):    {"soil_temp": (5,  10, 18, 25), "soil_moisture": (10, 20, 40, 60)},
+
+    ("basil",       "seedling"):   {"soil_temp": (16, 21, 27, 32), "soil_moisture": (40, 50, 70, 85)},
+    ("basil",       "vegetative"): {"soil_temp": (13, 21, 27, 32), "soil_moisture": (25, 40, 60, 80)},
+    ("basil",       "flowering"):  {"soil_temp": (16, 21, 27, 32), "soil_moisture": (25, 40, 60, 80)},
+    # basil-fruiting copies vegetative (= veg in source table).
+    ("basil",       "fruiting"):   {"soil_temp": (13, 21, 27, 32), "soil_moisture": (25, 40, 60, 80)},
+    ("basil",       "dormant"):    {"soil_temp": (10, 15, 20, 25), "soil_moisture": (10, 20, 40, 60)},
+
+    ("lettuce",     "seedling"):   {"soil_temp": (5,  15, 21, 27), "soil_moisture": (50, 60, 80, 90)},
+    ("lettuce",     "vegetative"): {"soil_temp": (5,  13, 21, 24), "soil_moisture": (30, 50, 70, 85)},
+    # lettuce flowering + fruiting copy vegetative (= veg in source).
+    ("lettuce",     "flowering"):  {"soil_temp": (5,  13, 21, 24), "soil_moisture": (30, 50, 70, 85)},
+    ("lettuce",     "fruiting"):   {"soil_temp": (5,  13, 21, 24), "soil_moisture": (30, 50, 70, 85)},
+    ("lettuce",     "dormant"):    {"soil_temp": (0,  5,  10, 15), "soil_moisture": (10, 20, 40, 60)},
+
+    ("microgreens", "seedling"):   {"soil_temp": (10, 18, 24, 27), "soil_moisture": (60, 70, 85, 95)},
+    ("microgreens", "vegetative"): {"soil_temp": (10, 18, 24, 27), "soil_moisture": (40, 60, 80, 90)},
+    # Microgreens have no real flowering/fruiting/dormancy — copy vegetative.
+    ("microgreens", "flowering"):  {"soil_temp": (10, 18, 24, 27), "soil_moisture": (40, 60, 80, 90)},
+    ("microgreens", "fruiting"):   {"soil_temp": (10, 18, 24, 27), "soil_moisture": (40, 60, 80, 90)},
+    ("microgreens", "dormant"):    {"soil_temp": (10, 18, 24, 27), "soil_moisture": (40, 60, 80, 90)},
+
+    # "generic" is the per-phase fallback used when a unit's plant_type
+    # has no seeded row. The values are a broad "most plants will be
+    # ok" envelope — wider than any specific plant.
+    ("generic",     "seedling"):   {"soil_temp": (10, 18, 26, 32), "soil_moisture": (35, 50, 75, 90)},
+    ("generic",     "vegetative"): {"soil_temp": (10, 18, 26, 32), "soil_moisture": (20, 35, 65, 85)},
+    ("generic",     "flowering"):  {"soil_temp": (10, 18, 26, 32), "soil_moisture": (25, 40, 65, 85)},
+    ("generic",     "fruiting"):   {"soil_temp": (10, 18, 26, 32), "soil_moisture": (30, 45, 70, 85)},
+    ("generic",     "dormant"):    {"soil_temp": (5,  10, 18, 25), "soil_moisture": (10, 20, 40, 60)},
+}
+
+
 def _seed_grow_data(cur):
     """Idempotent: only inserts rows that aren't already present."""
     # Plant profiles — INSERT OR IGNORE per row so adding a new entry to
@@ -351,6 +482,45 @@ def _seed_grow_data(cur):
             " default_light_hours, is_shipped) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)",
             row,
+        )
+
+    # Plant-happiness thresholds. Two-stage process:
+    #   1. Ensure a base row exists for every (plant_type, phase) in
+    #      THRESHOLD_SEEDS. Some pairs (e.g. *-dormant for every plant,
+    #      lettuce-flowering, microgreens-fruiting) aren't in
+    #      _SHIPPED_PROFILES because they had no PID/profile values to
+    #      seed yet. INSERT OR IGNORE pulls the target_moisture_pct
+    #      from the matching specific row when available, falling back
+    #      to a sensible 50 % default for phases nobody has tuned yet.
+    #   2. UPDATE the threshold columns on every row. Per the spec
+    #      these columns are brand new — no operator has had a chance
+    #      to edit them yet — so an unconditional UPDATE is safe and
+    #      keeps fresh installs + existing-deployment migrations on
+    #      the same code path.
+    for (plant_type, phase), thresholds in THRESHOLD_SEEDS.items():
+        # Default target_moisture_pct for newly-created base rows: a
+        # mid-range 50 %. Phases that already have a profile row from
+        # _SHIPPED_PROFILES skip this INSERT entirely (UNIQUE conflict
+        # → IGNORE). The thresholds-only rows are populated only so
+        # the API can SELECT them when a unit is on (e.g.) tomato-
+        # dormant; they won't drive any watering decisions because
+        # dormant units shouldn't be on a watering schedule anyway.
+        cur.execute(
+            "INSERT OR IGNORE INTO grow_plant_profiles "
+            "(plant_type, phase, target_moisture_pct, is_shipped) "
+            "VALUES (?, ?, ?, 1)",
+            (plant_type, phase, 50),
+        )
+        st = thresholds["soil_temp"]
+        sm = thresholds["soil_moisture"]
+        cur.execute(
+            "UPDATE grow_plant_profiles SET "
+            " soil_temp_critical_min_c=?, soil_temp_ideal_min_c=?, "
+            " soil_temp_ideal_max_c=?, soil_temp_critical_max_c=?, "
+            " soil_moisture_critical_min_pct=?, soil_moisture_ideal_min_pct=?, "
+            " soil_moisture_ideal_max_pct=?, soil_moisture_critical_max_pct=? "
+            "WHERE plant_type=? AND phase=?",
+            (*st, *sm, plant_type, phase),
         )
 
     # Medium calibration defaults
