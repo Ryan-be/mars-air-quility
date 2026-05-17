@@ -480,6 +480,67 @@
   letter-spacing: var(--grow-ls-body);
 }
 
+/* ============================================================
+   Stat tiles — the data-driven Live-readings grid. The JS in
+   stat-tile.mjs emits .du-stat-grid containers with .du-stat
+   children, each with a .v (big value), .l (small label), and
+   optional .sub (smallest). Left-border colour encodes whether
+   the capability is is_required (good-green) vs optional (accent-
+   blue). These class names were referenced by the JS since day
+   one but had no CSS rules — the panel was falling back to a
+   plain vertical stack with no visual hierarchy, which looked
+   like an unstyled debug list rather than a dashboard. Tiles
+   reflow from 2-up on narrow widths to 4+ on wide via auto-fit.
+   ============================================================ */
+.du-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--grow-space-3);
+  padding: var(--grow-space-3) var(--grow-space-4);
+}
+.du-stat {
+  background: var(--grow-bg-sub);
+  border: 1px solid var(--grow-border-subtle);
+  border-left-width: 3px;
+  border-radius: var(--grow-radius-md);
+  padding: var(--grow-space-3) var(--grow-space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--grow-space-1);
+  /* Allow content to truncate cleanly in narrow columns rather than
+     forcing the column to widen and break the auto-fit grid. */
+  min-width: 0;
+}
+.du-stat.required-marker { border-left-color: var(--grow-good); }
+.du-stat.optional-marker { border-left-color: var(--grow-accent); }
+.du-stat .v {
+  font-size: var(--grow-fs-xl);
+  font-weight: 500;
+  color: var(--grow-text-primary);
+  letter-spacing: var(--grow-ls-body);
+  line-height: 1.2;
+  /* Tabular figures keep "23.7°C" and "104%" from jittering as
+     readings change — important for live-updating tiles. */
+  font-variant-numeric: tabular-nums;
+}
+.du-stat .v.warn { color: var(--grow-warn); }
+.du-stat .v.ok   { color: var(--grow-good); }
+.du-stat .l {
+  font-size: var(--grow-fs-sm);
+  color: var(--grow-text-muted);
+  letter-spacing: var(--grow-ls-headline);
+  /* Flex layout so the health pill (when present) sits inline
+     beside the label text rather than wrapping awkwardly. */
+  display: flex;
+  align-items: center;
+  gap: var(--grow-space-2);
+  flex-wrap: wrap;
+}
+.du-stat .sub {
+  font-size: var(--grow-fs-xs);
+  color: var(--grow-text-muted);
+}
+
 /* 24h schedule bar — track + tick marks + NOW indicator + axis labels.
    Design-critique #10: the bar previously had no axis markers, just
    a coloured slab. Operators couldn't tell where in the 24h day the
