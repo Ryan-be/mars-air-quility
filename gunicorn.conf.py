@@ -55,9 +55,15 @@ def post_fork(server, worker):
     This hook rebuilds everything in the worker:
     - a fresh `asyncio.new_event_loop()` + its driver thread, so the Kasa
       smart-plug coroutines have a running loop to dispatch to;
-    - the PM sensor's background poller + its ThreadPoolExecutor (both
-      started in the master via init_pm_sensor() at import time — the
-      poller thread dies at fork and the executor's worker deadlocks);
+    - the PM sensor's background poller. app.py deliberately calls
+      `init_pm_sensor(start_poller_now=False)` so the master never spins
+      a poller — if it did, the master's thread would survive into the
+      worker's parent process and BOTH would hammer /dev/serial0 once per
+      second, racing for exclusive access and filling journalctl with
+      duplicate "could not read a valid frame" errors. `restart_after_fork`
+      additionally rebuilds the per-sensor ThreadPoolExecutor (whose worker
+      thread fired the startup probe but is gone post-fork) and closes any
+      inherited serial fd so the worker reopens cleanly;
     - the background services (sensor loop, weather loop, detection engine,
       anomaly bootstrap Timer) via `_start_background_services()` after
       clearing the idempotency guard inherited from the master.
@@ -72,15 +78,20 @@ def post_fork(server, worker):
         _app_mod.thread_loop = asyncio.new_event_loop()
         _app_mod.state.thread_loop = _app_mod.thread_loop
         Thread(target=_app_mod._start_thread_event_loop, daemon=True).start()
-        # PM sensor poller was started in the master via init_pm_sensor();
-        # the poller thread + its single-worker ThreadPoolExecutor are both
-        # dead in the worker. Rebuild them so the cache keeps refreshing.
+        # PM sensor: app.py instantiated the sensor + ran the startup probe
+        # in the master but deliberately did NOT start the poller (see the
+        # comment above init_pm_sensor() there). Start it here so the
+        # poller runs exclusively in the worker. restart_after_fork is the
+        # right entry point even when no master-side poller existed: it
+        # replaces the dead-thread executor inherited from the master,
+        # closes any serial fd left open by the probe, and then calls
+        # start_poller() — all idempotent.
         if _app_mod.state.pm_sensor is not None:
             try:
                 _app_mod.state.pm_sensor.restart_after_fork(interval=1.0)
             except Exception as exc:  # pragma: no cover — best-effort recovery
                 server.log.exception(
-                    "post_fork: failed to restart PM poller: %s", exc
+                    "post_fork: failed to start PM poller: %s", exc
                 )
         # Reset the idempotency Event (set in master via preload) so services
         # actually start here.

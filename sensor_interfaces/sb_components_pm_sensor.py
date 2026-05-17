@@ -320,11 +320,42 @@ class AirMonitoringHAT_PM:
 _sensor = None
 
 
-def init_pm_sensor(port="/dev/serial0", set_pin=_DEFAULT_SET_PIN):
+def init_pm_sensor(port="/dev/serial0", set_pin=_DEFAULT_SET_PIN,
+                   start_poller_now: bool = True):
+    """Probe + instantiate the PM sensor, optionally starting its poller.
+
+    `start_poller_now` (default True) preserves the historical behaviour:
+    on success the background poller is launched immediately so subsequent
+    callers get cached, non-blocking reads via get_cached_pm().
+
+    Set `start_poller_now=False` in environments where this function runs
+    in a process that will fork and where the poller belongs in the child
+    only — specifically the gunicorn `preload_app=True` path in app.py.
+    Module import happens in the gunicorn master process; a poller started
+    there would survive into the master and race the worker's poller
+    (started in post_fork) for exclusive access to /dev/serial0, filling
+    journalctl with duplicate "could not read a valid frame" errors. The
+    caller is then responsible for invoking `_sensor.start_poller()` from
+    the worker (see gunicorn.conf.py::post_fork).
+
+    Returns the sensor instance on success, or None on probe failure. When
+    the probe fails the poller is NEVER started, regardless of
+    `start_poller_now`, so a missing/permission-denied sensor doesn't spin
+    a poller thread that logs errors at 1 Hz forever.
+    """
     global _sensor
     try:
         _sensor = AirMonitoringHAT_PM(port=port, set_pin=set_pin)
         _sensor._wake_sensor()
+        # Explicitly open the serial port before the probe so we can
+        # distinguish "couldn't even open /dev/serial0" (missing port,
+        # EACCES from missing dialout group, etc.) from "opened OK but
+        # no frame yet". _try_read_frame() catches SerialException and
+        # returns None for both cases, which hides the difference;
+        # without this explicit open() the warmup branch below would
+        # spin a poller against a port the process can never read,
+        # logging errors at 1 Hz forever.
+        _sensor._open()
         # Do a test read to confirm sensor is responding. This probe is
         # deliberately blocking — it happens once at startup and its result
         # seeds the poller's cache so the first read_pm() call has data.
@@ -338,8 +369,10 @@ def init_pm_sensor(port="/dev/serial0", set_pin=_DEFAULT_SET_PIN):
         else:
             log.warning("PM sensor connected but no data yet (may need warm-up)")
         # Start the background poller so all subsequent callers get cached,
-        # non-blocking reads via get_cached_pm().
-        _sensor.start_poller(interval=1.0)
+        # non-blocking reads via get_cached_pm(). Skipped when the caller
+        # explicitly defers poller startup (e.g. gunicorn preload).
+        if start_poller_now:
+            _sensor.start_poller(interval=1.0)
         return _sensor
     except Exception as e:
         log.error("Failed to initialise PM sensor: %s", e)

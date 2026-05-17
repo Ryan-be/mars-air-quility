@@ -345,8 +345,17 @@ except Exception as e:
     log.error("Unexpected error initializing SGP30 sensor: %s", e)
     sgp30 = None
 
-# PM sensor (UART — no I2C conflict)
-pm_sensor = init_pm_sensor()
+# PM sensor (UART — no I2C conflict). We probe + instantiate here so
+# state.pm_sensor is populated for endpoints that read it, but we do NOT
+# start the poller thread — gunicorn's preload_app=True imports this
+# module in the master process, and a poller started here would survive
+# into the master and fight with the worker's poller (started in
+# post_fork) for exclusive access to /dev/serial0, filling journalctl
+# with duplicate "could not read a valid frame" errors. The poller is
+# started by gunicorn.conf.py's post_fork hook in the worker only.
+# Dev mode (running app.py directly without gunicorn) starts the poller
+# explicitly in main() below.
+pm_sensor = init_pm_sensor(start_poller_now=False)
 if pm_sensor:
     state.pm_sensor = pm_sensor
 
@@ -924,6 +933,17 @@ def main():
     _fan_settings = get_fan_settings()
     state.set_fan_mode("auto" if _fan_settings["enabled"] else "manual")
     log.info("STARTUP: get_fan_settings (%.1fs elapsed)", time.monotonic() - _t0)
+
+    # Dev-mode poller start. Production (gunicorn) starts the PM poller in
+    # post_fork so the master process never spins one. Running app.py
+    # directly bypasses gunicorn entirely, so we start the poller here
+    # instead. init_pm_sensor() above used start_poller_now=False, so
+    # state.pm_sensor exists but its background thread is dormant.
+    if state.pm_sensor is not None:
+        try:
+            state.pm_sensor.start_poller(interval=1.0)
+        except Exception as exc:
+            log.warning("Failed to start PM sensor poller in dev mode: %s", exc)
 
     _start_background_services()
     log.info("STARTUP: background threads started (%.1fs elapsed)", time.monotonic() - _t0)
