@@ -15,10 +15,26 @@
  *   - downsampled → SVG <path> band fill between pct_min and pct_max
  *                   plus an SVG <path> avg line on top
  *
+ * Calibration modes — the response also carries a top-level `calibrated`
+ * boolean:
+ *   - calibrated === true (or absent, for backward compat with older
+ *     mlss-monitor builds): render as above, Y-axis 0-100 %.
+ *   - calibrated === false: a freshly-plugged-in Seesaw with no dry/wet
+ *     calibration captured. pct is NULL for every row, so we fall back
+ *     to raw values on a 0-1023 Y-axis (Seesaw raw range). In this mode
+ *     the downsampled response carries only raw_avg (no min/max), so
+ *     we draw a single line — no band fill. The target overlay is
+ *     suppressed because the target is expressed in pct and would be
+ *     meaningless on the raw axis. An "Uncalibrated" banner is rendered
+ *     above the SVG so the user knows why the axis differs.
+ *   The `=== false` check is intentionally strict — `undefined` falls
+ *   through to the calibrated branch so legacy backend responses don't
+ *   regress.
+ *
  * Overlays:
  *   - Watering events: vertical green <line> marks at each event timestamp
  *   - Target band: dashed horizontal <line> at unit.overrides.watering_target
- *     (only when target is set; otherwise no overlay)
+ *     (only when target is set AND calibrated; otherwise no overlay)
  *
  * Empty data: shows a centred "No data in this range" <text> element
  * rather than rendering an empty SVG with NaN-derived geometry. A
@@ -41,6 +57,12 @@ const RANGES = ["24h", "7d", "30d", "90d", "all"];
 const W = 800;
 const H = 240;
 const PADDING = 32;
+
+// Seesaw raw moisture reading is a 10-bit ADC value (0..1023). We pin the
+// uncalibrated Y-axis to that full range rather than auto-scaling so users
+// can eyeball the absolute number — handy when capturing dry/wet
+// calibration points later.
+const RAW_AXIS_MAX = 1023;
 
 
 /**
@@ -100,6 +122,16 @@ export function renderMoistureHistoryChart(unit, opts = {}) {
       return;
     }
     const data = await r.json();
+    // Banner sits above the SVG so it reads as a chart subtitle. Only
+    // shown for explicit calibrated=false — undefined (legacy backend)
+    // falls through to calibrated rendering with no banner.
+    if (data.calibrated === false) {
+      const banner = doc.createElement("div");
+      banner.className = "hist-uncalibrated-banner";
+      banner.dataset.testid = "uncalibrated-banner";
+      banner.textContent = "Uncalibrated — raw readings (0–1023)";
+      chartHost.appendChild(banner);
+    }
     chartHost.appendChild(_renderChartSvg(data, unit, doc));
   }
 
@@ -153,8 +185,16 @@ function _renderChartSvg(data, unit, doc) {
   }
 
   // Detect downsampled vs raw shape. The contract is the presence of
-  // `pct_avg` (which only the bucket-aggregator emits).
-  const isDownsampled = moisture[0].pct_avg !== undefined;
+  // `pct_avg` on the first row (calibrated bucketed) OR `raw_avg`
+  // (uncalibrated bucketed — pct_* keys are dropped entirely). Either
+  // signals the bucketed shape; the non-bucketed shape uses {pct, raw}.
+  const isDownsampled =
+    moisture[0].pct_avg !== undefined || moisture[0].raw_avg !== undefined;
+
+  // Uncalibrated mode: strict === false. Undefined falls through to
+  // calibrated rendering so legacy backend responses (no `calibrated`
+  // key) keep working unchanged.
+  const isUncalibrated = data.calibrated === false;
 
   // ── X scale: linear interpolation across the time domain.
   const tsValues = moisture.map((m) => new Date(m.ts).getTime());
@@ -165,15 +205,19 @@ function _renderChartSvg(data, unit, doc) {
   const tSpan = (tMax - tMin) || 1;
   const tToX = (t) => PADDING + ((t - tMin) / tSpan) * (W - 2 * PADDING);
 
-  // ── Y scale: 0–100 % pct, inverted (high pct → low Y).
+  // ── Y scale: 0–100 % pct in calibrated mode, 0–1023 raw in uncalibrated.
+  //    Both are inverted (high value → low Y).
   const pctToY = (p) => H - PADDING - (p / 100) * (H - 2 * PADDING);
+  const rawToY = (r) => H - PADDING - (r / RAW_AXIS_MAX) * (H - 2 * PADDING);
 
   // ── target band (dashed horizontal). Drawn first so the moisture line
-  //    sits on top.
+  //    sits on top. Suppressed entirely in uncalibrated mode — the
+  //    target is in pct and would lie at a meaningless position on the
+  //    raw axis.
   const target = unit.overrides && typeof unit.overrides.watering_target === "number"
     ? unit.overrides.watering_target
     : null;
-  if (target !== null) {
+  if (target !== null && !isUncalibrated) {
     const line = doc.createElementNS(SVG_NS, "line");
     line.setAttribute("x1", String(PADDING));
     line.setAttribute("x2", String(W - PADDING));
@@ -188,7 +232,23 @@ function _renderChartSvg(data, unit, doc) {
   }
 
   // ── moisture line / band
-  if (isDownsampled) {
+  if (isUncalibrated) {
+    // Raw-only single line. Source field depends on shape:
+    //   - bucketed:    m.raw_avg (no min/max available, so no band)
+    //   - non-bucketed: m.raw
+    const rawAt = (m) => (m.raw_avg !== undefined ? m.raw_avg : m.raw);
+    let d = `M ${tToX(tsValues[0])} ${rawToY(rawAt(moisture[0]))}`;
+    for (let i = 1; i < moisture.length; i++) {
+      d += ` L ${tToX(tsValues[i])} ${rawToY(rawAt(moisture[i]))}`;
+    }
+    const path = doc.createElementNS(SVG_NS, "path");
+    path.setAttribute("d", d);
+    path.setAttribute("fill", "none");
+    path.setAttribute("stroke", "#4dacff");
+    path.setAttribute("stroke-width", "2");
+    path.dataset.testid = "moisture-line";
+    svg.appendChild(path);
+  } else if (isDownsampled) {
     // Band fill — closed polygon traced along pct_max forward then pct_min
     // backward. This is the standard "envelope" technique for SVG paths.
     let dBand = `M ${tToX(tsValues[0])} ${pctToY(moisture[0].pct_max)}`;

@@ -239,3 +239,119 @@ test("moisture chart: handles empty moisture array without crashing", async () =
     _setMockFetch(orig);
   }
 });
+
+
+// ────────────────────────────────────────────────────────────────────
+// Uncalibrated-sensor rendering. The backend now flags responses with
+// a top-level `calibrated` boolean; when false, the chart switches to
+// a raw-only 0–1023 Y-axis and shows a banner explaining the fallback.
+// The `calibrated === false` check is intentionally strict — an absent
+// flag means a legacy backend and must render exactly as before.
+// ────────────────────────────────────────────────────────────────────
+
+test("moisture chart: renders raw line + banner when calibrated:false (downsampled)", async () => {
+  const orig = _origFetch();
+  _setMockFetch(async () => _ok({
+    calibrated: false,
+    moisture: [
+      { ts: "2026-04-06T10:00:00Z", raw_avg: 318 },
+      { ts: "2026-04-06T11:00:00Z", raw_avg: 322 },
+      { ts: "2026-04-06T12:00:00Z", raw_avg: 320 },
+    ],
+    watering_events: [],
+    phase_changes: [],
+  }));
+  try {
+    const el = renderMoistureHistoryChart(_unit(), { ownerDocument: document });
+    await _flushMicro();
+    const line = el.querySelector("[data-testid='moisture-line']");
+    assert.ok(line, "raw line path present in uncalibrated mode");
+    // No band in uncalibrated mode — we only have averages, not min/max.
+    const band = el.querySelector("[data-testid='moisture-band']");
+    assert.equal(band, null, "no band when calibrated:false (no min/max data)");
+    const banner = el.querySelector("[data-testid='uncalibrated-banner']");
+    assert.ok(banner, "uncalibrated banner element present");
+    assert.match(banner.textContent, /uncalibrated/i, "banner mentions uncalibrated state");
+    assert.match(banner.textContent, /0.*1023/, "banner shows the raw 0-1023 range");
+  } finally {
+    _setMockFetch(orig);
+  }
+});
+
+
+test("moisture chart: renders raw line + banner when calibrated:false (non-bucketed)", async () => {
+  const orig = _origFetch();
+  _setMockFetch(async () => _ok({
+    calibrated: false,
+    moisture: [
+      { ts: "2026-05-06T10:00:00Z", pct: null, raw: 315 },
+      { ts: "2026-05-06T10:05:00Z", pct: null, raw: 318 },
+      { ts: "2026-05-06T10:10:00Z", pct: null, raw: 320 },
+    ],
+    watering_events: [],
+    phase_changes: [],
+  }));
+  try {
+    const el = renderMoistureHistoryChart(_unit(), { ownerDocument: document });
+    await _flushMicro();
+    const line = el.querySelector("[data-testid='moisture-line']");
+    assert.ok(line, "raw line drawn from {raw} on each row");
+    const banner = el.querySelector("[data-testid='uncalibrated-banner']");
+    assert.ok(banner, "uncalibrated banner shown for short-range uncalibrated data too");
+  } finally {
+    _setMockFetch(orig);
+  }
+});
+
+
+test("moisture chart: omits target line when calibrated:false", async () => {
+  // The target is expressed in pct (0-100); in uncalibrated mode the
+  // Y-axis is raw 0-1023, so plotting the target would be misleading.
+  const orig = _origFetch();
+  _setMockFetch(async () => _ok({
+    calibrated: false,
+    moisture: [
+      { ts: "2026-05-06T10:00:00Z", pct: null, raw: 315 },
+      { ts: "2026-05-06T11:00:00Z", pct: null, raw: 320 },
+    ],
+    watering_events: [],
+    phase_changes: [],
+  }));
+  try {
+    const el = renderMoistureHistoryChart(_unit({ watering_target: 55 }), { ownerDocument: document });
+    await _flushMicro();
+    const targetLine = el.querySelector("[data-testid='target-line']");
+    assert.equal(targetLine, null, "target line suppressed in uncalibrated mode");
+  } finally {
+    _setMockFetch(orig);
+  }
+});
+
+
+test("moisture chart: legacy response (calibrated absent) still renders 0-100% chart", async () => {
+  // Backward-compat — a deployed older mlss-monitor returns no `calibrated`
+  // key. We must default to calibrated rendering (no banner, target line
+  // shown). The detection check is `=== false`, not falsy.
+  const orig = _origFetch();
+  _setMockFetch(async () => _ok({
+    // No `calibrated` key at all — simulates pre-fix backend.
+    moisture: [
+      { ts: "2026-05-06T10:00:00Z", pct: 50, raw: 600 },
+      { ts: "2026-05-06T11:00:00Z", pct: 55, raw: 620 },
+    ],
+    watering_events: [],
+    phase_changes: [],
+  }));
+  try {
+    const el = renderMoistureHistoryChart(_unit({ watering_target: 55 }), { ownerDocument: document });
+    await _flushMicro();
+    const banner = el.querySelector("[data-testid='uncalibrated-banner']");
+    assert.equal(banner, null, "no uncalibrated banner when calibrated key is absent");
+    const targetLine = el.querySelector("[data-testid='target-line']");
+    assert.ok(targetLine, "target line present (calibrated mode preserved)");
+    const line = el.querySelector("[data-testid='moisture-line']");
+    assert.ok(line, "moisture line still rendered");
+  } finally {
+    _setMockFetch(orig);
+  }
+});

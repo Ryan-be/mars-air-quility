@@ -10,6 +10,19 @@ chart behaviour is unchanged.
 The response always includes a ``phase_changes`` key (currently ``[]`` —
 reserved for the Phase 3 phase-audit table the frontend annotation chart will
 consume).
+
+A freshly-plugged-in Seesaw sensor emits raw values but its ``soil_moisture_pct``
+column stays NULL until the user captures dry/wet calibration points. To stop
+the chart from rendering blank for uncalibrated units we:
+
+  * Return a top-level ``calibrated`` boolean — ``true`` iff at least one row in
+    the returned moisture series has a non-null pct. The frontend uses this to
+    pick a 0–100 % Y-axis (calibrated) vs a 0–1023 raw Y-axis (uncalibrated).
+  * In the bucketed path always emit a bucket if ``slice_rows`` is non-empty,
+    always populate ``raw_avg``, and only emit the ``pct_*`` keys when at least
+    one row in the bucket has a non-null pct (we drop them entirely rather than
+    emitting nulls — keeps the existing shape-sniff via ``pct_avg`` presence
+    working on the frontend).
 """
 import sqlite3
 from datetime import datetime, timedelta
@@ -25,10 +38,15 @@ _DOWNSAMPLE_THRESHOLD = 600
 def _maybe_downsample(rows, target=_DOWNSAMPLE_THRESHOLD):
     """Return rows as-is when len(rows) <= target, else bucket into target buckets.
 
-    For the bucketed case each entry is ``{ts, pct_min, pct_avg, pct_max,
-    raw_avg}`` where ``ts`` is the slice midpoint timestamp. Buckets whose
-    ``soil_moisture_pct`` values are all NULL are skipped (the chart can
-    interpolate the gap).
+    Non-bucketed path emits ``{ts, pct, raw}`` (pct may be None — the frontend
+    falls back to raw in uncalibrated mode).
+
+    Bucketed path emits ``{ts, raw_avg, [pct_min, pct_avg, pct_max]}`` — the
+    pct_* keys are dropped (not nulled) when no row in the bucket has a
+    non-null pct, so the frontend can still sniff the shape via
+    ``pct_avg`` presence. Buckets where every ``soil_moisture_raw`` is
+    NULL are skipped (defensive — the schema marks raw NOT NULL, but the
+    check is cheap insurance against future schema drift).
     """
     if len(rows) <= target:
         return [
@@ -47,23 +65,45 @@ def _maybe_downsample(rows, target=_DOWNSAMPLE_THRESHOLD):
         slice_rows = rows[start:end]
         if not slice_rows:
             continue
+        raws = [
+            r["soil_moisture_raw"]
+            for r in slice_rows
+            if r["soil_moisture_raw"] is not None
+        ]
+        if not raws:
+            # All-NULL-raw bucket — nothing to plot. Should never trigger
+            # given the schema, but skipping is safer than emitting a
+            # bucket with no numeric data the chart could render.
+            continue
         pcts = [
             r["soil_moisture_pct"]
             for r in slice_rows
             if r["soil_moisture_pct"] is not None
         ]
-        if not pcts:
-            # All-NULL bucket — let the chart interpolate; skip it.
-            continue
-        raws = [r["soil_moisture_raw"] for r in slice_rows]
-        buckets.append({
+        bucket = {
             "ts": slice_rows[len(slice_rows) // 2]["timestamp_utc"],
-            "pct_min": min(pcts),
-            "pct_avg": sum(pcts) / len(pcts),
-            "pct_max": max(pcts),
-            "raw_avg": (sum(raws) / len(raws)) if raws else None,
-        })
+            "raw_avg": sum(raws) / len(raws),
+        }
+        if pcts:
+            # At least one row in this bucket is calibrated — emit the band
+            # keys. (Mixed buckets — some calibrated rows, some null — get
+            # band keys derived from the calibrated subset only; that's a
+            # close enough approximation while a sensor transitions out of
+            # uncalibrated state.)
+            bucket["pct_min"] = min(pcts)
+            bucket["pct_avg"] = sum(pcts) / len(pcts)
+            bucket["pct_max"] = max(pcts)
+        buckets.append(bucket)
     return buckets
+
+
+def _is_calibrated(rows):
+    """True iff at least one row carries a non-null soil_moisture_pct.
+
+    Drives the top-level ``calibrated`` flag on the response — the
+    frontend uses it to choose its Y-axis (0-100 % vs 0-1023 raw).
+    """
+    return any(r["soil_moisture_pct"] is not None for r in rows)
 
 
 @api_grow_history_bp.route("/api/grow/units/<int:unit_id>/history", methods=["GET"])
@@ -108,6 +148,9 @@ def history(unit_id):
 
     return jsonify({
         "moisture": _maybe_downsample(moisture_rows),
+        # Computed off the raw rows (not the downsampled output) so the flag
+        # stays correct regardless of which path _maybe_downsample takes.
+        "calibrated": _is_calibrated(moisture_rows),
         "watering_events": [
             {
                 "ts": r["timestamp_utc"],

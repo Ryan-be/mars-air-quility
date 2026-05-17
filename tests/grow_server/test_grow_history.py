@@ -115,6 +115,28 @@ def _seed_telemetry(db_path, unit_id, count, start_ts, interval_s=60):
     conn.close()
 
 
+def _seed_uncalibrated_telemetry(db_path, unit_id, count, start_ts, interval_s=60):
+    """Insert `count` telemetry rows with raw populated but pct NULL.
+
+    Mirrors a freshly-plugged-in Seesaw sensor whose dry/wet calibration
+    points haven't been captured yet — firmware sends raw, server can't
+    compute pct.
+    """
+    conn = sqlite3.connect(db_path)
+    for i in range(count):
+        ts = start_ts + timedelta(seconds=i * interval_s)
+        raw = 300 + (i % 50)  # uncalibrated raw range — well below the
+                              # calibrated 600-799 band used elsewhere
+        conn.execute(
+            "INSERT INTO grow_telemetry "
+            "(unit_id, timestamp_utc, soil_moisture_raw, soil_moisture_pct, "
+            " light_state, pump_state) VALUES (?, ?, ?, NULL, 1, 0)",
+            (unit_id, ts, raw),
+        )
+    conn.commit()
+    conn.close()
+
+
 # ------------------------------------------------------------------
 # Existing tests (preserved — should keep passing after the refactor)
 # ------------------------------------------------------------------
@@ -247,6 +269,78 @@ def test_history_empty_unit_returns_empty_arrays(empty_client):
     assert body["moisture"] == []
     assert body["watering_events"] == []
     assert body["phase_changes"] == []
+
+
+# ------------------------------------------------------------------
+# Uncalibrated-sensor rendering: a freshly-plugged-in Seesaw emits
+# raw values but pct is NULL until the user captures dry/wet
+# calibration. The chart must still plot something — falling back
+# to raw — and the response carries a `calibrated` boolean so the
+# frontend knows which Y-axis to use.
+# ------------------------------------------------------------------
+
+
+def test_calibrated_true_when_any_pct_present(client):
+    """Existing fixture has 3 rows with pct populated — calibrated must be True."""
+    c, _ = client
+    r = c.get("/api/grow/units/1/history?range=24h")
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["calibrated"] is True
+
+
+def test_calibrated_false_when_all_pct_null(seed_client):
+    """3 rows with pct NULL but raw populated -> calibrated False,
+    moisture array NOT empty (raw fallback)."""
+    c, db_path = seed_client
+    start = datetime.utcnow() - timedelta(hours=2)
+    _seed_uncalibrated_telemetry(db_path, 1, 3, start, interval_s=60)
+    r = c.get("/api/grow/units/1/history?range=24h")
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["calibrated"] is False
+    # The bug was returning an empty array — these rows MUST surface.
+    assert len(body["moisture"]) == 3
+
+
+def test_uncalibrated_downsampled_returns_raw_avg_only(seed_client):
+    """>600 uncalibrated rows -> bucketed buckets carry raw_avg but
+    drop the pct_* keys entirely (don't emit nulls)."""
+    c, db_path = seed_client
+    # 800 points 60s apart, all pct NULL — forces downsample path.
+    start = datetime.utcnow() - timedelta(minutes=800)
+    _seed_uncalibrated_telemetry(db_path, 1, 800, start, interval_s=60)
+    r = c.get("/api/grow/units/1/history?range=30d")
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["calibrated"] is False
+    assert len(body["moisture"]) > 0
+    assert len(body["moisture"]) <= 600
+    sample = body["moisture"][0]
+    # raw_avg required, ts required; pct_* keys MUST NOT appear (drop
+    # them — don't emit nulls — so the frontend can sniff the shape).
+    assert "raw_avg" in sample
+    assert "ts" in sample
+    assert "pct_avg" not in sample
+    assert "pct_min" not in sample
+    assert "pct_max" not in sample
+
+
+def test_uncalibrated_short_range_returns_raw_with_null_pct(seed_client):
+    """<=600 uncalibrated rows -> non-bucketed path; each entry keeps
+    {ts, pct: None, raw} shape (pct stays None — frontend reads raw)."""
+    c, db_path = seed_client
+    start = datetime.utcnow() - timedelta(minutes=100)
+    _seed_uncalibrated_telemetry(db_path, 1, 50, start, interval_s=60)
+    r = c.get("/api/grow/units/1/history?range=24h")
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["calibrated"] is False
+    assert len(body["moisture"]) == 50
+    sample = body["moisture"][0]
+    assert set(sample.keys()) == {"ts", "pct", "raw"}
+    assert sample["pct"] is None
+    assert sample["raw"] is not None
 
 
 def test_history_downsample_buckets_evenly_distributed(seed_client):
