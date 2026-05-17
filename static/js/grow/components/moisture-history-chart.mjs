@@ -166,11 +166,11 @@ function _renderChartSvg(data, unit, doc) {
   svg.setAttribute("preserveAspectRatio", "none");
   svg.dataset.testid = "chart-svg";
 
-  const moisture = data.moisture || [];
+  const allMoisture = data.moisture || [];
 
   // Empty-state short circuit. Avoid NaN scale arithmetic from Math.min on
   // an empty array, and give the user something to read.
-  if (moisture.length === 0) {
+  if (allMoisture.length === 0) {
     const txt = doc.createElementNS(SVG_NS, "text");
     txt.setAttribute("x", String(W / 2));
     txt.setAttribute("y", String(H / 2));
@@ -188,13 +188,50 @@ function _renderChartSvg(data, unit, doc) {
   // `pct_avg` on the first row (calibrated bucketed) OR `raw_avg`
   // (uncalibrated bucketed — pct_* keys are dropped entirely). Either
   // signals the bucketed shape; the non-bucketed shape uses {pct, raw}.
+  // We compute this from the WHOLE response (pre-filter) because the
+  // shape is uniform across all rows of a given response.
   const isDownsampled =
-    moisture[0].pct_avg !== undefined || moisture[0].raw_avg !== undefined;
+    allMoisture[0].pct_avg !== undefined || allMoisture[0].raw_avg !== undefined;
 
   // Uncalibrated mode: strict === false. Undefined falls through to
   // calibrated rendering so legacy backend responses (no `calibrated`
   // key) keep working unchanged.
   const isUncalibrated = data.calibrated === false;
+
+  // In CALIBRATED mode, filter to pct-bearing rows/buckets. The window
+  // can include pre-calibration data (pct=null in non-bucketed shape,
+  // pct_* keys absent in bucketed shape) — iterating that as if pct_avg
+  // were defined gives `pctToY(undefined)` → NaN coordinates in the SVG
+  // path, which silently renders as a blank chart. UX-wise the right
+  // answer is "show only the calibrated timeline" — the pre-calibration
+  // raw values can't be sensibly placed on the 0-100% axis anyway.
+  // Uncalibrated mode keeps the full series (all rows have raw / raw_avg).
+  const moisture = isUncalibrated
+    ? allMoisture
+    : allMoisture.filter((m) =>
+        isDownsampled
+          ? m.pct_avg !== undefined
+          : (m.pct !== null && m.pct !== undefined)
+      );
+
+  // The filter can leave nothing — happens when calibrated=true (some
+  // row somewhere has pct) but the current range window covers only
+  // pre-calibration buckets. Render the empty state with the same copy
+  // as a truly empty response so the user gets a clear signal rather
+  // than a mysteriously blank SVG.
+  if (moisture.length === 0) {
+    const txt = doc.createElementNS(SVG_NS, "text");
+    txt.setAttribute("x", String(W / 2));
+    txt.setAttribute("y", String(H / 2));
+    txt.setAttribute("text-anchor", "middle");
+    txt.setAttribute("dominant-baseline", "middle");
+    txt.setAttribute("fill", "#7d92a8");
+    txt.setAttribute("font-size", "14");
+    txt.dataset.testid = "empty-state";
+    txt.textContent = "No data in this range";
+    svg.appendChild(txt);
+    return svg;
+  }
 
   // ── X scale: linear interpolation across the time domain.
   const tsValues = moisture.map((m) => new Date(m.ts).getTime());

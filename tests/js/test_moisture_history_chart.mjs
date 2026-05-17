@@ -355,3 +355,108 @@ test("moisture chart: legacy response (calibrated absent) still renders 0-100% c
     _setMockFetch(orig);
   }
 });
+
+
+// ────────────────────────────────────────────────────────────────────
+// Mixed buckets — the case that bit the user the moment they calibrated
+// a previously-uncalibrated sensor. The window contains pre-calibration
+// rows (pct=NULL) AND post-calibration rows (pct populated). The
+// backend's downsampler emits raw_avg for every bucket but pct_* only
+// for buckets that have at least one non-NULL pct. The chart used to
+// iterate all rows assuming pct_avg was present everywhere — pctToY
+// of undefined → NaN → SVG path renders as a blank "M PADDING NaN L
+// ... NaN" string. The fix filters the calibrated render path to
+// pct-bearing buckets only.
+// ────────────────────────────────────────────────────────────────────
+
+test("moisture chart: filters out pre-calibration buckets in calibrated mode", async () => {
+  const orig = _origFetch();
+  _setMockFetch(async () => _ok({
+    calibrated: true,
+    moisture: [
+      // Pre-calibration — only raw_avg
+      { ts: "2026-05-17T08:00:00Z", raw_avg: 318 },
+      { ts: "2026-05-17T09:00:00Z", raw_avg: 322 },
+      // Post-calibration — full pct_* + raw_avg
+      { ts: "2026-05-17T10:00:00Z", raw_avg: 800, pct_min: 60, pct_avg: 65, pct_max: 70 },
+      { ts: "2026-05-17T11:00:00Z", raw_avg: 820, pct_min: 62, pct_avg: 68, pct_max: 75 },
+    ],
+    watering_events: [],
+    phase_changes: [],
+  }));
+  try {
+    const el = renderMoistureHistoryChart(_unit(), { ownerDocument: document });
+    await _flushMicro();
+    const line = el.querySelector("[data-testid='moisture-line']");
+    assert.ok(line, "moisture line still drawn from the pct-bearing buckets");
+    // The bug: pctToY(undefined) silently produces NaN. Catch that by
+    // asserting the `d` attribute has no NaN substring.
+    assert.doesNotMatch(line.getAttribute("d"), /NaN/,
+      "path d-attribute must not contain NaN — pre-calibration buckets " +
+      "should be filtered, not iterated as if they had pct_avg");
+    const band = el.querySelector("[data-testid='moisture-band']");
+    assert.ok(band, "band still drawn from the pct_min/max-bearing buckets");
+    assert.doesNotMatch(band.getAttribute("d"), /NaN/,
+      "band d-attribute must not contain NaN");
+  } finally {
+    _setMockFetch(orig);
+  }
+});
+
+
+test("moisture chart: filters null-pct rows in calibrated short-range mode", async () => {
+  // Non-bucketed path (≤600 rows). Backend emits `pct` always but it
+  // can be null for pre-calibration rows. Chart must skip those so
+  // pctToY(null) → 0 doesn't drag the line down to the bottom edge.
+  const orig = _origFetch();
+  _setMockFetch(async () => _ok({
+    calibrated: true,
+    moisture: [
+      { ts: "2026-05-17T10:00:00Z", pct: null, raw: 318 },
+      { ts: "2026-05-17T10:30:00Z", pct: null, raw: 320 },
+      { ts: "2026-05-17T11:00:00Z", pct: 65, raw: 800 },
+      { ts: "2026-05-17T11:30:00Z", pct: 68, raw: 820 },
+    ],
+    watering_events: [],
+    phase_changes: [],
+  }));
+  try {
+    const el = renderMoistureHistoryChart(_unit(), { ownerDocument: document });
+    await _flushMicro();
+    const line = el.querySelector("[data-testid='moisture-line']");
+    assert.ok(line, "line drawn from the two post-calibration rows");
+    assert.doesNotMatch(line.getAttribute("d"), /NaN/,
+      "no NaN in path even though pct is null on early rows");
+  } finally {
+    _setMockFetch(orig);
+  }
+});
+
+
+test("moisture chart: shows empty state when calibrated but no pct buckets in window", async () => {
+  // Edge case: backend flagged calibrated=true (rows exist somewhere
+  // with pct) but the current range window covers only pre-calibration
+  // buckets. After filtering we have zero usable rows. Don't silently
+  // draw nothing — show the helpful "no data" text so the user knows
+  // why the chart is blank.
+  const orig = _origFetch();
+  _setMockFetch(async () => _ok({
+    calibrated: true,
+    moisture: [
+      { ts: "2026-05-17T08:00:00Z", raw_avg: 318 },
+      { ts: "2026-05-17T09:00:00Z", raw_avg: 322 },
+    ],
+    watering_events: [],
+    phase_changes: [],
+  }));
+  try {
+    const el = renderMoistureHistoryChart(_unit(), { ownerDocument: document });
+    await _flushMicro();
+    const empty = el.querySelector("[data-testid='empty-state']");
+    assert.ok(empty, "empty-state shown when filtered list is empty");
+    assert.equal(el.querySelector("[data-testid='moisture-line']"), null,
+      "no moisture line when nothing to render");
+  } finally {
+    _setMockFetch(orig);
+  }
+});
