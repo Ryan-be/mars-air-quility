@@ -460,3 +460,217 @@ test("moisture chart: shows empty state when calibrated but no pct buckets in wi
     _setMockFetch(orig);
   }
 });
+
+
+// ────────────────────────────────────────────────────────────────────
+// Chart anatomy — Y-axis spine, tick marks, axis titles, X-axis with
+// time labels, and the legend below the SVG. The previous build drew
+// only the data line/band; operators reported "no axis or legend or
+// title" the moment values started rendering. These tests pin down
+// the new chrome elements so future refactors don't strip them again.
+// ────────────────────────────────────────────────────────────────────
+
+test("chart anatomy: y-axis spine and tick labels render in calibrated mode", async () => {
+  const orig = _origFetch();
+  _setMockFetch(async () => _ok({
+    calibrated: true,
+    moisture: [
+      { ts: "2026-05-06T10:00:00Z", pct: 50, raw: 600 },
+      { ts: "2026-05-06T11:00:00Z", pct: 55, raw: 620 },
+    ],
+    watering_events: [],
+    phase_changes: [],
+  }));
+  try {
+    const el = renderMoistureHistoryChart(_unit(), { ownerDocument: document });
+    await _flushMicro();
+    // Tick labels at 0/25/50/75/100 — the calibrated 5-tick scheme.
+    for (const v of [0, 25, 50, 75, 100]) {
+      const lbl = el.querySelector(`[data-testid='y-axis-label-${v}']`);
+      assert.ok(lbl, `y-axis-label-${v} present`);
+      assert.equal(lbl.textContent, String(v), `y-axis-label-${v} text = "${v}"`);
+    }
+    const title = el.querySelector("[data-testid='y-axis-title']");
+    assert.ok(title, "y-axis-title element present");
+    assert.match(title.textContent, /Moisture/i, "y-axis-title mentions Moisture");
+  } finally {
+    _setMockFetch(orig);
+  }
+});
+
+
+test("chart anatomy: y-axis labels switch to raw scale in uncalibrated mode", async () => {
+  // RAW_AXIS_MAX is 1023, but tick density is the same 5-tick scheme.
+  // Spec: 0/500/1000/1500/2000 if cleanly divisible; for 1023 we pick
+  // the highest tick to land on RAW_AXIS_MAX (1023) and divide 0..1023
+  // into 4 even steps — see the implementation.
+  const orig = _origFetch();
+  _setMockFetch(async () => _ok({
+    calibrated: false,
+    moisture: [
+      { ts: "2026-05-06T10:00:00Z", pct: null, raw: 315 },
+      { ts: "2026-05-06T11:00:00Z", pct: null, raw: 320 },
+    ],
+    watering_events: [],
+    phase_changes: [],
+  }));
+  try {
+    const el = renderMoistureHistoryChart(_unit(), { ownerDocument: document });
+    await _flushMicro();
+    const lbl0 = el.querySelector("[data-testid='y-axis-label-0']");
+    assert.ok(lbl0, "y-axis-label-0 present in uncalibrated mode");
+    assert.equal(lbl0.textContent, "0", "lowest tick is 0");
+    // The highest tick corresponds to RAW_AXIS_MAX (1023). The data-testid
+    // suffix encodes the tick value so we don't have to import the const.
+    const lblMax = el.querySelector("[data-testid='y-axis-label-1023']");
+    assert.ok(lblMax, "y-axis-label-1023 present (top tick matches RAW_AXIS_MAX)");
+    assert.equal(lblMax.textContent, "1023");
+    const title = el.querySelector("[data-testid='y-axis-title']");
+    assert.ok(title, "y-axis-title present in uncalibrated mode");
+    assert.match(title.textContent, /Raw/i, "uncalibrated y-axis title mentions Raw");
+  } finally {
+    _setMockFetch(orig);
+  }
+});
+
+
+test("chart anatomy: x-axis has 5 evenly-spaced time labels (HH:MM for 24h span)", async () => {
+  const orig = _origFetch();
+  // 24h-ish span: data at 10:00 and the next day at 10:00.
+  _setMockFetch(async () => _ok({
+    calibrated: true,
+    moisture: [
+      { ts: "2026-05-06T10:00:00Z", pct: 50, raw: 600 },
+      { ts: "2026-05-07T10:00:00Z", pct: 55, raw: 620 },
+    ],
+    watering_events: [],
+    phase_changes: [],
+  }));
+  try {
+    const el = renderMoistureHistoryChart(_unit(), { ownerDocument: document });
+    await _flushMicro();
+    for (let i = 0; i < 5; i++) {
+      const lbl = el.querySelector(`[data-testid='x-axis-label-${i}']`);
+      assert.ok(lbl, `x-axis-label-${i} present`);
+      // 24h-or-less spans format as HH:MM (zero-padded).
+      assert.match(lbl.textContent, /^\d{2}:\d{2}$/,
+        `x-axis-label-${i} ("${lbl.textContent}") should match HH:MM`);
+    }
+  } finally {
+    _setMockFetch(orig);
+  }
+});
+
+
+test("chart anatomy: x-axis label format adapts to longer 30d spans (DD MMM)", async () => {
+  const orig = _origFetch();
+  // ~30d span; labels should adopt the "DD MMM" format (e.g. "06 May").
+  _setMockFetch(async () => _ok({
+    calibrated: true,
+    moisture: [
+      { ts: "2026-04-06T10:00:00Z", pct_min: 30, pct_avg: 45, pct_max: 60, raw_avg: 600 },
+      { ts: "2026-05-06T10:00:00Z", pct_min: 35, pct_avg: 50, pct_max: 65, raw_avg: 620 },
+    ],
+    watering_events: [],
+    phase_changes: [],
+  }));
+  try {
+    const el = renderMoistureHistoryChart(_unit(), { ownerDocument: document });
+    await _flushMicro();
+    // At least one label must be in "DD MMM" form. We don't pin specific
+    // labels — the exact dates depend on local time-zone bucket placement.
+    let matched = false;
+    for (let i = 0; i < 5; i++) {
+      const lbl = el.querySelector(`[data-testid='x-axis-label-${i}']`);
+      assert.ok(lbl, `x-axis-label-${i} present`);
+      if (/^\d{2}\s\w{3}$/.test(lbl.textContent)) matched = true;
+    }
+    assert.ok(matched, "at least one x-axis label matches DD MMM for a 30d span");
+  } finally {
+    _setMockFetch(orig);
+  }
+});
+
+
+test("chart anatomy: legend in calibrated downsampled mode lists line + band + target + watering", async () => {
+  const orig = _origFetch();
+  _setMockFetch(async () => _ok({
+    calibrated: true,
+    moisture: [
+      { ts: "2026-04-06T10:00:00Z", pct_min: 30, pct_avg: 45, pct_max: 60, raw_avg: 600 },
+      { ts: "2026-04-06T11:00:00Z", pct_min: 35, pct_avg: 50, pct_max: 65, raw_avg: 620 },
+    ],
+    watering_events: [
+      { ts: "2026-04-06T10:30:00Z", trigger: "auto", duration_s: 5, soil_pct_before: 48 },
+    ],
+    phase_changes: [],
+  }));
+  try {
+    const el = renderMoistureHistoryChart(_unit({ watering_target: 55 }), { ownerDocument: document });
+    await _flushMicro();
+    const legend = el.querySelector("[data-testid='chart-legend']");
+    assert.ok(legend, "chart-legend wrapper present");
+    for (const key of ["legend-line", "legend-band", "legend-target", "legend-watering"]) {
+      assert.ok(legend.querySelector(`[data-testid='${key}']`), `${key} entry present`);
+    }
+    // Raw-only entry must NOT be in calibrated mode.
+    assert.equal(legend.querySelector("[data-testid='legend-raw']"), null,
+      "no legend-raw in calibrated mode");
+  } finally {
+    _setMockFetch(orig);
+  }
+});
+
+
+test("chart anatomy: legend in uncalibrated mode shows only Raw reading entry", async () => {
+  const orig = _origFetch();
+  _setMockFetch(async () => _ok({
+    calibrated: false,
+    moisture: [
+      { ts: "2026-05-06T10:00:00Z", pct: null, raw: 315 },
+      { ts: "2026-05-06T11:00:00Z", pct: null, raw: 320 },
+    ],
+    watering_events: [],
+    phase_changes: [],
+  }));
+  try {
+    // Target set, but should still be suppressed in uncalibrated mode.
+    const el = renderMoistureHistoryChart(_unit({ watering_target: 55 }), { ownerDocument: document });
+    await _flushMicro();
+    const legend = el.querySelector("[data-testid='chart-legend']");
+    assert.ok(legend, "chart-legend wrapper present in uncalibrated mode too");
+    assert.ok(legend.querySelector("[data-testid='legend-raw']"),
+      "legend-raw entry present");
+    assert.equal(legend.querySelector("[data-testid='legend-target']"), null,
+      "legend-target absent (target is suppressed in uncalibrated mode)");
+    assert.equal(legend.querySelector("[data-testid='legend-band']"), null,
+      "legend-band absent (no min/max data in uncalibrated mode)");
+    assert.equal(legend.querySelector("[data-testid='legend-line']"), null,
+      "legend-line absent — the raw line uses legend-raw");
+  } finally {
+    _setMockFetch(orig);
+  }
+});
+
+
+test("chart anatomy: empty data still shows axes (just no line)", async () => {
+  const orig = _origFetch();
+  _setMockFetch(async () => _ok({ moisture: [], watering_events: [], phase_changes: [] }));
+  try {
+    const el = renderMoistureHistoryChart(_unit(), { ownerDocument: document });
+    await _flushMicro();
+    // Axes / title must coexist with the empty-state text. Operators
+    // shouldn't see a totally blank chart area while data is being
+    // collected — the axes give scale context immediately.
+    assert.ok(el.querySelector("[data-testid='y-axis-title']"),
+      "y-axis-title still rendered for empty data");
+    assert.ok(el.querySelector("[data-testid='y-axis-label-0']"),
+      "y-axis-label-0 still rendered for empty data");
+    assert.ok(el.querySelector("[data-testid='empty-state']"),
+      "empty-state text coexists with the axes");
+    assert.equal(el.querySelector("[data-testid='moisture-line']"), null,
+      "no data line for empty data");
+  } finally {
+    _setMockFetch(orig);
+  }
+});
