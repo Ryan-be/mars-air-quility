@@ -318,6 +318,22 @@ To generate explanations like:
 
 ---
 
+## 🐛 Bug: PM sensor read-path reliability (MLSS server)
+
+After fixing the double-poll bug (commit `e8712db`) and the serial-console hostage situation (operator: `do_serial 2` + `serial-getty@ttyAMA0` disabled + reboot), PM data flows but the read path is still noisy. Three concrete issues observed in production journal:
+
+1. **`PM sensor serial error: read failed: [Errno 9] Bad file descriptor`** — happens between retry attempts inside the runner loop. Suggests the fd is being closed mid-retry-sequence and then `read()` is called again on the closed fd. Doesn't lose data (the retry eventually succeeds on a fresh open) but produces avoidable warnings.
+2. **`device reports readiness to read but returned no data (device disconnected or multiple access on port?)`** — classic Linux `select()` returning ready but `read()` getting zero bytes. The runner should treat this as a non-fatal partial-frame condition (re-try without closing the fd) rather than a hard error.
+3. **`PM sensor unexpected error: 'NoneType' object cannot be interpreted as an integer`** — Python exception in the frame parse path. Something's expecting a length/checksum byte and getting `None` (partial frame where the parser tries to interpret a missing field as int). Caught broadly by the runner so it doesn't crash, but means one branch of the parser doesn't validate frame completeness before indexing.
+
+**File**: `sensor_interfaces/sb_components_pm_sensor.py`. All three issues live in or near the `read_pm` / retry helper / frame parse code.
+
+**Fix scope**: small. Tidy the fd lifecycle (don't close between retries unless the error is fatal), guard the parser against partial frames, demote the "device readiness but no data" line from error → debug. Adding a unit test that feeds a deliberately truncated frame and asserts the parser returns `None` cleanly would close the regression door.
+
+**Why deferred**: data is flowing — these are quality-of-log issues + a minor robustness gap, not a data-correctness gap. Worth doing but no user-visible benefit until done.
+
+---
+
 ## Plant Grow Unit roadmap
 
 ### Phase 2 (next)
@@ -356,4 +372,40 @@ To generate explanations like:
 
 ### Hardware/reliability deferred
 - **Hardware watchdog (`/dev/watchdog`)** on Pi Zero — designed in but not wired up due to risk of misconfigured timer rebooting healthy Pi mid-write. Re-evaluate if a unit silently wedges in production despite systemd watchdog.
+
+### Grow unit hardware additions
+
+> Tracking new sensors / actuators to add to the per-unit hardware stack. Each entry covers the part to source, the firmware-side work, the server-side work, and how it slots into existing systems (capability auto-detect, plant happiness, plant_profiles). Do these on dedicated branches (one branch per sensor) so each can be reviewed + tested independently before merge.
+
+#### Humidity / air-temperature sensor + VPD
+
+Today the grow unit reports `soil_moisture`, `soil_temp_c`, `light_state`, `pump_state`, `camera`. Air temperature + relative humidity are measured on the MLSS server only — useless once a grow unit lives in a different room from MLSS. Add an air-T+RH sensor on the grow unit itself so we can:
+- Display per-unit air temperature & humidity tiles
+- Compute Vapor Pressure Deficit (VPD), the more meaningful "is the plant transpiring happily?" metric
+- Extend today's plant-happiness indicator to air temperature + VPD
+
+**Hardware to source** (any one):
+- **Adafruit AHT20** (~£5, I2C 0x38, ±0.3 °C / ±2 % RH) — same chip MLSS already uses, driver code is near-zero-cost to port from `external_api_interfaces/aht20.py`. Recommended starting point.
+- **Sensirion SHT40 / SHT41** (~£10, I2C 0x44, ±0.2 °C / ±1.5 % RH) — industry-standard horticulture sensor. Better long-term drift than AHT20. Adafruit STEMMA QT cable plug-and-play.
+- **Bosch BME680** (~£12, I2C 0x77) — also gives barometric pressure + gas/VOC. Overkill unless we ever care about CO₂ proxy trends.
+
+All three share the existing I2C bus on the grow unit (Seesaw soil sensor at 0x36, no conflict at 0x38 / 0x44 / 0x77). Wiring is the same 4-pin VCC / GND / SDA / SCL we already documented for the Seesaw in [`docs/PLANT_GROW_UNIT_HARDWARE.md`](PLANT_GROW_UNIT_HARDWARE.md).
+
+**Firmware work** (`grow_unit/src/mlss_grow/`):
+- New `sensors/aht20.py` (or `sht40.py` depending on chip choice) — mirror the existing `seesaw.py` pattern: probe at startup, expose `read()` returning `(temp_c, rh_pct)`, register as a capability so it auto-announces on connect
+- Extend the periodic poller in `service.py` to read + include `air_temp_c` and `air_humidity_pct` in telemetry frames
+- Add `capabilities.py` entry for the two new channels
+
+**Server work**:
+- `mlss_monitor/grow/handlers.py` LastKnownState TypedDict + `_last_known_state` projection: add `air_temp_c` + `air_humidity_pct`
+- `database/grow_schema.py` `grow_telemetry`: columns already exist (`air_temp_c REAL`, `air_humidity_pct REAL`) — no schema change needed; verify the WS handler writes them when present
+- `static/js/grow/unit_detail.mjs` CHANNEL_DISPLAY: add entries so tiles render for the new channels
+- Extend the plant-happiness indicator from commit `80f2a3d` to cover `air_temp_c`: 8 more threshold columns on `grow_plant_profiles` + seed values per plant×phase (researched horticultural references)
+
+**VPD compute** (new capability built on the above):
+- VPD formula: `SVP_kPa = 0.6108 × exp(17.27 × T / (T + 237.3))` then `VPD_kPa = SVP × (1 − RH/100)`. Pure compute, no extra hardware.
+- Add `vpd_kpa` as a synthetic / derived channel: NOT a sensor, but a per-tick computation from `air_temp_c` + `air_humidity_pct`. Compute in the firmware (cleaner — the unit owns its readings) or compute server-side in `_last_known_state` (cheaper change). Recommend server-side for v1: keeps the firmware contract stable.
+- Add VPD tile to Live readings + per-plant VPD thresholds (extend the happiness work). Target VPD bands published in horticultural literature: ~0.4–0.8 kPa seedlings, ~0.8–1.2 kPa vegetative, ~1.2–1.6 kPa flowering/fruiting, >1.6 kPa transpiration stress.
+
+**Future extension — LVPD (leaf VPD)**: closer to "true plant happiness" than air-VPD because it uses leaf surface temperature (typically 2–5 °C cooler than air due to evapotranspiration) instead of air temperature. Requires an IR thermopile sensor (MLX90614, ~£8 I2C 0x5A) pointed at the canopy. Worth re-evaluating once air-VPD is in production and we have a baseline to compare against.
 
