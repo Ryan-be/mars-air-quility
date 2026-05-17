@@ -5,6 +5,40 @@ from datetime import datetime, timedelta
 import pytest
 
 
+# Default calibration applied to fixture units. Spans 300..1023 (dry..wet)
+# so the raw values used by the seeding helpers (300..1100) cover the full
+# uncalibrated→pct→clamped-at-100 range. Tests that need a specific
+# calibration override these via a direct UPDATE on grow_units.
+_DEFAULT_DRY_RAW = 300
+_DEFAULT_WET_RAW = 1023
+
+
+def _set_calibration(db_path, unit_id, dry_raw, wet_raw):
+    """Set the unit's dry/wet raw bounds. Used by tests that need a
+    calibration different from the fixture default (e.g. degenerate
+    calibration, custom span for hand-computed pct expectations)."""
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "UPDATE grow_units SET soil_dry_raw = ?, soil_wet_raw = ? WHERE id = ?",
+        (dry_raw, wet_raw, unit_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def _clear_calibration(db_path, unit_id):
+    """Wipe the unit's calibration back to NULL (the freshly-plugged-in
+    state). Used by tests that exercise the uncalibrated path."""
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "UPDATE grow_units SET soil_dry_raw = NULL, soil_wet_raw = NULL "
+        "WHERE id = ?",
+        (unit_id,),
+    )
+    conn.commit()
+    conn.close()
+
+
 @pytest.fixture
 def client(monkeypatch):
     tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)  # pylint: disable=R1732
@@ -15,12 +49,20 @@ def client(monkeypatch):
     init_db.create_db()
     now = datetime.utcnow()
     conn = sqlite3.connect(tmp.name)
+    # Insert the unit WITH calibration set (dry_raw=300, wet_raw=1023) so
+    # the compute-on-read path produces non-null pct values for all rows.
+    # The fixture's seeded raw values (612, 800, 1100) span the calibrated
+    # range and the >wet case (clamped to 100).
     conn.execute(
         "INSERT INTO grow_units (id, hardware_serial, label, enrolled_at, "
-        "bearer_token_hash, phase_set_at) VALUES (1, 'h', 'X', ?, 'h', ?)",
-        (now, now),
+        "bearer_token_hash, phase_set_at, soil_dry_raw, soil_wet_raw) "
+        "VALUES (1, 'h', 'X', ?, 'h', ?, ?, ?)",
+        (now, now, _DEFAULT_DRY_RAW, _DEFAULT_WET_RAW),
     )
-    # 3 telemetry rows + 1 watering event
+    # 3 telemetry rows + 1 watering event. The stored pct values are now
+    # IGNORED by the History endpoint (compute-on-read uses raw +
+    # calibration) but we keep populating the column so the fixture data
+    # also exercises the WS-handler's view of the world.
     for hours_ago, raw, pct in [(3, 612, 31), (2, 800, 46), (1, 1100, 70)]:
         conn.execute(
             "INSERT INTO grow_telemetry (unit_id, timestamp_utc, "
@@ -45,7 +87,12 @@ def client(monkeypatch):
 
 @pytest.fixture
 def empty_client(monkeypatch):
-    """Fresh DB with a unit but NO telemetry/watering rows."""
+    """Fresh DB with a unit but NO telemetry/watering rows.
+
+    Unit is calibrated by default so the response's `calibrated` flag is
+    True even with no rows — exercises the calibration-set + telemetry-
+    empty edge case.
+    """
     tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)  # pylint: disable=R1732
     tmp.close()
     import database.init_db as init_db
@@ -56,8 +103,9 @@ def empty_client(monkeypatch):
     conn = sqlite3.connect(tmp.name)
     conn.execute(
         "INSERT INTO grow_units (id, hardware_serial, label, enrolled_at, "
-        "bearer_token_hash, phase_set_at) VALUES (1, 'h', 'X', ?, 'h', ?)",
-        (now, now),
+        "bearer_token_hash, phase_set_at, soil_dry_raw, soil_wet_raw) "
+        "VALUES (1, 'h', 'X', ?, 'h', ?, ?, ?)",
+        (now, now, _DEFAULT_DRY_RAW, _DEFAULT_WET_RAW),
     )
     conn.commit()
     conn.close()
@@ -71,7 +119,12 @@ def empty_client(monkeypatch):
 
 @pytest.fixture
 def seed_client(monkeypatch):
-    """Fresh DB with a unit but no telemetry — caller seeds via _seed_telemetry."""
+    """Fresh DB with a unit but no telemetry — caller seeds via _seed_telemetry.
+
+    Unit is calibrated by default (dry=300, wet=1023). Tests that need an
+    uncalibrated unit (or a specific calibration) flip it via
+    _clear_calibration / _set_calibration.
+    """
     tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)  # pylint: disable=R1732
     tmp.close()
     import database.init_db as init_db
@@ -82,8 +135,9 @@ def seed_client(monkeypatch):
     conn = sqlite3.connect(tmp.name)
     conn.execute(
         "INSERT INTO grow_units (id, hardware_serial, label, enrolled_at, "
-        "bearer_token_hash, phase_set_at) VALUES (1, 'h', 'X', ?, 'h', ?)",
-        (now, now),
+        "bearer_token_hash, phase_set_at, soil_dry_raw, soil_wet_raw) "
+        "VALUES (1, 'h', 'X', ?, 'h', ?, ?, ?)",
+        (now, now, _DEFAULT_DRY_RAW, _DEFAULT_WET_RAW),
     )
     conn.commit()
     conn.close()
@@ -290,9 +344,14 @@ def test_calibrated_true_when_any_pct_present(client):
 
 
 def test_calibrated_false_when_all_pct_null(seed_client):
-    """3 rows with pct NULL but raw populated -> calibrated False,
-    moisture array NOT empty (raw fallback)."""
+    """Unit with calibration WIPED -> calibrated False, every row's pct
+    is None but the moisture array is still populated (raw fallback)."""
     c, db_path = seed_client
+    # Wipe the fixture's default calibration so the unit reads as
+    # uncalibrated. With compute-on-read, calibrated=False is now a
+    # property of the UNIT (not the rows), so we need to actually NULL
+    # the calibration columns rather than just seeding rows with NULL pct.
+    _clear_calibration(db_path, 1)
     start = datetime.utcnow() - timedelta(hours=2)
     _seed_uncalibrated_telemetry(db_path, 1, 3, start, interval_s=60)
     r = c.get("/api/grow/units/1/history?range=24h")
@@ -307,6 +366,7 @@ def test_uncalibrated_downsampled_returns_raw_avg_only(seed_client):
     """>600 uncalibrated rows -> bucketed buckets carry raw_avg but
     drop the pct_* keys entirely (don't emit nulls)."""
     c, db_path = seed_client
+    _clear_calibration(db_path, 1)
     # 800 points 60s apart, all pct NULL — forces downsample path.
     start = datetime.utcnow() - timedelta(minutes=800)
     _seed_uncalibrated_telemetry(db_path, 1, 800, start, interval_s=60)
@@ -330,6 +390,7 @@ def test_uncalibrated_short_range_returns_raw_with_null_pct(seed_client):
     """<=600 uncalibrated rows -> non-bucketed path; each entry keeps
     {ts, pct: None, raw} shape (pct stays None — frontend reads raw)."""
     c, db_path = seed_client
+    _clear_calibration(db_path, 1)
     start = datetime.utcnow() - timedelta(minutes=100)
     _seed_uncalibrated_telemetry(db_path, 1, 50, start, interval_s=60)
     r = c.get("/api/grow/units/1/history?range=24h")
@@ -368,3 +429,184 @@ def test_history_downsample_buckets_evenly_distributed(seed_client):
     span = expected_end - start
     assert timestamps[0] - start < span * 0.05  # within 5% of start
     assert expected_end - timestamps[-1] < span * 0.05  # within 5% of end
+
+
+# ------------------------------------------------------------------
+# Compute-on-read: pct is RECOMPUTED from raw + current calibration
+# on every History fetch (not read from the stored soil_moisture_pct
+# column). Lets a user calibrate AFTER the fact and have the chart
+# re-frame the entire historical timeline instantly.
+# ------------------------------------------------------------------
+
+
+def _seed_with_raw(db_path, unit_id, ts_raw_pct_triples):
+    """Seed telemetry from explicit (timestamp, raw, pct) triples.
+
+    Lets the new tests below choose specific raw values to hit the
+    interesting compute-on-read boundaries (mid-range, > wet, < dry,
+    degenerate calibration).
+    """
+    conn = sqlite3.connect(db_path)
+    for ts, raw, pct in ts_raw_pct_triples:
+        conn.execute(
+            "INSERT INTO grow_telemetry "
+            "(unit_id, timestamp_utc, soil_moisture_raw, soil_moisture_pct, "
+            " light_state, pump_state) VALUES (?, ?, ?, ?, 1, 0)",
+            (unit_id, ts, raw, pct),
+        )
+    conn.commit()
+    conn.close()
+
+
+def test_pct_computed_from_calibration_short_range(seed_client):
+    """raw=[600, 800, 1000], dry=300, wet=1000 -> pct=[42.86, 71.43, 100.0].
+
+    Verifies compute-on-read: the chart's pct values are derived from
+    the unit's CURRENT calibration applied to soil_moisture_raw, not
+    read from the stored soil_moisture_pct column.
+    """
+    c, db_path = seed_client
+    _set_calibration(db_path, 1, dry_raw=300, wet_raw=1000)
+    now = datetime.utcnow()
+    _seed_with_raw(db_path, 1, [
+        (now - timedelta(minutes=3), 600, None),
+        (now - timedelta(minutes=2), 800, None),
+        (now - timedelta(minutes=1), 1000, None),
+    ])
+    r = c.get("/api/grow/units/1/history?range=24h")
+    body = r.get_json()
+    assert body["calibrated"] is True
+    pcts = [m["pct"] for m in body["moisture"]]
+    # span = 1000 - 300 = 700; pcts = [(300/700)*100, (500/700)*100, (700/700)*100]
+    assert pcts[0] == pytest.approx(42.857, rel=1e-3)
+    assert pcts[1] == pytest.approx(71.429, rel=1e-3)
+    assert pcts[2] == pytest.approx(100.0, rel=1e-3)
+
+
+def test_pct_clamped_above_100(seed_client):
+    """raw=1100 with wet=1015 -> pct clamped to 100.0 (not 112.2).
+
+    Post-recalibration a sensor can legitimately read above its
+    captured wet value; clamping keeps the chart's 0-100% framing
+    intact rather than letting a single saturated reading shoot off
+    the top of the axis.
+    """
+    c, db_path = seed_client
+    _set_calibration(db_path, 1, dry_raw=321, wet_raw=1015)
+    now = datetime.utcnow()
+    _seed_with_raw(db_path, 1, [(now - timedelta(minutes=1), 1100, None)])
+    r = c.get("/api/grow/units/1/history?range=24h")
+    body = r.get_json()
+    assert body["calibrated"] is True
+    assert body["moisture"][0]["pct"] == pytest.approx(100.0)
+
+
+def test_pct_clamped_below_0(seed_client):
+    """raw=200 with dry=321 -> pct clamped to 0.0 (not negative).
+
+    Mirror of the above for the dry side. A reading below the captured
+    dry value (sensor in even-drier conditions than calibration capture)
+    clamps to 0 so the chart axis stays sensible.
+    """
+    c, db_path = seed_client
+    _set_calibration(db_path, 1, dry_raw=321, wet_raw=1015)
+    now = datetime.utcnow()
+    _seed_with_raw(db_path, 1, [(now - timedelta(minutes=1), 200, None)])
+    r = c.get("/api/grow/units/1/history?range=24h")
+    body = r.get_json()
+    assert body["calibrated"] is True
+    assert body["moisture"][0]["pct"] == pytest.approx(0.0)
+
+
+def test_degenerate_calibration_returns_uncalibrated(seed_client):
+    """dry=500, wet=500 -> response.calibrated=False, every pct=None.
+
+    A degenerate calibration (zero span) can't produce sensible pct
+    values — treating it as uncalibrated falls back to the raw axis on
+    the frontend rather than producing divide-by-zero / NaN.
+    """
+    c, db_path = seed_client
+    _set_calibration(db_path, 1, dry_raw=500, wet_raw=500)
+    now = datetime.utcnow()
+    _seed_with_raw(db_path, 1, [
+        (now - timedelta(minutes=2), 400, None),
+        (now - timedelta(minutes=1), 600, None),
+    ])
+    r = c.get("/api/grow/units/1/history?range=24h")
+    body = r.get_json()
+    assert body["calibrated"] is False
+    assert all(m["pct"] is None for m in body["moisture"])
+    # raw values still surface so the frontend can render against the
+    # raw axis (this is the documented uncalibrated path).
+    assert [m["raw"] for m in body["moisture"]] == [400, 600]
+
+
+def test_inverted_calibration_returns_uncalibrated(seed_client):
+    """dry=900, wet=500 (inverted) -> treated as uncalibrated.
+
+    Defensive: the UI guards against capturing dry > wet but a stale DB
+    or a manual sqlite edit could produce this. _compute_pct's
+    `span <= 0` check covers both degenerate (span=0) and inverted
+    (span<0) calibrations.
+    """
+    c, db_path = seed_client
+    _set_calibration(db_path, 1, dry_raw=900, wet_raw=500)
+    now = datetime.utcnow()
+    _seed_with_raw(db_path, 1, [(now - timedelta(minutes=1), 700, None)])
+    r = c.get("/api/grow/units/1/history?range=24h")
+    body = r.get_json()
+    assert body["calibrated"] is False
+    assert body["moisture"][0]["pct"] is None
+
+
+def test_recompute_ignores_stored_pct(seed_client):
+    """Stored pct=99, raw=500, dry=300, wet=1000 -> response pct=28.57
+    (computed from raw+current calibration, NOT 99 from stored column).
+
+    This is the core compute-on-read guarantee: a row whose
+    soil_moisture_pct column was written by firmware against an older
+    calibration must be re-interpreted against the unit's CURRENT
+    calibration when read for the chart.
+    """
+    c, db_path = seed_client
+    _set_calibration(db_path, 1, dry_raw=300, wet_raw=1000)
+    now = datetime.utcnow()
+    # Stored pct deliberately set to 99 (representative of a stale
+    # firmware-computed value) — the response must IGNORE it.
+    _seed_with_raw(db_path, 1, [(now - timedelta(minutes=1), 500, 99)])
+    r = c.get("/api/grow/units/1/history?range=24h")
+    body = r.get_json()
+    # (500 - 300) / (1000 - 300) * 100 = 200/700 * 100 = 28.571...
+    assert body["moisture"][0]["pct"] == pytest.approx(28.571, rel=1e-3)
+    # Sanity: definitely NOT the stored 99.
+    assert body["moisture"][0]["pct"] != pytest.approx(99.0)
+
+
+def test_calibration_set_but_no_telemetry(empty_client):
+    """Unit calibrated, zero telemetry rows -> calibrated=True, moisture=[].
+
+    Edge case: don't crash on the empty-row path; the calibrated flag
+    comes from the unit, not from row inspection, so it stays True even
+    with no rows to inspect.
+    """
+    c, _ = empty_client
+    r = c.get("/api/grow/units/1/history?range=24h")
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["calibrated"] is True
+    assert body["moisture"] == []
+    assert body["watering_events"] == []
+    assert body["phase_changes"] == []
+
+
+def test_history_unknown_unit_returns_404(client):
+    """Unit id that doesn't exist -> 404 with {"error": "unit_not_found"}.
+
+    New error path introduced by compute-on-read: the endpoint now
+    requires a unit lookup to fetch calibration, so a missing unit is
+    a hard 404 rather than silently returning an empty moisture array.
+    """
+    c, _ = client
+    r = c.get("/api/grow/units/999/history?range=24h")
+    assert r.status_code == 404
+    assert r.get_json() == {"error": "unit_not_found"}

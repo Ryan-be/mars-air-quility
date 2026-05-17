@@ -97,10 +97,16 @@ def _build_history_stack(monkeypatch, tmp_path, telemetry_count: int):
     photo_ids = []
     photo_bodies = []
     with sqlite3.connect(tmp.name) as conn:
+        # Insert the unit WITH calibration set so the History endpoint's
+        # compute-on-read path produces non-null pct values. Without
+        # calibration the response's downsampled buckets drop the pct_*
+        # keys entirely (uncalibrated path) and the downsample-shape
+        # assertions below would fail. The dry/wet bounds (300/1023)
+        # span the raw values seeded below (600..799).
         conn.execute(
             "INSERT INTO grow_units (id, hardware_serial, label, enrolled_at, "
-            "bearer_token_hash, phase_set_at) "
-            "VALUES (1, 'hw-history-e2e', 'E2E History', ?, 'h', ?)",
+            "bearer_token_hash, phase_set_at, soil_dry_raw, soil_wet_raw) "
+            "VALUES (1, 'hw-history-e2e', 'E2E History', ?, 'h', ?, 300, 1023)",
             (now, now),
         )
 

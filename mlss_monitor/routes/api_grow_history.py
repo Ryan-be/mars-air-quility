@@ -11,13 +11,39 @@ The response always includes a ``phase_changes`` key (currently ``[]`` —
 reserved for the Phase 3 phase-audit table the frontend annotation chart will
 consume).
 
-A freshly-plugged-in Seesaw sensor emits raw values but its ``soil_moisture_pct``
-column stays NULL until the user captures dry/wet calibration points. To stop
-the chart from rendering blank for uncalibrated units we:
+Compute-on-read for pct
+-----------------------
+A user can rack up days/weeks of telemetry against a Seesaw sensor BEFORE they
+capture a dry/wet calibration. Pre-calibration rows have
+``soil_moisture_pct = NULL`` (the firmware sends raw but can't compute pct).
+Post-calibration rows have a non-null pct computed against whatever the
+firmware's calibration was at the time the row was written.
 
-  * Return a top-level ``calibrated`` boolean — ``true`` iff at least one row in
-    the returned moisture series has a non-null pct. The frontend uses this to
-    pick a 0–100 % Y-axis (calibrated) vs a 0–1023 raw Y-axis (uncalibrated).
+The previous design read the stored pct column straight through to the chart.
+That meant a freshly-calibrated unit's chart showed only the post-calibration
+sliver of history (often just minutes of data) while the user's actual full
+24h/7d/etc. timeline of raw readings sat invisible in the DB.
+
+This module now IGNORES the stored ``soil_moisture_pct`` column for the chart
+and recomputes pct from ``soil_moisture_raw`` against the unit's CURRENT
+calibration on every request. Side effects:
+
+  * Recalibrating a sensor instantly re-frames the entire visible history —
+    no DB write needed, the next /history fetch reflects it.
+  * All historical raw readings get a meaningful pct as long as the unit is
+    calibrated, so the chart can show the user's full timeline in % terms.
+  * The stored pct column becomes advisory — the WS handler still writes it
+    (other consumers like alerting may use the firmware's view of pct, which
+    can legitimately differ from the API's current-calibration view) but the
+    History endpoint does not trust it.
+
+A freshly-plugged-in Seesaw sensor with no calibration captured yet falls
+through to the uncalibrated path: every row carries ``pct: None`` and the
+frontend renders against the raw 0–1023 axis.
+
+  * Returns a top-level ``calibrated`` boolean — derived from the unit's
+    calibration columns, not the row data. The frontend uses this to pick a
+    0–100 % Y-axis (calibrated) vs a 0–1023 raw Y-axis (uncalibrated).
   * In the bucketed path always emit a bucket if ``slice_rows`` is non-empty,
     always populate ``raw_avg``, and only emit the ``pct_*`` keys when at least
     one row in the bucket has a non-null pct (we drop them entirely rather than
@@ -26,6 +52,7 @@ the chart from rendering blank for uncalibrated units we:
 """
 import sqlite3
 from datetime import datetime, timedelta
+from typing import Any
 from flask import Blueprint, jsonify, request
 from database.init_db import DB_FILE
 from mlss_monitor.grow.api_helpers import RANGE_TO_HOURS
@@ -33,6 +60,27 @@ from mlss_monitor.grow.api_helpers import RANGE_TO_HOURS
 api_grow_history_bp = Blueprint("api_grow_history", __name__)
 
 _DOWNSAMPLE_THRESHOLD = 600
+
+
+def _compute_pct(raw, dry_raw, wet_raw):
+    """Return moisture percent computed from raw using the unit's
+    calibration. None if any input is None or the calibration is
+    degenerate (wet == dry). Result is clamped to [0.0, 100.0] so a
+    saturated reading (raw > wet_raw, possible after recalibration)
+    doesn't render as > 100% on the chart.
+
+    Degenerate / inverted calibrations (wet <= dry) are treated as
+    uncalibrated — returning None lets the frontend fall back to the raw
+    axis rather than rendering nonsense on a 0–100 % axis built around a
+    zero-or-negative span.
+    """
+    if raw is None or dry_raw is None or wet_raw is None:
+        return None
+    span = wet_raw - dry_raw
+    if span <= 0:
+        return None  # degenerate / inverted calibration; treat as uncalibrated
+    pct = (raw - dry_raw) / span * 100.0
+    return max(0.0, min(100.0, pct))
 
 
 def _maybe_downsample(rows, target=_DOWNSAMPLE_THRESHOLD):
@@ -97,15 +145,6 @@ def _maybe_downsample(rows, target=_DOWNSAMPLE_THRESHOLD):
     return buckets
 
 
-def _is_calibrated(rows):
-    """True iff at least one row carries a non-null soil_moisture_pct.
-
-    Drives the top-level ``calibrated`` flag on the response — the
-    frontend uses it to choose its Y-axis (0-100 % vs 0-1023 raw).
-    """
-    return any(r["soil_moisture_pct"] is not None for r in rows)
-
-
 @api_grow_history_bp.route("/api/grow/units/<int:unit_id>/history", methods=["GET"])
 def history(unit_id):
     range_str = request.args.get("range", "24h")
@@ -117,6 +156,19 @@ def history(unit_id):
     conn = sqlite3.connect(DB_FILE, timeout=5)
     conn.row_factory = sqlite3.Row
     try:
+        # Fetch the unit's current calibration FIRST. We need it before the
+        # telemetry fetch so the per-row recompute loop can use it; and we
+        # need it as the source of truth for the response's `calibrated`
+        # flag (derived from the unit, not from any row data).
+        cal_row = conn.execute(
+            "SELECT soil_dry_raw, soil_wet_raw FROM grow_units WHERE id = ?",
+            (unit_id,),
+        ).fetchone()
+        if cal_row is None:
+            return jsonify({"error": "unit_not_found"}), 404
+        dry_raw = cal_row["soil_dry_raw"]
+        wet_raw = cal_row["soil_wet_raw"]
+
         if cutoff is not None:
             moisture_rows = conn.execute(
                 "SELECT timestamp_utc, soil_moisture_pct, soil_moisture_raw "
@@ -146,11 +198,35 @@ def history(unit_id):
     finally:
         conn.close()
 
+    # Convert each row to a plain dict so the downsampler can read a
+    # RECOMPUTED `soil_moisture_pct` from the unit's current calibration.
+    # sqlite3.Row is immutable, so we'd otherwise have to wrap it in a
+    # mapping shim — the dict copy is the simplest path. Compute-on-read:
+    # we ignore the stored pct column entirely. The stored value may have
+    # been computed against an older calibration (or be NULL because it
+    # predates calibration), so always recompute from CURRENT calibration
+    # so the chart's framing is consistent across the whole timeline.
+    moisture_rows: list[dict[str, Any]] = [
+        {
+            "timestamp_utc": r["timestamp_utc"],
+            "soil_moisture_raw": r["soil_moisture_raw"],
+            "soil_moisture_pct": _compute_pct(
+                r["soil_moisture_raw"], dry_raw, wet_raw),
+        }
+        for r in moisture_rows
+    ]
+
+    # `calibrated` is now a property of the UNIT, not the rows. A unit is
+    # calibrated iff both raw bounds are set AND the calibration is
+    # non-degenerate (wet > dry). Matches _compute_pct's contract — when
+    # this is False, every row's recomputed pct is None.
+    calibrated = (
+        dry_raw is not None and wet_raw is not None and wet_raw > dry_raw
+    )
+
     return jsonify({
+        "calibrated": calibrated,
         "moisture": _maybe_downsample(moisture_rows),
-        # Computed off the raw rows (not the downsampled output) so the flag
-        # stays correct regardless of which path _maybe_downsample takes.
-        "calibrated": _is_calibrated(moisture_rows),
         "watering_events": [
             {
                 "ts": r["timestamp_utc"],
