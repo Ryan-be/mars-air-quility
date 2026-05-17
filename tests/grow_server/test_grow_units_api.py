@@ -107,7 +107,11 @@ def test_list_last_known_state_includes_last_photo_url_when_photo_exists(
 
     r = client.get("/api/grow/units")
     tomato = next(u for u in r.get_json()["units"] if u["label"] == "Tomato 1")
-    expected = f"/api/grow/units/1/photos/{photo_id}"
+    # Bug 5: the URL must include `?size=thumb` — the fleet card is the
+    # consumer and a 320px thumbnail at ~30KB is the right asset (not
+    # the full ~2MB capture). Centralising this server-side means a
+    # future card-photo consumer can't forget the param.
+    expected = f"/api/grow/units/1/photos/{photo_id}?size=thumb"
     assert tomato["last_known_state"]["last_photo_url"] == expected
 
 
@@ -152,8 +156,10 @@ def test_list_last_known_state_present_for_photo_only_unit(
     cam = next(u for u in r.get_json()["units"] if u["label"] == "Camera-only")
     # last_known_state must NOT be None — that's the bug we're closing.
     assert cam["last_known_state"] is not None
+    # The URL includes `?size=thumb` — see the prior test for the
+    # rationale (fleet card needs the thumbnail variant).
     assert cam["last_known_state"]["last_photo_url"] == \
-        f"/api/grow/units/3/photos/{photo_id}"
+        f"/api/grow/units/3/photos/{photo_id}?size=thumb"
     # Telemetry-derived fields are None (we don't fabricate readings):
     assert cam["last_known_state"]["soil_moisture_pct"] is None
     assert cam["last_known_state"]["light_state"] is None

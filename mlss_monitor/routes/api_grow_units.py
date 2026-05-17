@@ -100,8 +100,18 @@ def _last_known_state(conn: sqlite3.Connection, unit_id: int) -> dict | None:
         "ORDER BY taken_at DESC LIMIT 1",
         (unit_id,),
     ).fetchone()
+    # Bug 5: serve the thumbnail variant here rather than asking the
+    # client to append `?size=thumb`. The fleet card renders ~340px
+    # wide, so the full ~2MB capture is wasted bytes; the ~30KB
+    # cached thumbnail at /photos/<id>?size=thumb is the right
+    # asset for this consumer. Centralising the responsibility
+    # server-side means a future card-photo consumer can't forget
+    # the param. The lightbox handoff (clicking the latest-photo
+    # tile to open it big) constructs its own non-thumb URL from
+    # unit.id + photo id, so this doesn't leak into the
+    # "give me the big version" affordance.
     last_photo_url = (
-        f"/api/grow/units/{unit_id}/photos/{photo_row['id']}"
+        f"/api/grow/units/{unit_id}/photos/{photo_row['id']}?size=thumb"
         if photo_row else None
     )
 

@@ -5,6 +5,10 @@ import { renderGrowCard } from "../../static/js/grow/components/grow-card.mjs";
 
 const dom = new JSDOM();
 global.document = dom.window.document;
+// Bug 1 added a card-level click handler that reads window.location.href
+// — set up global.window so the renderer can resolve it. The tests that
+// assert navigation behaviour replace window with a stub locally.
+global.window = dom.window;
 
 const sampleUnit = {
   id: 3,
@@ -95,16 +99,16 @@ test("grow card: omits buffered badge when zero or null", () => {
   }
 });
 
-test("grow card: uses ?size=thumb when last_photo_url is set", () => {
-  // Phase 4 polish: fleet card renders ~340px wide, so the full ~2MB
-  // capture is wasted bytes. The renderer should append `?size=thumb`
-  // to the photo URL so the server returns the cached 320px-wide
-  // thumbnail instead of the original.
+test("grow card: photo backgroundImage uses the server-provided URL verbatim", () => {
+  // Bug 5: the server-side `_last_known_state` now returns the
+  // `?size=thumb` variant directly in `last_photo_url` (centralised
+  // server-side so any future consumer can't forget). The renderer
+  // should just consume the URL as-is — no more client-side append.
   const withPhoto = {
     ...sampleUnit,
     last_known_state: {
       ...sampleUnit.last_known_state,
-      last_photo_url: "/api/grow/units/3/photos/42",
+      last_photo_url: "/api/grow/units/3/photos/42?size=thumb",
     },
   };
   const card = renderGrowCard(withPhoto, document);
@@ -112,28 +116,75 @@ test("grow card: uses ?size=thumb when last_photo_url is set", () => {
   assert.ok(photoEl, "photo element should be present");
   assert.match(
     photoEl.style.backgroundImage,
-    /size=thumb/,
-    "photo backgroundImage should request the thumbnail variant",
-  );
-  assert.match(
-    photoEl.style.backgroundImage,
-    /\/api\/grow\/units\/3\/photos\/42/,
-    "photo URL should still point at the original endpoint",
+    /\/api\/grow\/units\/3\/photos\/42\?size=thumb/,
+    "photo backgroundImage should use the server URL verbatim (incl ?size=thumb)",
   );
 });
 
-test("grow card: ?size=thumb uses & if URL already has a query", () => {
-  // Defensive: if last_photo_url ever evolves to include a query
-  // string (e.g. ?v=cachebuster), the renderer must use & not ?
-  // for the size param so the URL remains valid.
-  const withPhoto = {
-    ...sampleUnit,
-    last_known_state: {
-      ...sampleUnit.last_known_state,
-      last_photo_url: "/api/grow/units/3/photos/42?v=1",
+
+/**
+ * Helper for Bug 1 navigation tests: swap global.window for a stub
+ * that captures location.href writes. The grow-card click handler
+ * reads `window.location.href` so this is the only seam we need to
+ * intercept. Restores the original window on teardown.
+ */
+function _withCapturedNavigation(fn) {
+  const captured = [];
+  const realWindow = global.window;
+  global.window = {
+    location: {
+      get href() { return ""; },
+      set href(v) { captured.push(v); },
     },
+    MouseEvent: realWindow.MouseEvent,
   };
-  const card = renderGrowCard(withPhoto, document);
-  const photoEl = card.querySelector(".gu-photo");
-  assert.match(photoEl.style.backgroundImage, /\?v=1&size=thumb/);
+  try {
+    fn(captured);
+  } finally {
+    global.window = realWindow;
+  }
+}
+
+
+test("grow card: whole-card click navigates to /grow/<id>", () => {
+  // Bug 1: clicking anywhere on the card (except inner buttons /
+  // links) navigates to the unit detail page. The Open → link's href
+  // is the source of truth — copy from openBtn.href.
+  const card = renderGrowCard(sampleUnit, document);
+  _withCapturedNavigation((captured) => {
+    // Click on the stats area (a safe non-button target inside the card)
+    const stats = card.querySelector(".gu-stats");
+    stats.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, cancelable: true }));
+    assert.equal(captured.length, 1, "exactly one navigation triggered");
+    assert.match(captured[0], /\/grow\/3$/, "navigates to /grow/<unit.id>");
+  });
+});
+
+test("grow card: click on Identify button does not double-navigate", () => {
+  // Bug 1 guard: clicking the Identify button must NOT also trigger
+  // the whole-card navigation. We bail in the card handler via
+  // `event.target.closest('button, a')`.
+  const card = renderGrowCard(sampleUnit, document);
+  _withCapturedNavigation((captured) => {
+    const identify = card.querySelector("[data-action='identify']");
+    identify.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, cancelable: true }));
+    assert.equal(captured.length, 0,
+      "Identify button click should NOT trigger card-level navigation");
+  });
+});
+
+test("grow card: click on Open link does not double-navigate via card handler", () => {
+  // Bug 1 guard: the Open → link is an <a> and handles its own
+  // navigation. The card handler must bail out so we don't
+  // double-assign location.href.
+  const card = renderGrowCard(sampleUnit, document);
+  _withCapturedNavigation((captured) => {
+    const openLink = card.querySelector("[data-action='open']");
+    // Suppress JSDOM's default <a> navigation so we can assert purely on
+    // whether the card handler also fired.
+    openLink.addEventListener("click", (ev) => ev.preventDefault());
+    openLink.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, cancelable: true }));
+    assert.equal(captured.length, 0,
+      "click on Open <a> should NOT also trigger the card-level handler");
+  });
 });

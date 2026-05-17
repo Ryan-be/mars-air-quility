@@ -826,14 +826,26 @@
   margin-top: 8px; font-size: 11px; color: #7d92a8;
   letter-spacing: 0.04em; font-family: 'SFMono-Regular', Consolas, monospace;
 }
-.hist-tlapse-controls { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
+.hist-tlapse-controls { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 .hist-tlapse-controls button {
   background: transparent; border: 1px solid #2a3d50; color: #c2d2e3;
-  padding: 5px 14px; font-size: 14px; line-height: 1;
+  padding: 5px 10px; font-size: 14px; line-height: 1;
   cursor: pointer; border-radius: 2px; font-family: Roboto, sans-serif;
   min-width: 36px;
 }
 .hist-tlapse-controls button:hover { border-color: #4dacff; color: #4dacff; }
+.hist-tlapse-controls select {
+  background: transparent; border: 1px solid #2a3d50; color: #c2d2e3;
+  padding: 4px 6px; font-size: 12px; line-height: 1;
+  cursor: pointer; border-radius: 2px; font-family: Roboto, sans-serif;
+}
+.hist-tlapse-controls select:hover { border-color: #4dacff; color: #4dacff; }
+.hist-tlapse-loop {
+  display: inline-flex; align-items: center; gap: 4px;
+  color: #c2d2e3; font-size: 12px; font-family: Roboto, sans-serif;
+  cursor: pointer; user-select: none;
+}
+.hist-tlapse-loop input[type="checkbox"] { cursor: pointer; }
 .hist-tlapse-slider {
   flex: 1; height: 4px; appearance: none; background: #1c2733;
   border-radius: 2px; outline: none; cursor: pointer;

@@ -2,9 +2,10 @@
  * Photo timelapse scrubber for the History tab — Task 4 of the
  * History-tab plan.
  *
- * Range selector: 24h / 7d / 30d / 90d / all. Default 24h. Same shape
- * and styling as the moisture-history-chart, so the two panels feel
- * like one widget when stacked.
+ * Range selector: 24h / 7d / 30d / 90d / all. Default 7d (was 24h:
+ * for plant-growth viewing 24h almost never spans enough captures to
+ * see meaningful change, so a 7d window is a more useful starting
+ * point).
  *
  * Backend contract:
  *   GET /api/grow/units/<id>/photos?range=<r>
@@ -14,29 +15,45 @@
  *        is set, so we never bulk-preload.
  *
  * The scrubber has one position per photo in the range. Default position
- * is the rightmost (latest) so the panel opens on the most recent
- * snapshot — which is what users want 95% of the time. They scrub left
- * to go back in time.
+ * is the leftmost (earliest) so the panel opens on the FIRST snapshot —
+ * for plant-growth viewing, you almost always want to watch growth play
+ * forward from the start (and the skip-to-end button is one click away
+ * if you want the latest). Earlier behaviour started at the rightmost
+ * (latest); that was great for "what does it look like NOW" but useless
+ * for the timelapse-playback use case the controls are designed for.
  *
- * Play/pause autoplay: setInterval at PLAY_INTERVAL_MS, advancing the
- * scrubber by 1 each tick. Stops at the end (does not loop) and the
- * play button label flips back to ▶.
+ * Playback controls (left to right):
+ *   ⏮  skip-to-start (position = 0)
+ *   ▶/⏸ play / pause autoplay
+ *   ⏭  skip-to-end (position = photos.length - 1)
+ *   speed dropdown (1× / 2× / 4× / 8×) — multiplies the autoplay tick
+ *   Loop checkbox — when checked, autoplay wraps end→start (default off,
+ *                   matching pre-controls behaviour)
+ *
+ * Autoplay speed: setInterval at BASE_INTERVAL_MS / speed. 1× = 500ms
+ * (one photo / half second — readable), 8× = 62.5ms (a smooth flip).
+ * When the user changes speed mid-play we restart the interval so the
+ * change takes effect immediately.
  *
  * On range change: stop autoplay, refetch the photo list, reset position
- * to the latest. The scrubber and hero img get re-rendered because
+ * to the earliest. The scrubber and hero img get re-rendered because
  * `slider.max` changes.
  *
  * Why we don't preload: a 90d range can be hundreds of photos at ~200KB
  * each — that's tens of MB the user may never see. The browser caches
  * the by-id endpoint anyway, so re-scrubbing is fast after the first
- * pass.
+ * pass. Hero img + scrubber view both request `?size=thumb` (320px ~30KB
+ * variants) so even a fast scrub doesn't blow the network — the user
+ * clicks through to the lightbox if they want full-res.
  */
 
 import { openLightbox } from "./photo-lightbox.mjs";
 
 const RANGES = ["24h", "7d", "30d", "90d", "all"];
 
-const PLAY_INTERVAL_MS = 500;
+const BASE_INTERVAL_MS = 500;
+
+const SPEEDS = [1, 2, 4, 8];
 
 
 /**
@@ -59,7 +76,7 @@ export function renderPhotoTimelapse(unit, opts = {}) {
   wrap.appendChild(head);
 
   // ── range selector
-  let currentRange = "24h";
+  let currentRange = "7d";
   const selector = doc.createElement("div");
   selector.className = "hist-range-selector";
   selector.dataset.testid = "tlapse-range-selector";
@@ -85,15 +102,35 @@ export function renderPhotoTimelapse(unit, opts = {}) {
   let photos = [];
   let position = 0;
   let playInterval = null;
+  // Default 1× (500ms tick). Survives range changes so the user's
+  // chosen speed isn't reset when they switch from 24h to 7d.
+  let speed = 1;
+  // Loop wraps end → start during autoplay. Off by default.
+  let loop = false;
 
   // Cached element refs from the most recent render — autoplay tick
-  // uses these to avoid a fresh querySelector every 500ms.
+  // uses these to avoid a fresh querySelector every tick.
   let imgEl = null;
   let captionEl = null;
   let sliderEl = null;
   let playBtnEl = null;
 
   function _photoUrl(photoId) {
+    // The hero img + scrubber view both consume the server-side
+    // ~30KB thumbnail. Bug 5: previously we were fetching the full
+    // ~2MB original on every scrubber tick — fine for one photo, but
+    // an 8× autoplay through a 90d range would chew through hundreds
+    // of MB. The lightbox handoff in _renderBody constructs its own
+    // full-res URL list, so this thumb URL never leaks into the
+    // "give me the big version" affordance.
+    return `/api/grow/units/${unit.id}/photos/${photoId}?size=thumb`;
+  }
+
+  /** Build the full-res URL list passed to the lightbox. Hero img +
+   *  scrubber both use thumbs (cheap to scrub through); the lightbox
+   *  is the "give me the big version" affordance and intentionally
+   *  fetches the originals. */
+  function _fullResUrl(photoId) {
     return `/api/grow/units/${unit.id}/photos/${photoId}`;
   }
 
@@ -135,10 +172,12 @@ export function renderPhotoTimelapse(unit, opts = {}) {
     imgEl.alt = `Photo ${position + 1} of ${photos.length}`;
     imgEl.style.cursor = "pointer";
     imgEl.addEventListener("click", () => {
+      // Lightbox gets the FULL-RES URLs — the user clicked "show me
+      // the big version", so a thumb here would defeat the point.
       const photoList = photos.map(p => ({
         id: p.id,
         taken_at: p.taken_at,
-        url: _photoUrl(p.id),
+        url: _fullResUrl(p.id),
       }));
       openLightbox({
         photos: photoList,
@@ -156,9 +195,20 @@ export function renderPhotoTimelapse(unit, opts = {}) {
     captionEl.textContent = photos[position].taken_at;
     body.appendChild(captionEl);
 
-    // Controls row (play + slider)
+    // Controls row: ⏮ play/pause ⏭ speed loop slider
     const controls = doc.createElement("div");
     controls.className = "hist-tlapse-controls";
+
+    const skipStartBtn = doc.createElement("button");
+    skipStartBtn.type = "button";
+    skipStartBtn.dataset.testid = "tlapse-skip-start";
+    skipStartBtn.textContent = "⏮";
+    skipStartBtn.setAttribute("aria-label", "Skip to start");
+    skipStartBtn.addEventListener("click", () => {
+      position = 0;
+      _syncDom();
+    });
+    controls.appendChild(skipStartBtn);
 
     playBtnEl = doc.createElement("button");
     playBtnEl.type = "button";
@@ -172,6 +222,54 @@ export function renderPhotoTimelapse(unit, opts = {}) {
       }
     });
     controls.appendChild(playBtnEl);
+
+    const skipEndBtn = doc.createElement("button");
+    skipEndBtn.type = "button";
+    skipEndBtn.dataset.testid = "tlapse-skip-end";
+    skipEndBtn.textContent = "⏭";
+    skipEndBtn.setAttribute("aria-label", "Skip to end");
+    skipEndBtn.addEventListener("click", () => {
+      position = photos.length - 1;
+      _syncDom();
+    });
+    controls.appendChild(skipEndBtn);
+
+    // Speed dropdown (1× / 2× / 4× / 8×)
+    const speedSel = doc.createElement("select");
+    speedSel.dataset.testid = "tlapse-speed";
+    speedSel.setAttribute("aria-label", "Playback speed");
+    for (const s of SPEEDS) {
+      const opt = doc.createElement("option");
+      opt.value = String(s);
+      opt.textContent = `${s}×`;
+      if (s === speed) opt.selected = true;
+      speedSel.appendChild(opt);
+    }
+    speedSel.addEventListener("change", (ev) => {
+      speed = Number(ev.target.value);
+      // If we're mid-play, restart the interval so the change takes
+      // effect immediately rather than waiting for the next "play" toggle.
+      if (playInterval !== null) {
+        _stopPlay();
+        _startPlay();
+      }
+    });
+    controls.appendChild(speedSel);
+
+    // Loop checkbox
+    const loopWrap = doc.createElement("label");
+    loopWrap.className = "hist-tlapse-loop";
+    const loopCb = doc.createElement("input");
+    loopCb.type = "checkbox";
+    loopCb.dataset.testid = "tlapse-loop";
+    loopCb.checked = loop;
+    loopCb.addEventListener("change", (ev) => {
+      loop = ev.target.checked;
+    });
+    loopWrap.appendChild(loopCb);
+    const loopText = doc.createTextNode(" Loop");
+    loopWrap.appendChild(loopText);
+    controls.appendChild(loopWrap);
 
     sliderEl = doc.createElement("input");
     sliderEl.type = "range";
@@ -191,21 +289,30 @@ export function renderPhotoTimelapse(unit, opts = {}) {
     body.appendChild(controls);
   }
 
+  function _intervalMs() {
+    return BASE_INTERVAL_MS / speed;
+  }
+
   function _startPlay() {
     if (playInterval !== null) return;
-    if (photos.length === 0 || position >= photos.length - 1) {
-      // Already at the end (or no photos) — nothing to play.
-      return;
-    }
+    if (photos.length === 0) return;
+    // If we're at the end and not looping, there's nowhere to go.
+    if (!loop && position >= photos.length - 1) return;
     playInterval = setInterval(() => {
       if (position >= photos.length - 1) {
-        // Reached the end — stop and flip the button label back to ▶.
+        if (loop) {
+          // Wrap to the start. Keep playing — the user opted in.
+          position = 0;
+          _syncDom();
+          return;
+        }
+        // No loop: stop and flip the button label back to ▶.
         _stopPlay();
         return;
       }
       position += 1;
       _syncDom();
-    }, PLAY_INTERVAL_MS);
+    }, _intervalMs());
     if (playBtnEl) playBtnEl.textContent = "⏸";
   }
 
@@ -246,7 +353,11 @@ export function renderPhotoTimelapse(unit, opts = {}) {
       return;
     }
     photos = await r.json();
-    position = Math.max(0, photos.length - 1);  // start at the latest
+    // Start at the FIRST photo (earliest in time). For plant-growth
+    // viewing this is the natural starting point — autoplay then runs
+    // forward through growth. Skip-to-end is one click away if the
+    // user wants the latest snapshot.
+    position = 0;
     _renderBody();
   }
 

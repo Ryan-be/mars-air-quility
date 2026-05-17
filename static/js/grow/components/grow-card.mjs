@@ -49,18 +49,17 @@ export function renderGrowCard(unit, doc = document) {
   head.appendChild(headRight);
   card.appendChild(head);
 
-  // Photo. Fleet cards render at ~340px wide, so the full ~2MB camera
-  // capture is wasted bytes — request the server-side ~30KB thumbnail
-  // variant via `?size=thumb`. The thumbnail endpoint generates lazily
-  // on first request and caches under data/grow_thumbnails/, so the
-  // second-and-later visit is "send from disk" speed. See
+  // Photo. The server-side `_last_known_state` already returns the
+  // `?size=thumb` variant in `last_photo_url` (centralised so any
+  // future card-photo consumer can't forget). The ~30KB cached
+  // thumbnail generates lazily on first request and is served from
+  // disk on subsequent visits — see
   // mlss_monitor/grow/photo_storage.py::get_or_create_thumbnail.
   const photo = doc.createElement("div");
   photo.className = "gu-photo";
   const photoUrl = unit.last_known_state?.last_photo_url || null;
   if (photoUrl) {
-    const thumbUrl = photoUrl + (photoUrl.includes("?") ? "&" : "?") + "size=thumb";
-    photo.style.backgroundImage = `url(${thumbUrl})`;
+    photo.style.backgroundImage = `url(${photoUrl})`;
   } else {
     photo.classList.add("no-photo");
     photo.textContent = "— No photo yet —";
@@ -115,6 +114,22 @@ export function renderGrowCard(unit, doc = document) {
   foot.appendChild(seen);
   foot.appendChild(actions);
   card.appendChild(foot);
+
+  // Whole-card navigation: clicking anywhere on the card opens the unit
+  // detail page — matching the Open → link's behaviour. The CSS already
+  // sets `cursor: pointer` on hover so this is the natural affordance.
+  //
+  // Inner buttons/links keep their own handlers: we bail out of the
+  // navigation if the click originated from (or bubbled through) a
+  // <button> or <a> ancestor. That covers Identify (which stops
+  // propagation itself) and Open → (it's an <a>, so the browser handles
+  // navigation — we just don't want to double-navigate). Selecting text
+  // inside the card still works because mouseup on a drag doesn't fire
+  // click.
+  card.addEventListener("click", (ev) => {
+    if (ev.target.closest("button, a")) return;
+    window.location.href = openBtn.href;
+  });
 
   return card;
 }
