@@ -99,3 +99,23 @@ def test_decorator_returns_helper_return_value(db_path):
         gc.collect()
     assert isinstance(result, int)
     assert result > 0
+
+
+def test_decorator_raises_value_error_when_helper_returns_none(db_path):
+    @tee_to_outbox(table="test_t", db_file=db_path)
+    def bad_save(conn, value):
+        conn.execute("INSERT INTO test_t(v) VALUES (?)", (value,))
+        return None  # bug — forgot to return pk
+
+    try:
+        with pytest.raises(ValueError, match="returned None"):
+            bad_save("hello")
+        # And the rollback should leave the live row out too
+        conn = sqlite3.connect(db_path)
+        live_count = conn.execute("SELECT COUNT(*) FROM test_t").fetchone()[0]
+        outbox_count = conn.execute("SELECT COUNT(*) FROM outbox_changes").fetchone()[0]
+        conn.close()
+    finally:
+        gc.collect()
+    assert live_count == 0  # rollback included the live row
+    assert outbox_count == 0

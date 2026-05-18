@@ -10,6 +10,7 @@ Spec: docs/superpowers/specs/2026-05-18-mlss-backup-design.md
 """
 import functools
 import sqlite3
+from contextlib import closing
 from datetime import datetime
 from typing import Iterable
 
@@ -168,9 +169,15 @@ def tee_to_outbox(*, table: str, db_file: str | None = None):
         def wrapped(*args, **kwargs):
             from config import config as _cfg
             path = db_file or _cfg.get("DB_FILE", "data/sensor_data.db")
-            with sqlite3.connect(path) as conn:
-                pk = fn(conn, *args, **kwargs)
-                enqueue_row(conn, table=table, pk=pk)
+            with closing(sqlite3.connect(path, timeout=10)) as conn:
+                with conn:  # transaction context — commit on success, rollback on exception
+                    pk = fn(conn, *args, **kwargs)
+                    if pk is None:
+                        raise ValueError(
+                            f"@tee_to_outbox wrapped helper for table={table!r} returned None; "
+                            f"helper must return the row PK"
+                        )
+                    enqueue_row(conn, table=table, pk=pk)
             return pk
         return wrapped
     return wrap
