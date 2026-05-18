@@ -1,6 +1,6 @@
 # MLSS Monitor: Mars Life Support Sensor Monitor
 
-A lightweight environmental monitoring system for Raspberry Pi, designed as a prototype for Mars habitat life-support applications. Logs sensor data to SQLite, serves a live web dashboard with historical plots, controls effectors automatically via rule-based thresholds, and displays status on a small TFT screen. The web UI is built with [AstroUXDS](https://astrouxds.com), NASA / Lockheed Martin's open-source space-mission design system, giving the dashboard a consistent dark space-mission look befitting the project's theme.
+MLSS is a **distributed environmental monitoring system** for the home, pitched as a prototype for Mars-habitat life-support. A central **MLSS hub** (Raspberry Pi 4 with air-quality sensors, a fan effector, and a Flask/gunicorn web dashboard) talks to **N edge Plant Grow Units** (Pi Zero W with soil moisture, camera, pump, and grow-light) over authenticated WSS. The hub provides one operator UI, one auth model, one SQLite store, and one place to back up everything; the edge units run their own safety + PID loops locally so plants survive an MLSS outage. The web UI is built with [AstroUXDS](https://astrouxds.com), NASA / Lockheed Martin's open-source space-mission design system.
 
 A list of know issues and feature improvements including recomended fixes can be found here: [Bugs, Improvements and Roadmap](docs/Bugs_Improvements_and_Roadmap.md)
 
@@ -14,6 +14,7 @@ A list of know issues and feature improvements including recomended fixes can be
 
 ## Table of contents
 
+- [Distributed architecture](#distributed-architecture)
 - [Hardware](#hardware)
 - [Features](#features)
 - [Architecture](#architecture)
@@ -35,6 +36,50 @@ A list of know issues and feature improvements including recomended fixes can be
 - [Database reference](docs/DATABASE.md)
 - [Configuration reference](docs/CONFIGURATION.md)
 - [Production deployment guide](docs/PRODUCTION.md)
+
+---
+
+## Distributed architecture
+
+MLSS is no longer a single-Pi air-quality monitor. The **MLSS hub** is one
+Raspberry Pi 4 that runs Flask + gunicorn, owns the SQLite store and photo
+archive, hosts the operator browser UI, and acts as the WS broker. Around
+it, **N edge Plant Grow Units** — each a Pi Zero W with a soil-moisture
+sensor, optional camera, water pump, and grow-light — run their own local
+safety loop and PID watering on a 30-second tick. The link between them is
+an authenticated WSS connection (per-unit bearer token, TLS pinned to the
+hub's self-signed cert): telemetry + photos + capabilities flow up,
+commands flow down, and if the WS drops the unit buffers everything to a
+local SQLite + JPEG outbox and drains it oldest-first on reconnect. The
+unit's local safety loop means **plants don't depend on the hub being
+healthy moment-to-moment** — and the hub means one dashboard, one auth
+model, one place to back up everything.
+
+```mermaid
+graph LR
+    subgraph LAN["Home LAN"]
+        Browser["Operator browser"]
+        MLSS["MLSS hub<br/>(Pi 4)<br/>Flask + gunicorn<br/>SQLite + photo store<br/>WS listener :5001<br/>Air-quality sensors<br/>Fan effector"]
+        Pi1["Grow unit 1<br/>(Pi Zero W)"]
+        Pi2["Grow unit 2<br/>(Pi Zero W)"]
+        PiN["Grow unit N<br/>(Pi Zero W)"]
+    end
+
+    Browser -.HTTPS REST + SSE.-> MLSS
+    Pi1 -.WSS telemetry + photos.-> MLSS
+    Pi2 -.WSS telemetry + photos.-> MLSS
+    PiN -.WSS telemetry + photos.-> MLSS
+    MLSS -. commands .-> Pi1
+    MLSS -. commands .-> Pi2
+    MLSS -. commands .-> PiN
+```
+
+Air-quality monitoring (AHT20 / SGP30 / PMSA003 / MICS6814) is one input
+class into the hub; plant grow units are another. The
+[Architecture](#architecture) section drills into the in-hub layering;
+[Plant Grow Units](#plant-grow-units) and
+[docs/PLANT_GROW_UNIT_ARCHITECTURE.md](docs/PLANT_GROW_UNIT_ARCHITECTURE.md)
+cover the edge tier.
 
 ---
 
@@ -143,9 +188,10 @@ flowchart TB
     subgraph Flask["Flask Web Server"]
         direction TB
         Auth["Auth Middleware<br/>(GitHub OAuth + RBAC)"]
-        Pages["Page Routes<br/>(dashboard, history,<br/>controls, admin)"]
-        API["REST API<br/>(data, fan, weather,<br/>settings, inferences, users)"]
+        Pages["Page Routes<br/>(dashboard, history,<br/>controls, admin, grow)"]
+        API["REST API<br/>(data, fan, weather,<br/>settings, inferences,<br/>users, grow)"]
         SSE["/api/stream<br/>(Server-Sent Events)"]
+        WSListener["WS listener :5001<br/>(per-unit bearer auth)"]
     end
 
     subgraph EventBusBox["Event Bus"]
@@ -156,6 +202,7 @@ flowchart TB
         SensorLoop["Sensor Polling Loop<br/>(every LOG_INTERVAL seconds)"]
         WeatherLoop["Weather Fetch Loop<br/>(every 60 minutes)"]
         InferenceEng["Inference Engine<br/>(every 60 seconds)"]
+        GrowDispatch["Grow command dispatch<br/>+ photo ingest"]
     end
 
     subgraph Hardware["Hardware Abstraction"]
@@ -167,8 +214,13 @@ flowchart TB
         Kasa["Kasa Smart Plug<br/>(async, network)"]
     end
 
+    subgraph GrowEdge["Edge Plant Grow Units"]
+        Pi1["Pi Zero W<br/>safety loop + PID<br/>(per unit)"]
+    end
+
     subgraph Data["Data Layer"]
-        SQLite["SQLite Database<br/>(8 tables)"]
+        SQLite["SQLite Database<br/>(~26 tables: sensor_data,<br/>inferences, incidents,<br/>users, grow_*)"]
+        PhotoStore["Photo store<br/>(/var/lib/mlss/grow_images/)"]
         Config["Dynaconf Config<br/>(.env)"]
     end
 
@@ -205,6 +257,10 @@ flowchart TB
     Auth --> GitHub
     Flask --> Config
     Background --> Config
+    WSListener <-.WSS.-> Pi1
+    GrowDispatch --> WSListener
+    WSListener --> SQLite
+    WSListener --> PhotoStore
 ```
 
 ### Real-time event flow (SSE)
@@ -263,9 +319,9 @@ sequenceDiagram
 - **Background threads** -- two daemon threads run independently: one polls sensors and triggers the inference engine, the other fetches weather data hourly.
 - **Async event loop** -- the Kasa smart plug uses `python-kasa` which is async. A dedicated `asyncio` event loop runs in the sensor polling thread for non-blocking plug control.
 - **Shared state module** (`state.py`) -- holds mutable references to hardware objects, fan mode, the event bus, and the async event loop, allowing routes and background threads to coordinate.
-- **Blueprint architecture** -- Flask routes are organised into ten blueprints for separation of concerns.
+- **Blueprint architecture** -- Flask routes are organised into per-concern blueprints (auth, pages, system, plus one blueprint per API surface — air-quality data, fan, weather, settings, inferences, incidents, insights, tags, stream, users, and the `grow_*` family for the edge units). New endpoints land in a fresh blueprint rather than bloating an existing one.
 - **RBAC decorator** (`rbac.py`) -- `@require_role()` decorator enforces per-endpoint permission checks based on the authenticated user's role.
-- **gunicorn in production, Flask dev server locally** -- the WSGI entry point is `mlss_monitor.wsgi:application`. `gunicorn.conf.py` pins the deployment to a single `gthread` worker with 8 threads, `timeout = 0` (per-connection lifetime is enforced inside the SSE generator instead, since gthread workers must not be killed mid-stream), and `preload_app = True` so background services start once before the worker forks. SSL cert/key paths are read from the same dynaconf keys as the Flask dev server, so HTTPS works in both modes. See [PRODUCTION.md](docs/PRODUCTION.md) for the rationale.
+- **gunicorn in production, Flask dev server locally** -- the WSGI entry point is `mlss_monitor.wsgi:application`. `gunicorn.conf.py` pins the deployment to a single `gthread` worker with 32 threads, `timeout = 0` (per-connection lifetime is enforced inside the SSE generator instead, since gthread workers must not be killed mid-stream), and `preload_app = True` so background services start once before the worker forks. SSL cert/key paths are read from the same dynaconf keys as the Flask dev server, so HTTPS works in both modes. See [PRODUCTION.md](docs/PRODUCTION.md) for the rationale.
 - **Thread-safe service bootstrap** -- `_start_background_services()` in `mlss_monitor/app.py` uses a `threading.Lock` plus a `threading.Event` to be idempotent and TOCTOU-safe under both gunicorn's preload and Flask's debug-mode reloader. The anomaly detector cold-start (River `learn_one()` over the warm-up window is CPU-heavy) is deferred onto a 20-second `Timer` so it does not compete with gunicorn binding the listening socket.
 - **Database query layer in `db_logger.py`** -- route handlers no longer open raw `sqlite3` connections. `get_sensor_data_range`, `get_hot_tier_range`, `get_pre_event_baselines`, and `get_baselines_7d_ago` are public functions that go through `_connect()` (WAL mode + busy-timeout). The `idx_sensor_data_timestamp` index added in `init_db.py` accelerates these range queries. Range bounds use the same `YYYY-MM-DDTHH:MM:SS.ffffffZ` shape the writer stores, so lexicographic comparison is correct.
 - **AstroUXDS frontend** -- see the [User interface](#user-interface) section below.
@@ -287,7 +343,7 @@ The browser frontend is built on **[AstroUXDS](https://astrouxds.com)** -- NASA 
 
 ## Database design
 
-MLSS uses a single SQLite file (`data/sensor_data.db`) with thirteen tables. Schema creation is idempotent -- `create_db()` uses `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE` migrations, making it safe to call on every startup. The ER diagram below shows the primary tables; the two support tables (`event_tags`, `hot_tier`) are summarised in the table list beneath it.
+MLSS uses a single SQLite file (`data/sensor_data.db`) with ~26 tables — the air-quality / inference / incident set seeded by `database/init_db.py`, plus the `grow_*` family for the edge Plant Grow Units seeded by `database/grow_schema.py`. Schema creation is idempotent -- `create_db()` uses `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE` migrations, making it safe to call on every startup. The ER diagram below shows the primary inference / incident tables; the grow-unit schema (units, capabilities, telemetry, photos, watering events, journal entries, errors, timelapse jobs, plant profiles, light windows, medium defaults) is documented in detail in [docs/DATABASE.md](docs/DATABASE.md).
 
 ```mermaid
 erDiagram
@@ -394,15 +450,15 @@ erDiagram
     }
 
     incident_alerts {
-        TEXT incident_id PK_FK
-        INTEGER alert_id PK_FK
+        TEXT incident_id PK,FK
+        INTEGER alert_id PK,FK
         INTEGER is_primary "0=cross, 1=primary"
     }
 
     alert_signal_deps {
-        INTEGER alert_id PK_FK
+        INTEGER alert_id PK,FK
         TEXT sensor PK
-        REAL r "NULL if <10 points"
+        REAL r "NULL if under 10 points"
         INTEGER lag_seconds
     }
 
@@ -760,6 +816,12 @@ See `mlss_monitor/feature_vector.py` for the implementation.
 
 ## Data flow
 
+Two ingest paths land in the same SQLite store: the in-process
+**air-quality pipeline** running on the hub, and the **WS listener** that
+receives telemetry + photos from each edge grow unit.
+
+### Air-quality pipeline (on the hub)
+
 ```
 Sensor hardware
   │
@@ -780,9 +842,9 @@ FeatureVector (143 fields)
   │
   ├──► [Layer 1] Rule engine (rule-engine + config/rules.yaml)    ──┐
   ├──► [Layer 2] FingerprintMatcher (config/fingerprints.yaml,    ──┤──► DetectionEngine
-  │               sensor_score×0.6 + temporal_score×0.4)           │
-  ├──► [Layer 3] AnomalyDetector (River HalfSpaceTrees,          ──┤
-  │               one model per channel, EMA baseline)             │
+  │               sensor_score x 0.6 + temporal_score x 0.4)        │
+  ├──► [Layer 3] AnomalyDetector (River HalfSpaceTrees,           ──┤
+  │               one model per channel, EMA baseline)              │
   └──► [Layer 4] FingerprintClassifier (River LogisticRegression, ──┘       │
                   trained on user-tagged events, data/classifier.pkl)         │
                                                                    ▼          │
@@ -800,10 +862,36 @@ FeatureVector (143 fields)
                                                (inference_event pushed to all clients)
 ```
 
+### Grow-unit ingest (one path per edge Pi)
+
+```
+Pi Zero W mlss-grow service
+  │  safety loop (30 s tick) + PID + camera, all running locally
+  ▼
+WSS frame (text: telemetry  /  binary: photo header + JPEG  /  text: capabilities)
+  │  bearer-token auth, TLS pinned to the hub's self-signed cert
+  │  buffered to local SQLite + JPEG outbox if WS drops;
+  │  drains oldest-first on reconnect
+  ▼
+WS listener  (mlss_monitor/routes/api_grow_ws.py + mlss_monitor/grow/handlers.py)
+  │  validates against mlss_contracts schemas
+  │  joins each photo to the nearest grow_telemetry row (±60 s) at ingest
+  ▼
+grow_telemetry / grow_photos / grow_watering_events / grow_unit_capabilities
+  (SQLite tables + /var/lib/mlss/grow_images/ JPEG store)
+  │
+  ▼
+Browser /grow pages  <-- polled REST  (/api/grow/units,
+                                       /api/grow/units/<id>,
+                                       /api/grow/units/<id>/history,
+                                       photo endpoints)
+```
+
 Sources of truth in the codebase: `mlss_monitor/inference_engine.py`,
 `mlss_monitor/detection_engine.py`, `mlss_monitor/attribution/`,
-`mlss_monitor/feature_vector.py`, and the YAML rule + fingerprint
-catalogues under `config/`.
+`mlss_monitor/feature_vector.py`, the YAML rule + fingerprint
+catalogues under `config/`, and `mlss_monitor/grow/` +
+`mlss_monitor/routes/api_grow_ws.py` for the WS listener.
 
 ---
 
@@ -1011,6 +1099,10 @@ fine.
 | `/incidents` | Incident correlation graph — Cytoscape timeline + narrative + similar-past panel | viewer |
 | `/controls` | Fan manual control | viewer (write: controller) |
 | `/admin` | Settings & user management | admin |
+| `/grow` | Plant grow unit fleet — per-unit cards, status pills, holiday-mode banner | viewer |
+| `/grow/<id>` | Per-unit detail — Live / Configure (+ Diagnostics subtab) / History tabs | viewer (write: controller / admin) |
+| `/grow/errors` | Fleet-wide grow error log — filter + resolve / snooze | viewer (write: admin) |
+| `/grow/settings` | Household-wide grow settings — enrollment key, plant profiles, holiday mode, defaults | admin |
 | `/login` | Sign-in via GitHub OAuth | -- |
 | `/system_health` | JSON system status | viewer |
 
@@ -1218,20 +1310,18 @@ poetry install --with dev
 poetry run pytest tests/ -v
 ```
 
-Tests are organised into the following files:
+Tests are grouped by tier:
 
-| File | Covers |
+| Directory | Covers |
 |---|---|
-| `tests/test_fan_settings.py` | DB layer round-trips, API GET/POST, admin page |
-| `tests/test_async.py` | Thread-loop integration, async dispatch patterns, error handling |
-| `tests/test_pi_resilience.py` | Sensor failures, DB init idempotency, `/proc/uptime` fallback, background thread survival |
-| `tests/test_open_meteo.py` | Geocoding (UK postcode, outcode, place name), current weather, forecast |
-| `tests/test_daily_forecast.py` | 14-day daily forecast API -- keys, URL params, error propagation |
-| `tests/test_weather_history.py` | Weather history DB function -- filtering, ordering, required keys |
-| `tests/test_mics6814.py` | MICS6814 gas sensor interface, init/read, database integration |
-| `tests/test_rbac.py` | User DB, login log, role enforcement on all write endpoints |
+| `tests/` (top-level) | Hub-side unit + integration: fan, sensor drivers, anomaly + multivar anomaly, feature extractor, detection engine, inference evidence, incident grouper + narrative + signature features, similarity explain, hot tier (incl. concurrency + persistence), SSE (incl. integration), event bus, RBAC, OAuth + CSRF, rule + threshold engine, db_logger, pages, weather (Open-Meteo + history + forecast), config round-trip, post-fork bootstrap, HTTPS |
+| `tests/attribution/` | Fingerprint scorer + loader + AttributionEngine (rule/ML hybrid) |
+| `tests/grow_server/` | Hub-side grow surface: API endpoints (units, config, errors, diagnostics, journal, settings, timelapse, danger zone, token rotation, photos), WS handshake + auth + commands, schema seeds, enrollment + key reveal, public-under-OAuth guard, photo thumbnails, e2e smoke, install / deploy scripts, and the architecture / setup / usage doc invariants |
+| `tests/grow_unit/` | Firmware-side: actuators, sensors (base + seesaw), buffer + photo_buffer, camera, config + config_sync (+ apply), dispatch, enrol (incl. TLS), install.sh, light_budget + light_schedule, package installability, pid, safety_loop + safety_override, service (+ capabilities), state_persistence, systemd unit, ws_client (incl. TLS) + ws_protocol |
+| `tests/contracts/` | `mlss_contracts` pydantic schemas: capabilities, config payloads, enums, plant profiles, validators, WS messages (telemetry + other), package installability |
+| `tests/js/` | Browser-side components (`.mjs`): grow card, calibration wizard, diagnostics panel, history panel, journal editor, light windows editor, moisture chart, photo lightbox + timelapse, PID editor, plant profiles editor, profile editor, quick controls, safety override, schedule bar, sensor map, status pill, stat tile, token + enrollment-key rotators, … |
 
-Hardware libraries (`board`, `busio`, `adafruit_*`) are stubbed in `tests/conftest.py` so all tests run on any machine.
+Hardware libraries (`board`, `busio`, `adafruit_*`, `picamera2`, etc.) are stubbed in `tests/conftest.py` so the suites run on any machine. JS component tests under `tests/js/` use Node's built-in test runner — `node --test tests/js/*.mjs`.
 
 ### Linting
 
@@ -1252,117 +1342,100 @@ poetry install --with visualization
 
 ## Project structure
 
+The repo is one git tree but **three independently-installable Python
+packages** — `mlss_monitor` (the hub), `mlss_grow` (the edge firmware), and
+`mlss_contracts` (shared pydantic schemas used by both). The hub installs
+`mlss_contracts` as a path dep but never `mlss_grow`; the Pi Zero installs
+`mlss_grow` + `mlss_contracts` as wheels built by
+`scripts/build_grow_wheel.sh` and served from `/api/grow/dist/`.
+
 ```
-mlss_monitor/
-  app.py                      Flask app factory, hardware init, thread-safe background-service bootstrap
-  wsgi.py                     gunicorn WSGI entry point -- imports app, calls _start_background_services()
-  state.py                    Shared mutable state (fan mode, hardware refs, event bus, event loop)
-  event_bus.py                In-process pub/sub for SSE -- thread-safe, rolling history
-  rbac.py                     Role-Based Access Control -- require_role() decorator
-  inference_engine.py         Environment analysis -- 9 detectors, pollution event flagging
-  incident_grouper.py         Background daemon + pure logic that sessionises inferences
-                              into incidents (30-min silence gap), computes Pearson r
-                              per-sensor signal deps, builds 32-dim similarity signatures,
-                              and offers explain_similarity() for why-similar explanations
-  incidents_narrative.py      Pure functions that turn an incident + its alerts into
-                              {observed, inferred, impact, correlation} English prose
-                              with timestamps — correlation explains *why* the alerts
-                              are linked (dominant sensor, cross-sensor co-movement,
-                              and/or severity trajectory)
-                              (no DB, no Flask -- unit-testable)
-  routes/
-    __init__.py               Blueprint registration
-    auth.py                   GitHub OAuth login/logout, DB role lookup
-    pages.py                  Page routes (dashboard, history, incidents, controls, admin)
-    api_data.py               Sensor data API (fetch, CSV download, annotations)
-    api_fan.py                Fan control API (toggle, status, settings)
-    api_weather.py            Weather API (current, hourly/daily forecast, history, geocode)
-    api_settings.py           Settings API (location, energy rate, thresholds)
-    api_inferences.py         Inference API (list, notes, dismiss)
-    api_incidents.py          Incidents API (list with counts + summary, full detail
-                              with narrative + causal_sequence + similar)
-    api_users.py              User management API (list, add, role change, login log, deactivate)
-    api_stream.py             SSE streaming endpoint + event history API
-    system.py                 System health endpoint
-database/
-  db_logger.py                SQLite read/write helpers; route handlers go through this layer
-                              (get_sensor_data_range, get_hot_tier_range, get_pre_event_baselines,
-                              get_baselines_7d_ago) -- no raw sqlite3.connect() in routes
-  init_db.py                  Schema creation -- safe to re-run on existing DB; creates idx_sensor_data_timestamp
-  user_db.py                  User & login_log CRUD operations
-  import_csv_to_db.py         One-off CSV import utility
-sensor_interfaces/
-  aht20.py                    AHT20 temperature/humidity driver
-  sgp30.py                    SGP30 eCO2/TVOC driver (15 s warm-up on startup)
-  display.py                  ST7735 TFT display driver
-  mics6814.py                 Pimoroni MICS6814 gas sensor driver (CO, NO2, NH3)
-  sb_components_pm_sensor.py  Particulate matter sensor driver
-external_api_interfaces/
-  kasa_smart_plug.py          Async TP-Link Kasa plug control
-  open_meteo.py               Open-Meteo weather + forecast + UK geocoding client
-templates/
-  base.html                   Shared layout (nav bar, auth controls); loads AstroUXDS web components from CDN
-  dashboard.html              Live sensor dashboard with forecasts
-  history.html                Tabbed historical charts (sensors, particulate, environment, correlation, patterns)
-  incidents.html              Incident correlation page -- 3-column layout (list / Cytoscape graph / detail panel)
-  controls.html               Device control hub (fan, future devices)
-  admin.html                  Settings (tabbed) -- fan, energy, location, user management
-  login.html                  Sign-in page (GitHub OAuth)
-static/
-  css/
-    base.css                  Shared reset, nav, cards, light/dark toggle, mobile fixes
-    dashboard.css             Dashboard-specific layout and components
-    history.css               Tab bar, chart info popups, correlation styles
-    incident_graph.css        3-column incidents page -- toolbar, graph canvas, detail panel,
-                              graph controls, summary strip, severity pills, causal chips
-    controls.css              Device grid and control card styles
-    admin.css                 Settings page styles
-  js/
-    dashboard.js              Boot, SSE connection, weather/forecast, card popups, inference feed
-    history.js                Tab switching, lazy chart rendering, data fetch
-    insights.js               Derived calculations, weather + forecast rendering
-    charts.js                 Plotly sensor chart rendering (temp, hum, eco2, tvoc)
-    charts_env.js             Environment charts (indoor/outdoor overlay, VPD, fan state)
-    charts_correlation.js     Time-brush, scatter plots, regression, inference engine
-                              -- drag the brush chart to zoom into a window; the scatter
-                              plots and inference panel update to show only that selection.
-                              Zoom is preserved across data polling cycles (only destroyed
-                              by Reset button, page navigation, or browser refresh).
-    charts_patterns.js        Pattern analysis (hour-of-day heatmap, daily temp range)
-    incident_graph.js         Incidents page orchestration -- toolbar filters, progressive
-                              ghost-cluster fetch, Cytoscape.js timeline layout with per-lane
-                              collision stacking, layout controls (Manual/Physics/Tree/Circle),
-                              node overlay with correlation table
-    controls.js               Device control page (SSE fan status, status dot)
-    fan.js                    Fan control API calls
-    health.js                 System health polling
-    theme.js                  Light/dark mode toggle
-scripts/
-  setup_pi.sh                 First-run setup script for Raspberry Pi
-tests/
-  conftest.py                 Pytest fixtures, hardware + auth stubs
-  test_fan_settings.py        Fan settings DB and API tests
-  test_async.py               Async dispatch and thread-loop tests
-  test_pi_resilience.py       Pi-specific resilience tests
-  test_open_meteo.py          Open-Meteo client unit tests
-  test_daily_forecast.py      Daily forecast API tests
-  test_weather_history.py     Weather history DB function tests
-  test_mics6814.py            MICS6814 gas sensor -- interface, init, read, DB integration
-  test_rbac.py                RBAC -- user DB, login log, role enforcement on all write endpoints
-  test_event_bus.py           EventBus pub/sub, history, thread safety tests
-  test_sse.py                 SSE endpoint, wire format, auth, history API tests
-  test_incident_grouper.py    Sessionisation, Pearson r, similarity vector, DB persistence (59 tests)
-  test_api_incidents.py       /api/incidents list + detail endpoints, severity counts, summary
-  test_incidents_narrative.py Pure narrative builder -- timestamps, event-specific prose
-  test_similarity_explain.py  explain_similarity() axis-labelling logic
-docs/
-  CONFIGURATION.md            Full configuration reference
-  PRODUCTION.md               Production deployment guide
-config.py                     Dynaconf configuration loader
-gunicorn.conf.py              Production gunicorn config (single gthread worker, preload_app, SSL from dynaconf)
-mlss-monitor.service          systemd unit file (invokes gunicorn with mlss_monitor.wsgi:application)
-.env.example                  Template for environment variables
+mars-air-quility/
+├── mlss_monitor/             # MLSS hub: Flask app, blueprints, sensor poller,
+│   │                         #   inference + incident engine, grow API + WS listener
+│   ├── app.py                #   Flask app factory + thread-safe background-service bootstrap
+│   ├── wsgi.py               #   gunicorn entry (mlss_monitor.wsgi:application)
+│   ├── routes/               #   per-concern blueprints (auth, pages, api_*, api_grow_*)
+│   ├── grow/                 #   server-side grow logic (WS registry, handlers, photo storage,
+│   │                         #     auth, capability watchdog, timelapse jobs)
+│   ├── data_sources/         #   sensor source abstraction (AHT20, SGP30, PM, MICS6814, weather)
+│   ├── attribution/          #   fingerprint scorer + River-based ML classifier
+│   ├── event_bus.py          #   in-process pub/sub for SSE
+│   ├── inference_engine.py   #   short/hourly/daily detectors
+│   ├── incident_grouper.py   #   sessionises inferences into incidents
+│   └── …                     #   (anomaly_detector, feature_extractor, fan_controller, …)
+│
+├── grow_unit/                # mlss_grow firmware package (Pi Zero W only)
+│   ├── pyproject.toml        #   own Poetry env (picamera2 / RPi.GPIO live here, never in the hub)
+│   ├── install.sh            #   first-boot installer (cert-pinned + SHA256-verified wheel pull)
+│   ├── src/mlss_grow/        #   service, ws_client, safety_loop, pid, light_schedule,
+│   │                         #     light_budget, camera, photo_buffer, buffer, enrol,
+│   │                         #     config + config_sync, dispatch, sensors/, actuators/
+│   └── systemd/mlss-grow.service
+│
+├── contracts/                # mlss_contracts shared schemas
+│   └── src/mlss_contracts/   #   pydantic models for WS messages, capabilities,
+│                             #     config payloads, plant profiles, enums
+│
+├── database/                 # Hub SQLite layer
+│   ├── init_db.py            #   air-quality / inference / incident tables (idempotent)
+│   ├── grow_schema.py        #   grow_* tables (units, capabilities, telemetry, photos,
+│   │                         #     watering, journal, errors, timelapse, plant_profiles, …)
+│   ├── db_logger.py          #   read/write helpers (route handlers go through this layer)
+│   ├── user_db.py            #   users + login_log CRUD
+│   └── import_csv_to_db.py
+│
+├── sensor_interfaces/        # Hub-side sensor drivers (AHT20, SGP30, ST7735, MICS6814,
+│                             #   sb_components_pm_sensor)
+├── external_api_interfaces/  # Kasa smart plug + Open-Meteo / postcodes.io client
+│
+├── config/                   # YAML rule + fingerprint + anomaly catalogues
+├── templates/                # Jinja2 templates (dashboard, history, incidents, controls,
+│                             #   admin, login, grow fleet + per-unit detail + errors + settings)
+├── static/
+│   ├── css/                  # per-page styles on top of AstroUXDS tokens
+│   ├── js/                   # vanilla JS (Plotly + Cytoscape + custom components)
+│   └── grow_dist/            # baked wheels + manifest served to grow units at /api/grow/dist/
+│
+├── scripts/
+│   ├── setup_pi.sh           # first-run hub setup
+│   ├── build_grow_wheel.sh   # build mlss-grow + mlss-contracts wheels
+│   ├── build_local_wheels.sh
+│   ├── build_pi_image.sh     # pi-gen wrapper for flashable SD-card image
+│   ├── stage-mlss-grow/      # pi-gen stage hooks (00-install-mlss-grow, prerun.sh, EXPORT_IMAGE)
+│   ├── generate_certs.py
+│   ├── migrate_categories.py
+│   └── prepare_pypi_release.py
+│
+├── bin/
+│   └── deploy                # systemctl-aware deploy script (pull + poetry install +
+│                             #   wheel rebuild + restart, set -euo pipefail)
+│
+├── tests/
+│   ├── attribution/          # fingerprint scorer, loader, engine unit tests
+│   ├── grow_server/          # hub-side grow API + WS + schema + auth + e2e
+│   ├── grow_unit/            # firmware-side: actuators, sensors, ws_client, safety_loop,
+│   │                         #   pid, light_*, buffer, photo_buffer, enrol (+ TLS), service
+│   ├── contracts/            # pydantic schema round-trip + installability
+│   ├── js/                   # browser-side component tests (.mjs)
+│   ├── conftest.py           # hardware + auth stubs
+│   └── test_*.py             # hub-side unit + integration tests (anomaly, fan, sse,
+│                             #   incident grouper, narrative, similarity, hot tier, …)
+│
+├── docs/                     # User-facing docs (server + grow-unit doc set, see Documentation
+│                             #   section at the bottom of this readme for the canonical list)
+│
+├── config.py                 # dynaconf loader
+├── gunicorn.conf.py          # single gthread worker, preload_app, post_fork bootstrap
+├── mlss-monitor.service      # systemd unit
+├── pyproject.toml            # hub's Poetry env (no firmware deps)
+├── package.json              # JS dev-dep manifest for the test_*.mjs suite
+└── .env.example
 ```
+
+> A future **server-side backup subsystem** under `server/` is on the
+> roadmap (the host-side companion of the on-Pi outbox pattern). When it
+> lands it will get its own row here.
 
 ---
 
