@@ -3,7 +3,7 @@ name = "mlss-contracts"
 version = "0.1.0"
 description = "Shared pydantic schemas between MLSS server and Plant Grow Unit firmware"
 authors = ["MLSS"]
-license = "MIT"
+# License intentionally unset — repository licence is yet to be decided.
 readme = "README.md"
 homepage = "https://github.com/Ryan-be/mars-air-quility"
 repository = "https://github.com/Ryan-be/mars-air-quility"
@@ -11,7 +11,6 @@ keywords = ["mlss", "contracts", "pydantic", "schemas"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",

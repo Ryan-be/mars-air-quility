@@ -110,7 +110,7 @@ The Pimoroni MICS6814 breakout uses I2C and can be daisy-chained with the AHT20 
 - CSV export of historical readings
 - System health endpoint (CPU, memory, uptime, sensor status)
 - Outdoor weather -- current conditions and 24-hour forecast via [Open-Meteo](https://open-meteo.com) (free, no key)
-- UK postcode geocoding via [postcodes.io](https://postcodes.io) (e.g. `LS26`)
+- UK postcode geocoding via [postcodes.io](https://postcodes.io)
 - Hourly weather logging with 7-day auto-cleanup
 - GitHub OAuth 2.0 authentication (via `authlib`)
 - Role-Based Access Control (RBAC) -- three roles: **admin**, **controller**, **viewer**
@@ -1065,7 +1065,7 @@ The `MLSS_ALLOWED_GITHUB_USER` bootstrap account always has the **admin** role r
 | Method | Endpoint | Min role | Description |
 |---|---|---|---|
 | `GET` | `/api/settings/location` | viewer | Get saved location |
-| `POST` | `/api/settings/location` | admin | Save location -- body: `{"lat": 53.7, "lon": -1.5, "name": "LS26"}` |
+| `POST` | `/api/settings/location` | admin | Save location -- body: `{"lat": 51.5, "lon": -0.1, "name": "SW1A"}` |
 | `GET` | `/api/settings/energy` | viewer | Get saved energy unit rate |
 | `POST` | `/api/settings/energy` | admin | Save energy rate -- body: `{"unit_rate_pence": 28.5}` |
 | `GET` | `/api/settings/thresholds` | viewer | Get inference thresholds |
