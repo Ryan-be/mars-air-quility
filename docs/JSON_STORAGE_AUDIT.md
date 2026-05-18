@@ -1,5 +1,7 @@
 # JSON-in-TEXT-column Audit (2026-05-07)
 
+[Back to main README](../readme.md) · [Database reference](DATABASE.md)
+
 ## Principle
 
 Anything mutated at runtime by a running service belongs in a typed

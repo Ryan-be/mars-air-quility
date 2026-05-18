@@ -135,14 +135,27 @@ to each.
 
 Two-step flow for accurate moisture %:
 
-1. Place the sensor in dry medium (or air). Click **Calibrate dry** —
-   reads the current Seesaw raw value and saves it to
+1. Place the sensor in dry medium (or air). The wizard **polls the live
+   reading** while open, so you can watch the raw value settle, and
+   shows a fresh reading right next to the "Calibrate dry" button. When
+   you're happy the reading is stable, click **Calibrate dry** — the
+   wizard captures the *current* raw value (commit `7f1f0c2` — earlier
+   versions captured the page-load value, which was often stale by the
+   time the operator pressed the button) and saves it to
    `grow_units.soil_dry_raw`.
 2. Saturate the medium (water until run-off). Click **Calibrate wet**
    — saves `grow_units.soil_wet_raw`.
 
-Until calibration is done for a `medium_type='custom'` unit, the
-dashboard shows raw values rather than percentages.
+Both steps also have a **manual input** field — paste in a known raw
+value when the live reading is unavailable (sensor unplugged, unit
+offline, …).
+
+Recalibrating at any time **instantly re-frames the entire visible
+history** because the History endpoint computes pct from raw against
+the *current* calibration on every request — see
+[ARCHITECTURE.md → Compute-on-read soil moisture pct](PLANT_GROW_UNIT_ARCHITECTURE.md#compute-on-read-soil-moisture-pct).
+A unit with no calibration captured yet falls through to a raw 0–1023
+Y-axis on the chart.
 
 ### Safety override (admin only)
 
@@ -244,24 +257,79 @@ on a large fleet.
 
 ---
 
+## Plant happiness
+
+The Live readings panel shows two tiles — **soil temperature** and
+**soil moisture** — colour-coded by where the value sits in the
+per-plant + per-phase happiness zones:
+
+| Zone | Colour | Meaning |
+|---|---|---|
+| `ideal` | green | Inside the plant's preferred band for this phase |
+| `tolerated_low` / `tolerated_high` | amber | Outside ideal but still safe |
+| `critical_low` / `critical_high` | red | Likely to stress the plant if sustained |
+
+Thresholds live in `grow_plant_profiles` (one row per `plant_type` ×
+`phase`); the shipped seed covers tomato, basil, lettuce, microgreens,
+pepper, chili, and a `generic` fallback × all 5 phases. Admins can edit
+or add custom thresholds via Settings → Grow → Plant Profiles. A NULL
+threshold for a dimension means "no happiness signal for this plant +
+phase" and the tile falls back to the default cyan colouring. See
+[ARCHITECTURE.md → Plant happiness](PLANT_GROW_UNIT_ARCHITECTURE.md#plant-happiness)
+for the classification algorithm.
+
+---
+
 ## The History tab
 
-`https://mlss.local:5000/grow/units/<id>/history` opens a long-range
-history view for one unit:
+The **History** tab on `https://mlss.local:5000/grow/<id>` opens a
+long-range history view for one unit:
 
 - **Range selector**: 24h / 7d / 30d / 90d / All
-- **Multi-channel chart**: soil moisture %, soil temp, ambient lux,
-  air temp/humidity, pump pulses (vertical bars), light state (background
-  shading)
-- **Downsampling**: For ranges > 7d the server downsamples by averaging
-  inside 5-min/30-min/1-h buckets so a 90d view doesn't ship 250k points
-  to the browser. The endpoint is
+- **Moisture chart with full chart anatomy** — X + Y axes, tick labels,
+  axis titles, and a legend (commit `165b07c`). For a unit that hasn't
+  been calibrated yet the chart switches to a raw 0–1023 Y-axis with a
+  banner explaining what's happening rather than rendering blank
+  (commit `8a45b07`).
+- **Pump pulses** drawn as vertical bars; **light state** as background
+  shading.
+- **Compute-on-read pct**: recalibrating the sensor instantly re-frames
+  the entire visible history because the endpoint recomputes pct from
+  raw on every request — see
+  [ARCHITECTURE.md → Compute-on-read](PLANT_GROW_UNIT_ARCHITECTURE.md#compute-on-read-soil-moisture-pct).
+- **Downsampling**: For ranges > 7 d the server downsamples by averaging
+  inside buckets (up to 600 buckets per chart) so a 90 d view doesn't
+  ship 250 k points to the browser. Endpoint:
   [`mlss_monitor/routes/api_grow_history.py`](../mlss_monitor/routes/api_grow_history.py).
 - **Photo timelapse**: Below the chart, a horizontal strip of thumbnails
   shows every photo taken in the visible range. Click any thumbnail to
   open it full-size with the matching telemetry (joined via
   `grow_photos.telemetry_id`) overlaid. The strip itself is virtualised
-  so 30d × 48 photos/day = 1,440 thumbnails scroll smoothly.
+  so 30 d × 48 photos/day = 1,440 thumbnails scroll smoothly.
+
+### Time-lapse video
+
+Click **Render time-lapse** to queue a video render of every photo in
+the current range. The job goes into `grow_timelapse_jobs` (`status =
+queued`), an in-process background worker picks it up, calls `ffmpeg`
+to stitch the JPEGs together, and writes an MP4 under
+`data/timelapses/<unit>/<job_id>.mp4`. Status flips to `complete` when
+done (or `failed` with an `error_message`). The Render button is
+disabled if the server doesn't have `ffmpeg` installed (the endpoint
+returns `503 ffmpeg_not_installed` and the History tab surfaces a
+yellow banner pointing at the install command).
+
+### Plant journal
+
+A timestamped notes editor pinned to the unit's history. Operator can
+write "started blooming nutrients today" / "noticed leaf yellowing" /
+"repotted to 2 L pot" against the moment it happened; entries surface
+as markers on the moisture chart and on the photo timelapse scrubber
+so future trend analysis has context.
+
+RBAC: viewers read, controllers + admins write; only the original
+author or an admin can edit/delete a given entry. Schema in
+[DATABASE.md → grow_journal_entries](DATABASE.md#grow_journal_entries--operator-notes-pinned-to-a-timestamp-on-a-unit).
 
 ---
 
@@ -314,7 +382,8 @@ saving.
 
 ## Settings → Grow page
 
-`https://mlss.local:5000/settings/grow` (admin nav link) is the
+`https://mlss.local:5000/grow/settings` (admin nav link; the legacy
+`/settings/grow` URL still redirects here) is the
 household-wide control panel:
 
 ### Enrollment key rotation
@@ -389,3 +458,13 @@ Either:
 - Sensor calibration is off (raw → % mapping wrong) — recalibrate
 - PID is over-watering — bump `soak_window_min` for that unit, lower `kp`, or both
 - Plant profile is wrong for the actual plant — update `plant_type` in `grow_units`
+
+---
+
+## See also
+
+- [PLANT_GROW_UNIT_SETUP.md](PLANT_GROW_UNIT_SETUP.md) — first-time install, cert pinning, decommission
+- [PLANT_GROW_UNIT_HARDWARE.md](PLANT_GROW_UNIT_HARDWARE.md) — BOM, wiring, sense-only mode hardware reference
+- [PLANT_GROW_UNIT_ARCHITECTURE.md](PLANT_GROW_UNIT_ARCHITECTURE.md) — how the WS protocol, compute-on-read, and capability watchdog work under the hood
+- [DATABASE.md](DATABASE.md) — schema reference
+- [Bugs_Improvements_and_Roadmap.md](Bugs_Improvements_and_Roadmap.md) — deferred work + future sensors

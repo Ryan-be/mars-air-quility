@@ -1,16 +1,67 @@
 # Plant Grow Unit — Architecture deep-dive
 
 Audience: developers working on the Plant Grow Unit code (server, firmware,
-or browser). For the original design intent and trade-offs, see the spec:
-[`docs/superpowers/specs/2026-05-03-plant-grow-unit-system-design.md`](superpowers/specs/2026-05-03-plant-grow-unit-system-design.md).
+or browser).
 
 > **Schema details** are in [DATABASE.md](DATABASE.md) (single source of
 > truth for both `data/sensor_data.db` and the on-Pi `buffer.sqlite`).
 > This doc summarises and links — it doesn't duplicate column lists.
 
+> **See also**: operator-facing [USAGE.md](PLANT_GROW_UNIT_USAGE.md),
+> installer-facing [SETUP.md](PLANT_GROW_UNIT_SETUP.md), builder-facing
+> [HARDWARE.md](PLANT_GROW_UNIT_HARDWARE.md).
+
 ---
 
-## System architecture
+## Distributed system at a glance
+
+The system is **distributed**: one MLSS hub talks to many edge Pi Zero W
+grow units over authenticated WSS. Each unit's safety loop runs locally
+so the plant survives an MLSS outage; the WS link carries telemetry up,
+commands down, photos up, capabilities up.
+
+```mermaid
+graph LR
+    subgraph LAN["Home LAN"]
+        Browser["Operator browser<br/>HTTPS:5000"]
+        MLSS["MLSS hub<br/>Flask + WS listener<br/>SQLite + photo store"]
+        Pi1["Grow unit 1<br/>(Pi Zero W)"]
+        Pi2["Grow unit 2<br/>(Pi Zero W)"]
+        PiN["Grow unit N<br/>(Pi Zero W)"]
+    end
+
+    Browser -.HTTPS REST + SSE.-> MLSS
+    Pi1 -.WSS telemetry+photos.-> MLSS
+    Pi2 -.WSS telemetry+photos.-> MLSS
+    PiN -.WSS telemetry+photos.-> MLSS
+    MLSS -. commands .-> Pi1
+    MLSS -. commands .-> Pi2
+    MLSS -. commands .-> PiN
+```
+
+**Message flow**:
+
+- **Telemetry up** (unit → MLSS) — every 30 s tick: soil moisture, temp,
+  lux, pump/light state. Text WS frame.
+- **Photos up** (unit → MLSS) — at the configured cadence: binary WS
+  frame with a JSON header + JPEG body. Each photo gets joined to the
+  closest telemetry row (±60 s) at ingest, so ML training is a simple
+  SQL join later.
+- **Capabilities up** (unit → MLSS) — on WS handshake: which sensors and
+  actuators the unit detected at boot. Drives the data-driven dashboard
+  tile rendering and the `grow_unit_capabilities.health` watchdog.
+- **Commands down** (MLSS → unit) — operator-initiated: `identify`,
+  `water_now`, `snap_photo`, `light_override`, `safety_override`,
+  `config_changed` (a nudge that triggers a firmware-side `GET
+  /api/grow/units/<id>/config` pull).
+- **Replay on reconnect** — when the WS drops, the unit buffers
+  telemetry text frames to a local SQLite and photos as JPEGs with
+  sidecar JSON; on reconnect both buffers drain oldest-first, then the
+  unit re-pulls config so admin edits during the outage take effect.
+
+---
+
+## System tiers (zoomed in)
 
 The system has three runtime tiers — operator's browser, MLSS server,
 and one-or-more Pi Zero W grow units:
@@ -18,7 +69,7 @@ and one-or-more Pi Zero W grow units:
 ```mermaid
 graph TB
     subgraph "Operator's browser"
-        UI[/grow page<br/>/grow/units/&lt;id&gt;<br/>/grow/errors<br/>/settings/grow/]
+        UI[/grow fleet<br/>/grow/&lt;id&gt; unit detail<br/>/grow/errors<br/>/grow/settings/]
     end
 
     subgraph "MLSS server"
@@ -58,6 +109,15 @@ on the Pi at 30 s tick — plants survive an MLSS outage. The browser
 never talks to the Pi directly; all traffic flows through the MLSS
 server, which is the only thing exposed on the LAN.
 
+The MLSS process layout under gunicorn is **one** `gthread` worker,
+preloaded. A `post_fork` hook (see [`gunicorn.conf.py`](../gunicorn.conf.py))
+rebuilds the asyncio loop, the PM sensor poller, and the background
+services inside the worker after fork. The PM-sensor double-poll fix
+(commit `e8712db`) explicitly defers `start_poller()` to `post_fork` so
+the master never spins a poller of its own — without this, both
+processes would race for `/dev/serial0` exclusive access and fill the
+log with frame-parse errors.
+
 ---
 
 ## Repo structure
@@ -78,6 +138,59 @@ mars-air-quility/
 ```
 
 Each package has its own `pyproject.toml` and Poetry env. The MLSS server installs `mlss_contracts` as a path dep but **not** `mlss_grow`. The Pi Zero installs `mlss_grow` + `mlss_contracts` as wheels (built by `scripts/build_grow_wheel.sh`, served from MLSS at `/api/grow/dist/`). This guarantees the MLSS Pi never installs picamera2 / RPi.GPIO, and the Pi Zero never installs Flask / gunicorn.
+
+---
+
+## Unit lifecycle (enrolment → steady state → reconnect)
+
+```mermaid
+sequenceDiagram
+    participant Pi as Pi Zero W
+    participant MLSS as MLSS server
+    participant DB as sensor_data.db
+
+    rect rgb(240,240,255)
+    Note over Pi,MLSS: Enrolment (one-time)
+    Pi->>MLSS: POST /api/grow/enroll<br/>{hardware_serial, enrollment_key, plant.*}
+    MLSS->>DB: INSERT grow_units (bearer_token_hash)
+    MLSS-->>Pi: {token: raw bearer}
+    Pi->>Pi: persist token to /etc/mlss/grow.token (0600)
+    Pi->>Pi: delete /boot/mlss-grow.yaml
+    end
+
+    rect rgb(240,255,240)
+    Note over Pi,MLSS: First connect + capabilities handshake
+    Pi->>MLSS: WSS upgrade, Authorization Bearer
+    Pi->>MLSS: capabilities frame (channels[])
+    MLSS->>DB: UPSERT grow_unit_capabilities
+    Pi->>MLSS: GET /api/grow/units/{id}/config
+    MLSS-->>Pi: overrides, calibration, light_windows, holiday_mode
+    end
+
+    rect rgb(255,250,240)
+    Note over Pi,MLSS: Steady state — every 30 s
+    loop Forever
+        Pi->>MLSS: telemetry frame (moisture, temp, ...)
+        MLSS->>DB: INSERT grow_telemetry
+    end
+    end
+
+    rect rgb(255,240,240)
+    Note over Pi,MLSS: Disconnect + replay
+    Pi--xMLSS: WiFi flap / Pi reboot
+    MLSS->>DB: INSERT grow_errors (kind=offline)
+    Note over MLSS: handler catches ConnectionClosed gracefully<br/>(no traceback in journalctl)
+    Pi->>Pi: buffer telemetry to local SQLite,<br/>photos to /var/lib/mlss-grow/photos/
+    Pi->>MLSS: WSS upgrade (reconnect)
+    Pi->>MLSS: drain text buffer (oldest first)
+    Pi->>MLSS: drain photo buffer (oldest first)
+    Pi->>MLSS: GET /api/grow/units/{id}/config (re-pull)
+    MLSS->>DB: INSERT grow_errors (kind=online)
+    end
+```
+
+The full unit-side buffer housekeeping (3-layer bound) is covered in
+[Buffer + replay](#buffer--replay) below.
 
 ---
 
@@ -154,6 +267,15 @@ All traffic flows over this single connection:
 Schemas live in `contracts/src/mlss_contracts/ws_messages.py` — both server and firmware import the same pydantic classes, so a schema change is a single edit and any drift is a static error.
 
 The server listener (`mlss_monitor/routes/api_grow_ws.py`) runs in its own asyncio loop on a background thread separate from Flask's request loop. Per-connection coroutines dispatch by message type to handlers in `mlss_monitor/grow/handlers.py` and `photo_storage.py`.
+
+### Graceful disconnect
+
+A grow unit reconnect cycle is **normal traffic**, not an error. The
+server WS handler (commit `d63e2b0`) catches `ConnectionClosedOK` and
+`ConnectionClosedError` cleanly, emits an `online`/`offline` row into
+`grow_errors`, and returns without a traceback. Unit-initiated drops
+(WiFi flap, Pi reboot, service restart) used to log a multi-line
+traceback per disconnect; now they log a single info line.
 
 ---
 
@@ -284,6 +406,69 @@ Per-unit overrides cascade `grow_units.<field>_override → grow_plant_profiles.
 
 ---
 
+## Compute-on-read soil moisture pct
+
+The History endpoint (`mlss_monitor/routes/api_grow_history.py`,
+commit `31416f5`) **does not trust** the stored
+`grow_telemetry.soil_moisture_pct` column. Instead it recomputes pct
+from `soil_moisture_raw` against the unit's current calibration
+(`soil_dry_raw` / `soil_wet_raw`) on every request:
+
+```
+pct = clamp((raw - dry_raw) / (wet_raw - dry_raw) * 100, 0, 100)
+```
+
+This means **recalibrating a sensor instantly re-frames the entire
+visible history** — no DB rewrite needed; the next `/history` fetch
+reflects the new mapping. It also salvages telemetry collected before
+the first calibration was captured: the firmware sends `raw` even when
+it can't compute pct, so older rows have `pct=NULL` in the DB but the
+endpoint can still render them as a percent once the user calibrates.
+
+Boundary behaviour:
+
+- Degenerate calibration (`wet_raw <= dry_raw`) treated as uncalibrated
+  → endpoint returns `calibrated=false` and the frontend switches to a
+  raw 0–1023 Y-axis.
+- Mixed buckets in downsampled output (some rows in the bucket
+  calibrated, others NULL) emit the `pct_*` band keys from the
+  calibrated subset only and skip otherwise. Earlier behaviour rendered
+  the chart blank when a calibration boundary fell mid-bucket — see
+  commit `6ff4983`.
+- The stored `soil_moisture_pct` column is advisory: the WS handler
+  still writes it (other consumers like alerting may use the firmware's
+  view, which can legitimately differ from the API's current-calibration
+  view) but the History endpoint ignores it.
+
+---
+
+## Plant happiness
+
+Commit `80f2a3d` adds a per-plant + per-phase classification of the
+unit's current soil temp and moisture into five zones (`critical_low` /
+`tolerated_low` / `ideal` / `tolerated_high` / `critical_high`). The
+threshold ladder lives in 8 new columns on `grow_plant_profiles`
+(see [DATABASE.md](DATABASE.md#grow_plant_profiles)) and is consulted
+by `_zone()` / `_build_happiness()` in
+[`mlss_monitor/routes/api_grow_units.py`](../mlss_monitor/routes/api_grow_units.py).
+
+Resolution chain on each `GET /api/grow/units/<id>`:
+
+1. Look up `grow_plant_profiles WHERE plant_type=<unit.plant_type> AND phase=<unit.current_phase>`.
+2. If no row, fall back to `plant_type='generic' AND phase=<unit.current_phase>`.
+3. If still no row, omit the `happiness` block entirely.
+4. For each dimension (soil temp, moisture), classify the
+   `last_known_state` value against the four-threshold ladder. NULL
+   thresholds for a dimension mean "no happiness signal for this plant +
+   phase" — that dimension is omitted from the `happiness` payload and
+   the frontend falls through to its existing variant-based colouring.
+
+The dashboard renders the result as colour-coded stat tiles in the
+Live panel. The seed covers 35 (plant_type, phase) combinations
+shipped by `THRESHOLD_SEEDS` in `grow_schema.py`.
+
+---
+
 ## The soak window
 
 Defends against "water hasn't reached sensor yet → fire another pulse." Default 30 min. Enforced **on the unit** even if MLSS sends a manual water-now command — the firmware refuses commands within the soak window. The dashboard's Water-now button is also disabled within the soak window so user expectations match.
@@ -392,3 +577,17 @@ At ingest time, the WS listener finds the closest `grow_telemetry` row for the s
 - JS components: `node --test tests/js/`
 
 CI runs all four. Pi-only deps (RPi.GPIO, picamera2, adafruit-circuitpython-seesaw) are marked optional in `grow_unit/pyproject.toml` so dev laptops can install + test.
+
+---
+
+## See also
+
+- [DATABASE.md](DATABASE.md) — full schema reference (server + on-Pi buffer)
+- [PLANT_GROW_UNIT_HARDWARE.md](PLANT_GROW_UNIT_HARDWARE.md) — BOM, wiring, block diagram, power split
+- [PLANT_GROW_UNIT_SETUP.md](PLANT_GROW_UNIT_SETUP.md) — first-boot install, cert pinning, token rotation
+- [PLANT_GROW_UNIT_USAGE.md](PLANT_GROW_UNIT_USAGE.md) — day-to-day operator guide
+- [PI_IMAGE_BUILD.md](PI_IMAGE_BUILD.md) — build a flashable SD-card image with the firmware baked in
+- [RELEASE_PROCESS.md](RELEASE_PROCESS.md) — local-only wheel build flow
+- [JSON_STORAGE_AUDIT.md](JSON_STORAGE_AUDIT.md) — JSON-in-TEXT usage + promotion roadmap
+- [grow_unit/README.md](../grow_unit/README.md) — firmware package module map
+- [contracts/README.md](../contracts/README.md) — shared pydantic schemas

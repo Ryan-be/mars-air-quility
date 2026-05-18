@@ -31,12 +31,21 @@ for all `grow_*` tables. The grow buffer is created/managed by
   same code path. `_seed_*` helpers gate inserts on `SELECT COUNT(*)` so
   seed data is added once and never duplicated.
 - **Additive migrations only.** New columns are added via `ALTER TABLE
-  ADD COLUMN` inside a `try/except: pass` loop in `init_db.py`. Never drop
-  a column without a deprecation cycle (one release where the column is
-  unread in code, then a `DROP COLUMN` migration in the following
-  release). The two existing drops (`grow_units.last_known_state_json`
-  and `grow_units.light_phase_override_json`) followed exactly that
-  pattern in the C1 batch — see [JSON_STORAGE_AUDIT.md](JSON_STORAGE_AUDIT.md).
+  ADD COLUMN`. The air-quality side uses a `try/except: pass` loop in
+  `init_db.py`; the grow side has its own PRAGMA-guarded helper
+  [`_add_column_if_missing(cur, table, col_def)`](../database/grow_schema.py)
+  that consults `PRAGMA table_info` before issuing the ALTER. The
+  helper exists because it co-locates the migration with the
+  `CREATE TABLE` for the same table (so future reviewers see the
+  canonical column list and the on-existing-DB migration in one place)
+  and because the PRAGMA lookup reports *why* the ALTER was skipped
+  rather than swallowing any failure. Never drop a column without a
+  deprecation cycle (one release where the column is unread in code,
+  then a `DROP COLUMN` migration in the following release). The
+  existing drops (`grow_units.last_known_state_json`,
+  `grow_units.light_phase_override_json`, `incidents.signature`,
+  `inferences.evidence`) followed exactly that pattern — see
+  [JSON_STORAGE_AUDIT.md](JSON_STORAGE_AUDIT.md).
 - **CHECK constraints are best-effort.** SQLite cannot add a `CHECK`
   constraint via `ALTER TABLE`, so freshly-created tables get the full
   constraint set but existing tables that gain a column via migration
@@ -90,8 +99,10 @@ erDiagram
     grow_units ||--o{ grow_unit_capabilities : "has"
     grow_units ||--o{ grow_light_windows : "has"
     grow_units ||--o{ grow_errors : "may have"
+    grow_units ||--o{ grow_journal_entries : "operator notes"
+    grow_units ||--o{ grow_timelapse_jobs : "render queue"
     grow_telemetry ||--o| grow_photos : "joined via telemetry_id"
-    grow_plant_profiles ||--o{ grow_units : "default tunables for"
+    grow_plant_profiles ||--o{ grow_units : "tunables + happiness thresholds"
     grow_medium_defaults ||--o{ grow_units : "calibration defaults"
 
     grow_units {
@@ -108,6 +119,17 @@ erDiagram
         datetime timestamp_utc
         int soil_moisture_raw
         real soil_moisture_pct
+        real soil_temp_c
+    }
+    grow_plant_profiles {
+        int id PK
+        string plant_type
+        string phase
+        real target_moisture_pct
+        real soil_temp_ideal_min_c
+        real soil_temp_ideal_max_c
+        real soil_moisture_ideal_min_pct
+        real soil_moisture_ideal_max_pct
     }
     grow_unit_capabilities {
         int unit_id PK_FK
@@ -122,6 +144,21 @@ erDiagram
         string kind
         string message
         datetime resolved_at
+        datetime snoozed_until
+    }
+    grow_journal_entries {
+        int id PK
+        int unit_id FK
+        datetime timestamp_utc
+        string author
+        text body
+    }
+    grow_timelapse_jobs {
+        int id PK
+        int unit_id FK
+        string status
+        string output_path
+        int fps
     }
 ```
 
@@ -213,8 +250,7 @@ Records the PID decision components (`pid_p_term`, `pid_i_term`,
 `soil_pct_after_5min` was specced to be back-filled 5 minutes after
 each pulse by joining against `grow_telemetry`. **The back-fill job
 was never written**, so this column is NULL for every row today.
-Reserved for the future ML training pipeline (Phase 5 — see
-`docs/superpowers/audits/2026-05-08-grow-data-flow-audit.md` Flow 2 #3).
+Reserved for the future ML training pipeline (Phase 5).
 The `'identify_test'` trigger value is also reserved — currently no
 firmware path emits it.
 
@@ -235,10 +271,8 @@ at training time. See [PLANT_GROW_UNIT_ARCHITECTURE.md](PLANT_GROW_UNIT_ARCHITEC
 
 `classified_phase` / `classifier_confidence` / `classified_at` are
 reserved for the future image classifier (Phase 5 in the current
-roadmap — Phase 4 is polish, Phase 5 is smarts after the 2026-05-08
-swap). NULL for all rows today; no producer or consumer in shipped
-code. See `docs/superpowers/audits/2026-05-08-grow-data-flow-audit.md`
-Flow 2 #2.
+roadmap — Phase 4 is polish, Phase 5 is smarts). NULL for all rows
+today; no producer or consumer in shipped code.
 
 `white_balance` is similarly reserved — the column is in the schema
 and the WS handler harvests it from the JPEG metadata header, but
@@ -258,10 +292,32 @@ DB creation (see `_SHIPPED_PROFILES` in `grow_schema.py`); custom
 profiles get `is_shipped=0` and are editable in the Settings → Grow
 plant profile editor.
 
-Each row holds a complete tunable bundle: `target_moisture_pct`,
-`deadband_pct`, `kp/ki/kd`, `min_pulse_s/max_pulse_s`,
-`soak_window_min`, `default_light_hours`. The cascade above resolves
-these to firmware-ready numbers before sending to the unit.
+Each row holds:
+
+- **PID tunables**: `target_moisture_pct`, `deadband_pct`, `kp/ki/kd`,
+  `min_pulse_s/max_pulse_s`, `soak_window_min`. The cascade above
+  resolves these to firmware-ready numbers before sending to the unit.
+- **Light**: `default_light_hours` — the fallback when no
+  `grow_light_windows` row exists for the unit's current phase.
+- **Plant-happiness thresholds** (added by commit `80f2a3d`; backfilled
+  on existing DBs via `_add_column_if_missing`): four ladder thresholds
+  for `soil_temp_c` (`soil_temp_critical_min_c`,
+  `soil_temp_ideal_min_c`, `soil_temp_ideal_max_c`,
+  `soil_temp_critical_max_c`) and four for `soil_moisture_pct`
+  (`soil_moisture_critical_min_pct`, `soil_moisture_ideal_min_pct`,
+  `soil_moisture_ideal_max_pct`, `soil_moisture_critical_max_pct`).
+  Each dimension carves the value space into five zones (critical_low /
+  tolerated_low / ideal / tolerated_high / critical_high) that the
+  per-unit GET surfaces as a `happiness` block, which the dashboard
+  renders as a coloured stat tile per dimension. All eight columns are
+  nullable; a NULL threshold for a dimension means "no happiness signal
+  for that dimension on this plant + phase" and the API falls through
+  to the existing variant-based colouring. The shipped seed covers 35
+  rows (7 plant types × 5 phases — `chili`, `pepper`, `tomato`, `basil`,
+  `lettuce`, `microgreens`, `generic` × `seedling`, `vegetative`,
+  `flowering`, `fruiting`, `dormant`) populated from horticultural
+  references; see `THRESHOLD_SEEDS` in
+  [`database/grow_schema.py`](../database/grow_schema.py).
 
 #### `grow_light_windows` — per-(unit, phase) light schedule overrides
 
@@ -297,6 +353,47 @@ Indexes:
   partial index, fast "unresolved badge count" query
 - `idx_grow_errors_recovery(unit_id, kind, subject_sensor, resolved_at)` —
   drives the auto-recovery probe in handlers
+
+The `snoozed_until` column is the muted-until timestamp for the Phase 3
+snooze flow; NULL when not snoozed. Rows where `snoozed_until > now()`
+render muted in the `/grow/errors` page but are NOT filtered out
+server-side (admins can still un-snooze them).
+
+#### `grow_journal_entries` — operator notes pinned to a timestamp on a unit
+
+Phase 4 #7. Surfaces as markers on the moisture chart and the
+photo-timelapse scrubber so an operator can write "started blooming
+nutrients today" against the moment it happened. Columns: `unit_id`
+(FK), `timestamp_utc` (the moment the entry pertains to), `author`
+(`session["user"]` of the writer), `body` (free-form, markdown not
+rendered), `created_at`, `updated_at` (NULL until first edit).
+
+RBAC: viewer reads, controller + admin write; only the original author
+or an admin can edit/delete a given entry (enforced in the route layer,
+not the schema). `ON DELETE CASCADE` on `unit_id` cleans entries up
+with the unit.
+
+Index: `idx_grow_journal_unit_time(unit_id, timestamp_utc DESC)`.
+
+#### `grow_timelapse_jobs` — time-lapse render job queue
+
+Phase 4 #8. An operator picks a range + framerate via the History tab;
+the row enters the `queued` state and a background worker
+(`mlss_monitor.grow.timelapse_jobs`) picks it up, calls `ffmpeg` against
+the unit's `grow_photos` in date order, drops an MP4 under
+`data/timelapses/<unit>/<job_id>.mp4`, and flips status to `complete`
+(or `failed` with an `error_message`). No Celery/RQ — the in-process
+daemon thread polls every 30 s for v1.
+
+`status ∈ {queued, running, complete, failed}`. `output_path` is
+relative to `data/timelapses/`. `error_message` is populated on
+failure (and on creation if `ffmpeg` isn't installed — see
+[Bugs_Improvements_and_Roadmap.md](Bugs_Improvements_and_Roadmap.md)
+for the install path).
+
+Indexes:
+- `idx_grow_timelapse_status(status, requested_at)` — worker pickup
+- `idx_grow_timelapse_unit(unit_id, requested_at DESC)` — per-unit listing
 
 ### JSON storage
 

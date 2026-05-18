@@ -82,6 +82,11 @@ poetry install
 
 ## See also
 
-- [docs/PLANT_GROW_UNIT_ARCHITECTURE.md](../docs/PLANT_GROW_UNIT_ARCHITECTURE.md)
-- [docs/PLANT_GROW_UNIT_SETUP.md](../docs/PLANT_GROW_UNIT_SETUP.md)
+- [docs/PLANT_GROW_UNIT_ARCHITECTURE.md](../docs/PLANT_GROW_UNIT_ARCHITECTURE.md) — system design, WS protocol, compute-on-read, plant happiness
+- [docs/PLANT_GROW_UNIT_HARDWARE.md](../docs/PLANT_GROW_UNIT_HARDWARE.md) — BOM, wiring, block diagram
+- [docs/PLANT_GROW_UNIT_SETUP.md](../docs/PLANT_GROW_UNIT_SETUP.md) — first-boot install, cert pinning, decommission
+- [docs/PLANT_GROW_UNIT_USAGE.md](../docs/PLANT_GROW_UNIT_USAGE.md) — day-to-day operator guide
 - [docs/DATABASE.md](../docs/DATABASE.md) — schema for both server + buffer DBs
+- [docs/PI_IMAGE_BUILD.md](../docs/PI_IMAGE_BUILD.md) — build a flashable SD-card image
+- [docs/RELEASE_PROCESS.md](../docs/RELEASE_PROCESS.md) — wheel build flow
+- [contracts/README.md](../contracts/README.md) — shared pydantic schemas this firmware imports

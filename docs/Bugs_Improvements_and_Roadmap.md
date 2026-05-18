@@ -1,5 +1,7 @@
 # 🛠️ Bugs, Improvements & Learning Roadmap
 
+[Back to main README](../readme.md)
+
 This section tracks known issues, UX limitations, and planned enhancements to the MLSS Monitor system, particularly around inference accuracy, visualisation, and adaptive learning.
 
 ---

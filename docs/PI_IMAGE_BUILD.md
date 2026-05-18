@@ -178,5 +178,7 @@ If/when distribution policy changes, that's a separate ticket.
 - [`scripts/build_local_wheels.sh`](../scripts/build_local_wheels.sh) — produces the wheels baked into the image
 - [`scripts/stage-mlss-grow/`](../scripts/stage-mlss-grow/) — the pi-gen stage
 - [`docs/RELEASE_PROCESS.md`](RELEASE_PROCESS.md) — local-only release flow + version bumps
+- [`docs/PLANT_GROW_UNIT_SETUP.md`](PLANT_GROW_UNIT_SETUP.md) — operator first-boot flow (uses this image)
+- [`docs/PLANT_GROW_UNIT_HARDWARE.md`](PLANT_GROW_UNIT_HARDWARE.md) — hardware stack the image targets
 - [`grow_unit/install.sh`](../grow_unit/install.sh) — the manual install path (alternative to the image flow)
 - [pi-gen upstream](https://github.com/RPi-Distro/pi-gen) — the tool we wrap

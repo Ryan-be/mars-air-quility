@@ -1,6 +1,6 @@
 # Plant Grow Unit — Hardware & Wiring
 
-> Each remote **Plant Grow Unit** runs on a Raspberry Pi Zero W with a Pimoroni Automation pHAT, an Adafruit STEMMA soil sensor, a 5V water pump, a 5V grow light, and a Pi camera. Units phone home to the main MLSS over an authenticated WebSocket. This document covers everything you need to wire one up; the system architecture, software, and configuration live in the [design spec](superpowers/specs/2026-05-03-plant-grow-unit-system-design.md).
+> Each remote **Plant Grow Unit** runs on a Raspberry Pi Zero W with a Pimoroni Automation pHAT, an Adafruit STEMMA soil sensor, a 5V water pump, a 5V grow light, and a Pi camera. Units phone home to the main MLSS over an authenticated WebSocket. This document covers everything you need to wire one up; the software architecture and on-the-wire protocol live in [PLANT_GROW_UNIT_ARCHITECTURE.md](PLANT_GROW_UNIT_ARCHITECTURE.md), and first-boot install is in [PLANT_GROW_UNIT_SETUP.md](PLANT_GROW_UNIT_SETUP.md).
 
 ## Table of contents
 
@@ -412,4 +412,10 @@ The software design abstracts actuators behind an `Actuator` ABC, so swapping th
 
 ---
 
-*See also: the [system design spec](superpowers/specs/2026-05-03-plant-grow-unit-system-design.md) for software architecture, WebSocket protocol, data model, and onboarding flow.*
+## See also
+
+- [PLANT_GROW_UNIT_SETUP.md](PLANT_GROW_UNIT_SETUP.md) — first-boot install once the hardware is wired up
+- [PLANT_GROW_UNIT_USAGE.md](PLANT_GROW_UNIT_USAGE.md) — day-to-day operator guide
+- [PLANT_GROW_UNIT_ARCHITECTURE.md](PLANT_GROW_UNIT_ARCHITECTURE.md) — software architecture, WebSocket protocol, data model
+- [grow_unit_enclosure/README.md](grow_unit_enclosure/README.md) — 3D-printable enclosure for this hardware stack
+- [DATABASE.md](DATABASE.md) — schema reference

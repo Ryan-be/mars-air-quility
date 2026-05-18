@@ -211,3 +211,5 @@ That's a separate ticket. Don't add publish infra speculatively.
 - [`scripts/prepare_pypi_release.py`](../scripts/prepare_pypi_release.py) — pyproject-level path-dep rewriter (pre-build, kept for future use)
 - [`grow_unit/install.sh`](../grow_unit/install.sh) — Pi-side installer for the MLSS-served wheel path
 - [`docs/PI_IMAGE_BUILD.md`](PI_IMAGE_BUILD.md) — Pi SD-card image build (consumes `build_local_wheels.sh` output)
+- [`docs/PLANT_GROW_UNIT_ARCHITECTURE.md`](PLANT_GROW_UNIT_ARCHITECTURE.md) — system architecture for the packages this releases
+- [`grow_unit/README.md`](../grow_unit/README.md) and [`contracts/README.md`](../contracts/README.md) — module maps for the two packages
