@@ -164,7 +164,7 @@ def test_buffer_eviction_writes_grow_errors_warning(db_with_unit):
     ).fetchall()
     conn.close()
     assert len(rows) == 1
-    severity, kind, message, details_json = rows[0]
+    severity, kind, message, _details_json = rows[0]
     assert severity == "warning"
     assert kind == "buffer_eviction"
     assert "row_cap" in message

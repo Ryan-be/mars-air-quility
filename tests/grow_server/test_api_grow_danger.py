@@ -21,12 +21,10 @@ Tests cover:
 """
 import asyncio
 import json
-import os
 import sqlite3
 import tempfile
 import threading
 from datetime import datetime
-from pathlib import Path
 
 import pytest
 

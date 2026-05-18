@@ -23,10 +23,7 @@ runner tests stub out subprocess.run / shutil.which so the unit-under-
 test is the bookkeeping logic, not ffmpeg itself.
 """
 import logging
-import os
-import shutil
 import sqlite3
-import subprocess
 import tempfile
 from datetime import datetime, timedelta
 from unittest.mock import patch

@@ -137,8 +137,11 @@ DEPLOY_DIR="${PI_GEN_DIR}/deploy"
 OUT_DIR="${REPO_ROOT}/dist"
 mkdir -p "${OUT_DIR}"
 
-# Find the produced .img.xz (pi-gen names them by date)
-IMG=$(ls -1 "${DEPLOY_DIR}"/*.img.xz 2>/dev/null | head -n 1 || true)
+# Find the produced .img.xz (pi-gen names them by date).
+# Uses `find -print -quit` instead of `ls | head` to avoid shellcheck
+# SC2012 — pi-gen filenames are alphanumeric+dates so glob ordering
+# would be fine in practice, but `find` is the recommended pattern.
+IMG=$(find "${DEPLOY_DIR}" -maxdepth 1 -name '*.img.xz' -print -quit 2>/dev/null)
 if [[ -z "${IMG}" ]]; then
     echo "Error: pi-gen finished but no .img.xz found in ${DEPLOY_DIR}" >&2
     exit 1

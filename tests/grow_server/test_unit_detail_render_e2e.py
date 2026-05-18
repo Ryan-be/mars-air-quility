@@ -23,7 +23,6 @@ audit's recommendation 4 + 5 and live as backlog items.
 import sqlite3
 import tempfile
 from datetime import datetime
-from unittest.mock import patch
 
 import pytest
 

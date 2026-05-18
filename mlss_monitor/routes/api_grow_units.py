@@ -527,17 +527,26 @@ def light_toggle(unit_id):
     duration elapses (when on).
 
     Defaults to "on" if no telemetry has arrived yet — clicking Toggle
-    on a fresh unit should make SOMETHING happen visibly.
+    on a fresh unit should make SOMETHING happen visibly. Same default
+    applies if the grow_telemetry table is missing entirely (fresh DB
+    in CI before any telemetry ingest has migrated the schema) — we'd
+    rather push an "on" command than 500 the operator.
     """
-    conn = sqlite3.connect(DB_FILE, timeout=5)
+    row = None
     try:
-        row = conn.execute(
-            "SELECT light_state FROM grow_telemetry "
-            "WHERE unit_id=? ORDER BY timestamp_utc DESC LIMIT 1",
-            (unit_id,),
-        ).fetchone()
-    finally:
-        conn.close()
+        conn = sqlite3.connect(DB_FILE, timeout=5)
+        try:
+            row = conn.execute(
+                "SELECT light_state FROM grow_telemetry "
+                "WHERE unit_id=? ORDER BY timestamp_utc DESC LIMIT 1",
+                (unit_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+    except sqlite3.OperationalError as exc:
+        # Missing table / locked DB on a fresh deploy — treat as
+        # "no telemetry yet" so the toggle still pushes an "on" cmd.
+        log.warning("light_toggle: telemetry read failed (%s); defaulting OFF→ON", exc)
     current_on = bool(row[0]) if row else False
     new_state = "off" if current_on else "on"
     status, body = _push_command_blocking(unit_id, {

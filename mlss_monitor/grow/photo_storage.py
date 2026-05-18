@@ -156,7 +156,7 @@ def get_or_create_thumbnail(photo_relpath: str, width: int) -> str:
         # height auto. The (w, very-large-h) trick downscales to fit
         # within that box, which for landscape sources collapses to
         # height proportional to width.
-        img.thumbnail((width, width * 10), Image.LANCZOS)
+        img.thumbnail((width, width * 10), Image.Resampling.LANCZOS)
         # Strip alpha / palette (some camera frames may include them);
         # JPEG cannot represent alpha. RGB is the safe target.
         if img.mode != "RGB":
@@ -242,7 +242,7 @@ def handle_photo_frame(unit_id: int, frame: bytes) -> None:
     # a clearer message so ops doesn't have to dig through journalctl.
     try:
         Path(abs_dir).mkdir(parents=True, exist_ok=True)
-    except PermissionError as exc:
+    except PermissionError:
         log.error(
             "Cannot create photo dir %s — service user lacks write access. "
             "Either chown the dir to the service user, or set "
@@ -251,7 +251,7 @@ def handle_photo_frame(unit_id: int, frame: bytes) -> None:
             "and works without sudo).", abs_dir,
         )
         raise
-    except FileNotFoundError as exc:
+    except FileNotFoundError:
         log.error(
             "Cannot create photo dir %s — parent path doesn't exist and "
             "service user can't traverse to create it. Same fix as "

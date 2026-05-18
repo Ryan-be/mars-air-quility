@@ -311,8 +311,6 @@ def test_light_toggle_pushes_off_when_light_is_on(client, monkeypatch):
     DB_FILE at module load (a separate binding) so we need to patch it
     there too AND seed telemetry into THAT path.
     """
-    import sqlite3
-    from datetime import datetime
     import mlss_monitor.routes.api_grow_units as api_grow_units
     c, fake_ws = client
     # Reach into the route module to find which DB it'll read

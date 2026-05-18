@@ -484,7 +484,7 @@ async def _run_main_loop(state: BootstrappedState) -> None:
     sensors = []
     for sensor in detected:
         sensor_name = type(sensor).__name__
-        reading, health = _read_with_health(sensor, sensor_name)
+        _reading, health = _read_with_health(sensor, sensor_name)
         sensor_healths[id(sensor)] = health
         if health == "connected":
             sensors.append(sensor)

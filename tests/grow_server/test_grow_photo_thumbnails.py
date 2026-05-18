@@ -15,12 +15,9 @@ generator returns a 1280x720 solid-color JPEG so we can verify the
 thumbnail came back at the requested 320px width.
 """
 import io
-import os
 import sqlite3
 import tempfile
-import threading
 from datetime import datetime
-from pathlib import Path
 
 import pytest
 from PIL import Image

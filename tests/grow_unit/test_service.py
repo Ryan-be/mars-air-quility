@@ -1,6 +1,10 @@
 """Service entrypoint orchestrates: load config → enrol if needed → boot WS + safety loop."""
 from unittest.mock import MagicMock, patch
-from mlss_grow.service import bootstrap_unit_state, _build_reconnect_sync
+from mlss_grow.service import (
+    _build_capabilities,
+    _build_reconnect_sync,
+    bootstrap_unit_state,
+)
 import pytest
 
 
@@ -144,9 +148,6 @@ def test_build_reconnect_sync_swallows_apply_failure():
 
 
 # ─── Capability frame building (Bucket A1) ────────────────────────
-
-
-from mlss_grow.service import _build_capabilities
 
 
 class _FakeSensor:

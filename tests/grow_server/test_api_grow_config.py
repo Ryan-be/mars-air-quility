@@ -1329,7 +1329,7 @@ def test_pid_field_registry_profile_columns_unique():
 
 def test_put_photo_schedule_writes_both_columns(client):
     """admin PUT with explicit window → both columns set."""
-    c, fake_ws, db_path = client
+    c, _fake_ws, db_path = client
     r = c.put(
         "/api/grow/units/1/photo_schedule",
         data=json.dumps({"start_hour": 6, "end_hour": 22}),
@@ -1442,7 +1442,7 @@ def test_put_photo_schedule_pushes_config_changed(client):
 def test_get_unit_config_includes_photo_active_hours(client, monkeypatch):
     """Firmware GET /config response must include photo_active_hours so
     config_sync can populate LoopConfig.photo_active_hours."""
-    c, _ws, db_path = client
+    c, _ws, _db_path = client
     # Set a window on the unit
     c.put(
         "/api/grow/units/1/photo_schedule",
@@ -1468,7 +1468,7 @@ def test_get_unit_config_includes_photo_active_hours(client, monkeypatch):
 def test_get_unit_config_photo_active_hours_null_for_24x7(client, monkeypatch):
     """When both columns are NULL, the response field is null (firmware
     sees None → keeps its default 24/7 behaviour)."""
-    c, _ws, db_path = client
+    c, _ws, _db_path = client
     # Default unit has both NULL — confirm response is null
     monkeypatch.setattr(
         "mlss_monitor.routes.api_grow_config._validate_bearer",
