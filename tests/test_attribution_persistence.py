@@ -1,6 +1,17 @@
 """Tests for AttributionEngine classifier persistence."""
 import pickle
-from unittest.mock import patch
+import sys
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+# When river fails to install (typically Windows dev — its C extension hits the
+# path-too-long limit), tests/conftest.py mocks it as MagicMock. Pickling a
+# MagicMock raises "not the same object as MagicMock" under Python 3.11's
+# metaclass identity check, so any test that round-trips a real river model
+# through pickle is skipped on those hosts. CI's Linux runners install river
+# cleanly, so the tests run there.
+_river_mocked = isinstance(sys.modules.get("river"), MagicMock)
 
 
 def _make_engine(config_path, monkeypatch):
@@ -46,6 +57,10 @@ def test_train_on_tags_saves_pickle(tmp_path, monkeypatch):
     assert pkl_path.exists(), "classifier.pkl should be written after training"
 
 
+@pytest.mark.skipif(
+    _river_mocked,
+    reason="river is mocked; pickle round-trip needs real install",
+)
 def test_init_loads_existing_pickle(tmp_path, monkeypatch):
     """__init__ should load classifier from pickle and skip DB retraining."""
     config_path = tmp_path / "config" / "fingerprints.yaml"

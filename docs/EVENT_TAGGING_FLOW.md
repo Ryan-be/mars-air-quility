@@ -1,5 +1,7 @@
 # Mars Air Quality: Event Tagging Flow - Complete Analysis
 
+[Back to main README](../readme.md) · [Inference engine reference](../readme.md#inference-engine)
+
 ## Summary
 
 Event tagging in mars-air-quality is a sophisticated flow that allows users to mark time ranges on the **Correlations tab**, capture rich sensor data, extract temporal features, generate inferences, and feed tagged data to ML models for attribution learning. The system learns sensor patterns associated with real-world pollution sources to improve future automatic detection.

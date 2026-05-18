@@ -22,6 +22,10 @@ echo "=============================="
 echo ""
 
 # ── 1. System packages ────────────────────────────────────────────────────────
+# ffmpeg is required by mlss_monitor/grow/timelapse_jobs.py for grow-unit
+# time-lapse video rendering on the History tab. Without it the POST
+# endpoint returns 503 ffmpeg_not_installed on first use — install it
+# here so a fresh setup is ready to go end-to-end.
 info "Installing system build dependencies..."
 sudo apt-get update -q
 sudo apt-get install -y \
@@ -33,7 +37,8 @@ sudo apt-get install -y \
     zlib1g-dev \
     i2c-tools \
     git \
-    curl
+    curl \
+    ffmpeg
 success "System packages installed"
 
 # ── 2. Enable I2C ─────────────────────────────────────────────────────────────
@@ -45,6 +50,37 @@ else
     CONFIG_FILE="/boot/firmware/config.txt"
     [ -f /boot/config.txt ] && CONFIG_FILE="/boot/config.txt"
     sudo sh -c "echo 'dtparam=i2c_arm=on' >> $CONFIG_FILE"
+fi
+
+# ── 2a. Enable UART for PM sensor (PMSA003 on /dev/serial0) ──────────────────
+# The SB Components Air Monitoring HAT reads particulate matter via the
+# hardware UART. Two things must be true:
+#   (a) Serial console disabled + hardware UART enabled at the kernel
+#       level. raspi-config's `do_serial 2` does both in one shot.
+#   (b) The user that runs mlss-monitor must be in the `dialout` group
+#       because /dev/serial0 is root:dialout 660 by default.
+# Both were previously manual readme steps — the symptom of either
+# missing is the same: EACCES flood in `journalctl -u mlss-monitor` and
+# zero PM telemetry. Automate both so first-boot just works.
+if command -v raspi-config >/dev/null 2>&1; then
+    # do_serial 2: serial login console DISABLED, hardware UART ENABLED.
+    # Idempotent — safe to re-run; raspi-config returns 0 either way.
+    info "Enabling hardware UART for PM sensor..."
+    sudo raspi-config nonint do_serial 2 || warn "do_serial returned non-zero — UART may need manual enable"
+    success "UART configured (reboot required to take effect)"
+else
+    warn "raspi-config not found — enable UART manually per readme.md"
+fi
+
+# Add the operator to the dialout group so /dev/serial0 is readable.
+# `id -nG` lists the user's current groups; `grep -qw dialout` matches
+# the whole word so 'dialout' isn't also matched by e.g. 'dialoutfoo'.
+if id -nG "$USER" 2>/dev/null | grep -qw dialout; then
+    success "$USER already in dialout group"
+else
+    info "Adding $USER to dialout group (for /dev/serial0 access)..."
+    sudo usermod -aG dialout "$USER"
+    warn "Group change takes effect on next login OR after 'sudo systemctl restart mlss-monitor'"
 fi
 
 # ── 3. Configure piwheels (pre-built ARM wheels — much faster installs) ───────

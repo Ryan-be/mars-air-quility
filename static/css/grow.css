@@ -1,0 +1,1830 @@
+/* Plant Grow Unit styles — Grow tab + per-unit detail page */
+
+/* ============================================================
+   Design tokens (introduced in the 2026-05-08 design-critique
+   pass — see docs/superpowers/audits/2026-05-08-grow-ui-design-
+   critique.md for the rationale). The grow stylesheet had drifted
+   to 6 letter-spacing values, 5 small font sizes, 5 "dark" blacks,
+   3 border greys, and 5 text greys — many of those pairs differing
+   by ~8% lightness, almost certainly copy-paste inconsistency.
+   These tokens collapse the drift to ~3 values per category.
+
+   Every numeric value used in margin/padding/gap on the grow pages
+   should resolve to one of the --space-* steps below — that's how
+   we get consistent button + card edge spacing across components.
+   ============================================================ */
+:root {
+  /* Spacing scale (4px base; padding + gap + margin) */
+  --grow-space-1: 4px;
+  --grow-space-2: 8px;
+  --grow-space-3: 12px;
+  --grow-space-4: 16px;
+  --grow-space-5: 20px;
+  --grow-space-6: 24px;
+  --grow-space-7: 32px;
+
+  /* Surfaces (page → panel → sub-panel → input) */
+  --grow-bg-page: #080c11;
+  --grow-bg-panel: #142028;
+  --grow-bg-sub: #0e1722;
+  --grow-bg-input: #0a1219;
+
+  /* Borders */
+  --grow-border-subtle: #1c2733;     /* hairline separator inside panels */
+  --grow-border-panel: #1f2e3c;      /* panel outline */
+  --grow-border-emph: #2a3d50;       /* input + button borders */
+
+  /* Text */
+  --grow-text-primary: #fff;
+  --grow-text-body: #c2d2e3;
+  --grow-text-muted: #7d92a8;
+
+  /* Accents */
+  --grow-accent: #4dacff;
+  --grow-accent-on: #001028;          /* foreground on accent-blue bg */
+  --grow-good: #56f000;
+  --grow-warn: #ffb302;
+  --grow-bad: #ff5252;
+
+  /* Typography */
+  --grow-fs-xs: 10px;
+  --grow-fs-sm: 12px;
+  --grow-fs-md: 13px;
+  --grow-fs-lg: 14px;
+  --grow-fs-xl: 22px;
+  --grow-ls-body: 0;
+  --grow-ls-headline: 0.04em;
+  --grow-ls-allcaps: 0.08em;
+
+  /* Border radius */
+  --grow-radius-sm: 2px;
+  --grow-radius-md: 3px;
+
+  /* Card / panel sizing caps */
+  --grow-card-photo-max-h: 220px;     /* fleet card thumbnail */
+  --grow-detail-photo-max-h: 360px;   /* unit-detail Live-tab hero */
+}
+
+.grow-fleet { padding: 0; }
+
+/* ============================================================
+   Storage-low warning banner (Phase 3 Task 6)
+   ============================================================
+   Rendered above the fleet view + grow settings page when the
+   grow_images mount point is at/over the configured threshold
+   (default 90% — see app_settings.grow_disk_warn_pct). Amber
+   palette to match the rest of the warn-tier UI without escalating
+   to the red of an active fault. */
+.storage-warning {
+  margin: 14px 20px;
+  padding: 12px 16px;
+  background: rgba(255, 179, 2, 0.12);
+  border: 1px solid #c97f00;
+  border-left: 4px solid #ffb302;
+  border-radius: 3px;
+  color: #ffd779;
+  font-family: Roboto, sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  letter-spacing: 0.02em;
+}
+
+/* Grow tab fleet view.
+   Design-critique #2: + Add Unit lives next to the count summary on
+   the left rather than floating in the top-right. justify-content
+   was previously space-between which pushed the button to the
+   opposite edge — operators looking at the cards then had to scan
+   right to find the way to add another. Left-aligned with a wide
+   gap reads as "summary, then call-to-action". */
+.grow-pageheader {
+  display: flex; align-items: center; justify-content: flex-start;
+  padding: var(--grow-space-4) var(--grow-space-5);
+  border-bottom: 1px solid var(--grow-border-subtle);
+  background: linear-gradient(180deg, var(--grow-bg-sub), #0a1219);
+  gap: var(--grow-space-7); flex-wrap: wrap;
+  font-family: Roboto, sans-serif;
+}
+.grow-summary {
+  display: flex; gap: var(--grow-space-7); align-items: baseline;
+  color: var(--grow-text-body); flex-wrap: wrap;
+}
+.grow-summary .num {
+  font-size: var(--grow-fs-xl); font-weight: 500;
+  color: var(--grow-text-primary); margin-right: var(--grow-space-2);
+}
+.grow-summary .num.warn { color: var(--grow-warn); }
+.grow-summary .num.crit { color: var(--grow-bad); }
+.grow-summary .num.ok { color: var(--grow-good); }
+.grow-summary .lbl {
+  font-size: var(--grow-fs-xs); letter-spacing: var(--grow-ls-allcaps);
+  text-transform: uppercase; color: var(--grow-text-muted);
+}
+.px-btn {
+  background: var(--grow-accent); color: var(--grow-accent-on); border: none;
+  padding: var(--grow-space-2) var(--grow-space-4);
+  font-size: var(--grow-fs-sm); letter-spacing: var(--grow-ls-allcaps);
+  text-transform: uppercase; font-family: Roboto, sans-serif;
+  cursor: pointer; border-radius: var(--grow-radius-sm); font-weight: 500;
+  transition: opacity 0.12s, background 0.12s;
+}
+/* Disabled state: clear "can't click yet" cursor + reduced opacity.
+   Design-critique #14 — previously cursor:progress (the spinner) was
+   used for both "currently saving" AND "prerequisites not met". The
+   spinner cursor mis-communicates the latter; not-allowed is correct.
+   The is-saving class (set by JS during the actual fetch) overrides
+   cursor back to progress so the in-flight state still reads right. */
+.px-btn:disabled {
+  opacity: 0.45; cursor: not-allowed;
+}
+.px-btn.is-saving:disabled {
+  cursor: progress; opacity: 0.7;
+}
+
+/* Fleet filter/sort row (Phase 2 Task 4) — sits between the page-header
+   summary and the card grid. Phase + status chips render statically;
+   plant-type chips are derived from the fleet's plant_type values, so
+   the chip list matches whatever plants are actually enrolled. */
+.fleet-filter-row {
+  display: flex; flex-wrap: wrap; gap: var(--grow-space-4);
+  align-items: center;
+  padding: var(--grow-space-3) var(--grow-space-5);
+  background: var(--grow-bg-sub);
+  border-bottom: 1px solid var(--grow-border-subtle);
+  font-family: Roboto, sans-serif;
+}
+.fleet-filter-group {
+  display: flex; gap: var(--grow-space-1); align-items: center;
+  flex-wrap: wrap;
+}
+.fleet-filter-label {
+  color: var(--grow-text-muted); font-size: var(--grow-fs-xs);
+  letter-spacing: var(--grow-ls-allcaps);
+  text-transform: uppercase; margin-right: var(--grow-space-1);
+}
+.fleet-filter-chip {
+  padding: var(--grow-space-1) var(--grow-space-3); border-radius: 12px;
+  background: transparent; border: 1px solid var(--grow-border-emph);
+  color: var(--grow-text-body); cursor: pointer; font-size: var(--grow-fs-sm);
+  letter-spacing: var(--grow-ls-headline); font-family: Roboto, sans-serif;
+  transition: border-color 0.12s, background 0.12s, color 0.12s;
+}
+.fleet-filter-chip:hover { border-color: var(--grow-accent); color: var(--grow-accent); }
+.fleet-filter-chip.active {
+  background: var(--grow-accent); color: var(--grow-accent-on);
+  border-color: var(--grow-accent);
+}
+.fleet-filter-chip.active:hover { color: var(--grow-accent-on); }
+.fleet-filter-sort {
+  background: var(--grow-bg-input); color: var(--grow-text-body);
+  border: 1px solid var(--grow-border-emph); border-radius: var(--grow-radius-sm);
+  padding: var(--grow-space-1) var(--grow-space-2); font-size: var(--grow-fs-sm);
+  font-family: Roboto, sans-serif;
+}
+.fleet-filter-sort:focus { outline: none; border-color: var(--grow-accent); }
+
+.grow-grid {
+  display: grid;
+  /* Cap card max-width to 360px so a single unit doesn't sprawl across
+     the full viewport with its photo. minmax(280px, 360px) keeps cards
+     visually consistent on desktop sizes while still wrapping to single-
+     column on phones. */
+  grid-template-columns: repeat(auto-fit, minmax(280px, 360px));
+  gap: var(--grow-space-4);
+  padding: var(--grow-space-5);
+  background: var(--grow-bg-page);
+  justify-content: start;
+}
+
+.gu-card {
+  background: var(--grow-bg-panel);
+  border: 1px solid var(--grow-border-panel);
+  border-radius: var(--grow-radius-md);
+  display: flex; flex-direction: column; overflow: hidden;
+  font-family: Roboto, "Apple Color Emoji", "Segoe UI Emoji",
+               "Noto Color Emoji", sans-serif;
+  color: var(--grow-text-body);
+  font-size: var(--grow-fs-md);
+  transition: border-color 0.15s, transform 0.15s;
+}
+.gu-card:hover { border-color: var(--grow-accent); transform: translateY(-2px); cursor: pointer; }
+.gu-card.stale { opacity: 0.78; }
+.gu-card.offline { opacity: 0.55; border-color: #5a3014; }
+
+.gu-head {
+  padding: var(--grow-space-3) var(--grow-space-3) var(--grow-space-2);
+  display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid var(--grow-border-subtle); gap: var(--grow-space-2);
+}
+.gu-name { font-size: var(--grow-fs-lg); font-weight: 500; color: var(--grow-text-primary); }
+.gu-meta {
+  font-size: var(--grow-fs-sm); color: var(--grow-text-muted);
+  margin-top: 2px; letter-spacing: var(--grow-ls-body);
+}
+
+/* Status pill (NOMINAL / CAUTION / STALE / OFFLINE). Bumped from
+   --grow-fs-xs (10px) to --grow-fs-sm (12px) and font-weight 500
+   for design-critique #4 — the smaller size + low-saturation green
+   on dark blue was borderline-legible. The tinted background per
+   variant gives more contrast than the plain dark background. */
+.gu-status {
+  display: inline-flex; align-items: center; gap: var(--grow-space-1);
+  font-size: var(--grow-fs-sm); letter-spacing: var(--grow-ls-allcaps);
+  text-transform: uppercase; padding: 3px var(--grow-space-2);
+  border-radius: var(--grow-radius-sm); background: #0c151c; flex-shrink: 0;
+  font-weight: 500;
+}
+/* Per-status tinted backgrounds — extends the bare colour assignments
+   below. Each variant gets a soft halo so the pill reads as a chip
+   rather than just text. */
+.gu-status.st-normal { background: rgba(86, 240, 0, 0.14); }
+.gu-status.st-caution { background: rgba(255, 179, 2, 0.14); }
+.gu-status.st-standby { background: rgba(77, 172, 255, 0.14); }
+.gu-status.st-serious { background: rgba(255, 82, 82, 0.14); }
+.st-normal { color: var(--grow-good); }
+.st-caution { color: var(--grow-warn); }
+.st-standby { color: var(--grow-accent); }
+.st-serious { color: var(--grow-bad); }
+/* Group the status pill and (optional) buffered badge stacked on the
+   right of the card header. Phase 3 Task 6: buffered badge surfaces
+   `last_buffer_size` so operators see at a glance which units had a
+   recent connection drop and are still draining their queue. */
+.gu-head-right {
+  display: flex; flex-direction: column; align-items: flex-end;
+  gap: var(--grow-space-1); flex-shrink: 0;
+}
+.gu-card-buffered-badge {
+  display: inline-flex; align-items: center; gap: var(--grow-space-1);
+  font-size: var(--grow-fs-xs); letter-spacing: var(--grow-ls-headline);
+  padding: 2px 6px; border-radius: var(--grow-radius-sm);
+  background: rgba(255, 179, 2, 0.12); color: var(--grow-warn);
+  font-family: Roboto, sans-serif;
+}
+
+/* Fleet-card photo: 4:3 aspect ratio, but capped to --grow-card-photo-max-h
+   (default 220px). Without the cap, a single-card row at 1232px viewport
+   would render the photo ~924px tall — burying the rest of the card
+   below the fold. The cap turns it into a wider letterbox once the cap
+   bites; background-size: cover handles the crop. */
+.gu-photo {
+  aspect-ratio: 4 / 3;
+  max-height: var(--grow-card-photo-max-h);
+  background: var(--grow-bg-input) center/cover no-repeat;
+}
+.gu-photo.no-photo {
+  display: flex; align-items: center; justify-content: center;
+  color: #4a5d72; font-size: var(--grow-fs-sm);
+  /* When there's no photo, don't reserve the full thumbnail height —
+     a 100px placeholder is enough chrome for "no photo" to be obvious
+     without wasting card real estate. */
+  aspect-ratio: auto; min-height: 100px; max-height: 100px;
+}
+
+.gu-stats {
+  padding: var(--grow-space-3); display: grid;
+  grid-template-columns: 1fr 1fr 1fr; gap: var(--grow-space-2);
+  align-items: end; border-bottom: 1px solid var(--grow-border-subtle);
+}
+.gu-stat .v {
+  font-size: 18px; font-weight: 500;
+  color: var(--grow-text-primary); line-height: 1;
+}
+.gu-stat .v.warn { color: var(--grow-warn); }
+.gu-stat .l {
+  font-size: var(--grow-fs-xs); letter-spacing: var(--grow-ls-allcaps);
+  text-transform: uppercase; color: var(--grow-text-muted);
+  margin-top: var(--grow-space-1);
+}
+
+.gu-foot {
+  padding: var(--grow-space-2) var(--grow-space-3);
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--grow-bg-sub); gap: var(--grow-space-2);
+}
+.gu-lastseen {
+  font-size: var(--grow-fs-xs); color: var(--grow-text-muted);
+  letter-spacing: var(--grow-ls-headline);
+}
+.gu-actions { display: flex; gap: var(--grow-space-2); }
+.gu-btn {
+  background: transparent; border: 1px solid var(--grow-border-emph);
+  color: var(--grow-text-body);
+  padding: var(--grow-space-1) var(--grow-space-3);
+  font-size: var(--grow-fs-xs); letter-spacing: var(--grow-ls-allcaps);
+  text-transform: uppercase; cursor: pointer;
+  border-radius: var(--grow-radius-sm); font-family: Roboto, sans-serif;
+  text-decoration: none;
+}
+.gu-btn:hover { border-color: var(--grow-accent); color: var(--grow-accent); }
+
+/* Per-unit detail page.
+   font-family includes platform emoji fonts so the camera / soil /
+   light glyphs in panel heads render as intended (design-critique
+   #11). Without them, some Linux systems substituted a "□" missing-
+   glyph or a low-fidelity TUI box character. */
+.du-page {
+  font-family: Roboto, "Apple Color Emoji", "Segoe UI Emoji",
+               "Noto Color Emoji", sans-serif;
+  color: var(--grow-text-body);
+  background: var(--grow-bg-page); min-height: 100vh;
+}
+.du-header {
+  padding: var(--grow-space-4) var(--grow-space-5);
+  border-bottom: 1px solid var(--grow-border-subtle);
+  background: linear-gradient(180deg, var(--grow-bg-sub), #0a1219);
+}
+/* Back-to-fleet link. Design-critique #6 raised contrast (text-body,
+   not text-muted, so it reads as nav rather than metadata) and
+   added a chevron prefix via ::before pseudo so the literal "←"
+   character isn't the only visual signal. */
+.du-back {
+  color: var(--grow-text-body); font-size: var(--grow-fs-sm);
+  letter-spacing: var(--grow-ls-allcaps); text-decoration: none;
+  text-transform: uppercase; display: inline-flex; align-items: center;
+  gap: var(--grow-space-1);
+  margin-bottom: var(--grow-space-3);
+  padding: var(--grow-space-1) var(--grow-space-2);
+  border-radius: var(--grow-radius-sm);
+  border: 1px solid transparent;
+  transition: border-color 0.12s, color 0.12s;
+}
+.du-back::before {
+  content: "‹";
+  font-size: 18px; line-height: 1; font-weight: 500;
+  color: var(--grow-text-muted);
+  transition: color 0.12s, transform 0.12s;
+}
+.du-back:hover {
+  color: var(--grow-accent); border-color: var(--grow-border-emph);
+}
+.du-back:hover::before {
+  color: var(--grow-accent); transform: translateX(-2px);
+}
+.du-title {
+  display: flex; align-items: baseline; gap: var(--grow-space-3);
+  flex-wrap: wrap;
+}
+.du-title h2 {
+  color: var(--grow-text-primary); font-size: var(--grow-fs-xl);
+  font-weight: 500; margin: 0;
+}
+/* Pill harmonisation (design-critique #5): all four pill flavours
+   (du-pill default / phase / medium / status) share the same
+   transparent-tint translucent style so they read as a uniform pill row
+   varying only by colour. Previously phase used solid-green-bg, status
+   was a different element entirely. */
+.du-pill {
+  background: rgba(77, 172, 255, 0.12); color: var(--grow-accent);
+  padding: 3px var(--grow-space-2); font-size: var(--grow-fs-xs);
+  letter-spacing: var(--grow-ls-allcaps); text-transform: uppercase;
+  border-radius: var(--grow-radius-sm);
+}
+.du-pill.phase {
+  background: rgba(86, 240, 0, 0.12); color: var(--grow-good);
+}
+.du-pill.medium {
+  background: rgba(194, 210, 227, 0.10); color: var(--grow-text-body);
+}
+.du-pill.status-normal {
+  background: rgba(86, 240, 0, 0.12); color: var(--grow-good);
+}
+.du-pill.status-caution {
+  background: rgba(255, 179, 2, 0.15); color: var(--grow-warn);
+}
+.du-pill.status-serious {
+  background: rgba(255, 82, 82, 0.15); color: var(--grow-bad);
+}
+.du-pill.status-standby {
+  background: rgba(77, 172, 255, 0.12); color: var(--grow-accent);
+}
+
+.du-tabs {
+  display: flex; gap: 0;
+  padding: 0 var(--grow-space-5);
+  background: #0a1219;
+  border-bottom: 1px solid var(--grow-border-subtle);
+}
+.du-tab {
+  padding: var(--grow-space-3) var(--grow-space-5);
+  font-size: var(--grow-fs-sm); letter-spacing: var(--grow-ls-allcaps);
+  text-transform: uppercase; color: var(--grow-text-muted);
+  cursor: pointer; border-bottom: 2px solid transparent;
+  background: none; border-left: none; border-right: none; border-top: none;
+  font-family: Roboto, sans-serif;
+}
+.du-tab:hover:not(.disabled) { color: var(--grow-text-body); }
+/* Active tab: bolder underline + weight (was a thin 2px line, easy to
+   miss). Also brighter foreground color so scan-ability improves. */
+.du-tab.active {
+  color: var(--grow-accent); border-bottom-color: var(--grow-accent);
+  font-weight: 500;
+  border-bottom-width: 3px;
+}
+.du-tab.disabled { opacity: 0.4; cursor: not-allowed; }
+
+.du-quick {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--grow-space-2); padding: var(--grow-space-3);
+}
+.du-act-btn {
+  background: transparent; border: 1px solid var(--grow-border-emph);
+  color: var(--grow-text-body);
+  padding: var(--grow-space-2) var(--grow-space-3);
+  font-size: var(--grow-fs-sm); letter-spacing: var(--grow-ls-allcaps);
+  text-transform: uppercase; cursor: pointer;
+  border-radius: var(--grow-radius-sm); font-family: Roboto, sans-serif;
+}
+.du-act-btn:hover:not(:disabled) { border-color: var(--grow-accent); color: var(--grow-accent); }
+.du-act-btn.primary {
+  background: var(--grow-accent); color: var(--grow-accent-on);
+  border-color: var(--grow-accent);
+}
+.du-act-btn.locked, .du-act-btn:disabled {
+  background: var(--grow-bg-sub); color: #4a5d72;
+  border-color: var(--grow-border-panel); cursor: not-allowed; opacity: 0.85;
+}
+/* Sense-only-mode (Phase 2): health-state styling for capability buttons.
+   .greyed alone = "untested" (clickable so user can kick off a test).
+   .greyed + .unresponsive / .no-hardware = button also disabled by JS. */
+.du-act-btn.greyed { opacity: 0.5; }
+.du-act-btn.greyed:not(:disabled) { cursor: pointer; }
+.du-act-btn.unresponsive { border-color: #c84747; color: #c84747; }
+.du-act-btn.no-hardware { border-color: #555; color: #777; }
+/* Optional pill rendered in stat tiles when a sensor capability isn't
+   reading cleanly. The four-corner placement keeps it from crowding the
+   stat value while still being unmissable. */
+.cap-health-pill { display: inline-block; font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 6px; border-radius: 2px; margin-left: 6px; vertical-align: middle; }
+.cap-health-pill.untested { background: #2a3a4d; color: #7d92a8; }
+.cap-health-pill.unresponsive { background: #4d2424; color: #c84747; }
+.cap-health-pill.no-hardware { background: #2c3540; color: #888; }
+/* Live-tab photo hero. 16:9 aspect ratio capped at --grow-detail-photo-max-h
+   (default 360px). Without the cap, a viewport-width photo of 1232px
+   renders ~693px tall — the entire Quick Controls row gets pushed below
+   the fold. Cap turns it into a wider letterbox once the cap bites;
+   background-size cover handles the crop. Cursor:pointer signals the
+   click-to-lightbox affordance. */
+.du-photo-hero {
+  aspect-ratio: 16/9;
+  max-height: var(--grow-detail-photo-max-h);
+  background: var(--grow-bg-input);
+}
+
+/* Empty-state placeholder used inside .du-panel when a panel has no
+   data to render. Centred body-muted text, generous padding so it
+   doesn't sit flush against the panel head divider. */
+.du-empty-state {
+  padding: var(--grow-space-6) var(--grow-space-5);
+  text-align: center;
+  color: var(--grow-text-muted);
+  font-size: var(--grow-fs-sm);
+  line-height: 1.5;
+  letter-spacing: var(--grow-ls-body);
+}
+
+/* ============================================================
+   Stat tiles — the data-driven Live-readings grid. The JS in
+   stat-tile.mjs emits .du-stat-grid containers with .du-stat
+   children, each with a .v (big value), .l (small label), and
+   optional .sub (smallest). Left-border colour encodes whether
+   the capability is is_required (good-green) vs optional (accent-
+   blue). These class names were referenced by the JS since day
+   one but had no CSS rules — the panel was falling back to a
+   plain vertical stack with no visual hierarchy, which looked
+   like an unstyled debug list rather than a dashboard. Tiles
+   reflow from 2-up on narrow widths to 4+ on wide via auto-fit.
+   ============================================================ */
+.du-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--grow-space-3);
+  padding: var(--grow-space-3) var(--grow-space-4);
+}
+.du-stat {
+  background: var(--grow-bg-sub);
+  border: 1px solid var(--grow-border-subtle);
+  border-left-width: 3px;
+  border-radius: var(--grow-radius-md);
+  padding: var(--grow-space-3) var(--grow-space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--grow-space-1);
+  /* Allow content to truncate cleanly in narrow columns rather than
+     forcing the column to widen and break the auto-fit grid. */
+  min-width: 0;
+}
+.du-stat.required-marker { border-left-color: var(--grow-good); }
+.du-stat.optional-marker { border-left-color: var(--grow-accent); }
+/* Plant-happiness border-colour overrides. These rules sit AFTER
+   required/optional-marker so the cascade picks them up on equal-
+   specificity ties — see stat-tile.mjs::renderStatTile where the
+   happy-* class is appended after the marker class on .className.
+   Three colour buckets map onto five zones (critical_low +
+   critical_high → happy-critical; tolerated_low + tolerated_high →
+   happy-tolerated; ideal → happy-ideal). */
+.du-stat.happy-ideal     { border-left-color: var(--grow-good); }
+.du-stat.happy-tolerated { border-left-color: var(--grow-warn); }
+.du-stat.happy-critical  { border-left-color: var(--grow-bad); }
+.du-stat .happy-range {
+  font-size: var(--grow-fs-xs);
+  color: var(--grow-text-muted);
+  letter-spacing: var(--grow-ls-body);
+}
+.du-stat .v {
+  font-size: var(--grow-fs-xl);
+  font-weight: 500;
+  color: var(--grow-text-primary);
+  letter-spacing: var(--grow-ls-body);
+  line-height: 1.2;
+  /* Tabular figures keep "23.7°C" and "104%" from jittering as
+     readings change — important for live-updating tiles. */
+  font-variant-numeric: tabular-nums;
+}
+.du-stat .v.warn { color: var(--grow-warn); }
+.du-stat .v.ok   { color: var(--grow-good); }
+.du-stat .l {
+  font-size: var(--grow-fs-sm);
+  color: var(--grow-text-muted);
+  letter-spacing: var(--grow-ls-headline);
+  /* Flex layout so the health pill (when present) sits inline
+     beside the label text rather than wrapping awkwardly. */
+  display: flex;
+  align-items: center;
+  gap: var(--grow-space-2);
+  flex-wrap: wrap;
+}
+.du-stat .sub {
+  font-size: var(--grow-fs-xs);
+  color: var(--grow-text-muted);
+}
+
+/* 24h schedule bar — track + tick marks + NOW indicator + axis labels.
+   Design-critique #10: the bar previously had no axis markers, just
+   a coloured slab. Operators couldn't tell where in the 24h day the
+   green NOW tick was. Six ticks at 4h spacing + a labels row below
+   give enough resolution without clutter. */
+.du-schedule-bar {
+  padding: var(--grow-space-4);
+  /* Allow room beneath the track for the labels row that's positioned
+     after the track, plus headroom above for the NOW label.            */
+  padding-top: var(--grow-space-5);
+}
+.du-schedule-track {
+  height: 24px; background: var(--grow-bg-input);
+  border-radius: var(--grow-radius-sm);
+  position: relative; overflow: visible;
+  margin-bottom: 4px;
+}
+.du-schedule-on {
+  position: absolute; top: 0; bottom: 0;
+  background: linear-gradient(180deg, var(--grow-accent), #2476b8);
+  opacity: 0.75;
+}
+.du-schedule-tick {
+  position: absolute; top: -2px; bottom: -2px; width: 1px;
+  background: var(--grow-border-emph);
+  pointer-events: none;
+}
+.du-schedule-now {
+  position: absolute; top: -4px; bottom: -4px; width: 2px;
+  background: var(--grow-good);
+  box-shadow: 0 0 8px var(--grow-good);
+  z-index: 2;
+}
+.du-schedule-now .lbl {
+  position: absolute; top: -16px; left: 4px;
+  font-size: var(--grow-fs-xs); color: var(--grow-good);
+  letter-spacing: var(--grow-ls-allcaps);
+  white-space: nowrap; font-weight: 500;
+}
+.du-schedule-labels {
+  position: relative; height: 14px;
+  margin-top: 2px;
+}
+.du-schedule-label {
+  position: absolute;
+  font-size: var(--grow-fs-xs); color: var(--grow-text-muted);
+  letter-spacing: var(--grow-ls-headline);
+  white-space: nowrap;
+  /* Center each label under its tick by translating left half its
+     own width — labels are short enough that 18px works for HH:00. */
+  transform: translateX(-50%);
+  font-family: 'SFMono-Regular', Consolas, monospace;
+}
+
+/* Configure-tab editor panels (profile + PID + light-windows + calibration + safety)
+   All panels use the same outer .du-panel wrapper for consistent edge
+   spacing across the page. Inner content is padded by .cfg-form / etc.
+   so panels never butt against the panel border. */
+.du-panel {
+  background: var(--grow-bg-panel);
+  border: 1px solid var(--grow-border-panel);
+  border-radius: var(--grow-radius-md);
+  margin: var(--grow-space-3) var(--grow-space-5);
+}
+.du-panel-head {
+  padding: var(--grow-space-3) var(--grow-space-4);
+  border-bottom: 1px solid var(--grow-border-subtle);
+  color: var(--grow-text-primary); font-size: var(--grow-fs-md);
+  font-weight: 500; letter-spacing: var(--grow-ls-headline);
+}
+.cfg-profile, .cfg-pid { padding-bottom: var(--grow-space-3); }
+.cfg-form { padding: var(--grow-space-3) var(--grow-space-4); }
+/* Form row: 2-column layout (label + input). Labels get a fixed column
+   width so inputs of varying lengths don't stagger across rows.
+   Previous flex-wrap layout caused "KP" and "SOAK WINDOW (MIN)" to
+   produce different input-start columns. */
+.cfg-row {
+  display: grid;
+  grid-template-columns: 160px 1fr auto auto;
+  gap: var(--grow-space-3); align-items: center;
+  margin-bottom: var(--grow-space-2);
+}
+@media (max-width: 540px) {
+  /* Phones stack rows; restore wrap behaviour. */
+  .cfg-row {
+    grid-template-columns: 1fr;
+    gap: var(--grow-space-1);
+    margin-bottom: var(--grow-space-3);
+  }
+}
+.cfg-row label {
+  font-size: var(--grow-fs-sm); letter-spacing: var(--grow-ls-allcaps);
+  text-transform: uppercase; color: var(--grow-text-muted);
+}
+.cfg-row input[type=text], .cfg-row input[type=date], .cfg-row input[type=number],
+.cfg-row select, .cfg-row textarea {
+  background: var(--grow-bg-input); color: var(--grow-text-body);
+  border: 1px solid var(--grow-border-emph); border-radius: var(--grow-radius-sm);
+  padding: var(--grow-space-2) var(--grow-space-2);
+  font-size: var(--grow-fs-sm); font-family: Roboto, sans-serif;
+  min-width: 0; /* prevents flex/grid blowout on long values */
+}
+.cfg-row textarea { resize: vertical; }
+.cfg-row input:focus, .cfg-row select:focus, .cfg-row textarea:focus {
+  outline: none; border-color: var(--grow-accent);
+}
+.cfg-pid-row input[type=number] { max-width: 120px; }
+/* PID controller row: design-critique #13 dropped the (DEFAULT) text
+   badge in favour of a single-character status dot — far less visual
+   noise next to the (default) input placeholder. Filled dot = override
+   active; hollow dot = inheriting plant-profile default. */
+.cfg-badge {
+  display: inline-block; width: 10px; height: 10px;
+  border-radius: 50%; flex-shrink: 0;
+  border: 1.5px solid var(--grow-border-emph);
+  /* Visually hide the (default) / (custom) text content while keeping it
+     accessible to screen readers + tests. The dot itself is the visual,
+     and a `title` attribute on the element provides a hover tooltip for
+     sighted users. text-indent moves the text off-canvas; overflow:hidden
+     keeps the dot at its 10×10 footprint. */
+  font-size: 0; line-height: 1; text-indent: -9999px; overflow: hidden;
+  vertical-align: middle;
+}
+.cfg-badge.default { background: transparent; }
+.cfg-badge.custom { background: var(--grow-warn); border-color: var(--grow-warn); }
+.cfg-badge[title]:hover { cursor: help; }
+.cfg-reset {
+  background: transparent; border: 1px solid var(--grow-border-emph);
+  color: var(--grow-text-muted);
+  padding: var(--grow-space-1) var(--grow-space-3);
+  font-size: var(--grow-fs-xs); letter-spacing: var(--grow-ls-allcaps);
+  text-transform: uppercase; cursor: pointer;
+  border-radius: var(--grow-radius-sm); font-family: Roboto, sans-serif;
+}
+.cfg-reset:hover:not(:disabled) { border-color: var(--grow-accent); color: var(--grow-accent); }
+.cfg-reset:disabled { opacity: 0.35; cursor: not-allowed; }
+.cfg-actions {
+  margin-top: var(--grow-space-3);
+  padding: var(--grow-space-3) 0 0 0;
+  border-top: 1px solid var(--grow-border-subtle);
+  display: flex; align-items: center; gap: var(--grow-space-3);
+  flex-wrap: wrap;
+}
+.cfg-save { padding: var(--grow-space-2) var(--grow-space-5); }
+/* :disabled state inherits from .px-btn:disabled — cursor:not-allowed
+   for "prerequisites not met"; .is-saving overrides to cursor:progress
+   while a save is in flight. */
+.cfg-status {
+  font-size: var(--grow-fs-sm); letter-spacing: var(--grow-ls-headline);
+}
+.cfg-status.ok { color: var(--grow-good); }
+.cfg-status.err { color: var(--grow-bad); }
+
+/* Per-unit bearer-token rotator (Phase 1 spec §5) — mounted in the
+   Configure tab below the profile editor. State machine: idle → armed
+   (confirm modal) → reveal (one-shot token field) → done. Phase 3 will
+   re-host this in the Diagnostics tab Danger Zone — keep selectors
+   parented to .cfg-token-rotator so a future move doesn't disturb the
+   surrounding .du-panel layout. */
+.cfg-token-rotator { padding-bottom: 12px; }
+.tr-body { padding: 10px 14px; }
+.tr-blurb { color: #c2d2e3; font-size: 12px; line-height: 1.5; margin: 0 0 10px; }
+.tr-arm-row { display: flex; gap: 10px; align-items: center; }
+.px-btn.danger {
+  background: linear-gradient(180deg, #b22020, #7a1414);
+  color: #fff; border: 1px solid #8a1818;
+}
+.px-btn.danger:hover:not(:disabled) {
+  background: linear-gradient(180deg, #c92626, #8e1818);
+  box-shadow: 0 0 12px rgba(255, 82, 82, 0.5);
+}
+.px-btn.danger:disabled { opacity: 0.6; cursor: progress; }
+.tr-rotate-btn { padding: 9px 18px; }
+.tr-confirm-group {
+  margin-top: 10px; padding: 12px; border-radius: 2px;
+  background: rgba(255, 82, 82, 0.08); border: 1px solid #8a1818;
+}
+.tr-warn { color: #ffb302; font-size: 12px; line-height: 1.5; margin: 0 0 10px; }
+.tr-confirm-row { display: flex; gap: 10px; }
+.tr-reveal {
+  margin-top: 12px; padding: 12px; border-radius: 2px;
+  background: rgba(86, 240, 0, 0.08); border: 1px solid #2a6618;
+}
+.tr-reveal-head { color: #c2d2e3; font-size: 12px; margin-bottom: 8px; }
+.tr-token-row { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+.tr-token-input {
+  flex: 1; min-width: 200px;
+  background: #0a1219; color: #ffb302; border: 1px solid #2a3d50; border-radius: 2px;
+  padding: 6px 9px; font-size: 12px;
+  font-family: 'SFMono-Regular', Consolas, monospace;
+}
+.tr-token-input:focus { outline: none; border-color: #4dacff; }
+.tr-error {
+  margin-top: 10px; color: #ff5252; font-size: 12px;
+  padding: 8px 10px; border-radius: 2px; background: rgba(255, 82, 82, 0.1);
+}
+
+/* Light-windows editor (Task 7) — per-phase grouping with rows of HH:MM ranges.
+   Phase 4 polish: phases now render as <details> accordions, current
+   phase open by default, others collapsed. Reduces 10 visible buttons
+   (5 phases × Add+Save) to 2. The summary header is clickable. */
+.cfg-light-windows { padding-bottom: var(--grow-space-3); }
+.cfg-lw-phase {
+  margin: var(--grow-space-2) var(--grow-space-4);
+  padding: var(--grow-space-3);
+  border: 1px solid var(--grow-border-subtle);
+  border-radius: var(--grow-radius-sm);
+  background: var(--grow-bg-sub);
+}
+.cfg-lw-phase[open] {
+  border-color: var(--grow-border-emph);
+}
+.cfg-lw-phase-head {
+  font-size: var(--grow-fs-sm); letter-spacing: var(--grow-ls-allcaps);
+  text-transform: uppercase; color: var(--grow-text-body);
+  margin-bottom: 0; cursor: pointer;
+  display: flex; align-items: center; gap: var(--grow-space-3);
+  list-style: none;
+}
+.cfg-lw-phase-head::-webkit-details-marker { display: none; }
+.cfg-lw-phase-head::before {
+  content: "▶";
+  font-size: 8px;
+  color: var(--grow-text-muted);
+  transition: transform 0.15s;
+  display: inline-block;
+}
+.cfg-lw-phase[open] > .cfg-lw-phase-head::before {
+  transform: rotate(90deg);
+}
+.cfg-lw-phase-head strong {
+  color: var(--grow-text-primary); font-weight: 500;
+  flex-shrink: 0;
+}
+.cfg-lw-phase[open] > .cfg-lw-phase-head { margin-bottom: var(--grow-space-2); }
+.cfg-lw-current-tag {
+  display: inline-block;
+  font-size: var(--grow-fs-xs); letter-spacing: var(--grow-ls-headline);
+  background: rgba(86, 240, 0, 0.12); color: var(--grow-good);
+  padding: 2px var(--grow-space-2);
+  border-radius: var(--grow-radius-sm);
+  text-transform: uppercase;
+}
+.cfg-lw-summary-hint {
+  margin-left: auto;
+  font-size: var(--grow-fs-xs); letter-spacing: var(--grow-ls-headline);
+  color: var(--grow-text-muted);
+  text-transform: none;
+  font-style: italic;
+}
+.cfg-lw-rows { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.cfg-lw-row { display: flex; align-items: center; gap: 8px; }
+.cfg-lw-time {
+  width: 80px;
+  background: #0a1219; color: #c2d2e3; border: 1px solid #2a3d50; border-radius: 2px;
+  padding: 5px 8px; font-size: 12px; font-family: 'SFMono-Regular', Consolas, monospace;
+}
+.cfg-lw-time:focus { outline: none; border-color: #4dacff; }
+.cfg-lw-dash { color: #7d92a8; font-size: 13px; }
+.cfg-lw-remove {
+  background: transparent; border: 1px solid #2a3d50; color: #7d92a8;
+  width: 24px; height: 24px; line-height: 1; font-size: 14px;
+  cursor: pointer; border-radius: 2px;
+}
+.cfg-lw-remove:hover { border-color: #ff5252; color: #ff5252; }
+.cfg-lw-empty { font-size: 11px; color: #7d92a8; font-style: italic; margin-bottom: 8px; }
+.cfg-lw-add {
+  background: transparent; border: 1px dashed #2a3d50; color: #7d92a8;
+  padding: 5px 12px; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+  cursor: pointer; border-radius: 2px; font-family: Roboto, sans-serif;
+}
+.cfg-lw-add:hover:not(:disabled) { border-color: #4dacff; color: #4dacff; }
+.cfg-lw-add:disabled { opacity: 0.4; cursor: not-allowed; }
+.cfg-lw-actions { gap: 10px; margin-top: 8px; padding-top: 8px; border-top: 1px solid #1c2733; }
+
+/* Calibration wizard (Task 7) */
+.cfg-calibration { padding-bottom: 12px; }
+.cfg-cal-summary, .cfg-cal-wizard { padding: 10px 14px; }
+.cfg-cal-current { font-size: 12px; color: #c2d2e3; margin-bottom: 10px; }
+.cfg-cal-step {
+  font-size: 12px; color: #4dacff; margin-bottom: 10px;
+  letter-spacing: 0.04em; padding: 6px 10px;
+  background: rgba(77, 172, 255, 0.08); border-left: 2px solid #4dacff; border-radius: 2px;
+}
+.cfg-cal-captured { font-size: 12px; color: #c2d2e3; margin-bottom: 10px; font-family: 'SFMono-Regular', Consolas, monospace; }
+.cfg-cal-captured div { padding: 3px 0; }
+.cfg-cal-actions { gap: 10px; }
+
+/* Safety override (Task 7) — high-friction admin path */
+.cfg-safety { padding-bottom: 12px; }
+.cfg-safety-action-select, .cfg-safety-duration {
+  background: #0a1219; color: #c2d2e3; border: 1px solid #2a3d50; border-radius: 2px;
+  padding: 6px 9px; font-size: 12px; font-family: Roboto, sans-serif;
+}
+.cfg-safety-duration { max-width: 110px; }
+.cfg-safety-actions { gap: 12px; margin-top: 12px; padding-top: 10px; border-top: 1px solid #1c2733; }
+.cfg-safety-btn {
+  background: linear-gradient(180deg, #b22020, #7a1414);
+  color: #fff; border: 1px solid #8a1818;
+  padding: 11px 22px; font-size: 13px; font-weight: 500;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  font-family: Roboto, sans-serif; cursor: pointer; border-radius: 2px;
+  transition: background 0.1s, box-shadow 0.1s;
+}
+.cfg-safety-btn:hover:not(:disabled) {
+  background: linear-gradient(180deg, #c92626, #8e1818);
+  box-shadow: 0 0 12px rgba(255, 82, 82, 0.5);
+}
+.cfg-safety-btn.armed {
+  background: linear-gradient(180deg, #ff8a00, #b25b00);
+  border-color: #c46500;
+  box-shadow: 0 0 16px rgba(255, 138, 0, 0.6);
+  animation: cfg-safety-pulse 0.8s ease-in-out infinite;
+}
+.cfg-safety-btn:disabled { opacity: 0.6; cursor: progress; }
+@keyframes cfg-safety-pulse {
+  0%, 100% { box-shadow: 0 0 12px rgba(255, 138, 0, 0.5); }
+  50% { box-shadow: 0 0 20px rgba(255, 138, 0, 0.85); }
+}
+
+/* History tab — moisture history chart (Task 3) */
+.hist-chart { padding-bottom: 12px; }
+.hist-range-selector {
+  display: flex; gap: 6px; padding: 10px 14px 4px;
+}
+.hist-range-selector button {
+  background: transparent; border: 1px solid #2a3d50; color: #7d92a8;
+  padding: 5px 12px; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+  cursor: pointer; border-radius: 2px; font-family: Roboto, sans-serif;
+}
+.hist-range-selector button:hover:not(.active) { border-color: #4dacff; color: #4dacff; }
+.hist-range-selector button.active { background: #4dacff; color: #001028; border-color: #4dacff; }
+.hist-chart-host { padding: 8px 14px 12px; min-height: 240px; }
+.hist-chart-svg { width: 100%; height: auto; display: block; }
+
+/* History tab — photo timelapse scrubber (Task 4) */
+.hist-tlapse { padding-bottom: 12px; }
+.hist-tlapse-body { padding: 8px 14px 12px; min-height: 200px; }
+.hist-tlapse-img {
+  max-width: 100%; height: auto; display: block;
+  border-radius: 2px; border: 1px solid #1c2733; background: #0a1219;
+}
+.hist-tlapse-caption {
+  margin-top: 8px; font-size: 11px; color: #7d92a8;
+  letter-spacing: 0.04em; font-family: 'SFMono-Regular', Consolas, monospace;
+}
+.hist-tlapse-controls { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.hist-tlapse-controls button {
+  background: transparent; border: 1px solid #2a3d50; color: #c2d2e3;
+  padding: 5px 10px; font-size: 14px; line-height: 1;
+  cursor: pointer; border-radius: 2px; font-family: Roboto, sans-serif;
+  min-width: 36px;
+}
+.hist-tlapse-controls button:hover { border-color: #4dacff; color: #4dacff; }
+.hist-tlapse-controls select {
+  background: transparent; border: 1px solid #2a3d50; color: #c2d2e3;
+  padding: 4px 6px; font-size: 12px; line-height: 1;
+  cursor: pointer; border-radius: 2px; font-family: Roboto, sans-serif;
+}
+.hist-tlapse-controls select:hover { border-color: #4dacff; color: #4dacff; }
+.hist-tlapse-loop {
+  display: inline-flex; align-items: center; gap: 4px;
+  color: #c2d2e3; font-size: 12px; font-family: Roboto, sans-serif;
+  cursor: pointer; user-select: none;
+}
+.hist-tlapse-loop input[type="checkbox"] { cursor: pointer; }
+.hist-tlapse-slider {
+  flex: 1; height: 4px; appearance: none; background: #1c2733;
+  border-radius: 2px; outline: none; cursor: pointer;
+}
+.hist-tlapse-slider::-webkit-slider-thumb {
+  appearance: none; width: 14px; height: 14px; border-radius: 50%;
+  background: #4dacff; cursor: pointer; border: none;
+}
+.hist-tlapse-slider::-moz-range-thumb {
+  width: 14px; height: 14px; border-radius: 50%;
+  background: #4dacff; cursor: pointer; border: none;
+}
+.hist-tlapse-empty {
+  padding: 40px 20px; text-align: center; color: #7d92a8;
+  font-size: 12px; letter-spacing: 0.04em;
+}
+.hist-tlapse-loading, .hist-tlapse-error {
+  padding: 40px 20px; text-align: center; color: #7d92a8; font-size: 12px;
+}
+.hist-tlapse-error { color: #ff5252; }
+
+/* Photo lightbox (Phase 2 Task 3) — modal for full-size photo viewing.
+   Opened on click of the latest-photo hero (Live tab) or the
+   timelapse hero img (History tab). Dim backdrop, close button,
+   prev/next when a list context is provided. */
+.lightbox-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 9999;
+  font-family: Roboto, sans-serif;
+}
+.lightbox-content {
+  max-width: 95vw; max-height: 95vh;
+  position: relative;
+  display: flex; flex-direction: column; align-items: center;
+}
+.lightbox-img {
+  max-width: 100%; max-height: 90vh; object-fit: contain;
+  display: block;
+  border: 1px solid #1c2733; background: #0a1219;
+}
+.lightbox-close {
+  position: absolute; top: -2.2rem; right: 0;
+  background: none; border: none; color: #c2d2e3;
+  font-size: 2rem; line-height: 1; cursor: pointer;
+  padding: 0 0.5rem;
+}
+.lightbox-close:hover { color: #4dacff; }
+.lightbox-prev, .lightbox-next {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  background: rgba(0, 0, 0, 0.55); color: #fff;
+  border: 1px solid #2a3d50; border-radius: 2px;
+  font-size: 2rem; line-height: 1; padding: 0.4rem 1rem;
+  cursor: pointer; font-family: Roboto, sans-serif;
+}
+.lightbox-prev:hover:not(:disabled),
+.lightbox-next:hover:not(:disabled) { border-color: #4dacff; color: #4dacff; }
+.lightbox-prev { left: -3.5rem; }
+.lightbox-next { right: -3.5rem; }
+.lightbox-prev:disabled, .lightbox-next:disabled {
+  opacity: 0.3; cursor: not-allowed;
+}
+.lightbox-caption {
+  color: #c2d2e3; text-align: center; margin-top: 0.6rem;
+  font-size: 11px; letter-spacing: 0.04em;
+  font-family: 'SFMono-Regular', Consolas, monospace;
+}
+
+/* Empty-state onboarding panel (shown when zero units enrolled) */
+.empty-wrap { padding: 40px 20px; display: flex; align-items: center; justify-content: center; min-height: 480px; font-family: Roboto, sans-serif; }
+.empty-card { background: #142028; border: 1px solid #1f2e3c; border-radius: 4px; max-width: 720px; width: 100%; padding: 32px; }
+.empty-card .hero { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid #1c2733; }
+.empty-card .icon { width: 56px; height: 56px; border-radius: 4px; background: linear-gradient(135deg, #1f3a1c, #2d5429); display: flex; align-items: center; justify-content: center; font-size: 28px; }
+.empty-card h3 { color: #fff; margin: 0 0 4px; font-size: 20px; font-weight: 500; }
+.empty-card .sub { color: #7d92a8; font-size: 13px; margin: 0; }
+.steps { display: flex; flex-direction: column; gap: 18px; margin-top: 20px; }
+.step { display: flex; gap: 14px; align-items: flex-start; }
+.step-num { width: 28px; height: 28px; border-radius: 50%; background: rgba(77, 172, 255, 0.15); color: #4dacff; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 500; flex-shrink: 0; }
+.step-body { flex: 1; color: #c2d2e3; font-size: 13px; line-height: 1.55; }
+.step-body strong { color: #fff; font-weight: 500; }
+.step-body pre { background: #0a1219; padding: 8px 12px; border-radius: 2px; border: 1px solid #1c2733; overflow-x: auto; font-size: 11px; }
+.step-body pre code { color: #56f000; font-family: 'SFMono-Regular', Consolas, monospace; }
+.key-display { background: #0a1219; border: 1px solid #1c2733; padding: 8px 12px; border-radius: 2px; font-family: monospace; font-size: 11px; color: #ffb302; margin-top: 6px; display: flex; justify-content: space-between; align-items: center; }
+.copy-btn { color: #4dacff; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; background: none; border: none; }
+.empty-foot { margin-top: 24px; padding-top: 18px; border-top: 1px solid #1c2733; }
+.doc-link { color: #4dacff; font-size: 12px; text-decoration: none; }
+
+/* Add-unit modal — opened from the "+ Add Unit" button on the fleet
+   header. Admin-only entry point; the modal itself also gates the
+   reveal button on body.dataset.role === "admin". Visual style mirrors
+   the photo lightbox (dim backdrop, centred panel) but uses the empty-
+   state card chrome inside so the reveal/instructions feel familiar. */
+.add-unit-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 9999;
+  font-family: Roboto, sans-serif;
+}
+.add-unit-box {
+  background: #142028; border: 1px solid #1f2e3c; border-radius: 4px;
+  max-width: 640px; width: 90%; max-height: 90vh; overflow-y: auto;
+  display: flex; flex-direction: column;
+}
+.add-unit-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px; border-bottom: 1px solid #1c2733;
+}
+.add-unit-head h3 { margin: 0; color: #fff; font-size: 16px; font-weight: 500; }
+.add-unit-close {
+  background: none; border: none; color: #c2d2e3;
+  font-size: 1.6rem; line-height: 1; cursor: pointer; padding: 0 4px;
+}
+.add-unit-close:hover { color: #4dacff; }
+.add-unit-body { padding: 18px 20px; }
+.add-unit-blurb { color: #c2d2e3; font-size: 13px; line-height: 1.55; margin: 0 0 14px; }
+.add-unit-error {
+  color: #ff5252; background: rgba(255, 82, 82, 0.08);
+  border: 1px solid rgba(255, 82, 82, 0.3); border-radius: 2px;
+  padding: 8px 12px; font-size: 12px; margin-bottom: 12px;
+}
+.add-unit-idle { display: flex; flex-direction: column; gap: 8px; }
+.add-unit-admin-only { color: #7d92a8; font-size: 12px; margin: 0; font-style: italic; }
+.add-unit-reveal-head {
+  color: #56f000; font-size: 13px; margin-bottom: 10px; font-weight: 500;
+}
+.add-unit-key-row { display: flex; gap: 8px; margin-bottom: 14px; }
+.add-unit-key-input {
+  flex: 1; background: #0a1219; color: #ffb302;
+  border: 1px solid #1c2733; border-radius: 2px;
+  padding: 8px 10px; font-family: 'SFMono-Regular', Consolas, monospace;
+  font-size: 12px;
+}
+.add-unit-instructions { padding-left: 20px; margin: 0 0 8px; color: #c2d2e3; font-size: 13px; line-height: 1.55; }
+.add-unit-instructions li { margin-bottom: 8px; }
+.add-unit-instructions pre {
+  background: #0a1219; padding: 8px 12px; border-radius: 2px;
+  border: 1px solid #1c2733; overflow-x: auto; font-size: 11px; margin: 6px 0;
+}
+.add-unit-instructions pre code { color: #56f000; font-family: 'SFMono-Regular', Consolas, monospace; }
+.add-unit-gone-msg { color: #c2d2e3; font-size: 13px; margin: 0 0 12px; line-height: 1.55; }
+.add-unit-rotate-link { display: inline-block; text-decoration: none; }
+.add-unit-foot {
+  display: flex; justify-content: flex-end;
+  padding: 12px 20px; border-top: 1px solid #1c2733; margin: 18px -20px -18px;
+}
+
+/* ── Diagnostics tab (Phase 3 Task 4) ────────────────────────────────── */
+
+/* Firmware info card — three-up grid */
+.diag-firmware { padding-bottom: 12px; }
+.diag-firmware-grid { padding: 12px 14px; display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+.diag-firmware-cell { background: #0e1722; border: 1px solid #1c2733; border-radius: 2px; padding: 10px 12px; }
+.diag-firmware-label { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: #7d92a8; margin-bottom: 4px; }
+.diag-firmware-value { font-size: 14px; color: #fff; font-family: 'SFMono-Regular', Consolas, monospace; }
+
+/* Buffer-inspector card — paired text+photo summaries */
+.diag-buffer-inspector { padding-bottom: 12px; }
+.diag-buffer-inspector-body { padding: 12px 14px; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+.diag-buffer-summary { background: #0e1722; border: 1px solid #1c2733; border-radius: 2px; padding: 10px 12px; }
+.diag-buffer-summary-label { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: #7d92a8; margin: 0 0 6px; font-weight: 500; }
+.diag-buffer-summary-stats { color: #fff; font-size: 14px; font-family: 'SFMono-Regular', Consolas, monospace; margin: 0 0 4px; }
+.diag-buffer-summary-window { color: #7d92a8; font-size: 11px; margin: 0 0 8px; line-height: 1.4; }
+.diag-buffer-summary-empty { color: #7d92a8; font-size: 12px; font-style: italic; margin: 0; }
+.diag-buffer-summary-kinds { list-style: none; padding: 0; margin: 6px 0 0; display: flex; flex-direction: column; gap: 2px; font-family: 'SFMono-Regular', Consolas, monospace; font-size: 11px; color: #c2d2e3; }
+.diag-buffer-summary-kinds li { padding: 2px 0; border-top: 1px solid #14202c; }
+.diag-buffer-summary-kinds li:first-child { border-top: none; }
+
+/* Connection log table */
+.diag-connection-log { padding-bottom: 12px; }
+.diag-table-body { padding: 8px 14px 12px; }
+.diag-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.diag-table th { text-align: left; padding: 6px 8px; color: #7d92a8; font-weight: 500; border-bottom: 1px solid #1c2733; letter-spacing: 0.04em; text-transform: uppercase; font-size: 10px; }
+.diag-table td { padding: 6px 8px; color: #c2d2e3; border-bottom: 1px solid #14202c; font-family: 'SFMono-Regular', Consolas, monospace; }
+.diag-table tr:last-child td { border-bottom: none; }
+.diag-event {
+  font-family: Roboto, sans-serif;
+  text-transform: uppercase;
+  letter-spacing: var(--grow-ls-allcaps);
+  font-size: var(--grow-fs-xs);
+  display: inline-flex; align-items: center; gap: var(--grow-space-1);
+}
+.diag-event-online { color: var(--grow-good); }
+.diag-event-offline { color: var(--grow-bad); }
+/* Status dot prefix (design-critique #17): the table reads as a
+   sparkline of unit health rather than a wall of text labels. */
+.diag-event-dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.diag-event-dot-online {
+  background: var(--grow-good);
+  box-shadow: 0 0 6px rgba(86, 240, 0, 0.5);
+}
+.diag-event-dot-offline {
+  background: var(--grow-bad);
+  box-shadow: 0 0 6px rgba(255, 82, 82, 0.45);
+}
+/* Time cell: absolute time + muted relative time stacked / inline. */
+.diag-conn-time-abs {
+  font-family: 'SFMono-Regular', Consolas, monospace;
+  color: var(--grow-text-body);
+}
+.diag-conn-time-rel {
+  color: var(--grow-text-muted);
+  font-family: Roboto, sans-serif;
+  font-size: var(--grow-fs-xs);
+}
+.diag-duration-ongoing { color: #ffb302; font-style: italic; }
+.diag-empty { padding: 8px 14px; color: #7d92a8; font-style: italic; font-size: 12px; }
+
+/* Sensor sanity list */
+.diag-sensor-sanity { padding-bottom: 12px; }
+.diag-sanity-body { padding: 8px 14px 12px; }
+.diag-sanity-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.diag-sanity-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 12px; color: #c2d2e3; }
+.diag-sanity-row[data-severity="stale"] { color: #ffb302; }
+.diag-sanity-row[data-severity="never_seen"] { color: #ff5252; }
+.diag-sanity-icon { font-size: 14px; width: 22px; flex-shrink: 0; text-align: center; }
+.diag-sanity-channel { font-family: 'SFMono-Regular', Consolas, monospace; min-width: 140px; }
+.diag-sanity-detail { color: #7d92a8; font-size: 11px; }
+
+/* Danger zone wrapper */
+.diag-danger-zone { padding-bottom: 12px; border: 1px solid #8a1818; background: rgba(255, 82, 82, 0.04); }
+.diag-danger-head { color: #ff8585; border-bottom: 1px solid #4a1818; }
+.diag-danger-body { padding: 12px 14px; display: flex; flex-direction: column; gap: 16px; }
+.diag-danger-blurb { color: #c2d2e3; font-size: 12px; line-height: 1.5; margin: 0; }
+.diag-danger-action { padding: 12px; border: 1px solid #2a1818; border-radius: 2px; background: rgba(255, 82, 82, 0.05); }
+.diag-danger-title { color: #fff; font-size: 13px; font-weight: 500; margin: 0 0 6px; letter-spacing: 0.04em; }
+.diag-danger-desc { color: #c2d2e3; font-size: 12px; line-height: 1.5; margin: 0 0 10px; }
+.diag-danger-row { display: flex; gap: 10px; align-items: center; }
+.diag-danger-confirm { margin-top: 10px; padding: 12px; border-radius: 2px; background: rgba(255, 82, 82, 0.08); border: 1px solid #8a1818; }
+.diag-danger-warn { color: #ffb302; font-size: 12px; line-height: 1.5; margin: 0 0 10px; }
+.diag-danger-confirm-row { display: flex; gap: 10px; }
+.diag-decom-label-input { width: 100%; max-width: 280px; padding: 6px 9px; font-size: 12px; background: #0a1219; color: #c2d2e3; border: 1px solid #2a3d50; border-radius: 2px; margin-bottom: 10px; font-family: 'SFMono-Regular', Consolas, monospace; }
+.diag-decom-label-input:focus { outline: none; border-color: #4dacff; }
+.diag-danger-status { margin-top: 8px; font-size: 11px; letter-spacing: 0.04em; }
+.diag-danger-status.ok { color: #56f000; }
+.diag-danger-status.err { color: #ff5252; }
+
+/* Diagnostics fetch failure */
+.diag-error { padding: 16px; color: #ff5252; font-size: 13px; text-align: center; }
+
+/* ============================================================
+   /grow/errors — fleet-wide error log (Phase 3 Task 5)
+   ============================================================ */
+.grow-errors { padding: 0; }
+.grow-errors-title { color: #fff; font-size: 22px; font-weight: 500; margin: 0 0 6px; font-family: Roboto, sans-serif; }
+.grow-errors-blurb { color: #7d92a8; font-size: 12px; line-height: 1.5; margin: 0; max-width: 720px; }
+
+.grow-errors-filter-row { gap: 18px; }
+.grow-errors-toggle-label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; text-transform: none; letter-spacing: 0.02em; font-size: 11px; color: #c2d2e3; }
+.grow-errors-toggle-label input[type="checkbox"] { accent-color: #4dacff; cursor: pointer; }
+.grow-errors-refresh { margin-left: auto; }
+
+.grow-errors-list { padding: 14px 20px; display: flex; flex-direction: column; gap: 8px; background: #080c11; }
+
+.error-row {
+  display: grid; grid-template-columns: 28px 1fr;
+  gap: 10px; padding: 10px 12px; align-items: start;
+  background: #142028; border: 1px solid #1f2e3c; border-radius: 3px;
+  font-family: Roboto, sans-serif; color: #c2d2e3; font-size: 13px;
+}
+.error-row.snoozed { opacity: 0.45; }
+.error-row.resolved { opacity: 0.65; border-style: dashed; }
+
+.error-row-sev { font-size: 18px; line-height: 1; padding-top: 2px; }
+.error-row.sev-info .error-row-sev { color: #4dacff; }
+.error-row.sev-warning .error-row-sev { color: #ffb302; }
+.error-row.sev-critical .error-row-sev { color: #ff5252; }
+.error-row.sev-critical { border-color: #5a1f1f; }
+
+.error-row-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.error-row-head { color: #fff; font-size: 12px; letter-spacing: 0.02em; }
+.error-row-msg { color: #c2d2e3; font-size: 13px; line-height: 1.4; word-wrap: break-word; }
+
+.error-row-actions {
+  display: flex; gap: var(--grow-space-2);
+  margin-top: var(--grow-space-2);
+  align-items: center; flex-wrap: wrap;
+}
+.error-row-btn {
+  background: transparent; border: 1px solid var(--grow-border-emph);
+  color: var(--grow-text-body);
+  padding: var(--grow-space-1) var(--grow-space-3);
+  font-size: var(--grow-fs-xs);
+  letter-spacing: var(--grow-ls-allcaps); text-transform: uppercase;
+  cursor: pointer; border-radius: var(--grow-radius-sm);
+  font-family: Roboto, sans-serif;
+  display: inline-flex; align-items: center; gap: var(--grow-space-1);
+}
+.error-row-btn:hover { border-color: var(--grow-accent); color: var(--grow-accent); }
+.error-row-btn.resolve:hover { border-color: var(--grow-good); color: var(--grow-good); }
+
+/* Snooze ▾ dropdown — design-critique #20 collapsed the two equal-
+   weight Snooze 1h / Snooze 24h buttons into one summary that
+   reveals durations on click. Reduces visual weight; Resolve becomes
+   the sole top-level action.
+
+   Implemented as a native <details> for keyboard + screen-reader
+   support out of the box. The summary has the ::-webkit-details-
+   marker hidden so it looks like a normal button rather than the
+   default browser disclosure triangle. */
+.error-row-snooze-menu {
+  position: relative; display: inline-block;
+}
+.error-row-snooze-menu > summary {
+  list-style: none;
+}
+.error-row-snooze-menu > summary::-webkit-details-marker {
+  display: none;
+}
+.error-row-snooze-options {
+  position: absolute; top: 100%; left: 0; z-index: 5;
+  margin-top: 4px;
+  background: var(--grow-bg-panel);
+  border: 1px solid var(--grow-border-emph);
+  border-radius: var(--grow-radius-sm);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  display: flex; flex-direction: column;
+  min-width: 100px;
+}
+.error-row-snooze-opt {
+  background: transparent; border: none;
+  color: var(--grow-text-body);
+  padding: var(--grow-space-2) var(--grow-space-3);
+  font-size: var(--grow-fs-sm);
+  letter-spacing: var(--grow-ls-headline);
+  cursor: pointer; text-align: left;
+  font-family: Roboto, sans-serif;
+}
+.error-row-snooze-opt:hover {
+  background: rgba(77, 172, 255, 0.12);
+  color: var(--grow-accent);
+}
+
+.grow-errors-empty {
+  padding: 32px 20px; text-align: center; color: #7d92a8;
+  font-size: 13px; font-family: Roboto, sans-serif;
+  background: #142028; border: 1px dashed #2a3d50; border-radius: 3px;
+}
+
+/* ============================================================
+   Grow sub-nav — three pills above every /grow* page
+   ============================================================
+   Rendered by templates/_grow_subnav.html. Sits between the main
+   tab-nav and the page header. Active pill detection happens in
+   the partial (request.endpoint match) — these styles only paint. */
+.grow-subnav {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 20px;
+  background: #0a1219;
+  border-bottom: 1px solid #1c2733;
+  font-family: Roboto, sans-serif;
+}
+.grow-subnav .subnav-pill {
+  padding: 5px 14px;
+  border-radius: 14px;
+  background: transparent;
+  border: 1px solid #2a3d50;
+  color: #c2d2e3;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-decoration: none;
+  transition: border-color 0.12s, background 0.12s, color 0.12s;
+}
+.grow-subnav .subnav-pill:hover {
+  border-color: #4dacff;
+  color: #4dacff;
+}
+.grow-subnav .subnav-pill.active {
+  background: #4dacff;
+  border-color: #4dacff;
+  color: #001028;
+  font-weight: 500;
+}
+.grow-subnav .subnav-pill.active:hover {
+  color: #001028;
+}
+
+/* ============================================================
+   Settings page — section cards + plant-profiles editor
+   ============================================================
+   Used on /grow/settings. Each <section class="settings-section">
+   becomes a card; the JS-mounted .settings-panel-head spans inside
+   render as the section heading.
+
+   Palette inferred from the rest of grow.css: #0a1219 / #142028 /
+   #1f2e3c / #2a3d50 borders + #4dacff accent. */
+.settings-page { padding: 0; }
+.settings-page .grow-pageheader h2 {
+  color: #fff;
+  font-size: 22px;
+  font-weight: 500;
+  margin: 0 0 4px;
+}
+.settings-page .settings-blurb {
+  color: #7d92a8;
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0;
+  max-width: 720px;
+}
+.settings-sections {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: #080c11;
+}
+.settings-section {
+  background: #142028;
+  border: 1px solid #1f2e3c;
+  border-radius: 3px;
+  padding: 0;
+}
+.settings-section h3 {
+  margin: 0;
+  padding: 12px 14px;
+  border-bottom: 1px solid #1c2733;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+.settings-section > p {
+  color: #7d92a8;
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0;
+  padding: 10px 14px;
+}
+
+/* Each component renders a .settings-panel wrapper with a
+   .settings-panel-head + .settings-panel-body — promote the head to
+   read as a section heading and pad the body uniformly. */
+.settings-panel-head {
+  padding: 12px 14px;
+  border-bottom: 1px solid #1c2733;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  background: linear-gradient(180deg, #182431, #142028);
+}
+.settings-panel-body {
+  padding: 12px 14px;
+}
+
+/* ── Plant profiles editor ───────────────────────────────────────
+   The editor renders a list of .pp-row elements. Without these
+   rules, the inline spans inside .pp-row-head butt up against
+   each other (label/stats/pill all touching). flex + gap fixes it. */
+.pp-blurb {
+  margin: 0;
+  padding: 10px 14px;
+  color: #7d92a8;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.pp-rows {
+  padding: 0 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pp-status {
+  padding: 6px 14px 12px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: #7d92a8;
+}
+.pp-status.ok { color: #56f000; }
+.pp-status.err { color: #ff5252; }
+
+/* Plant-profile rows. Design-critique #21 sharpened the hover state
+   so the cards visually announce themselves as clickable. Previously
+   the hover only nudged the border colour; now the border + a soft
+   accent halo + a subtle lift make the affordance unmissable. */
+.pp-row {
+  border: 1px solid var(--grow-border-panel);
+  border-radius: var(--grow-radius-sm);
+  background: var(--grow-bg-sub);
+  overflow: hidden;
+  transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
+}
+.pp-row:hover {
+  border-color: var(--grow-accent);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(77, 172, 255, 0.15);
+}
+.pp-row-head {
+  display: flex;
+  align-items: center;
+  gap: var(--grow-space-3);
+  width: 100%;
+  padding: var(--grow-space-3) var(--grow-space-4);
+  background: transparent;
+  border: none;
+  color: inherit;
+  font: inherit;
+  font-family: Roboto, "Apple Color Emoji", "Segoe UI Emoji",
+               "Noto Color Emoji", sans-serif;
+  text-align: left;
+  cursor: pointer;
+}
+.pp-row-head:hover {
+  background: rgba(77, 172, 255, 0.08);
+}
+.pp-row-head:focus-visible {
+  outline: 2px solid #4dacff;
+  outline-offset: -2px;
+}
+.pp-row-label {
+  font-weight: 500;
+  color: #fff;
+  font-size: 13px;
+  min-width: 14rem;
+  flex-shrink: 0;
+}
+.pp-row-stats {
+  flex: 1;
+  color: #7d92a8;
+  font-size: 12px;
+  font-family: 'SFMono-Regular', Consolas, monospace;
+}
+.pp-pill {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 10px;
+  background: rgba(122, 138, 153, 0.15);
+  color: #7d92a8;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.pp-pill-shipped {
+  background: rgba(77, 172, 255, 0.18);
+  color: #4dacff;
+}
+.pp-pill-modified {
+  background: rgba(255, 179, 2, 0.18);
+  color: #ffb302;
+}
+
+/* Inline editor that expands when a row is clicked. */
+.pp-editor-form {
+  padding: 12px 14px;
+  border-top: 1px solid #1c2733;
+  background: #0a1219;
+}
+.pp-field-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.pp-field-row label {
+  min-width: 14rem;
+  color: #7d92a8;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.pp-field-row input {
+  flex: 1;
+  max-width: 160px;
+  padding: 5px 9px;
+  background: #0a1219;
+  color: #c2d2e3;
+  border: 1px solid #2a3d50;
+  border-radius: 2px;
+  font-size: 12px;
+  font-family: 'SFMono-Regular', Consolas, monospace;
+}
+.pp-field-row input:focus {
+  outline: none;
+  border-color: #4dacff;
+}
+.pp-editor-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #1c2733;
+}
+.pp-editor-error {
+  margin-top: 8px;
+  font-size: 11px;
+  color: #ff5252;
+  letter-spacing: 0.04em;
+}
+.pp-editor-error:empty { display: none; }
+
+
+/* ── Photo schedule editor (Configure tab, Phase 4 polish) ───────── */
+.ps-panel .ps-body {
+  padding: 12px 16px;
+}
+.ps-blurb {
+  margin: 0 0 12px;
+  color: #9aa6b2;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.ps-247-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+  color: #d6dde4;
+  font-size: 13px;
+  cursor: pointer;
+}
+.ps-247-row input[type="checkbox"] {
+  cursor: pointer;
+}
+.ps-hour-row {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.ps-hour-row-disabled {
+  opacity: 0.45;
+}
+.ps-hour-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: #9aa6b2;
+  font-size: 12px;
+  letter-spacing: 0.03em;
+}
+.ps-hour-cell select {
+  background: #0d1419;
+  border: 1px solid #1c2733;
+  color: #d6dde4;
+  padding: 6px 8px;
+  border-radius: 3px;
+  font-family: 'SFMono-Regular', Consolas, monospace;
+  font-size: 12px;
+  min-width: 80px;
+}
+.ps-hour-cell select:focus {
+  outline: none;
+  border-color: #4dacff;
+}
+.ps-hour-cell select:disabled {
+  cursor: not-allowed;
+}
+.ps-save-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #1c2733;
+}
+.ps-status {
+  font-size: 12px;
+  letter-spacing: 0.03em;
+}
+.ps-status.ok { color: #6fcf6f; }
+.ps-status.err { color: #ff5252; }
+
+/* ===========================================================================
+   Phase 4 polish #7: plant journal editor
+   ===========================================================================
+   Mounted in the History tab below the photo-timelapse. Each entry pins
+   a free-form operator note to a timestamp on the unit's history. RBAC is
+   gated server-side — buttons just hide what the current role can't do. */
+
+.journal-editor .journal-body {
+  padding: var(--grow-space-3);
+}
+.journal-composer {
+  display: flex; flex-direction: column; gap: var(--grow-space-2);
+  padding: var(--grow-space-3);
+  border: 1px solid var(--grow-border-subtle);
+  border-radius: var(--grow-radius-sm);
+  background: var(--grow-bg-sub);
+  margin-bottom: var(--grow-space-3);
+}
+.journal-composer-ts {
+  background: var(--grow-bg-input); color: var(--grow-text-body);
+  border: 1px solid var(--grow-border-emph); border-radius: var(--grow-radius-sm);
+  padding: var(--grow-space-2);
+  font-size: var(--grow-fs-sm); font-family: Roboto, sans-serif;
+  align-self: flex-start;
+}
+.journal-composer-body {
+  background: var(--grow-bg-input); color: var(--grow-text-body);
+  border: 1px solid var(--grow-border-emph); border-radius: var(--grow-radius-sm);
+  padding: var(--grow-space-2);
+  font-family: Roboto, sans-serif; font-size: var(--grow-fs-sm);
+  min-height: 60px; resize: vertical;
+}
+.journal-composer-submit {
+  align-self: flex-end;
+}
+.journal-list {
+  display: flex; flex-direction: column; gap: var(--grow-space-2);
+}
+.journal-entry {
+  padding: var(--grow-space-3);
+  background: var(--grow-bg-sub);
+  border: 1px solid var(--grow-border-subtle);
+  border-radius: var(--grow-radius-sm);
+}
+.journal-entry-meta {
+  font-size: var(--grow-fs-xs); color: var(--grow-text-muted);
+  letter-spacing: var(--grow-ls-headline); margin-bottom: var(--grow-space-2);
+}
+.journal-entry-ts {
+  color: var(--grow-text-body); font-weight: 500;
+}
+.journal-entry-edited {
+  font-style: italic; opacity: 0.7;
+}
+.journal-entry-body {
+  color: var(--grow-text-primary); font-size: var(--grow-fs-md);
+  white-space: pre-wrap; line-height: 1.4;
+}
+.journal-entry-actions {
+  display: flex; gap: var(--grow-space-2); margin-top: var(--grow-space-2);
+}
+.journal-entry-actions .gu-btn {
+  padding: var(--grow-space-1) var(--grow-space-3);
+  font-size: var(--grow-fs-xs);
+}
+.journal-edit-textarea {
+  width: 100%;
+  background: var(--grow-bg-input); color: var(--grow-text-body);
+  border: 1px solid var(--grow-border-emph); border-radius: var(--grow-radius-sm);
+  padding: var(--grow-space-2);
+  font-family: Roboto, sans-serif; font-size: var(--grow-fs-sm);
+  min-height: 60px; resize: vertical;
+}
+.journal-empty {
+  color: var(--grow-text-muted); font-style: italic;
+  font-size: var(--grow-fs-sm); margin: 0;
+}
+
+/* ===========================================================================
+   Phase 4 polish #8: time-lapse generator
+   =========================================================================== */
+
+.timelapse-generator .tlg-body {
+  padding: var(--grow-space-3);
+  display: flex; flex-direction: column; gap: var(--grow-space-3);
+}
+.tlg-form {
+  display: flex; gap: var(--grow-space-3); align-items: flex-end;
+  flex-wrap: wrap;
+  padding: var(--grow-space-3);
+  border: 1px solid var(--grow-border-subtle);
+  border-radius: var(--grow-radius-sm);
+  background: var(--grow-bg-sub);
+}
+.tlg-field {
+  display: flex; flex-direction: column; gap: var(--grow-space-1);
+  font-size: var(--grow-fs-xs); letter-spacing: var(--grow-ls-allcaps);
+  text-transform: uppercase; color: var(--grow-text-muted);
+  font-family: Roboto, sans-serif;
+}
+.tlg-field select {
+  background: var(--grow-bg-input); color: var(--grow-text-body);
+  border: 1px solid var(--grow-border-emph); border-radius: var(--grow-radius-sm);
+  padding: var(--grow-space-2); font-size: var(--grow-fs-sm);
+  font-family: Roboto, sans-serif;
+}
+.tlg-status {
+  font-size: var(--grow-fs-sm); letter-spacing: var(--grow-ls-headline);
+}
+.tlg-status-info { color: var(--grow-text-body); }
+.tlg-status-ok   { color: var(--grow-good); }
+.tlg-status-err  { color: var(--grow-bad); }
+.tlg-output {
+  display: flex; flex-direction: column; gap: var(--grow-space-2);
+}
+.tlg-video {
+  width: 100%; max-width: 720px;
+  border-radius: var(--grow-radius-sm);
+  background: #000;
+}
+.tlg-download {
+  align-self: flex-start;
+  color: var(--grow-accent); text-decoration: underline;
+  font-size: var(--grow-fs-sm); font-family: Roboto, sans-serif;
+}
+
+/* ===========================================================================
+   Phase 4 polish #5: mobile-optimised fleet view + unit detail
+   ===========================================================================
+   The grow tab was designed desktop-first; on a phone (~375px viewport) a
+   few specific things felt cramped:
+     1. .grow-grid had a 24px page padding that ate ~13% of width per side.
+     2. .grow-pageheader's summary + Add Unit button could land on different
+        rows or get squashed onto a single row with the button below the fold.
+     3. .du-tabs (4 tabs at ~120px each = 480px) did not fit at all.
+     4. Buttons sized to .grow-fs-sm (12px) with 8px vertical padding fell
+        short of the iOS HIG 44pt touch-target minimum.
+
+   Two breakpoints:
+     * max-width: 540px — narrow-phone layout (existing breakpoint, extend it)
+     * (hover: none) and (pointer: coarse) — touch devices regardless of width
+       (a Pixel Tab held in landscape is still a touch device but >540px wide,
+       so the touch-target sizing has to key off pointer type, not viewport).
+   =========================================================================== */
+
+@media (max-width: 540px) {
+  /* Narrow page padding — at 375px viewport, 24px each side ate 48px of the
+     ~330px we had to render cards in. Drop to var(--grow-space-3) so cards
+     get more breathing room without bumping into the screen edge. */
+  .grow-grid {
+    padding: var(--grow-space-3);
+    /* Allow cards to fill the row at narrow widths — the desktop 360px max
+       leaves visible whitespace on a 375px screen. */
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .grow-pageheader {
+    /* Stack the summary block above the + Add Unit button so the button
+       doesn't get pushed off-screen when the summary line wraps. */
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--grow-space-3);
+    padding: var(--grow-space-3) var(--grow-space-3);
+  }
+  .grow-summary {
+    /* Wrap the count tiles into a 2-up grid on phones so they don't horizontal-
+       scroll. The desktop "4 numbers in a row" works at 600px+ but breaks down
+       below that. */
+    flex-wrap: wrap;
+    gap: var(--grow-space-4) var(--grow-space-5);
+  }
+  .grow-pageheader > .px-btn {
+    /* + Add Unit gets full-width on phones — easier to tap and signals it
+       as the page-level primary action. */
+    width: 100%;
+    text-align: center;
+  }
+  .fleet-filter-row {
+    /* Tighten the filter row's padding to match the narrower grid above. */
+    padding: var(--grow-space-2) var(--grow-space-3);
+    gap: var(--grow-space-3);
+  }
+
+  /* Per-unit detail page: tabs need to scroll horizontally on phones. With
+     4 tabs at ~120px each, the row overflows a 375px viewport. The original
+     desktop layout used `display: flex` without overflow handling, so the
+     overflow tabs just got clipped. Switch to horizontal scroll with the
+     scrollbar hidden (the visual cue is the cut-off final tab — operators
+     learn to swipe). -webkit-overflow-scrolling preserves momentum on iOS. */
+  .du-tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none; /* Firefox */
+    padding: 0 var(--grow-space-3);
+    /* Prevent flex items from shrinking smaller than their min-content,
+       which would just compress the labels into ellipsis instead of
+       triggering horizontal scroll. */
+    flex-wrap: nowrap;
+  }
+  .du-tabs::-webkit-scrollbar {
+    display: none; /* Chrome/Safari */
+  }
+  .du-tab {
+    flex-shrink: 0; /* Each tab keeps its full width — overflow scrolls. */
+    padding: var(--grow-space-3) var(--grow-space-4);
+  }
+}
+
+@media (hover: none) and (pointer: coarse) {
+  /* Touch-target sizing — Apple HIG / Google Material both call for a
+     minimum 44x44pt (≈ 44px CSS px) hit area for primary interactive
+     elements. The desktop 12px font + 8px vertical padding gives a
+     ~28px hit area, which is fine for a mouse cursor but easy to mis-tap
+     with a thumb. Apply only to coarse pointers so trackpad/mouse users
+     don't get oversized buttons. */
+  .px-btn,
+  .gu-btn,
+  .du-act-btn,
+  .fleet-filter-chip,
+  .fleet-filter-sort,
+  .du-tab {
+    min-height: 44px;
+    /* Center the label vertically inside the bumped-up box. inline-flex
+       with align-items:center is more robust than line-height tricks
+       across icon-bearing buttons (e.g. the buffered badge emoji). */
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  /* The .gu-actions row uses display:flex; keep its child .gu-btn elements
+     readable as inline-flex at min-height 44 without changing the row layout. */
+  .gu-actions .gu-btn {
+    flex: 0 0 auto;
+  }
+}
+

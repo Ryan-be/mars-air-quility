@@ -1,0 +1,74 @@
+[tool.poetry]
+name = "mlss-grow"
+version = "0.1.0"
+description = "Plant Grow Unit firmware — runs on Raspberry Pi Zero with Pimoroni Automation pHAT"
+authors = ["MLSS"]
+# License intentionally unset — repository licence is yet to be decided.
+readme = "README.md"
+homepage = "https://github.com/Ryan-be/mars-air-quility"
+repository = "https://github.com/Ryan-be/mars-air-quility"
+documentation = "https://github.com/Ryan-be/mars-air-quility/tree/main/docs"
+keywords = ["raspberry-pi", "iot", "plant", "grow", "automation", "horticulture", "mlss"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Home Automation",
+    "Topic :: System :: Hardware",
+    "Topic :: Scientific/Engineering",
+]
+packages = [{include = "mlss_grow", from = "src"}]
+
+[tool.poetry.dependencies]
+# 3.11 is the minimum the firmware was developed against; Pi OS Lite
+# Bookworm ships 3.11 and Trixie ships 3.13. Allow up to but excluding
+# the next major (4.x) so the firmware tracks Pi OS upgrades.
+python = ">=3.11,<4.0"
+websockets = "^12.0"
+pydantic = "^2.0"
+pyyaml = "^6.0"
+# Pillow >=10,<12 — Pillow 10 lacks Python 3.13 wheels, so the lower
+# bound stays at 10 for dev compat but Trixie Pis will install 11.x.
+Pillow = ">=10.0,<12.0"
+requests = "^2.31"
+# In-tree dev: path-dependency keeps the contracts package live for editing.
+# PyPI release: scripts/prepare_pypi_release.py rewrites this line to a
+# versioned dep (`mlss-contracts = ">=0.1.0,<0.2.0"`) before `poetry build`,
+# then restores the path entry on completion. See docs/RELEASE_PROCESS.md.
+mlss-contracts = {path = "../contracts", develop = true}
+
+# Pi-only deps marked with markers so dev laptops can install without them.
+# armv6l → Pi Zero / Zero W (original)
+# armv7l → Pi Zero 2 W on 32-bit Pi OS, older Pi 2/3 on 32-bit
+# aarch64 → Pi 3/4/5/Zero 2 W on 64-bit Pi OS (recommended)
+"adafruit-circuitpython-seesaw" = {version = "^1.13", markers = "platform_machine == 'armv6l' or platform_machine == 'armv7l' or platform_machine == 'aarch64'"}
+"RPi.GPIO" = {version = "^0.7", markers = "platform_machine == 'armv6l' or platform_machine == 'armv7l' or platform_machine == 'aarch64'"}
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0"
+pytest-asyncio = "^0.24"
+# cryptography enables tests/grow_unit/test_ws_client_tls.py to generate
+# a real self-signed cert for the SSLContext-loads-CA assertion. Without
+# it that test pytest.skips with "cryptography lib not available".
+cryptography = "^42.0"
+
+[tool.pytest.ini_options]
+# Scope pytest to the grow_unit test tree only. The repo-root tests/conftest.py
+# imports MLSS server modules (database, mlss_monitor.hot_tier, authlib, ...)
+# that aren't installed in this isolated venv — without --noconftest pytest
+# explodes during conftest collection.
+# Same pattern applied to contracts/pyproject.toml — see Task 0.1's fix commit.
+testpaths = ["../tests/grow_unit"]
+addopts = "--noconftest"
+asyncio_mode = "auto"
+
+[tool.poetry.scripts]
+mlss-grow = "mlss_grow.service:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

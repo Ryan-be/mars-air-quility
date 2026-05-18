@@ -6,7 +6,6 @@ separated at the top so they can be unit-tested without a DB connection.
 """
 from __future__ import annotations
 
-import json
 import logging
 import queue
 import sqlite3
@@ -14,6 +13,8 @@ import threading
 from datetime import datetime
 from statistics import correlation
 from typing import Any
+
+from mlss_monitor.incident_signature_storage import save_signature
 
 log = logging.getLogger(__name__)
 
@@ -471,6 +472,10 @@ def regroup_all(db_file: str) -> None:
     cur.execute("PRAGMA journal_mode=WAL")
 
     # Fresh rebuild — clear then insert.  Keeps the grouping idempotent.
+    # incident_signature_features has ON DELETE CASCADE on incidents(id), but
+    # foreign_keys pragma isn't on for this connection, so we wipe the
+    # sub-table explicitly — same pattern as incident_alerts above.
+    cur.execute("DELETE FROM incident_signature_features")
     cur.execute("DELETE FROM incident_alerts")
     cur.execute("DELETE FROM incidents")
 
@@ -495,17 +500,20 @@ def regroup_all(db_file: str) -> None:
             key=lambda s: _SEVERITY_ORDER.get(s, 0),
         )
         title = generate_incident_title(component)
-        signature = json.dumps(build_incident_similarity_vector(component))
-
+        vector = build_incident_similarity_vector(component)
+        # Insert the parent row first; save_signature() then writes the
+        # 32-element vector into the typed
+        # incident_signature_features sub-table.
         cur.execute(
             "INSERT OR REPLACE INTO incidents "
-            "(id, started_at, ended_at, max_severity, confidence, title, signature) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "(id, started_at, ended_at, max_severity, confidence, title) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
             (incident_id,
              t_start.isoformat(sep=" "),
              t_end.isoformat(sep=" "),
-             max_sev, conf, title, signature),
+             max_sev, conf, title),
         )
+        save_signature(conn, incident_id, vector)
 
         # Primary alerts: is_primary=1
         for alert in component:

@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}MLSS · Grow · Unit {{ unit_id }}{% endblock %}
+{% block extra_css %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/grow.css') }}">
+{% endblock %}
+{% block content %}
+{% include "_grow_subnav.html" %}
+{# Phase 4 #7: stamp role + user on the body so the journal editor can
+   gate edit/delete buttons by author/role. Server-side auth on every
+   write enforces the actual rules; this just hides UI affordances the
+   user can't act on. #}
+<script>
+  document.body.dataset.role = "{{ current_role }}";
+  document.body.dataset.user = "{{ current_user }}";
+</script>
+<div class="du-page" data-unit-id="{{ unit_id }}">
+  <header id="du-header"></header>
+  <nav id="du-tabs"></nav>
+  <main id="du-body"></main>
+</div>
+{% endblock %}
+{% block scripts %}
+  {# Plotly is required by the Live tab's watering-history chart (see
+     static/js/grow/components/sensor-event-chart.mjs). Without it the
+     chart silently shows "Plotly not loaded". Same plotly-basic flavour
+     the dashboard uses — bar+scatter is enough for what we render here. #}
+  <script src="https://cdn.plot.ly/plotly-basic-2.35.2.min.js" charset="utf-8"></script>
+  <script type="module" src="{{ url_for('static', filename='js/grow/unit_detail.mjs') }}"></script>
+{% endblock %}

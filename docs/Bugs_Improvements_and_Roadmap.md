@@ -1,5 +1,7 @@
 # 🛠️ Bugs, Improvements & Learning Roadmap
 
+[Back to main README](../readme.md)
+
 This section tracks known issues, UX limitations, and planned enhancements to the MLSS Monitor system, particularly around inference accuracy, visualisation, and adaptive learning.
 
 ---
@@ -315,4 +317,97 @@ To generate explanations like:
 
 > “This event was likely caused by cooking because PM2.5 and TVOC rose together by 2.3× baseline, matching previous tagged cooking events.”
 
+
+---
+
+## 🐛 Bug: PM sensor read-path reliability (MLSS server)
+
+After fixing the double-poll bug (commit `e8712db`) and the serial-console hostage situation (operator: `do_serial 2` + `serial-getty@ttyAMA0` disabled + reboot), PM data flows but the read path is still noisy. Three concrete issues observed in production journal:
+
+1. **`PM sensor serial error: read failed: [Errno 9] Bad file descriptor`** — happens between retry attempts inside the runner loop. Suggests the fd is being closed mid-retry-sequence and then `read()` is called again on the closed fd. Doesn't lose data (the retry eventually succeeds on a fresh open) but produces avoidable warnings.
+2. **`device reports readiness to read but returned no data (device disconnected or multiple access on port?)`** — classic Linux `select()` returning ready but `read()` getting zero bytes. The runner should treat this as a non-fatal partial-frame condition (re-try without closing the fd) rather than a hard error.
+3. **`PM sensor unexpected error: 'NoneType' object cannot be interpreted as an integer`** — Python exception in the frame parse path. Something's expecting a length/checksum byte and getting `None` (partial frame where the parser tries to interpret a missing field as int). Caught broadly by the runner so it doesn't crash, but means one branch of the parser doesn't validate frame completeness before indexing.
+
+**File**: `sensor_interfaces/sb_components_pm_sensor.py`. All three issues live in or near the `read_pm` / retry helper / frame parse code.
+
+**Fix scope**: small. Tidy the fd lifecycle (don't close between retries unless the error is fatal), guard the parser against partial frames, demote the "device readiness but no data" line from error → debug. Adding a unit test that feeds a deliberately truncated frame and asserts the parser returns `None` cleanly would close the regression door.
+
+**Why deferred**: data is flowing — these are quality-of-log issues + a minor robustness gap, not a data-correctness gap. Worth doing but no user-visible benefit until done.
+
+---
+
+## Plant Grow Unit roadmap
+
+### Phase 2 (next)
+- Filter / sort row on Grow tab fleet view
+- Per-unit Configure tab (light windows editor, plant profile picker, PID tunables, calibration two-step, soak-window override, intentional-friction safety override)
+- Per-unit History tab (long-range moisture chart, photo timelapse scrubber)
+- Settings → Grow page (enrollment key rotation UI, default tunables, holiday mode)
+- Photo lightbox on click
+
+### Phase 3
+- Per-unit Diagnostics tab (WS connection log, sensor sanity, firmware version, danger zone)
+- grow_errors UI surfacing (separate from the air-quality Incidents tab)
+- Buffered-message replay UI
+- Storage warning UI
+
+### Phase 4 (polish)
+
+> **Reordered from Phase 5 → Phase 4.** First physical deployment surfaced enough rough edges (SD-card failure mid-deploy, opaque deploy command, no-thumbnail fleet view, "wall wart" terminology, no on-Pi diagnostics) that polish should land before any ML work. Smarts moved to Phase 5.
+>
+> **Already landed in this overnight session:** `bin/deploy` script + readme; "wall wart" → "USB power adapter" sweep across `PLANT_GROW_UNIT_HARDWARE.md` and `PLANT_GROW_UNIT_SETUP.md`.
+
+- ~~**Server-side photo thumbnail/resize endpoint**~~ — **shipped:** `GET /api/grow/units/<id>/photo/latest?size=thumb` and `GET /api/grow/units/<id>/photos/<photo_id>?size=thumb`. Pillow downscales to 320px on first request, caches to `data/grow_thumbnails/<unit_id>/<...>_w320.jpg`, reuses on subsequent hits. Fleet view (`grow-card.mjs`) now requests `?size=thumb` instead of the full ~2MB capture. `DELETE /api/grow/units/<id>/photos` invalidates the per-unit thumbnail cache.
+- ~~**USB SSD boot guide for MLSS server and grow units**~~ — **shipped:** [`docs/USB_SSD_BOOT_GUIDE.md`](USB_SSD_BOOT_GUIDE.md). Hardware list, live `rsync` migration recipe with `fstab` / `cmdline.txt` PARTUUID fix-up, validation, rollback, troubleshooting. Notes that Pi Zero W grow units don't need this.
+- ~~Custom Pi SD-card .img for one-step provisioning~~ — **infrastructure shipped:** `scripts/build_pi_image.sh` (wrapper around `pi-gen`), `scripts/stage-mlss-grow/` (apt package list, host-side + chroot run scripts, systemd unit, firstboot.sh, mlss-grow.yaml.template), `docs/PI_IMAGE_BUILD.md`. The image builder calls `scripts/build_local_wheels.sh` to bake locally-built `mlss-grow` + `mlss-contracts` wheels directly into the rootfs (no public package index dependency at provision time for our two packages). **Maintainer to-do** before first image release: run `bash scripts/build_pi_image.sh` on a Linux box (pi-gen needs chroot + binfmt_misc — won't work on macOS/Windows). After build, hand off the resulting `dist/mlss-pi-os-<version>.img.xz` per local distribution policy.
+- ~~Local-only release infrastructure for `mlss-grow` / `mlss-contracts`~~ — **shipped:** classifiers/license/keywords/readme on `grow_unit/pyproject.toml` + `contracts/pyproject.toml`, root MIT `LICENSE`, `scripts/build_local_wheels.sh` (offline wheel builder writing to `dist/wheels/`), `scripts/_strip_pathdep.py` (post-build wheel patcher that fixes the path-baked `Requires-Dist` URL poetry would otherwise produce), `docs/RELEASE_PROCESS.md` (semver, version bump, local build flow). Public PyPI publication was scoped out — wheels stay private / local until that decision is revisited in a separate ticket.
+- ~~Mobile-optimised fleet view~~ — **shipped** in `static/css/grow.css`. New `@media (max-width: 540px)` rules narrow grid padding, single-column cards, stacked page-header (full-width Add Unit button), horizontal-scrolling unit-detail tabs. New `@media (hover: none) and (pointer: coarse)` block enforces 44px minimum touch-target on `.px-btn`, `.gu-btn`, `.du-act-btn`, filter chips, and tabs.
+- **Local read-only status UI on the grow unit itself** — tiny Flask app on a separate port (e.g. `http://<pi-ip>:8080/`) so an operator can SSH-free check the unit's health when MLSS is unreachable. Surfaces: live sensor readings, buffered-message + buffered-photo counts, last successful WS connect time, last 50 log lines, WiFi RSSI. **Read-only — no actuator controls** (those route via MLSS so audit/RBAC stays consistent). No auth (LAN-only by definition; same trust model as MLSS). Particularly useful for diagnosing "is the Pi alive when MLSS is down?" scenarios — the firmware design tolerates MLSS outages (buffer + replay) but currently you need SSH + journalctl to verify. Discovered as a real gap during the first physical deployment when the MLSS server's SD card failed mid-deployment and the operator had no quick way to verify the Pi was still capturing.
+- ~~Plant journal / annotations on the History tab~~ — **shipped:** new `grow_journal_entries` table, `mlss_monitor/routes/api_grow_journal.py` (CRUD + RBAC + author-or-admin gate), `static/js/grow/components/journal-editor.mjs` mounted in `history-panel.mjs`. Composer hidden for viewers, edit/delete only on author's own rows (admin override). 27 backend tests, 15 frontend tests. **Marker overlay on the moisture chart + photo-timelapse scrubber deferred to v2** — the editor's `journal-changed` CustomEvent is in place so the orchestrator can re-fetch when the overlay lands.
+- ~~Time-lapse video generation~~ — **shipped:** new `grow_timelapse_jobs` table + `mlss_monitor/grow/timelapse_jobs.py` (in-process daemon-thread runner, 30s poll), `mlss_monitor/routes/api_grow_timelapse.py` (POST controller+, GET viewer+), `static/js/grow/components/timelapse-generator.mjs` mounted in History tab. ffmpeg shells out via `subprocess.run` with a sequential `frame_%04d.jpg` symlink staging dir; missing-ffmpeg returns 503 with install hint. 18 backend + 8 frontend tests. README prereq updated to mention `apt install ffmpeg`.
+
+### Phase 5 (smarts)
+- Image-based phase classifier
+- Plant-stage-aware PID adjustments
+- Cross-unit anomaly detection
+- Reservoir / water budget tracking
+
+### Hardware/reliability deferred
+- **Hardware watchdog (`/dev/watchdog`)** on Pi Zero — designed in but not wired up due to risk of misconfigured timer rebooting healthy Pi mid-write. Re-evaluate if a unit silently wedges in production despite systemd watchdog.
+
+### Grow unit hardware additions
+
+> Tracking new sensors / actuators to add to the per-unit hardware stack. Each entry covers the part to source, the firmware-side work, the server-side work, and how it slots into existing systems (capability auto-detect, plant happiness, plant_profiles). Do these on dedicated branches (one branch per sensor) so each can be reviewed + tested independently before merge.
+
+#### Humidity / air-temperature sensor + VPD
+
+Today the grow unit reports `soil_moisture`, `soil_temp_c`, `light_state`, `pump_state`, `camera`. Air temperature + relative humidity are measured on the MLSS server only — useless once a grow unit lives in a different room from MLSS. Add an air-T+RH sensor on the grow unit itself so we can:
+- Display per-unit air temperature & humidity tiles
+- Compute Vapor Pressure Deficit (VPD), the more meaningful "is the plant transpiring happily?" metric
+- Extend today's plant-happiness indicator to air temperature + VPD
+
+**Hardware to source** (any one):
+- **Adafruit AHT20** (~£5, I2C 0x38, ±0.3 °C / ±2 % RH) — same chip MLSS already uses, driver code is near-zero-cost to port from `external_api_interfaces/aht20.py`. Recommended starting point.
+- **Sensirion SHT40 / SHT41** (~£10, I2C 0x44, ±0.2 °C / ±1.5 % RH) — industry-standard horticulture sensor. Better long-term drift than AHT20. Adafruit STEMMA QT cable plug-and-play.
+- **Bosch BME680** (~£12, I2C 0x77) — also gives barometric pressure + gas/VOC. Overkill unless we ever care about CO₂ proxy trends.
+
+All three share the existing I2C bus on the grow unit (Seesaw soil sensor at 0x36, no conflict at 0x38 / 0x44 / 0x77). Wiring is the same 4-pin VCC / GND / SDA / SCL we already documented for the Seesaw in [`docs/PLANT_GROW_UNIT_HARDWARE.md`](PLANT_GROW_UNIT_HARDWARE.md).
+
+**Firmware work** (`grow_unit/src/mlss_grow/`):
+- New `sensors/aht20.py` (or `sht40.py` depending on chip choice) — mirror the existing `seesaw.py` pattern: probe at startup, expose `read()` returning `(temp_c, rh_pct)`, register as a capability so it auto-announces on connect
+- Extend the periodic poller in `service.py` to read + include `air_temp_c` and `air_humidity_pct` in telemetry frames
+- Add `capabilities.py` entry for the two new channels
+
+**Server work**:
+- `mlss_monitor/grow/handlers.py` LastKnownState TypedDict + `_last_known_state` projection: add `air_temp_c` + `air_humidity_pct`
+- `database/grow_schema.py` `grow_telemetry`: columns already exist (`air_temp_c REAL`, `air_humidity_pct REAL`) — no schema change needed; verify the WS handler writes them when present
+- `static/js/grow/unit_detail.mjs` CHANNEL_DISPLAY: add entries so tiles render for the new channels
+- Extend the plant-happiness indicator from commit `80f2a3d` to cover `air_temp_c`: 8 more threshold columns on `grow_plant_profiles` + seed values per plant×phase (researched horticultural references)
+
+**VPD compute** (new capability built on the above):
+- VPD formula: `SVP_kPa = 0.6108 × exp(17.27 × T / (T + 237.3))` then `VPD_kPa = SVP × (1 − RH/100)`. Pure compute, no extra hardware.
+- Add `vpd_kpa` as a synthetic / derived channel: NOT a sensor, but a per-tick computation from `air_temp_c` + `air_humidity_pct`. Compute in the firmware (cleaner — the unit owns its readings) or compute server-side in `_last_known_state` (cheaper change). Recommend server-side for v1: keeps the firmware contract stable.
+- Add VPD tile to Live readings + per-plant VPD thresholds (extend the happiness work). Target VPD bands published in horticultural literature: ~0.4–0.8 kPa seedlings, ~0.8–1.2 kPa vegetative, ~1.2–1.6 kPa flowering/fruiting, >1.6 kPa transpiration stress.
+
+**Future extension — LVPD (leaf VPD)**: closer to "true plant happiness" than air-VPD because it uses leaf surface temperature (typically 2–5 °C cooler than air due to evapotranspiration) instead of air temperature. Requires an IR thermopile sensor (MLX90614, ~£8 I2C 0x5A) pointed at the canopy. Worth re-evaluating once air-VPD is in production and we have a baseline to compare against.
 

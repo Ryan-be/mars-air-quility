@@ -3,6 +3,13 @@
 A lightweight environmental monitoring system for Raspberry Pi, designed as a prototype for Mars habitat life-support applications. Logs sensor data to SQLite, serves a live web dashboard with historical plots, controls effectors automatically via rule-based thresholds, and displays status on a small TFT screen. The web UI is built with [AstroUXDS](https://astrouxds.com), NASA / Lockheed Martin's open-source space-mission design system, giving the dashboard a consistent dark space-mission look befitting the project's theme.
 
 A list of know issues and feature improvements including recomended fixes can be found here: [Bugs, Improvements and Roadmap](docs/Bugs_Improvements_and_Roadmap.md)
+
+> **First time setting up a Plant Grow Unit?**
+> Start with [docs/PLANT_GROW_UNIT_SETUP.md](docs/PLANT_GROW_UNIT_SETUP.md)
+> — that's the deployment-critical path: prerequisites, the
+> `/boot/mlss-grow.yaml` file, the install one-liner, sense-only-mode
+> deployment posture, and token rotation / decommission flows. Hardware
+> wiring is in [docs/PLANT_GROW_UNIT_HARDWARE.md](docs/PLANT_GROW_UNIT_HARDWARE.md).
 ---
 
 ## Table of contents
@@ -16,6 +23,7 @@ A list of know issues and feature improvements including recomended fixes can be
 - [Incident correlation graph](#incident-correlation-graph)
 - [FeatureVector](#featurevector)
 - [Data flow](#data-flow)
+- [Plant Grow Units](#plant-grow-units)
 - [Installation](#installation)
 - [Running](#running)
 - [Web interface](#web-interface)
@@ -23,6 +31,8 @@ A list of know issues and feature improvements including recomended fixes can be
 - [Development](#development)
 - [Project structure](#project-structure)
 - [Known limitations](#known-limitations)
+- [Documentation map](#documentation)
+- [Database reference](docs/DATABASE.md)
 - [Configuration reference](docs/CONFIGURATION.md)
 - [Production deployment guide](docs/PRODUCTION.md)
 
@@ -101,7 +111,7 @@ The Pimoroni MICS6814 breakout uses I2C and can be daisy-chained with the AHT20 
 - CSV export of historical readings
 - System health endpoint (CPU, memory, uptime, sensor status)
 - Outdoor weather -- current conditions and 24-hour forecast via [Open-Meteo](https://open-meteo.com) (free, no key)
-- UK postcode geocoding via [postcodes.io](https://postcodes.io) (e.g. `LS26`)
+- UK postcode geocoding via [postcodes.io](https://postcodes.io)
 - Hourly weather logging with 7-day auto-cleanup
 - GitHub OAuth 2.0 authentication (via `authlib`)
 - Role-Based Access Control (RBAC) -- three roles: **admin**, **controller**, **viewer**
@@ -113,6 +123,7 @@ The Pimoroni MICS6814 breakout uses I2C and can be daisy-chained with the AHT20 
 - Real-time Server-Sent Events (SSE) -- sensor readings, fan status, inference alerts, and weather updates are pushed to the browser instantly via an in-process event bus, replacing most polling
 - **AstroUXDS** web-component design system -- dashboard, history, controls, admin, login, and inference-engine config pages all use NASA / Lockheed Martin's [Astro UXDS](https://astrouxds.com) for a consistent dark space-mission look (deep navy / charcoal background, cyan accents, Roboto typography)
 - Per-event sparkline panels -- each detected event on the history page opens a slide-in inference panel with a Plotly sparkline showing the relevant channels around the event timestamp (range events get a shaded "Tagged range" rectangle; point events get a dashed "Event" line)
+- **Plant Grow Units** — remote Pi Zero W satellites, each managing one growing area (single plant, microgreens tray, etc.) with soil moisture sensing, PID-driven watering, configurable light schedule, and timelapse photography. See the [Plant Grow Units](#plant-grow-units) section below for the full doc set.
 
 ---
 
@@ -695,7 +706,7 @@ A 3-column layout:
 
 Ghost clusters (unselected incidents) are rendered at reduced opacity but their nodes are visible; clicking any node in a ghost cluster navigates to that incident. Details are fetched progressively in the background and cached per session to keep navigation snappy.
 
-See `docs/superpowers/plans/2026-04-23-incident-correlation-graph.md` for the original design and `docs/superpowers/plans/2026-04-23-incidents-tab-improvements.md` for the narrative + timeline + explain-similarity follow-up work.
+Source: `mlss_monitor/incident_grouper.py` (composition of pure functions, each unit-tested in `tests/test_incident_grouper.py`) and `mlss_monitor/incidents_narrative.py` (English-prose builder for the narrative panel).
 
 ---
 
@@ -743,7 +754,7 @@ Each of the 10 sensor channels (`tvoc`, `eco2`, `temperature`, `humidity`, `pm1`
 3. Temporal features (slopes, acceleration, rise time, peak timing, slope variance) are derived in-process — no external calls.
 4. The resulting `FeatureVector` is passed to each registered detector and to the attribution engine.
 
-See `mlss_monitor/feature_vector.py` and the spec at `docs/superpowers/specs/2026-03-31-smart-inference-engine-design.md`.
+See `mlss_monitor/feature_vector.py` for the implementation.
 
 ---
 
@@ -789,10 +800,60 @@ FeatureVector (143 fields)
                                                (inference_event pushed to all clients)
 ```
 
-See spec files in `docs/superpowers/specs/` for full design documentation:
-- `2026-03-31-smart-inference-engine-design.md` -- original engine architecture
-- `2026-04-04-phase5-multivariate-actionable-inferences.md` -- multivariate ML models and actionable inference evidence
-- `2026-04-04-phase6-display-ui-and-ml-insights.md` -- Detections & Insights UI, normal bands chart, and inference card enrichment
+Sources of truth in the codebase: `mlss_monitor/inference_engine.py`,
+`mlss_monitor/detection_engine.py`, `mlss_monitor/attribution/`,
+`mlss_monitor/feature_vector.py`, and the YAML rule + fingerprint
+catalogues under `config/`.
+
+---
+
+## Plant Grow Units
+
+The MLSS server can host a fleet of Raspberry Pi Zero W "grow units" —
+each with sensors (soil moisture, ambient lux, soil temperature, …) and
+optional actuators (water pump, grow light) — that report telemetry over
+authenticated WSS and receive control commands. Per-unit PID watering
+runs on the Pi itself so plants survive an MLSS outage; telemetry is
+buffered locally and replays on reconnect. The `/grow` tab on the main
+dashboard shows the fleet; each unit has its own detail page with Live,
+**Configure** (with a **Diagnostics** subtab), and **History** tabs.
+Live includes a **plant happiness** indicator (soil temp + moisture
+tiles colour-coded against per-plant + per-phase ideal/tolerated/critical
+thresholds). Configure covers PID tunables, light windows, the
+**calibration wizard** (with live polling and a manual-input escape
+hatch), and a 3-click safety override; Diagnostics shows firmware
+version, connection log, sensor sanity, buffer inspector, and a
+danger-zone for destructive ops. History shows long-range moisture
+charts with axes/legend, a **photo timelapse**, and a **plant journal**
+for operator notes pinned to a timestamp. Moisture pct is
+**computed on read** from the unit's current calibration, so
+recalibration instantly re-frames the entire visible history without a
+DB rewrite. A fleet-wide **`/grow/errors`** page lists every
+error/warning row with filter + resolve/snooze actions. A household-wide
+**Settings → Grow** page covers enrollment-key rotation, default
+tunables, the plant profile editor, and holiday mode.
+
+| Doc | Audience | Content |
+|---|---|---|
+| [User guide](docs/PLANT_GROW_UNIT_USAGE.md) | Operator | Day-to-day operation: tabs, controls, soak window, sense-only mode, calibration wizard, plant happiness, troubleshooting |
+| [Hardware BOM + wiring](docs/PLANT_GROW_UNIT_HARDWARE.md) | Builder | Components, wiring tables, power split, block diagram, bench tests |
+| [Pi setup + first-boot enrolment](docs/PLANT_GROW_UNIT_SETUP.md) | Installer | One-line install, SHA256 wheel verify, TLS cert pinning, enrolment flow, decommission |
+| [Architecture deep-dive](docs/PLANT_GROW_UNIT_ARCHITECTURE.md) | Developer | System diagrams, WS protocol, ABCs, capability watchdog, buffer housekeeping, config-on-reconnect-pull, compute-on-read pct, plant-happiness algorithm |
+| [SD-card image build](docs/PI_IMAGE_BUILD.md) | Maintainer | pi-gen wrapper that bakes wheels into a flashable image |
+| [Release process](docs/RELEASE_PROCESS.md) | Maintainer | Local-only wheel build flow + version bumps for `mlss-grow` / `mlss-contracts` |
+| [3D-printable enclosure](docs/grow_unit_enclosure/README.md) | Builder | OpenSCAD parametric model, print settings, assembly |
+| [Firmware package readme](grow_unit/README.md) | Developer | Per-module map of the firmware package |
+| [Contracts package readme](contracts/README.md) | Developer | Shared pydantic schemas (`mlss_contracts`) used by both server and firmware |
+
+---
+
+## Database
+
+Both server-side state and the on-Pi outbox use SQLite (WAL mode,
+idempotent migrations, additive-only schema policy).
+
+- [Schema reference](docs/DATABASE.md) — every table, every column, indexes, retention/eviction policies, the override cascade for tunables
+- [JSON storage audit](docs/JSON_STORAGE_AUDIT.md) — current state of JSON-in-TEXT-column usage + roadmap for promotion to typed columns
 
 ---
 
@@ -804,6 +865,18 @@ See spec files in `docs/superpowers/specs/` for full design documentation:
 - Python 3.11+
 - I2C enabled (the setup script handles this)
 - UART enabled (required for the PM sensor -- see below)
+- `ffmpeg` -- required for grow-unit time-lapse video rendering (Phase 4
+  feature; see the History tab on `/grow/<id>`). Install on the MLSS
+  server with:
+  ```bash
+  sudo apt install ffmpeg
+  ```
+  If missing, the time-lapse runner logs a clear `WARNING` at startup
+  (visible in `journalctl -u mlss-monitor`), `bin/deploy` prints a yellow
+  warning, the POST endpoint returns `503 ffmpeg_not_installed`, and any
+  jobs created out-of-band are marked `failed` with
+  `error_message='ffmpeg_not_installed'`. The rest of the system is
+  unaffected — install the package and restart the service to enable.
 
 ### First-time setup
 
@@ -889,7 +962,7 @@ The configuration in `gunicorn.conf.py` is deliberate -- single `gthread` worker
 ### As a systemd service
 
 ```bash
-# Edit mlss-monitor.service if your username or project path differs from masadmin
+# Edit mlss-monitor.service if your username or project path differs from the shipped default
 sudo cp mlss-monitor.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now mlss-monitor
@@ -900,6 +973,32 @@ sudo journalctl -u mlss-monitor -f
 ```
 
 The shipped `mlss-monitor.service` invokes gunicorn with the conf file above. Do not replace `ExecStart` with `python -m mlss_monitor.app` for a production unit.
+
+### Redeploying after a code change
+
+Once the systemd unit is installed, redeploy with the bundled script:
+
+```bash
+bin/deploy
+```
+
+This runs `git pull --ff-only`, `poetry install --without dev`, rebuilds the
+grow firmware wheels if `grow_unit/`, `contracts/`, or
+`scripts/build_grow_wheel.sh` changed (or on first deploy), and
+`sudo systemctl restart mlss-monitor`. It uses `set -euo pipefail` so any
+failed step aborts before bouncing the service. Use this in preference to
+`git pull && sudo systemctl restart mlss-monitor` — that older shorthand
+skips the poetry install and the wheel rebuild.
+
+### Running off SD vs. USB SSD
+
+The MLSS server's SQLite WAL plus sensor / weather / inference / photo writes
+will wear out a consumer SD card in 2-6 months. For 24/7 stability, migrate
+the root filesystem onto a USB-attached SSD. See
+[`docs/USB_SSD_BOOT_GUIDE.md`](docs/USB_SSD_BOOT_GUIDE.md) for the full
+hardware list and migration recipe (live `rsync`, no data loss, ~30 minutes).
+Pi Zero W grow units don't need this — they're write-light enough that SD is
+fine.
 
 ---
 
@@ -977,7 +1076,7 @@ The `MLSS_ALLOWED_GITHUB_USER` bootstrap account always has the **admin** role r
 | Method | Endpoint | Min role | Description |
 |---|---|---|---|
 | `GET` | `/api/settings/location` | viewer | Get saved location |
-| `POST` | `/api/settings/location` | admin | Save location -- body: `{"lat": 53.7, "lon": -1.5, "name": "LS26"}` |
+| `POST` | `/api/settings/location` | admin | Save location -- body: `{"lat": 51.5, "lon": -0.1, "name": "SW1A"}` |
 | `GET` | `/api/settings/energy` | viewer | Get saved energy unit rate |
 | `POST` | `/api/settings/energy` | admin | Save energy rate -- body: `{"unit_rate_pence": 28.5}` |
 | `GET` | `/api/settings/thresholds` | viewer | Get inference thresholds |
@@ -1001,7 +1100,7 @@ The `MLSS_ALLOWED_GITHUB_USER` bootstrap account always has the **admin** role r
 | `POST` | `/api/incidents/<id>/split` | controller | Body `{alert_id: int}`. Adds an `incident_splits` row and triggers a regroup. |
 | `POST` | `/api/incidents/<id>/unsplit` | controller | Body `{alert_id: int}`. Removes a split marker and triggers a regroup. |
 
-Incidents are sessionised by a 30-minute silence gap and persisted in three tables (see [Database design](#database-design)). The grouping is handled by a background daemon (`mlss_monitor/incident_grouper.py`) that subscribes to `new_inference` events on the in-process event bus and re-groups on a 60-second safety-net interval. See `docs/superpowers/plans/2026-04-23-incident-correlation-graph.md` and `docs/superpowers/plans/2026-04-23-incidents-tab-improvements.md` for the full architecture.
+Incidents are sessionised by a 30-minute silence gap and persisted in three tables (see [Database design](#database-design)). The grouping is handled by a background daemon (`mlss_monitor/incident_grouper.py`) that subscribes to `new_inference` events on the in-process event bus and re-groups on a 60-second safety-net interval.
 
 ### User management
 
@@ -1012,6 +1111,86 @@ Incidents are sessionised by a 30-minute silence gap and persisted in three tabl
 | `PATCH` | `/api/users/<id>/role` | admin | Change role -- body: `{"role": "controller"}` |
 | `GET` | `/api/users/<id>/logins` | admin | Login history (last 20 entries) |
 | `DELETE` | `/api/users/<id>` | admin | Deactivate a user |
+
+### Plant Grow Units
+
+Full deep-dive in [docs/PLANT_GROW_UNIT_ARCHITECTURE.md](docs/PLANT_GROW_UNIT_ARCHITECTURE.md);
+this is the endpoint surface only. The persistent telemetry channel itself is a
+WebSocket at `wss://<host>:5001/api/grow/<unit_id>/ws` (bearer-token auth), not
+listed here because it isn't called by browsers.
+
+**Fleet + per-unit state**
+
+| Method | Endpoint | Min role | Description |
+|---|---|---|---|
+| `GET` | `/api/grow/units` | viewer | Fleet list with status + last-known telemetry |
+| `GET` | `/api/grow/units/<id>` | viewer | Per-unit detail: capabilities, overrides, calibration, light windows, **plant happiness** zones for soil temp + moisture |
+| `DELETE` | `/api/grow/units/<id>` | admin | Soft-decommission (`is_active=0`); preserves history |
+| `POST` | `/api/grow/units/<id>/identify` | controller | 10 s grow-light blink |
+| `POST` | `/api/grow/units/<id>/water-now` | controller | Pulse the pump (body `{"duration_s": 5}`, hard-capped at 30 s) |
+| `POST` | `/api/grow/units/<id>/snap-photo` | controller | Out-of-band photo capture |
+| `POST` | `/api/grow/units/<id>/light-toggle` | controller | Flip current light state for 60 min override |
+| `POST` | `/api/grow/units/<id>/clear-buffer` | admin | Push `clear_buffer` to wipe the unit's local outbox |
+| `DELETE` | `/api/grow/units/<id>/photos` | admin | Delete all photos (DB rows + JPEG files) for a unit |
+| `POST` | `/api/grow/units/<id>/rotate-token` | admin | Mint new bearer token; returns raw once |
+| `GET` | `/api/grow/units/<id>/token/peek-once` | admin | Reveal a freshly-rotated token once, then delete the stash |
+
+**Configure tab**
+
+| Method | Endpoint | Min role | Description |
+|---|---|---|---|
+| `PUT` | `/api/grow/units/<id>/profile` | controller | Change `plant_type` / `current_phase` / `medium_type` (phase change stamps `phase_set_by='user'`) |
+| `PUT` | `/api/grow/units/<id>/pid` | controller | Per-unit PID overrides (`target_pct`, `kp/ki/kd`, `min_pulse_s`, `max_pulse_s`, `soak_window_min`) |
+| `PUT` | `/api/grow/units/<id>/light_windows` | controller | Replace all light windows for one (unit, phase) |
+| `GET` | `/api/grow/units/<id>/calibration` | viewer | Current dry/wet raw values |
+| `PUT` | `/api/grow/units/<id>/calibration` | controller | Save dry/wet raw (recalibration instantly re-frames history via compute-on-read) |
+| `PUT` | `/api/grow/units/<id>/photo_schedule` | controller | Set `start_hour` / `end_hour` (NULL,NULL = 24/7) |
+| `POST` | `/api/grow/units/<id>/safety_override` | admin | Bypass PID + soak window; synchronous push, audit-trailed in `grow_errors` |
+| `GET` | `/api/grow/units/<id>/config` | (firmware bearer) | Firmware pull of resolved config — overrides + calibration + light windows + holiday mode |
+| `GET` | `/api/grow/units/<id>/diagnostics` | viewer | Firmware version, connection log, sensor sanity, buffer summary |
+
+**History + photos + timelapse**
+
+| Method | Endpoint | Min role | Description |
+|---|---|---|---|
+| `GET` | `/api/grow/units/<id>/history?range=24h\|7d\|30d\|90d\|all` | viewer | Moisture series + watering events; pct recomputed from current calibration on every request (compute-on-read) |
+| `GET` | `/api/grow/units/<id>/photo/latest?size=thumb\|small\|medium` | viewer | Most-recent JPEG (optional thumbnail size) |
+| `GET` | `/api/grow/units/<id>/photos?range=…` | viewer | Index of photos in range for the timelapse scrubber |
+| `GET` | `/api/grow/units/<id>/photos/<photo_id>?size=…` | viewer | Single JPEG (thumbnail-friendly) |
+| `POST` | `/api/grow/units/<id>/timelapse` | controller | Queue a timelapse render (body `{range, fps}`); requires `ffmpeg` |
+| `GET` | `/api/grow/units/<id>/timelapse` | viewer | List recent timelapse jobs for this unit |
+| `GET` | `/api/grow/timelapse/<job_id>` | viewer | Job status (`queued/running/complete/failed`) |
+| `GET` | `/api/grow/timelapse/<job_id>/video` | viewer | Stream the rendered MP4 (404 until `complete`) |
+
+**Plant journal** (Phase 4 #7 — operator notes pinned to a timestamp on a unit)
+
+| Method | Endpoint | Min role | Description |
+|---|---|---|---|
+| `GET` | `/api/grow/units/<id>/journal` | viewer | List journal entries for one unit (newest first) |
+| `POST` | `/api/grow/units/<id>/journal` | controller | Create entry (body `{timestamp_utc, body}`); author = session user |
+| `PATCH` | `/api/grow/units/<id>/journal/<entry_id>` | controller (author) / admin | Edit body; stamps `updated_at` |
+| `DELETE` | `/api/grow/units/<id>/journal/<entry_id>` | controller (author) / admin | Remove entry |
+
+**Settings → Grow + fleet-wide errors**
+
+| Method | Endpoint | Min role | Description |
+|---|---|---|---|
+| `GET` | `/api/grow/plant-profiles` | controller | List every plant_profile row (shipped + custom) |
+| `PUT` | `/api/grow/plant-profiles/<id>` | admin | Update a plant profile (shipped rows ARE editable) |
+| `POST` | `/api/grow/enrollment-key/rotate` | admin | Generate a new enrollment key; returns raw once |
+| `GET` | `/api/grow/enrollment-key/peek-once` | admin | Reveal a freshly-rotated enrollment key once |
+| `GET` | `/api/grow/settings/holiday-mode` | viewer | Read household-wide holiday flag |
+| `PUT` | `/api/grow/settings/holiday-mode` | admin | Toggle holiday mode (suspends pumps fleet-wide) |
+| `GET` | `/api/grow/errors` | viewer | Fleet-wide error log (filter: severity / kind / resolved / range) |
+| `PATCH` | `/api/grow/errors/<id>` | admin | Resolve or snooze an error row |
+
+**Enrollment + firmware distribution**
+
+| Method | Endpoint | Min role | Description |
+|---|---|---|---|
+| `POST` | `/api/grow/enroll` | (enrollment key) | First-boot enrolment — idempotent by `hardware_serial`, returns per-unit bearer token |
+| `GET` | `/api/grow/install.sh` | public | Pi-side installer script (cert-pinning + SHA256 verify) |
+| `GET` | `/api/grow/dist/<filename>` | public | Wheels, systemd unit, and `latest` manifest used by `install.sh` |
 
 ### Real-time stream (SSE)
 
@@ -1198,3 +1377,36 @@ mlss-monitor.service          systemd unit file (invokes gunicorn with mlss_moni
 | MICS6814 readings are relative | The gas sensor outputs analogue resistance values, not calibrated ppm concentrations. Compare trends rather than treating readings as absolute measurements. The sensor benefits from a warm-up period of several minutes. |
 | Kasa `SmartPlug` API deprecated | The `python-kasa` library has deprecated `SmartPlug` in favour of `IotPlug`. A migration warning appears on startup; functionality is unaffected for now. |
 | Flask dev server is for development only | `python mlss_monitor/app.py` runs Werkzeug's single-threaded dev server. Production deployments must use the shipped `gunicorn.conf.py` + `mlss_monitor.wsgi:application` entry point (single `gthread` worker, `preload_app = True`, `timeout = 0`) behind nginx -- see [PRODUCTION.md](docs/PRODUCTION.md). |
+
+---
+
+## Documentation
+
+Every user-facing document in the repo, organised by topic:
+
+**MLSS server (air-quality side)**
+
+- [docs/CONFIGURATION.md](docs/CONFIGURATION.md) — env-var reference for the MLSS server
+- [docs/DATABASE.md](docs/DATABASE.md) — schema reference for both `sensor_data.db` and the on-Pi `buffer.sqlite`
+- [docs/PRODUCTION.md](docs/PRODUCTION.md) — nginx, TLS, OAuth, firewall, gunicorn pre-launch checklist
+- [docs/USB_SSD_BOOT_GUIDE.md](docs/USB_SSD_BOOT_GUIDE.md) — migrate the MLSS server from SD to USB SSD
+- [docs/EVENT_TAGGING_FLOW.md](docs/EVENT_TAGGING_FLOW.md) — how user range-tags flow into the ML attribution training
+- [docs/JSON_STORAGE_AUDIT.md](docs/JSON_STORAGE_AUDIT.md) — JSON-in-TEXT-column audit + promotion roadmap
+
+**Plant Grow Unit subsystem**
+
+- [docs/PLANT_GROW_UNIT_HARDWARE.md](docs/PLANT_GROW_UNIT_HARDWARE.md) — BOM, wiring tables, power split, block diagram
+- [docs/PLANT_GROW_UNIT_SETUP.md](docs/PLANT_GROW_UNIT_SETUP.md) — first-boot install, TLS cert pinning, decommission
+- [docs/PLANT_GROW_UNIT_USAGE.md](docs/PLANT_GROW_UNIT_USAGE.md) — day-to-day operator guide
+- [docs/PLANT_GROW_UNIT_ARCHITECTURE.md](docs/PLANT_GROW_UNIT_ARCHITECTURE.md) — system design, diagrams, WS protocol, compute-on-read, plant happiness, capability watchdog
+- [docs/PI_IMAGE_BUILD.md](docs/PI_IMAGE_BUILD.md) — build a flashable SD-card image
+- [docs/RELEASE_PROCESS.md](docs/RELEASE_PROCESS.md) — local-only wheel build flow for `mlss-grow` and `mlss-contracts`
+- [docs/grow_unit_enclosure/README.md](docs/grow_unit_enclosure/README.md) — 3D-printable parametric enclosure
+- [grow_unit/README.md](grow_unit/README.md) — firmware package module map
+- [contracts/README.md](contracts/README.md) — shared pydantic schemas package
+
+**Roadmap + planning**
+
+- [docs/Bugs_Improvements_and_Roadmap.md](docs/Bugs_Improvements_and_Roadmap.md) — known issues, deferred work, future sensors
+
+> Plans and specs under `docs/superpowers/` are internal planning artefacts (not user-facing); they aren't linked here and may go out of date as work lands.

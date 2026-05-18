@@ -1,0 +1,144 @@
+/**
+ * Render one grow unit as a card on the fleet view. Card structure:
+ *   header (name + phase/medium meta + status pill)
+ *   photo (latest captured or placeholder)
+ *   stat tiles (capability-driven; just moisture + light + watered for now)
+ *   footer (last seen + Identify + Open buttons)
+ */
+import { renderStatusPill } from "./status-pill.mjs";
+
+
+export function renderGrowCard(unit, doc = document) {
+  const card = doc.createElement("div");
+  card.className = `gu-card ${unit.status}`;
+  card.dataset.unitId = unit.id;
+
+  // Header
+  const head = doc.createElement("div");
+  head.className = "gu-head";
+  const titleBlock = doc.createElement("div");
+  const name = doc.createElement("div");
+  name.className = "gu-name";
+  name.textContent = unit.label;
+  const meta = doc.createElement("div");
+  meta.className = "gu-meta";
+  const dayCount = unit.sown_at
+    ? Math.floor((Date.now() - new Date(unit.sown_at).getTime()) / 86400000)
+    : null;
+  meta.textContent = [
+    unit.current_phase,
+    dayCount !== null ? `day ${dayCount}` : null,
+    unit.medium_type,
+  ].filter(Boolean).join(" · ");
+  titleBlock.appendChild(name);
+  titleBlock.appendChild(meta);
+  head.appendChild(titleBlock);
+  // Status pill + (optional) buffered-message badge sit together on the
+  // right of the header. Badge only renders when last_buffer_size > 0
+  // — healthy units (buffer=0) get no chrome so the card stays clean.
+  const headRight = doc.createElement("div");
+  headRight.className = "gu-head-right";
+  headRight.appendChild(renderStatusPill(unit.status, { ownerDocument: doc }));
+  const buffered = unit.last_buffer_size;
+  if (typeof buffered === "number" && buffered > 0) {
+    const badge = doc.createElement("span");
+    badge.className = "gu-card-buffered-badge";
+    badge.textContent = `📦 ${buffered} buffered`;
+    headRight.appendChild(badge);
+  }
+  head.appendChild(headRight);
+  card.appendChild(head);
+
+  // Photo. The server-side `_last_known_state` already returns the
+  // `?size=thumb` variant in `last_photo_url` (centralised so any
+  // future card-photo consumer can't forget). The ~30KB cached
+  // thumbnail generates lazily on first request and is served from
+  // disk on subsequent visits — see
+  // mlss_monitor/grow/photo_storage.py::get_or_create_thumbnail.
+  const photo = doc.createElement("div");
+  photo.className = "gu-photo";
+  const photoUrl = unit.last_known_state?.last_photo_url || null;
+  if (photoUrl) {
+    photo.style.backgroundImage = `url(${photoUrl})`;
+  } else {
+    photo.classList.add("no-photo");
+    photo.textContent = "— No photo yet —";
+  }
+  card.appendChild(photo);
+
+  // Stats
+  const stats = doc.createElement("div");
+  stats.className = "gu-stats";
+  const last = unit.last_known_state || {};
+  const moisture = last.soil_moisture_pct != null
+    ? `${Math.round(last.soil_moisture_pct)}%` : "—";
+  const lightOn = last.light_state ? "💡 ON" : "💡 OFF";
+  for (const [v, l] of [
+    [moisture, "Moisture"],
+    [lightOn, "Light"],
+    [unit.status === "online" ? "Live" : unit.status, "State"],
+  ]) {
+    const stat = doc.createElement("div");
+    stat.className = "gu-stat";
+    const vd = doc.createElement("div");
+    vd.className = "v"; vd.textContent = v;
+    const ld = doc.createElement("div");
+    ld.className = "l"; ld.textContent = l;
+    stat.appendChild(vd); stat.appendChild(ld);
+    stats.appendChild(stat);
+  }
+  card.appendChild(stats);
+
+  // Footer
+  const foot = doc.createElement("div");
+  foot.className = "gu-foot";
+  const seen = doc.createElement("span");
+  seen.className = "gu-lastseen";
+  seen.textContent = unit.last_seen_at
+    ? `Seen ${_relativeTime(new Date(unit.last_seen_at))} ago` : "Never seen";
+  const actions = doc.createElement("div");
+  actions.className = "gu-actions";
+  const identifyBtn = doc.createElement("button");
+  identifyBtn.className = "gu-btn";
+  identifyBtn.dataset.action = "identify";
+  identifyBtn.dataset.unitId = unit.id;
+  identifyBtn.textContent = "Identify";
+  const openBtn = doc.createElement("a");
+  openBtn.className = "gu-btn";
+  openBtn.dataset.action = "open";
+  openBtn.dataset.href = `/grow/${unit.id}`;
+  openBtn.href = `/grow/${unit.id}`;
+  openBtn.textContent = "Open →";
+  actions.appendChild(identifyBtn);
+  actions.appendChild(openBtn);
+  foot.appendChild(seen);
+  foot.appendChild(actions);
+  card.appendChild(foot);
+
+  // Whole-card navigation: clicking anywhere on the card opens the unit
+  // detail page — matching the Open → link's behaviour. The CSS already
+  // sets `cursor: pointer` on hover so this is the natural affordance.
+  //
+  // Inner buttons/links keep their own handlers: we bail out of the
+  // navigation if the click originated from (or bubbled through) a
+  // <button> or <a> ancestor. That covers Identify (which stops
+  // propagation itself) and Open → (it's an <a>, so the browser handles
+  // navigation — we just don't want to double-navigate). Selecting text
+  // inside the card still works because mouseup on a drag doesn't fire
+  // click.
+  card.addEventListener("click", (ev) => {
+    if (ev.target.closest("button, a")) return;
+    window.location.href = openBtn.href;
+  });
+
+  return card;
+}
+
+
+function _relativeTime(then) {
+  const sec = Math.max(0, Math.floor((Date.now() - then.getTime()) / 1000));
+  if (sec < 60) return `${sec}s`;
+  if (sec < 3600) return `${Math.floor(sec / 60)}m`;
+  if (sec < 86400) return `${Math.floor(sec / 3600)}h`;
+  return `${Math.floor(sec / 86400)}d`;
+}

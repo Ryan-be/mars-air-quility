@@ -1,6 +1,7 @@
 import sqlite3
 
 from config import config
+from database.grow_schema import create_grow_schema
 
 DB_FILE = config.get("DB_FILE", "data/sensor_data.db")
 
@@ -86,13 +87,23 @@ def create_db():
         title TEXT NOT NULL,
         description TEXT,
         action TEXT,
-        evidence TEXT,
         confidence REAL NOT NULL DEFAULT 0.5,
         sensor_data_start_id INTEGER,
         sensor_data_end_id INTEGER,
         annotation TEXT,
         user_notes TEXT,
-        dismissed INTEGER DEFAULT 0
+        dismissed INTEGER DEFAULT 0,
+        -- Promoted-from-JSON typed columns (see
+        -- mlss_monitor/inference_evidence_storage.py + JSON_STORAGE_AUDIT.md).
+        -- The legacy ``evidence`` TEXT column was dropped after the
+        -- historic-data migration completed; the typed columns +
+        -- ``evidence_extras`` are now the single source of truth.
+        evidence_attribution_source TEXT,
+        evidence_attribution_confidence REAL,
+        evidence_runner_up_id TEXT,
+        evidence_runner_up_confidence REAL,
+        evidence_detection_method TEXT,
+        evidence_extras TEXT
     );
     """)
 
@@ -215,11 +226,72 @@ def create_db():
         "ALTER TABLE sensor_data ADD COLUMN gas_nh3 REAL",
         "ALTER TABLE hot_tier ADD COLUMN pm1_ug_m3 REAL",
         "ALTER TABLE hot_tier ADD COLUMN pm10_ug_m3 REAL",
+        # Phase 2 schema cleanup: promote runtime-mutable JSON to typed columns
+        "ALTER TABLE grow_unit_capabilities ADD COLUMN health TEXT NOT NULL DEFAULT 'untested'",
+        "ALTER TABLE grow_unit_capabilities ADD COLUMN last_seen_at DATETIME",
+        # Note: SQLite doesn't support adding a CHECK constraint via ALTER. The
+        # CHECK is enforced via app-level pydantic + a partial recreate would
+        # require copying the table. Acceptable trade-off — pydantic enforces
+        # at every WS boundary; the column just receives the validated string.
+        "CREATE INDEX IF NOT EXISTS idx_grow_caps_unit_health "
+        "ON grow_unit_capabilities(unit_id, health)",
+        # Drop dead/redundant JSON cache columns. SQLite 3.35+ supports DROP
+        # COLUMN; Pi OS Lite ships 3.40+. light_phase_override_json was
+        # superseded by grow_light_windows in Phase 1; last_known_state_json
+        # was a per-frame denormalised cache now fetched live from
+        # grow_telemetry (already indexed by (unit_id, timestamp_utc DESC)).
+        "ALTER TABLE grow_units DROP COLUMN light_phase_override_json",
+        "ALTER TABLE grow_units DROP COLUMN last_known_state_json",
+        # Phase 3 Task 1: firmware-reported metadata columns. All nullable;
+        # populated by Task 2's firmware capabilities/telemetry envelopes.
+        "ALTER TABLE grow_units ADD COLUMN firmware_version TEXT",
+        "ALTER TABLE grow_units ADD COLUMN last_uptime_s REAL",
+        "ALTER TABLE grow_units ADD COLUMN last_buffer_size INTEGER",
+        # Buffer-inspection UI (Phase 3 follow-up): cache the firmware-
+        # reported summaries of the local message buffer + photo buffer
+        # so the Diagnostics tab can render WHAT is queued, not just how
+        # many. Stored as JSON-in-TEXT (nullable) — these are read-only
+        # caches updated only when a piggyback frame carries them; the
+        # omit-doesn't-clobber semantics in handle_telemetry preserve
+        # the last-known summary between piggybacks (firmware sends
+        # them every 10th tick, not every tick).
+        "ALTER TABLE grow_units ADD COLUMN last_buffer_summary_json TEXT",
+        "ALTER TABLE grow_units ADD COLUMN last_photo_buffer_summary_json TEXT",
+        # Phase 3 Task 5: snooze support on grow_errors. Nullable; rows
+        # with snoozed_until > now() render muted client-side but are
+        # NOT filtered server-side (admins can still un-snooze them).
+        "ALTER TABLE grow_errors ADD COLUMN snoozed_until DATETIME",
+        # Phase 4 polish: per-unit photo capture schedule. Both NULL ⇒
+        # capture 24/7 (the new default). Both set ⇒ capture only
+        # between start (inclusive) and end (exclusive), wrapping over
+        # midnight when start > end. Replaces the firmware-side
+        # hardcoded (6, 22) whose "no grow light → no useful photo"
+        # assumption broke whenever ambient light was available.
+        "ALTER TABLE grow_units ADD COLUMN photo_active_start_hour INTEGER",
+        "ALTER TABLE grow_units ADD COLUMN photo_active_end_hour INTEGER",
+        # Promotion of ``inferences.evidence`` (JSON-in-TEXT) → typed
+        # columns + extras blob. The legacy ``evidence`` TEXT column
+        # was dropped after the historic-data back-fill completed —
+        # see the DROP COLUMN entries below.
+        "ALTER TABLE inferences ADD COLUMN evidence_attribution_source TEXT",
+        "ALTER TABLE inferences ADD COLUMN evidence_attribution_confidence REAL",
+        "ALTER TABLE inferences ADD COLUMN evidence_runner_up_id TEXT",
+        "ALTER TABLE inferences ADD COLUMN evidence_runner_up_confidence REAL",
+        "ALTER TABLE inferences ADD COLUMN evidence_detection_method TEXT",
+        "ALTER TABLE inferences ADD COLUMN evidence_extras TEXT",
+        # Drop legacy JSON-in-TEXT columns now that the typed
+        # representations are the sole source of truth (historic data
+        # back-filled in commit d0a1d07). SQLite 3.35+ supports DROP
+        # COLUMN; Pi OS Lite ships 3.40+. Wrapped in the same
+        # try/except as every other migration so re-running on an
+        # already-migrated DB is a no-op.
+        "ALTER TABLE incidents DROP COLUMN signature",
+        "ALTER TABLE inferences DROP COLUMN evidence",
     ]:
         try:
             cur.execute(migration)
         except Exception:  # pylint: disable=broad-except
-            pass  # column already exists
+            pass  # column already exists / already dropped
 
     cur.execute("""
     CREATE TABLE IF NOT EXISTS users (
@@ -288,8 +360,7 @@ def create_db():
         max_severity TEXT NOT NULL DEFAULT 'info'
                          CHECK(max_severity IN ('info', 'warning', 'critical')),
         confidence   REAL NOT NULL DEFAULT 0,
-        title        TEXT NOT NULL,
-        signature    TEXT NOT NULL DEFAULT '[]'
+        title        TEXT NOT NULL
     );
     """)
     cur.execute(
@@ -305,6 +376,25 @@ def create_db():
         PRIMARY KEY (incident_id, alert_id)
     );
     """)
+
+    # Promotion of ``incidents.signature`` (JSON-in-TEXT) → typed
+    # sub-table. The legacy ``incidents.signature`` column was dropped
+    # after the historic-data back-fill completed; this sub-table is
+    # now the single source of truth. See docs/JSON_STORAGE_AUDIT.md
+    # and mlss_monitor/incident_signature_storage.py.
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS incident_signature_features (
+        incident_id TEXT    NOT NULL,
+        feature_idx INTEGER NOT NULL,
+        value       REAL    NOT NULL,
+        PRIMARY KEY (incident_id, feature_idx),
+        FOREIGN KEY (incident_id) REFERENCES incidents(id) ON DELETE CASCADE
+    );
+    """)
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_isf_incident "
+        "ON incident_signature_features(incident_id)"
+    )
 
     cur.execute("""
     CREATE TABLE IF NOT EXISTS alert_signal_deps (
@@ -323,6 +413,9 @@ def create_db():
         created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
     """)
+
+    # Plant Grow Unit tables (Phase 1)
+    create_grow_schema(cur)
 
     conn.commit()
     conn.close()

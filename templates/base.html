@@ -135,6 +135,15 @@
       <span>Incidents</span>
     </a>
 
+    <!-- Grow (also covers Grow Errors + Grow Settings via the sub-nav row
+         on those pages — see templates/_grow_subnav.html) -->
+    <a href="{{ url_for('pages.grow_fleet') }}"
+       data-tab="grow"
+       class="{{ 'active' if active in ('pages.grow_fleet', 'pages.grow_unit_detail', 'pages.grow_errors_page', 'pages.grow_settings_page') else '' }}">
+      <rux-icon icon="add-photo-alternate" size="extra-small"></rux-icon>
+      <span>Grow</span>
+    </a>
+
     <!-- Controls -->
     <a href="{{ url_for('pages.controls_page') }}"
        data-tab="controls"
@@ -143,11 +152,14 @@
       <span>Controls</span>
     </a>
 
-    <!-- Settings (admin only) -->
+    <!-- Settings (admin only) — explicitly excludes grow_settings_page so
+         the top-level Settings tab doesn't light up when the user is on
+         the grow-scoped settings sub-page (the Grow tab + sub-nav owns that). -->
     {% if session_role == 'admin' %}
+    {% set _on_grow_settings = active == 'pages.grow_settings_page' %}
     <a href="{{ url_for('pages.admin') }}"
        data-tab="settings"
-       class="{{ 'active' if active and ('settings' in active or 'admin' in active or 'insights' in active) else '' }}">
+       class="{{ 'active' if active and not _on_grow_settings and ('settings' in active or 'admin' in active or 'insights' in active) else '' }}">
       <rux-icon icon="settings" size="extra-small"></rux-icon>
       <span>Settings</span>
     </a>

@@ -1,0 +1,470 @@
+# Plant Grow Unit — Usage guide
+
+Day-to-day operation. Audience: anyone using the MLSS dashboard who has at
+least one Plant Grow Unit enrolled.
+
+> First-time setup → [PLANT_GROW_UNIT_SETUP.md](PLANT_GROW_UNIT_SETUP.md)
+> How it works internally → [PLANT_GROW_UNIT_ARCHITECTURE.md](PLANT_GROW_UNIT_ARCHITECTURE.md)
+> Database tables behind it all → [DATABASE.md](DATABASE.md)
+
+## Roles required
+
+The grow tab is gated by RBAC (same `viewer` / `controller` / `admin` roles
+as the rest of MLSS). At a glance:
+
+| Action | Min role |
+|---|---|
+| View Grow tab + cards + History | viewer |
+| Identify, water-now, light toggle, snap photo | controller |
+| Configure tab edits (PID, light windows, calibration, plant profiles) | admin for writes; controller may read |
+| Safety override (force pump/light), key rotation, holiday mode | admin |
+
+---
+
+## The Grow tab
+
+`https://mlss.local:5000/grow` shows your fleet as cards. Each card represents one growing area (a single plant pot, a microgreens tray, etc.). Counts at the top: total units, online, stale, offline.
+
+Cards are colour-coded:
+
+- **Nominal** (green) — unit reporting recent telemetry, no errors
+- **Caution** (amber) — moisture below threshold or other warning condition
+- **Stale** (cyan) — last telemetry 30s–5min ago (likely brief WiFi drop)
+- **Offline** (orange) — no telemetry for >5 min; unit's local safety loop is still running on the Pi
+
+Click any card to open its detail page.
+
+---
+
+## Identifying which physical unit is which
+
+In a fleet of 5+ units, "which one is *this* card?" is a real question. Click **Identify** on any card (or on the detail-page header). The unit's grow light blinks for 10 seconds — distinct from any normal on/off transition. The button shows a countdown so you know the blink is in progress.
+
+---
+
+## Manual controls
+
+The detail page has a **Quick controls** panel with four buttons:
+
+- **⚡ Identify** — 10s blink (always available)
+- **💧 Water 5s** — pulse the pump for 5 seconds. **Disabled during the soak window** — see below.
+- **💡 Toggle light** — manual override on/off. The schedule will resume on the next 30s tick.
+- **📷 Snap photo** — capture immediately, outside the normal 30-min cadence.
+
+---
+
+## Sense-only mode (greyed-out actuator buttons)
+
+A unit can come up with the sensors wired but the actuators (pump, grow
+light) **not yet powered** — typically the case when you've installed
+the Pi + soil sensor but haven't run a separate PSU to the
+Automation HAT actuator side yet (see [PLANT_GROW_UNIT_HARDWARE.md](PLANT_GROW_UNIT_HARDWARE.md#power)
+for why pump + light need their own rail).
+
+In that state the dashboard:
+
+- Renders the unit's tile normally with live moisture/temperature
+- Shows each actuator capability (pump, light) with a small "unresponsive"
+  badge next to the tile
+- **Greys out the Water 5s and Toggle light buttons** with a tooltip
+  explaining "no evidence the actuator is responding — check power and
+  wiring"
+
+This is driven by the **capability health watchdog** in
+[`mlss_monitor/grow/health_watchdog.py`](../mlss_monitor/grow/health_watchdog.py).
+When the server pushes a command to an actuator, it records the
+timestamp; if no follow-up evidence (a `grow_watering_events` row for
+pump, a telemetry frame with `light_state=1` for light) arrives within
+30 seconds, the capability is flipped to `unresponsive` for that GET
+response. The next telemetry frame that proves the actuator works
+quietly upgrades it back to `connected`.
+
+**You don't toggle a flag.** Wire up the actuator PSU, fire the button
+(it'll still fail the first time because health is `unresponsive`),
+the unit reports a watering event, and on the next page refresh the
+button comes back. This means a half-built unit gets useful sensor
+telemetry from day one, then upgrades itself to full control as you
+finish the build.
+
+---
+
+## The soak window — why "Water now" sometimes won't fire
+
+The soak window is the minimum enforced cool-down between watering pulses. **Default 30 minutes.** Defends against the failure mode "water doesn't reach the sensor for several minutes → system thinks it's still dry → fires another pulse → drowns the pot."
+
+When the soak window is active, the **Water 5s** button is greyed out and shows the unlock time on hover. Identify, light toggle, and snap photo are unaffected.
+
+To override globally, an admin can change `grow_default_soak_window_min` in Settings → Grow. To override for one specific unit (e.g. a unit with deep slow-draining soil), edit `grow_units.soak_window_min_override` directly in the Configure tab.
+
+---
+
+## The Configure tab
+
+Each unit's detail page has a **Configure** tab where admins (read access
+for controllers, write access for admins) can edit the per-unit profile
+without touching the database directly. The tab is divided into
+sub-editors:
+
+### Plant profile
+
+- **Plant type** — `tomato`, `basil`, `lettuce`, `microgreens`, `pepper`,
+  `generic`, plus any custom profiles you've added in
+  Settings → Grow → Plant Profiles
+- **Phase picker** — `seedling` / `vegetative` / `flowering` / `fruiting`
+  / `dormant`. Saving changes the schedule and PID profile on the next
+  30s tick. Sets `grow_units.phase_set_by='user'` for audit.
+- **Medium type** — `soil` / `coco` / `rockwool` / `custom`
+
+### Light windows
+
+A list of `HH:MM`–`HH:MM` ranges per phase (e.g. `06:00–14:00` and
+`16:00–22:00` for a split day). Add/remove rows; the UI saves them as
+rows in `grow_light_windows`. NULL/empty means "use the default
+`default_light_hours` from `grow_plant_profiles` for this phase".
+
+### PID tunables
+
+Numeric editors for `target_moisture_pct`, `deadband_pct`, `kp`, `ki`,
+`kd`, `min_pulse_s`, `max_pulse_s`, `soak_window_min`. Each field is
+the per-unit override (`grow_units.<field>_override`); leaving a field
+blank inherits from the plant profile, then the household default,
+then the firmware default. There's a "reset to inherited" button next
+to each.
+
+### Calibration wizard
+
+Two-step flow for accurate moisture %:
+
+1. Place the sensor in dry medium (or air). The wizard **polls the live
+   reading** while open, so you can watch the raw value settle, and
+   shows a fresh reading right next to the "Calibrate dry" button. When
+   you're happy the reading is stable, click **Calibrate dry** — the
+   wizard captures the *current* raw value (commit `7f1f0c2` — earlier
+   versions captured the page-load value, which was often stale by the
+   time the operator pressed the button) and saves it to
+   `grow_units.soil_dry_raw`.
+2. Saturate the medium (water until run-off). Click **Calibrate wet**
+   — saves `grow_units.soil_wet_raw`.
+
+Both steps also have a **manual input** field — paste in a known raw
+value when the live reading is unavailable (sensor unplugged, unit
+offline, …).
+
+Recalibrating at any time **instantly re-frames the entire visible
+history** because the History endpoint computes pct from raw against
+the *current* calibration on every request — see
+[ARCHITECTURE.md → Compute-on-read soil moisture pct](PLANT_GROW_UNIT_ARCHITECTURE.md#compute-on-read-soil-moisture-pct).
+A unit with no calibration captured yet falls through to a raw 0–1023
+Y-axis on the chart.
+
+### Safety override (admin only)
+
+A 3-click flow to break out of normal operation: click **Safety
+override**, choose action (`force_pump_on` / `force_pump_off` /
+`force_light_on` / `force_light_off` / `skip_next_soak`), confirm.
+The 3-click guard is deliberate — these bypass PID, soak window, and
+schedule. `force_*_on` accepts a `duration_s` and auto-flips off via
+a non-blocking timer (see
+[`grow_unit/src/mlss_grow/safety_override.py`](../grow_unit/src/mlss_grow/safety_override.py)).
+
+---
+
+## The Diagnostics tab (Phase 3)
+
+Each unit's detail page also has a **Diagnostics** subtab grouped under
+the Configure tab — a single page that surfaces firmware metadata,
+recent connection state, sensor sanity checks, the buffer inspector,
+and a 3-click "danger zone" for destructive ops. Driven by
+`GET /api/grow/units/<id>/diagnostics`.
+
+### Firmware info panel
+
+Shows the unit's reported `firmware_version`, current uptime since the
+mlss-grow service last started, and the wheel name/SHA from
+`/api/grow/dist/latest` (so you can cross-check that the unit is on the
+expected build). Also surfaces the `hardware_serial` and the
+`bearer_token_hash`'s first 8 hex chars for identification (the rest is
+hidden).
+
+### Connection log
+
+A reverse-chronological list of `online` / `offline` `grow_errors` rows
+for this unit (last 50). Useful for spotting flap patterns: "this unit
+drops every 4 hours" usually means router channel hop or DHCP lease
+churn rather than a Pi problem.
+
+### Sensor sanity
+
+Runs each registered capability through a one-off read and shows pass /
+fail with the raw reading. Quick way to confirm the soil sensor really
+is plugged in vs. just a stale cached row.
+
+### Buffer inspector (commit `715c063`)
+
+Per-message-kind summary of what's currently sitting in the unit's
+local `buffer.sqlite`: total rows, total size in bytes, oldest row's
+age. If the buffer is non-empty when the unit is reportedly online,
+something's wrong with the replay path (often: WS handshake works but
+auth fails, leaving the unit in a "connect → drop" loop). Fields:
+`telemetry`, `event`, `ack`, `capabilities`.
+
+### Danger zone
+
+A 3-click confirmed flow for destructive operations:
+
+- **Force-disconnect** — drops the WS connection server-side. The
+  firmware will reconnect within a few seconds; useful for clearing a
+  stuck handler state without restarting the service on the Pi.
+- **Re-pull config** — issues a `config_changed` push so the firmware
+  re-fetches `GET /api/grow/units/<id>/config`. Use after editing the
+  unit's plant_type via SQLite directly.
+- **Clear buffer** — deletes all rows in `buffer.sqlite` on the unit.
+  Loses any unsent telemetry. Use only when the buffer is corrupt.
+- **Deactivate unit** — sets `is_active=0`. The per-unit token stops
+  authenticating; historical data is retained.
+- **Delete unit + history** — `DELETE FROM grow_units` cascades to all
+  related rows. **Irreversible.** Confirm twice.
+
+The 3-click guard is deliberate — these are operations you should
+never click by accident.
+
+---
+
+## The Errors page (Phase 3)
+
+`https://mlss.local:5000/grow/errors` (admin nav link) is the
+fleet-wide error log. Every row from `grow_errors` across every unit,
+joined to the unit's display name. Filter by:
+
+- **Severity** — `error` / `warning` / `info`
+- **Kind** — buffer_eviction, sensor_unresponsive, safety_override_fired,
+  watering_cap_hit, online, offline, config_pull_failed, etc.
+- **Resolved** — show only unresolved (default), only resolved, or all
+- **Time range** — last 24h / 7d / 30d / all
+
+Per-row actions:
+
+- **Resolve** — sets `resolved_at = now()`. Use when you've
+  investigated and fixed the underlying cause; the row stays in the DB
+  for audit.
+- **Snooze** — temporarily suppresses notifications for this kind on
+  this unit. Useful when you know a transient issue will clear itself.
+
+The top-bar badge on the dashboard pulls from
+`SELECT COUNT(*) FROM grow_errors WHERE resolved_at IS NULL`, driven
+by the partial index `idx_grow_errors_unresolved` for snappiness even
+on a large fleet.
+
+---
+
+## Plant happiness
+
+The Live readings panel shows two tiles — **soil temperature** and
+**soil moisture** — colour-coded by where the value sits in the
+per-plant + per-phase happiness zones:
+
+| Zone | Colour | Meaning |
+|---|---|---|
+| `ideal` | green | Inside the plant's preferred band for this phase |
+| `tolerated_low` / `tolerated_high` | amber | Outside ideal but still safe |
+| `critical_low` / `critical_high` | red | Likely to stress the plant if sustained |
+
+Thresholds live in `grow_plant_profiles` (one row per `plant_type` ×
+`phase`); the shipped seed covers tomato, basil, lettuce, microgreens,
+pepper, chili, and a `generic` fallback × all 5 phases. Admins can edit
+or add custom thresholds via Settings → Grow → Plant Profiles. A NULL
+threshold for a dimension means "no happiness signal for this plant +
+phase" and the tile falls back to the default cyan colouring. See
+[ARCHITECTURE.md → Plant happiness](PLANT_GROW_UNIT_ARCHITECTURE.md#plant-happiness)
+for the classification algorithm.
+
+---
+
+## The History tab
+
+The **History** tab on `https://mlss.local:5000/grow/<id>` opens a
+long-range history view for one unit:
+
+- **Range selector**: 24h / 7d / 30d / 90d / All
+- **Moisture chart with full chart anatomy** — X + Y axes, tick labels,
+  axis titles, and a legend (commit `165b07c`). For a unit that hasn't
+  been calibrated yet the chart switches to a raw 0–1023 Y-axis with a
+  banner explaining what's happening rather than rendering blank
+  (commit `8a45b07`).
+- **Pump pulses** drawn as vertical bars; **light state** as background
+  shading.
+- **Compute-on-read pct**: recalibrating the sensor instantly re-frames
+  the entire visible history because the endpoint recomputes pct from
+  raw on every request — see
+  [ARCHITECTURE.md → Compute-on-read](PLANT_GROW_UNIT_ARCHITECTURE.md#compute-on-read-soil-moisture-pct).
+- **Downsampling**: For ranges > 7 d the server downsamples by averaging
+  inside buckets (up to 600 buckets per chart) so a 90 d view doesn't
+  ship 250 k points to the browser. Endpoint:
+  [`mlss_monitor/routes/api_grow_history.py`](../mlss_monitor/routes/api_grow_history.py).
+- **Photo timelapse**: Below the chart, a horizontal strip of thumbnails
+  shows every photo taken in the visible range. Click any thumbnail to
+  open it full-size with the matching telemetry (joined via
+  `grow_photos.telemetry_id`) overlaid. The strip itself is virtualised
+  so 30 d × 48 photos/day = 1,440 thumbnails scroll smoothly.
+
+### Time-lapse video
+
+Click **Render time-lapse** to queue a video render of every photo in
+the current range. The job goes into `grow_timelapse_jobs` (`status =
+queued`), an in-process background worker picks it up, calls `ffmpeg`
+to stitch the JPEGs together, and writes an MP4 under
+`data/timelapses/<unit>/<job_id>.mp4`. Status flips to `complete` when
+done (or `failed` with an `error_message`). The Render button is
+disabled if the server doesn't have `ffmpeg` installed (the endpoint
+returns `503 ffmpeg_not_installed` and the History tab surfaces a
+yellow banner pointing at the install command).
+
+### Plant journal
+
+A timestamped notes editor pinned to the unit's history. Operator can
+write "started blooming nutrients today" / "noticed leaf yellowing" /
+"repotted to 2 L pot" against the moment it happened; entries surface
+as markers on the moisture chart and on the photo timelapse scrubber
+so future trend analysis has context.
+
+RBAC: viewers read, controllers + admins write; only the original
+author or an admin can edit/delete a given entry. Schema in
+[DATABASE.md → grow_journal_entries](DATABASE.md#grow_journal_entries--operator-notes-pinned-to-a-timestamp-on-a-unit).
+
+---
+
+## Phase changes
+
+Each unit has a current phase: `seedling` / `vegetative` / `flowering` / `fruiting` / `dormant`. The phase determines which light schedule and PID watering profile apply.
+
+The phase picker lives in the Configure tab → Plant profile editor. Saving
+sets `grow_units.current_phase` and `grow_units.phase_set_by='user'`. A
+future Phase 4 feature will detect phase transitions automatically from the
+camera images and set `phase_set_by='image_classifier'`.
+
+---
+
+## Calibration
+
+The Seesaw soil sensor reports a raw capacitance value (200–2000) that varies with the medium type. To get a meaningful "%" reading on the dashboard, the unit needs two calibration points:
+
+- **Dry**: the raw value when the sensor is in dry medium (or air)
+- **Wet**: the raw value just after watering when the medium is fully saturated
+
+Defaults are seeded per medium (`soil`, `coco`, `rockwool`) — usable out of the box. For better accuracy, use the [Calibration wizard](#calibration-wizard) in the Configure tab: "Calibrate dry" with sensor dry → "Calibrate wet" after watering. Until then, the dashboard shows raw values for `medium_type='custom'` units that haven't been calibrated.
+
+---
+
+## What happens if MLSS goes offline
+
+The unit's safety loop runs every 30 seconds on the Pi itself, with the last-known config persisted to `/var/lib/mlss-grow/config.json`. If MLSS is unreachable:
+
+- Light schedule continues from local config
+- PID watering continues from local config
+- Photos taken during the outage are **buffered to disk** at `/var/lib/mlss-grow/photos/` as JPEGs with sidecar JSON metadata, then uploaded oldest-first when the WS reconnects. Bounded by a 1 GB hard size cap (oldest-evicted FIFO when exceeded) and a 7-day age prune that runs on each reconnect — so a multi-day outage won't fill the SD card and an indefinite outage won't accumulate forever. If the byte cap evicts photos a `buffer_eviction` event surfaces in the dashboard.
+- Telemetry is buffered to local SQLite (default 7 days)
+- On reconnect, buffered telemetry replays in original-timestamp order
+
+Bottom line: if your router dies for the weekend, your plants survive. The dashboard will show "Offline" — clicking refresh after MLSS is back will show the unit transitioning through "Stale" → "Online" as the buffer drains.
+
+**Buffer housekeeping & disk safety.** The local buffer is bounded two ways: an age-based prune that runs on every successful reconnect (driven by `grow_units.buffer_retention_days`, falling back to the firmware default of 7 days), and a hard size cap (100,000 rows / 50 MB) that evicts oldest-first regardless of retention setting. The size cap is defence-in-depth for misconfigured-server / cert-missing / MLSS-permanently-down scenarios where prune never gets to run — it stops the SD card from filling. When eviction does fire, the unit emits a `buffer_eviction` event so the dashboard surfaces the data loss explicitly rather than letting old telemetry silently disappear. Schema reference: [DATABASE.md → grow buffer](DATABASE.md#grow-unit-buffer-database).
+
+**If you edit a unit's config while it's offline:** the change is saved
+on the server immediately. As soon as the unit reconnects, the firmware
+calls back to `GET /api/grow/units/<id>/config` to pull the latest
+values (PID tunables, light windows, calibration) and applies them to
+the running safety loop without a service restart. So an admin can
+re-tune a unit during a router outage and the changes take effect on
+reconnect — no need to wait for the unit to come back online before
+saving.
+
+---
+
+## Settings → Grow page
+
+`https://mlss.local:5000/grow/settings` (admin nav link; the legacy
+`/settings/grow` URL still redirects here) is the
+household-wide control panel:
+
+### Enrollment key rotation
+
+Click **Rotate enrollment key** to generate a new
+`app_settings.grow_enrollment_key_hash`. This invalidates the old key
+for **new** enrollments only — units already enrolled keep their
+per-unit bearer tokens until they're explicitly revoked
+(`UPDATE grow_units SET is_active=0`). Use this if you suspect the
+old key leaked, or as a routine periodic rotation.
+
+The new raw key is shown once after rotation, same flow as first-boot.
+
+### Default tunables
+
+Edit the household-wide defaults that apply when a per-unit override
+isn't set:
+
+| Key | Effect |
+|---|---|
+| `grow_default_soak_window_min` | Default minutes between PID pulses |
+| `grow_default_buffer_retention_days` | Default days the firmware buffer prunes |
+| `grow_disk_warn_pct` | Threshold for the "MLSS storage almost full" alert |
+
+These are the second tier in the cascade
+(unit-override → plant-profile → app_setting → firmware-default). See
+[DATABASE.md → grow_units cascade](DATABASE.md#grow_units--one-row-per-enrolled-pi).
+
+### Plant profile editor
+
+Add/edit/remove rows in `grow_plant_profiles`. Shipped profiles
+(`is_shipped=1`) are read-only — clone one to start a custom profile.
+Custom profiles are picked up by the Configure tab's plant-type dropdown
+on every unit.
+
+### Holiday mode
+
+Toggle to suspend PID watering across the entire fleet (e.g. you're
+away and a friend is hand-watering). Light schedules and telemetry
+continue normally. Implemented as `app_settings.grow_holiday_mode='1'`;
+the firmware checks this flag on every PID tick.
+
+---
+
+## Photos
+
+By default each unit captures one photo every 30 minutes during daylight hours (06:00–22:00). All photos are kept on the MLSS Pi at `MLSS_GROW_IMAGES_DIR/unit_NNN/YYYY-MM-DD/HHMMSS.jpg` (default `/var/lib/mlss/grow_images`). Each photo is joined to the closest telemetry reading at capture time so you can later train ML models on (image, soil moisture, temperature) tuples.
+
+**Storage:** ~10 MB/day/unit. At 30 units that's ~110 GB/year. **Strongly recommend a USB SSD** rather than relying on the SD card. To migrate: stop MLSS, `rsync` the existing images dir to the new disk, set `MLSS_GROW_IMAGES_DIR` env var, restart.
+
+---
+
+## Troubleshooting recipes
+
+### Unit went offline overnight
+
+1. Check the Grow card → status should be Offline
+2. SSH to the Pi → `sudo journalctl -u mlss-grow -f` shows current state
+3. Most often: WiFi flap. Restart networking: `sudo systemctl restart wpa_supplicant`
+4. If the service crashed: `sudo systemctl status mlss-grow`. Restart with `sudo systemctl restart mlss-grow`.
+5. Last resort: reboot the Pi. The systemd watchdog should have caught wedges, but a hard reboot is safe.
+
+### Pump won't fire even though soil is dry
+
+1. Check the soak window — is the **Water 5s** button greyed out? If yes, you're inside the cool-down. Wait or use the global override (Phase 2).
+2. Open the unit's detail page → check capabilities. Is `pump` listed? If not, hardware not detected — check OUT 1 wiring.
+3. Check the unit logs for `safety_cap_hit` events — pump may be in cooldown after hitting the 30s pulse cap.
+
+### Plant looks stressed and chart shows constant pump pulses
+
+Either:
+- Sensor calibration is off (raw → % mapping wrong) — recalibrate
+- PID is over-watering — bump `soak_window_min` for that unit, lower `kp`, or both
+- Plant profile is wrong for the actual plant — update `plant_type` in `grow_units`
+
+---
+
+## See also
+
+- [PLANT_GROW_UNIT_SETUP.md](PLANT_GROW_UNIT_SETUP.md) — first-time install, cert pinning, decommission
+- [PLANT_GROW_UNIT_HARDWARE.md](PLANT_GROW_UNIT_HARDWARE.md) — BOM, wiring, sense-only mode hardware reference
+- [PLANT_GROW_UNIT_ARCHITECTURE.md](PLANT_GROW_UNIT_ARCHITECTURE.md) — how the WS protocol, compute-on-read, and capability watchdog work under the hood
+- [DATABASE.md](DATABASE.md) — schema reference
+- [Bugs_Improvements_and_Roadmap.md](Bugs_Improvements_and_Roadmap.md) — deferred work + future sensors

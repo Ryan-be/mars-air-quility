@@ -1,9 +1,28 @@
 """Page routes: dashboard, history, controls, admin."""
 
-from flask import Blueprint, redirect, render_template, url_for
+from pathlib import Path
+
+from flask import Blueprint, Response, abort, redirect, render_template, session, url_for
 
 from mlss_monitor import state
+from mlss_monitor.grow.storage_check import get_storage_status
 from mlss_monitor.rbac import require_role
+
+
+# Repo root, used by the docs route below to find the markdown files.
+# pages.py lives at <repo>/mlss_monitor/routes/pages.py — three .parents up.
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+
+# Whitelist of grow-related docs that the in-app links may reference.
+# Anything not in this set gets a 404 from /grow/docs/<name>, so a path-
+# traversal attempt like /grow/docs/../../../../etc/passwd is impossible.
+_GROW_DOCS = {
+    "setup": _REPO_ROOT / "docs" / "PLANT_GROW_UNIT_SETUP.md",
+    "hardware": _REPO_ROOT / "docs" / "PLANT_GROW_UNIT_HARDWARE.md",
+    "usage": _REPO_ROOT / "docs" / "PLANT_GROW_UNIT_USAGE.md",
+    "architecture": _REPO_ROOT / "docs" / "PLANT_GROW_UNIT_ARCHITECTURE.md",
+    "database": _REPO_ROOT / "docs" / "DATABASE.md",
+}
 
 pages_bp = Blueprint("pages", __name__)
 
@@ -21,6 +40,106 @@ def history_page():
 @pages_bp.route("/incidents")
 def incidents_page():
     return render_template("incidents.html")
+
+
+@pages_bp.route("/grow")
+def grow_fleet():
+    # Phase 3 Task 6: pass disk-usage info so the template can surface a
+    # "storage almost full" banner when the grow_images mount point is
+    # at/over the configured threshold. None on any check failure → the
+    # template renders nothing (best-effort; never crashes the page).
+    #
+    # current_role is also passed through so the "+ Add Unit" button can
+    # be hidden for non-admins (the underlying peek-once endpoint is
+    # admin-only — defence in depth) and the add-unit modal can read
+    # body.dataset.role to gate its reveal button.
+    return render_template(
+        "grow_fleet.html",
+        storage_status=get_storage_status(),
+        current_role=session.get("user_role", "viewer"),
+    )
+
+
+@pages_bp.route("/grow/<int:unit_id>")
+def grow_unit_detail(unit_id):
+    # Pass role + user through so the template can stamp them on body.dataset
+    # for the journal editor's edit/delete-author gating (Phase 4 #7). The
+    # server still enforces auth on every PATCH/DELETE — this is purely
+    # visual.
+    return render_template(
+        "grow_unit_detail.html",
+        unit_id=unit_id,
+        current_role=session.get("user_role", "viewer"),
+        current_user=session.get("user", ""),
+    )
+
+
+@pages_bp.route("/grow/errors")
+@require_role("viewer", "controller", "admin")
+def grow_errors_page():
+    """Top-level fleet-wide error log. Viewer-readable; admin actions
+    (resolve / snooze) gated client-side off `data-role` and enforced
+    server-side by the PATCH endpoint.
+    """
+    return render_template(
+        "grow_errors.html",
+        current_role=session.get("user_role", "viewer"),
+    )
+
+
+@pages_bp.route("/grow/settings")
+@require_role("admin")
+def grow_settings_page():
+    """Grow → Settings. Admin-only at the page level even though the
+    individual API endpoints have their own RBAC — defence in depth.
+
+    Lives under /grow/settings (rather than /settings/grow) so it sits
+    naturally under the Grow sub-nav. The legacy /settings/grow URL is
+    redirected to here for backwards compatibility — see
+    grow_settings_page_legacy below.
+
+    Phase 3 Task 6: also surfaces the same disk-usage banner as /grow,
+    so admins reviewing settings see the warning without having to
+    bounce back to the fleet page.
+    """
+    return render_template(
+        "grow_settings.html", storage_status=get_storage_status()
+    )
+
+
+@pages_bp.route("/settings/grow")
+@require_role("viewer", "controller", "admin")
+def grow_settings_page_legacy():
+    """Legacy URL — redirect to the canonical /grow/settings.
+
+    Allows any logged-in role to hit the redirect (so existing bookmarks
+    don't 403 on the way to a 302) — the destination route still gates
+    on admin via require_role.
+    """
+    return redirect(url_for("pages.grow_settings_page"), code=302)
+
+
+@pages_bp.route("/grow/docs/<doc_name>")
+def grow_doc(doc_name):
+    """Serve a grow-related markdown doc from the repo's docs/ directory.
+
+    The Flask static handler can't see docs/ (it serves static/ only),
+    so the in-app "Full setup guide" link from the empty-state panel
+    used to 404. This route reads the markdown from disk and returns
+    it as text/markdown — modern browsers render plain text legibly,
+    and any markdown-preview extension renders it nicely. Anyone with
+    GitHub access can also read the same file there.
+
+    Whitelisted doc names only (see _GROW_DOCS) so this can't be
+    abused as a generic file-read endpoint.
+    """
+    path = _GROW_DOCS.get(doc_name)
+    if path is None or not path.is_file():
+        abort(404)
+    return Response(
+        path.read_text(encoding="utf-8"),
+        mimetype="text/markdown; charset=utf-8",
+    )
 
 
 @pages_bp.route("/controls")

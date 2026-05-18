@@ -15,6 +15,17 @@ from .api_insights import api_insights_bp
 from .api_history import api_history_bp
 from .api_tags import api_tags_bp
 from .api_incidents import api_incidents_bp
+from .api_grow_enroll import api_grow_enroll_bp
+from .api_grow_units import api_grow_units_bp
+from .api_grow_config import api_grow_config_bp
+from .api_grow_dist import api_grow_dist_bp
+from .api_grow_photos import api_grow_photos_bp
+from .api_grow_history import api_grow_history_bp
+from .api_grow_settings import api_grow_settings_bp
+from .api_grow_diagnostics import api_grow_diagnostics_bp
+from .api_grow_errors import api_grow_errors_bp
+from .api_grow_journal import api_grow_journal_bp
+from .api_grow_timelapse import api_grow_timelapse_bp
 
 
 def register_routes(app):
@@ -33,3 +44,14 @@ def register_routes(app):
     app.register_blueprint(api_history_bp)
     app.register_blueprint(api_tags_bp)
     app.register_blueprint(api_incidents_bp)
+    app.register_blueprint(api_grow_enroll_bp)
+    app.register_blueprint(api_grow_units_bp)
+    app.register_blueprint(api_grow_config_bp)
+    app.register_blueprint(api_grow_dist_bp)
+    app.register_blueprint(api_grow_photos_bp)
+    app.register_blueprint(api_grow_history_bp)
+    app.register_blueprint(api_grow_settings_bp)
+    app.register_blueprint(api_grow_diagnostics_bp)
+    app.register_blueprint(api_grow_errors_bp)
+    app.register_blueprint(api_grow_journal_bp)
+    app.register_blueprint(api_grow_timelapse_bp)

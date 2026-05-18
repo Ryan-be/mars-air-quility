@@ -6,12 +6,6 @@ from datetime import datetime, timedelta, timezone
 from config import config
 
 
-class _SafeJSONEncoder(json.JSONEncoder):
-    def default(self, o):  # pylint: disable=arguments-renamed
-        if isinstance(o, datetime):
-            return o.isoformat()
-        return super().default(o)
-
 DB_FILE = config.get("DB_FILE", "data/sensor_data.db")
 
 
@@ -401,20 +395,34 @@ def set_fan_enabled(enabled: bool):
 def save_inference(event_type, severity, title, description, action,
                    evidence, confidence, start_id=None, end_id=None,
                    annotation=None):
+    # Normalise datetime values inside evidence to ISO strings so the
+    # typed-column splitter serialises cleanly. _deep_to_str is a no-op
+    # on plain dicts of scalars.
+    norm_evidence = _deep_to_str(evidence) if isinstance(evidence, dict) else evidence
     conn = _connect()
     cur = conn.cursor()
     cur.execute("""
         INSERT INTO inferences
             (created_at, event_type, severity, title, description, action,
-             evidence, confidence, sensor_data_start_id, sensor_data_end_id,
+             confidence, sensor_data_start_id, sensor_data_end_id,
              annotation)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         datetime.utcnow().isoformat(), event_type, severity, title,
-        description, action, json.dumps(_deep_to_str(evidence), cls=_SafeJSONEncoder) if evidence else None,
+        description, action,
         confidence, start_id, end_id, annotation,
     ))
     inf_id = cur.lastrowid
+    # Promote evidence to typed columns + extras blob. Done in the
+    # same connection so it's part of the same transaction as the
+    # INSERT. See mlss_monitor/inference_evidence_storage.py.
+    from mlss_monitor.inference_evidence_storage import (  # pylint: disable=import-outside-toplevel
+        persist_evidence,
+    )
+    persist_evidence(
+        conn, inf_id,
+        norm_evidence if isinstance(norm_evidence, dict) else None,
+    )
     conn.commit()
     conn.close()
 
@@ -490,11 +498,9 @@ def get_inferences(limit=50, include_dismissed=False,
     conn.close()
     for r in rows:
         r["created_at"] = _normalise_ts(r.get("created_at"))
-        if parse_evidence and r.get("evidence"):
-            try:
-                r["evidence"] = json.loads(r["evidence"])
-            except (json.JSONDecodeError, TypeError):
-                pass
+        if parse_evidence:
+            rebuilt = _evidence_from_row_dict(r)
+            r["evidence"] = rebuilt if rebuilt is not None else None
         r["detection_method"] = compute_detection_method(r.get("event_type", ""))
     return rows
 
@@ -509,31 +515,49 @@ def get_inference_by_id(inference_id: int) -> dict | None:
         return None
     d = dict(row)
     d["created_at"] = _normalise_ts(d.get("created_at"))
-    if d.get("evidence"):
-        try:
-            d["evidence"] = json.loads(d["evidence"])
-        except (json.JSONDecodeError, TypeError):
-            pass
+    rebuilt = _evidence_from_row_dict(d)
+    d["evidence"] = rebuilt if rebuilt is not None else None
     d["detection_method"] = compute_detection_method(d.get("event_type", ""))
     return d
 
 
+def _evidence_from_row_dict(row_dict: dict) -> dict | None:
+    """Reconstruct an evidence dict from a row already fetched as dict.
+
+    Wraps :func:`mlss_monitor.inference_evidence_storage.rebuild_evidence_from_row`
+    by extracting the relevant values from the row dict's keys. Used by
+    :func:`get_inferences` and :func:`get_inference_by_id`.
+    """
+    # Late import to avoid circulars at module-import time (db_logger
+    # is imported by mlss_monitor.* modules during package init).
+    from mlss_monitor.inference_evidence_storage import (  # pylint: disable=import-outside-toplevel
+        TYPED_FIELDS, rebuild_evidence_from_row,
+    )
+    typed_values = tuple(
+        row_dict.get(f"evidence_{f}") for f in TYPED_FIELDS
+    )
+    return rebuild_evidence_from_row(
+        extras_json=row_dict.get("evidence_extras"),
+        typed_values=typed_values,
+    )
+
+
 def get_distinct_attribution_sources() -> set:
-    """Return the set of distinct attribution_source values stored in inference evidence."""
+    """Return the set of distinct attribution_source values stored in inference evidence.
+
+    Reads the typed ``evidence_attribution_source`` column directly
+    (indexable, no JSON parse).
+    """
     conn = _connect()
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
-    cur.execute("SELECT DISTINCT evidence FROM inferences WHERE evidence IS NOT NULL")
-    sources = set()
-    for (ev_str,) in cur.fetchall():
-        if not ev_str:
-            continue
-        try:
-            ev = json.loads(ev_str)
-        except (json.JSONDecodeError, TypeError):
-            continue
-        src = ev.get("attribution_source")
-        if src and isinstance(src, str):
+    sources: set[str] = set()
+    cur.execute(
+        "SELECT DISTINCT evidence_attribution_source FROM inferences "
+        "WHERE evidence_attribution_source IS NOT NULL"
+    )
+    for (src,) in cur.fetchall():
+        if isinstance(src, str) and src:
             sources.add(src)
     conn.close()
     return sources

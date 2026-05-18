@@ -76,6 +76,13 @@ mics6814 = None
 hot_tier = None
 feature_vector = None
 
+# Plant Grow Unit WS registry (set by app.py at startup)
+grow_ws_registry = None
+grow_ws_loop = None       # set by api_grow_ws._run on listener startup
+grow_ws_handle = None     # _ListenerHandle from start_ws_listener — kept so
+                          # graceful-shutdown handlers can call
+                          # stop_ws_listener(state.grow_ws_handle).
+
 # API clients
 open_meteo = None
 

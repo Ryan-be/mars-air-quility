@@ -1,0 +1,29 @@
+[Unit]
+Description=MLSS Plant Grow Unit firmware
+Documentation=https://github.com/Ryan-be/mars-air-quility/blob/main/docs/PLANT_GROW_UNIT_HARDWARE.md
+After=network-online.target time-sync.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mlss-grow
+Group=mlss-grow
+WorkingDirectory=/opt/mlss-grow
+ExecStart=/opt/mlss-grow/.venv/bin/mlss-grow
+Restart=on-failure
+RestartSec=5
+WatchdogSec=30
+StandardOutput=journal
+StandardError=journal
+
+# Security hardening (Pi Zero W is fine with these)
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+# Filesystem permissions for state, logs, buffer
+ReadWritePaths=/var/lib/mlss-grow /var/log/mlss-grow /etc/mlss
+
+[Install]
+WantedBy=multi-user.target

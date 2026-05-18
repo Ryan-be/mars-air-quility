@@ -4,7 +4,7 @@ All configuration for MLSS Monitor is managed via environment variables, loaded 
 
 > **Every key must use the `MLSS_` prefix.** Dynaconf is wired with `envvar_prefix="MLSS"` in `config.py`, so any entry without the prefix is silently ignored and the code will fall through to its in-source default. Table entries below omit the prefix for readability, but you must include it in `.env` (e.g. `MLSS_DB_FILE=...`, not `DB_FILE=...`).
 
-[Back to main README](../readme.md)
+[Back to main README](../readme.md) · [Database reference](DATABASE.md)
 
 ---
 

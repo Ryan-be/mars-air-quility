@@ -1,0 +1,11 @@
+{
+  "name": "mlss-monitor-js-tests",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "test:js": "node --test tests/js/"
+  },
+  "devDependencies": {
+    "jsdom": "^24.0"
+  }
+}

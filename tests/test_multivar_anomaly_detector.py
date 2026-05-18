@@ -1,9 +1,20 @@
 # tests/test_multivar_anomaly_detector.py
+import sys
 from datetime import datetime, timezone
+from unittest.mock import MagicMock
 
+import pytest
 
 from mlss_monitor.feature_vector import FeatureVector
 from mlss_monitor.multivar_anomaly_detector import MultivarAnomalyDetector
+
+# When river fails to install (typically Windows dev — its C extension hits the
+# path-too-long limit), tests/conftest.py mocks it as MagicMock. Pickling a
+# MagicMock raises "not the same object as MagicMock" under Python 3.11's
+# metaclass identity check, so any test that round-trips a real river model
+# through pickle is skipped on those hosts. CI's Linux runners install river
+# cleanly, so the tests run there.
+_river_mocked = isinstance(sys.modules.get("river"), MagicMock)
 
 
 def _config(tmp_path):
@@ -84,6 +95,10 @@ def test_model_label_returns_label(tmp_path):
     assert det.model_label("test_model") == "Test model"
 
 
+@pytest.mark.skipif(
+    _river_mocked,
+    reason="river is mocked; pickle round-trip needs real install",
+)
 def test_pickle_persistence_survives_restart(tmp_path):
     det = MultivarAnomalyDetector(_config(tmp_path), tmp_path)
     for _ in range(6):

@@ -17,7 +17,9 @@ import busio
 from adafruit_ahtx0 import AHTx0
 from adafruit_sgp30 import Adafruit_SGP30
 from authlib.integrations.flask_client import OAuth
-from flask import Flask, redirect, request, session, url_for
+from urllib.parse import urlparse
+
+from flask import Flask, jsonify, redirect, request, session, url_for
 
 from config import config
 from database.db_logger import (
@@ -147,6 +149,13 @@ if HTTPS_ENABLED:
     app.config["PREFERRED_URL_SCHEME"] = "https"
     app.config["SESSION_COOKIE_SECURE"] = True
 
+# CSRF mitigation layer 1: SameSite=Lax stops modern browsers from sending the
+# session cookie on cross-site state-changing requests. Lax (not Strict) is
+# applied unconditionally — Strict would break top-level auth-redirect flows
+# (e.g. arriving at the site via a GitHub OAuth redirect), and Lax is safe in
+# dev too. Layer 2 is the Origin/Referer check in `check_csrf` below.
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+
 # Populate shared state with auth config
 state.GITHUB_CLIENT_ID     = config.get("GITHUB_CLIENT_ID", None)
 state.GITHUB_CLIENT_SECRET = config.get("GITHUB_CLIENT_SECRET", None)
@@ -181,8 +190,35 @@ state.open_meteo = OpenMeteoClient()
 
 # ── Auth middleware ────────────────────────────────────────────────────────────
 
+# Endpoints that bypass the OAuth gate.
+#
+# The auth.* + static set covers the human-user login flow and assets the
+# login page needs. The api_grow_* set is the firmware-callable surface: a
+# Plant Grow Unit on a Pi Zero has no GitHub identity and cannot authenticate
+# as a user, so these endpoints carry their own auth posture instead:
+#   * api_grow_enroll.enroll       — requires the shared enrollment_key in
+#                                     the JSON body (see grow.auth).
+#   * api_grow_dist.install_sh     — public installer script; integrity is
+#                                     established by the SHA256 verification
+#                                     install.sh runs on every wheel and the
+#                                     systemd unit it downloads.
+#   * api_grow_dist.serve_wheel    — serves wheels and the systemd unit; the
+#                                     manifest at /api/grow/dist/latest
+#                                     publishes a sha256 the installer pins
+#                                     against.
+#
+# Note: WS callbacks at /api/grow/<unit_id>/ws run on a separate port-5001
+# listener (not Flask), so they're not affected by this set; they auth via a
+# bearer token issued at enroll time.
 _PUBLIC_ENDPOINTS = {"auth.login", "auth.logout", "auth.github_login",
-                     "auth.github_callback", "static"}
+                     "auth.github_callback", "static",
+                     "api_grow_enroll.enroll",
+                     "api_grow_dist.install_sh",
+                     "api_grow_dist.serve_wheel",
+                     # Firmware pulls fresh config on `config_changed`; uses
+                     # bearer-token auth (not session). See
+                     # mlss_monitor/routes/api_grow_config.py:get_unit_config.
+                     "api_grow_config.get_unit_config"}
 
 
 def _auth_configured():
@@ -197,10 +233,69 @@ def check_auth():
         and not session.get("logged_in")
     ):
         if request.path.startswith("/api/"):
-            from flask import jsonify as _jsonify
-            return _jsonify({"error": "Unauthorised", "login_required": True}), 401
+            return jsonify({"error": "Unauthorised", "login_required": True}), 401
         return redirect(url_for("auth.login"))
     return None
+
+
+# ── CSRF middleware ───────────────────────────────────────────────────────────
+
+# State-changing HTTP methods that must carry a same-origin Origin (or Referer
+# fallback) header. GET/HEAD/OPTIONS are read-only and exempt.
+_STATE_CHANGING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+def _origin_allowed(origin_or_referer, host_url):
+    """Return True iff the Origin (or Referer) value points at our own host.
+
+    `host_url` is `request.host_url`, e.g. "https://mlss.local:5000/". We
+    compare scheme+netloc only — the path on a Referer is irrelevant. Pure
+    function (no Flask globals) so it is testable in isolation.
+    """
+    if not origin_or_referer:
+        return False
+    expected = urlparse(host_url)
+    actual = urlparse(origin_or_referer)
+    if not actual.scheme or not actual.netloc:
+        return False
+    return (actual.scheme == expected.scheme
+            and actual.netloc == expected.netloc)
+
+
+@app.before_request
+def check_csrf():
+    """CSRF defence: state-changing methods MUST have a same-origin Origin
+    (or Referer fallback) header. Skipped for endpoints in
+    `_PUBLIC_ENDPOINTS`, which use bearer-token auth (firmware) or are part
+    of the OAuth login redirect flow — neither rides the session cookie a
+    CSRF attack would target.
+
+    Registered after `check_auth` so authentication runs first; both are
+    independent before_request callbacks and Flask runs them in source
+    (registration) order.
+    """
+    if request.method not in _STATE_CHANGING_METHODS:
+        return None
+    if request.endpoint in _PUBLIC_ENDPOINTS:
+        return None
+
+    # Origin first — modern browsers always send it on cross-origin AND
+    # same-origin state-changing requests, including JSON POSTs.
+    origin = request.headers.get("Origin")
+    if origin:
+        if _origin_allowed(origin, request.host_url):
+            return None
+        return jsonify({"error": "csrf_origin_mismatch"}), 403
+
+    # Fall back to Referer for older clients that omit Origin.
+    referer = request.headers.get("Referer")
+    if referer:
+        if _origin_allowed(referer, request.host_url):
+            return None
+        return jsonify({"error": "csrf_referer_mismatch"}), 403
+
+    # Neither header present and not a public endpoint — reject.
+    return jsonify({"error": "csrf_origin_missing"}), 403
 
 
 @app.after_request
@@ -250,8 +345,17 @@ except Exception as e:
     log.error("Unexpected error initializing SGP30 sensor: %s", e)
     sgp30 = None
 
-# PM sensor (UART — no I2C conflict)
-pm_sensor = init_pm_sensor()
+# PM sensor (UART — no I2C conflict). We probe + instantiate here so
+# state.pm_sensor is populated for endpoints that read it, but we do NOT
+# start the poller thread — gunicorn's preload_app=True imports this
+# module in the master process, and a poller started here would survive
+# into the master and fight with the worker's poller (started in
+# post_fork) for exclusive access to /dev/serial0, filling journalctl
+# with duplicate "could not read a valid frame" errors. The poller is
+# started by gunicorn.conf.py's post_fork hook in the worker only.
+# Dev mode (running app.py directly without gunicorn) starts the poller
+# explicitly in main() below.
+pm_sensor = init_pm_sensor(start_poller_now=False)
 if pm_sensor:
     state.pm_sensor = pm_sensor
 
@@ -722,6 +826,22 @@ def _start_background_services():
     Thread(target=_weather_log_loop, daemon=True).start()
     Thread(target=_sensor_read_loop, daemon=True).start()
 
+    from mlss_monitor.grow.ws_registry import WSRegistry
+    from mlss_monitor.routes.api_grow_ws import start_ws_listener
+    state.grow_ws_registry = WSRegistry()
+    # Reuse the same SSL context Flask uses on port 5000. _build_ssl_context()
+    # returns None when HTTPS is disabled or certs aren't on disk (dev mode);
+    # listener falls back to plain ws:// in that case so tests + dev iteration
+    # still work. Production deployments ship certs, so the listener binds
+    # wss:// matching the firmware's wss:// URL scheme and the documented
+    # threat model (docs/superpowers/specs/2026-05-03-plant-grow-unit-system-design.md).
+    _ws_ssl_ctx = _build_ssl_context()
+    state.grow_ws_handle = start_ws_listener(
+        host="0.0.0.0", port=5001,
+        registry=state.grow_ws_registry,
+        ssl_context=_ws_ssl_ctx,
+    )
+
     from mlss_monitor.incident_grouper import start_grouper
     state.incident_grouper = start_grouper(DB_FILE, event_bus=state.event_bus)
 
@@ -734,6 +854,16 @@ def _start_background_services():
     # 20-second delay lets Flask/gunicorn finish binding before the CPU-heavy
     # River learn_one() calls inside bootstrap_from_db() compete for the GIL.
     Timer(20, _bootstrap).start()
+
+    # Phase 4 #8: timelapse render worker. Polls every 30s for queued
+    # rows in grow_timelapse_jobs and shells out to ffmpeg. Daemon
+    # thread, lives inside this worker process — same pattern as the
+    # other grow background services above.
+    try:
+        from mlss_monitor.grow.timelapse_jobs import start_runner_thread
+        start_runner_thread()
+    except Exception as exc:  # pylint: disable=broad-except
+        log.warning("timelapse_jobs.start_runner_thread failed: %s", exc)
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
@@ -769,6 +899,15 @@ def main():
 
     def _graceful_shutdown(signum, frame):
         log.info("SIGTERM received")
+        # Drain the grow WS listener so in-flight messages from connected
+        # plant units finish processing before the process dies. Stop here
+        # rather than in atexit because atexit runs after sys.exit unwinds
+        # the stack — by then the daemon thread is already gone.
+        try:
+            from mlss_monitor.routes.api_grow_ws import stop_ws_listener
+            stop_ws_listener(state.grow_ws_handle)
+        except Exception as exc:
+            log.warning("grow WS listener shutdown error: %s", exc)
         _sys.exit(0)  # triggers atexit handlers including _save_models_on_exit
 
     _signal.signal(_signal.SIGTERM, _graceful_shutdown)
@@ -794,6 +933,17 @@ def main():
     _fan_settings = get_fan_settings()
     state.set_fan_mode("auto" if _fan_settings["enabled"] else "manual")
     log.info("STARTUP: get_fan_settings (%.1fs elapsed)", time.monotonic() - _t0)
+
+    # Dev-mode poller start. Production (gunicorn) starts the PM poller in
+    # post_fork so the master process never spins one. Running app.py
+    # directly bypasses gunicorn entirely, so we start the poller here
+    # instead. init_pm_sensor() above used start_poller_now=False, so
+    # state.pm_sensor exists but its background thread is dormant.
+    if state.pm_sensor is not None:
+        try:
+            state.pm_sensor.start_poller(interval=1.0)
+        except Exception as exc:
+            log.warning("Failed to start PM sensor poller in dev mode: %s", exc)
 
     _start_background_services()
     log.info("STARTUP: background threads started (%.1fs elapsed)", time.monotonic() - _t0)

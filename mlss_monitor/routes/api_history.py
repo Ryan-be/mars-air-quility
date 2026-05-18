@@ -550,8 +550,11 @@ def narratives():
     from mlss_monitor.inference_evidence import _CHANNEL_META
     from mlss_monitor.narrative_engine import _parse_utc
 
+    # parse_evidence=True so each row carries a reconstructed evidence dict
+    # (typed columns + extras blob). The downstream extractors read
+    # ``inf["evidence"]["attribution_source"]`` / ``["attribution"]`` etc.
     window = get_inferences(limit=2000, include_dismissed=False, start=start, end=end,
-                            parse_evidence=False)
+                            parse_evidence=True)
 
     engine = state.detection_engine
     baselines_now = {}

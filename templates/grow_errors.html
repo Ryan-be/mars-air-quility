@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}MLSS · Grow · Errors{% endblock %}
+{% block extra_css %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/grow.css') }}">
+{% endblock %}
+
+{% block content %}
+  {% include "_grow_subnav.html" %}
+  {# Mark the body element with the user's role so client-side JS can gate
+     admin-only UI affordances (Resolve / Snooze buttons). The server still
+     enforces auth on the PATCH endpoint — this is purely visual. #}
+  <script>document.body.dataset.role = "{{ current_role }}";</script>
+
+  <section class="grow-errors" id="grow-errors">
+    <header class="grow-pageheader">
+      <h2 class="grow-errors-title">Grow errors</h2>
+      <p class="grow-errors-blurb">
+        Fleet-wide log of every grow unit alert. Use the filter row to drill
+        down by severity, unit, or kind. Admins can resolve or snooze
+        individual rows.
+      </p>
+    </header>
+
+    <div id="grow-errors-filter">
+      <!-- Filter row populated by static/js/grow/errors.mjs -->
+    </div>
+
+    <div class="grow-errors-list" id="grow-errors-list">
+      <!-- error-row components populated by static/js/grow/errors.mjs -->
+    </div>
+  </section>
+{% endblock %}
+
+{% block scripts %}
+  <script type="module" src="{{ url_for('static', filename='js/grow/errors.mjs') }}"></script>
+{% endblock %}

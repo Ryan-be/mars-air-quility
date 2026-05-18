@@ -1,0 +1,45 @@
+[tool.poetry]
+name = "mlss-contracts"
+version = "0.1.0"
+description = "Shared pydantic schemas between MLSS server and Plant Grow Unit firmware"
+authors = ["MLSS"]
+# License intentionally unset — repository licence is yet to be decided.
+readme = "README.md"
+homepage = "https://github.com/Ryan-be/mars-air-quility"
+repository = "https://github.com/Ryan-be/mars-air-quility"
+keywords = ["mlss", "contracts", "pydantic", "schemas"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+packages = [{include = "mlss_contracts", from = "src"}]
+
+[tool.poetry.dependencies]
+python = ">=3.11,<4.0"
+pydantic = "^2.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0"
+
+[tool.pytest.ini_options]
+# Scope pytest to the contracts test tree only. The repo-root tests/conftest.py
+# imports MLSS server modules (database, mlss_monitor.hot_tier, authlib, ...)
+# that aren't — and shouldn't be — installed in this isolated mlss-contracts
+# venv. --noconftest skips ALL conftest loading, which is fine here because
+# contracts is pure-data pydantic schemas with no fixture needs.
+# (--confcutdir doesn't work in this nested layout because pytest still walks
+#  up from each test file when the test files live outside contracts/.)
+# When/if we need a contracts-local conftest, drop --noconftest and add a
+# tests/contracts/conftest.py with the needed fixtures.
+testpaths = ["../tests/contracts"]
+addopts = "--noconftest"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
