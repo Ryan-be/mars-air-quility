@@ -8,6 +8,7 @@ state can never lag the live system.
 
 Spec: docs/superpowers/specs/2026-05-18-mlss-backup-design.md
 """
+import functools
 import sqlite3
 from datetime import datetime
 from typing import Iterable
@@ -139,3 +140,37 @@ def increment_ship_attempts_blobs(conn: sqlite3.Connection,
         f"WHERE id IN ({placeholders})",
         tuple(id_list),
     )
+
+
+def tee_to_outbox(*, table: str, db_file: str | None = None):
+    """Decorator: wrap a save helper so its live write + outbox enqueue
+    commit in one transaction.
+
+    Usage:
+        @tee_to_outbox(table="sensor_data")
+        def save_sensor_data(conn, ...):
+            cur = conn.execute("INSERT INTO sensor_data ...")
+            return cur.lastrowid
+
+    The wrapped helper MUST:
+      - take `conn: sqlite3.Connection` as its first positional argument
+      - return the primary key of the row it wrote (for enqueueing)
+
+    The decorator opens its own short-lived connection, calls the helper,
+    enqueues, commits. The two writes share one transaction so a crash
+    between them is impossible.
+
+    `db_file` is optional — defaults to config.DB_FILE at call-time. Tests
+    that use a tempfile pass an explicit override.
+    """
+    def wrap(fn):
+        @functools.wraps(fn)
+        def wrapped(*args, **kwargs):
+            from config import config as _cfg
+            path = db_file or _cfg.get("DB_FILE", "data/sensor_data.db")
+            with sqlite3.connect(path) as conn:
+                pk = fn(conn, *args, **kwargs)
+                enqueue_row(conn, table=table, pk=pk)
+            return pk
+        return wrapped
+    return wrap
