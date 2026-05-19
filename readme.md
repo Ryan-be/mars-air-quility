@@ -940,6 +940,25 @@ tunables, the plant profile editor, and holiday mode.
 Both server-side state and the on-Pi outbox use SQLite (WAL mode,
 idempotent migrations, additive-only schema policy).
 
+Two unrelated things in this project both go by the name "outbox" —
+worth disambiguating up-front:
+
+- **On-Pi (firmware) outbox** —
+  `grow_unit/src/mlss_grow/buffer.py`, lives on each Pi Zero at
+  `/var/lib/mlss-grow/buffer.sqlite`. Buffers WS frames (telemetry,
+  events, capabilities) that couldn't be sent because the link to MLSS
+  was down, and replays them on reconnect. Photos are a parallel
+  filesystem-backed buffer, not in this DB.
+- **Hub-side backup outbox** —
+  `outbox_changes` / `outbox_blobs` / `outbox_delete_scope` tables
+  inside the hub's own `data/sensor_data.db`, driven by
+  `mlss_monitor/backup/`. Pointer tables (not row copies) populated by
+  the `@tee_to_outbox` decorator in the same transaction as every live
+  write to a replicated table; drained by the background worker out to
+  the off-Pi Postgres + S3 backup target. The worker isn't wired into
+  app startup yet (Phase 8) but the storage + lint guard + clients +
+  worker primitives all ship on this branch.
+
 - [Schema reference](docs/DATABASE.md) — every table, every column, indexes, retention/eviction policies, the override cascade for tunables
 - [JSON storage audit](docs/JSON_STORAGE_AUDIT.md) — current state of JSON-in-TEXT-column usage + roadmap for promotion to typed columns
 
@@ -1360,6 +1379,11 @@ mars-air-quility/
 │   │                         #     auth, capability watchdog, timelapse jobs)
 │   ├── data_sources/         #   sensor source abstraction (AHT20, SGP30, PM, MICS6814, weather)
 │   ├── attribution/          #   fingerprint scorer + River-based ML classifier
+│   ├── backup/               #   off-Pi backup pipeline — Phases 1-4 complete, not yet wired
+│   │                         #     into app startup (Phase 8). outbox helpers +
+│   │                         #     @tee_to_outbox decorator, settings, Postgres + S3 clients,
+│   │                         #     and a daemon-thread worker (state machine + exponential
+│   │                         #     backoff + hot-reload via event bus + status emission)
 │   ├── event_bus.py          #   in-process pub/sub for SSE
 │   ├── inference_engine.py   #   short/hourly/daily detectors
 │   ├── incident_grouper.py   #   sessionises inferences into incidents
@@ -1433,9 +1457,19 @@ mars-air-quility/
 └── .env.example
 ```
 
-> A future **server-side backup subsystem** under `server/` is on the
-> roadmap (the host-side companion of the on-Pi outbox pattern). When it
-> lands it will get its own row here.
+> **Off-Pi backup pipeline** (`mlss_monitor/backup/`, on this branch):
+> the hub-side companion to the firmware-side WS outbox in
+> `grow_unit/src/mlss_grow/buffer.py`. Phases 1-4 are complete —
+> hub-side outbox tables in the existing SQLite, a `@tee_to_outbox`
+> decorator + allowlist lint test so every write to a replicated table
+> enqueues a pointer in the same transaction, Postgres + S3 clients,
+> and a daemon-thread worker with a state machine
+> (`DISABLED/IDLE/DRAINING/BACKOFF/PAUSED`), exponential backoff
+> (1 s → 600 s cap), hot-reload via the event bus, and status emission
+> for the future admin UI. The worker isn't wired into app startup yet;
+> Phases 5-9 (historical bootstrap, admin API + UI, app wiring, E2E)
+> are still pending. When they land, the relevant config + status
+> routes will get rows in the API table above.
 
 ---
 
@@ -1465,6 +1499,11 @@ Every user-facing document in the repo, organised by topic:
 - [docs/USB_SSD_BOOT_GUIDE.md](docs/USB_SSD_BOOT_GUIDE.md) — migrate the MLSS server from SD to USB SSD
 - [docs/EVENT_TAGGING_FLOW.md](docs/EVENT_TAGGING_FLOW.md) — how user range-tags flow into the ML attribution training
 - [docs/JSON_STORAGE_AUDIT.md](docs/JSON_STORAGE_AUDIT.md) — JSON-in-TEXT-column audit + promotion roadmap
+
+> The off-Pi backup subsystem on this branch (`mlss_monitor/backup/`)
+> doesn't have an operator-facing doc yet — Phase 8 will add
+> `docs/BACKUP.md` alongside the app-wiring work. The hub-side outbox
+> tables are covered in [DATABASE.md](docs/DATABASE.md).
 
 **Plant Grow Unit subsystem**
 
