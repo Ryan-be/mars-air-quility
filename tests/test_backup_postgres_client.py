@@ -210,6 +210,54 @@ def test_delete_scope_source_pi_id_is_always_first_param(client):
     assert set(values[1:]) == {5, "vegetative"}
 
 
+def test_init_rejects_empty_source_pi_id():
+    """source_pi_id is the multi-Pi partition key. An empty string
+    would let ``delete_scope`` (which builds ``WHERE source_pi_id = %s
+    AND …``) silently match every row whose source_pi_id is ''
+    (potentially left over from a corrupt earlier ingest) and
+    cross-Pi-wipe their data. Fail loud at construction."""
+    from mlss_monitor.backup.postgres_client import PostgresClient
+    with pytest.raises(ValueError, match="source_pi_id"):
+        PostgresClient(
+            host="h", port=5432, database="d", user="u", password="p",
+            source_pi_id="",
+        )
+
+
+def test_init_rejects_whitespace_only_source_pi_id():
+    """A whitespace string isn't safer than empty — strip+empty is the
+    same hazard."""
+    from mlss_monitor.backup.postgres_client import PostgresClient
+    with pytest.raises(ValueError, match="source_pi_id"):
+        PostgresClient(
+            host="h", port=5432, database="d", user="u", password="p",
+            source_pi_id="   ",
+        )
+
+
+def test_init_rejects_none_source_pi_id():
+    """None would NULL-compare in WHERE clauses (always false) and
+    every DELETE would silently no-op — also a footgun. Raise."""
+    from mlss_monitor.backup.postgres_client import PostgresClient
+    with pytest.raises(ValueError, match="source_pi_id"):
+        PostgresClient(
+            host="h", port=5432, database="d", user="u", password="p",
+            source_pi_id=None,  # type: ignore[arg-type]
+        )
+
+
+def test_init_accepts_valid_source_pi_id_and_trims():
+    """Valid id is stored stripped (leading/trailing whitespace would
+    otherwise produce a different partition key in delete_scope vs
+    upsert_rows on the server)."""
+    from mlss_monitor.backup.postgres_client import PostgresClient
+    c = PostgresClient(
+        host="h", port=5432, database="d", user="u", password="p",
+        source_pi_id="  pi-1  ",
+    )
+    assert c.source_pi_id == "pi-1"
+
+
 def test_init_passes_ssl_options_to_psycopg2():
     """Verify the sslmode + sslrootcert are forwarded to psycopg2.connect."""
     from mlss_monitor.backup.postgres_client import PostgresClient

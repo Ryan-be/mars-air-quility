@@ -4,30 +4,18 @@ centralised save helper so the @tee_to_outbox decorator catches it.
 If this test fails, someone added a raw INSERT/UPDATE somewhere; refactor it
 to use the appropriate helper instead.
 
-Replicated tables list comes from the spec at
-docs/superpowers/specs/2026-05-18-mlss-backup-design.md.
+Replicated tables list comes from ``mlss_monitor/backup/replicated_tables``
+(the same module the backup worker imports from) so the lint allowlist and
+the worker's PK schema can never drift.
 """
 import re
 from pathlib import Path
 import pytest
 
+from mlss_monitor.backup.replicated_tables import REPLICATED_TABLES
+
 
 REPO = Path(__file__).resolve().parent.parent
-
-REPLICATED_TABLES = [
-    # The names below mirror the LIVE schema (CREATE TABLE statements in
-    # database/init_db.py and database/grow_schema.py). The spec used a
-    # couple of conceptual names (`weather`, `attribution_tags`) that
-    # don't exist as actual tables — using truth here is what makes the
-    # regex below actually find writers.
-    "sensor_data", "weather_log",
-    "inferences", "incidents", "incident_alerts",
-    "incident_signature_features", "event_tags",
-    "grow_telemetry", "grow_photos", "grow_journal_entries",
-    "grow_units", "grow_plant_profiles", "grow_unit_capabilities",
-    "grow_watering_events", "grow_errors", "grow_light_windows",
-    "grow_medium_defaults", "grow_timelapse_jobs",
-]
 
 # Files allowed to write to these tables directly (the canonical save helpers).
 # All other writes must go through helpers in this allowlist.

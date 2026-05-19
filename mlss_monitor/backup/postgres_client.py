@@ -34,6 +34,23 @@ class PostgresClient:
         sslrootcert: str | None = None,
         timeout: int = 10,
     ) -> None:
+        # source_pi_id is the partition key for multi-Pi data on the
+        # server. ``delete_scope`` builds its WHERE clause as
+        # ``source_pi_id = %s AND …`` — passing an empty string or
+        # whitespace would silently match every row whose
+        # source_pi_id is `''` (e.g. left over from a corrupt earlier
+        # ingest) and DELETE them, potentially cross-Pi-wiping data.
+        # None would NULL-compare in WHERE (always false) but slip
+        # through every test because nothing else uses it. Fail loud
+        # at construction so misconfigured deployments can't reach
+        # delete_scope.
+        if not source_pi_id or not source_pi_id.strip():
+            raise ValueError(
+                "source_pi_id is required and must be a non-empty string — "
+                "this Pi's data on the server is partitioned by this value, "
+                "and an empty source_pi_id could cross-Pi-DELETE on a "
+                "future delete_scope call."
+            )
         self._kwargs: dict = {
             "host": host,
             "port": port,
@@ -45,7 +62,7 @@ class PostgresClient:
         }
         if sslrootcert:
             self._kwargs["sslrootcert"] = sslrootcert
-        self.source_pi_id = source_pi_id
+        self.source_pi_id = source_pi_id.strip()
 
     def _connect(self):
         """Open a fresh connection. Returns a connection that's already

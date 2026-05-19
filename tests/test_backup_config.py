@@ -1,24 +1,8 @@
-"""Backup config module — load/save with password masking."""
+"""Backup config module — load/save with password masking.
+
+The ``db_path`` fixture is provided by ``tests/conftest.py``.
+"""
 import sqlite3
-import tempfile
-import gc
-from pathlib import Path
-import pytest
-
-
-@pytest.fixture
-def db_path(monkeypatch):
-    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-    tmp.close()
-    import database.init_db as init_db
-    original = init_db.DB_FILE
-    init_db.DB_FILE = tmp.name
-    monkeypatch.setattr("mlss_monitor.backup.config.DB_FILE", tmp.name)
-    init_db.create_db()
-    yield tmp.name
-    init_db.DB_FILE = original
-    gc.collect()
-    Path(tmp.name).unlink(missing_ok=True)
 
 
 def test_load_returns_defaults_when_unset(db_path):

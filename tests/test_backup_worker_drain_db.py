@@ -15,37 +15,18 @@ Covered:
   - unknown table → log + drop (schema drift guard)
   - errors propagate (run loop catches and goes to BACKOFF)
   - delete_scope-only batch returns True (work was done)
+  - per-table failure semantics — succeeded table's outbox entries
+    are deleted+committed even when a later table errors
+
+The ``db_path`` fixture is provided by ``tests/conftest.py``.
 """
 import sqlite3
-import tempfile
-import gc
-from pathlib import Path
 from datetime import datetime
 from unittest.mock import MagicMock
 import pytest
 
 from mlss_monitor.backup import outbox
 from mlss_monitor.backup.worker import BackupWorker, _parse_pk
-
-
-@pytest.fixture
-def db_path(monkeypatch):
-    """Real SQLite tempfile primed with the full live schema (mlss + grow
-    + backup outbox). Multiple modules cache the DB path on import
-    (db_logger, grow.handlers) so we patch each one to point at the
-    tempfile."""
-    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-    tmp.close()
-    import database.init_db as init_db
-    original = init_db.DB_FILE
-    init_db.DB_FILE = tmp.name
-    monkeypatch.setattr("database.db_logger.DB_FILE", tmp.name)
-    monkeypatch.setattr("mlss_monitor.grow.handlers.DB_FILE", tmp.name)
-    init_db.create_db()
-    yield tmp.name
-    init_db.DB_FILE = original
-    gc.collect()
-    Path(tmp.name).unlink(missing_ok=True)
 
 
 @pytest.fixture
@@ -62,24 +43,6 @@ def worker():
 @pytest.fixture
 def pg_client():
     return MagicMock()
-
-
-# ── Schema-drift guard ────────────────────────────────────────────
-
-def test_replicated_tables_matches_lint_allowlist():
-    """`_REPLICATED_TABLES` (the worker's per-table PK schema) must
-    cover EXACTLY the same tables as REPLICATED_TABLES in the lint
-    test. Drift between the two means either:
-      (a) a new replicated table was added to the lint list but the
-          worker can't ship it (entries would be logged + dropped), or
-      (b) a removed table still has stale schema in the worker.
-    Either is a bug worth catching at unit-test time."""
-    from mlss_monitor.backup.worker import _REPLICATED_TABLES
-    from tests.test_no_direct_writes_to_replicated_tables import REPLICATED_TABLES
-    assert set(_REPLICATED_TABLES) == set(REPLICATED_TABLES), (
-        f"Lint-only: {set(REPLICATED_TABLES) - set(_REPLICATED_TABLES)} | "
-        f"Worker-only: {set(_REPLICATED_TABLES) - set(REPLICATED_TABLES)}"
-    )
 
 
 # ── PK parsing ────────────────────────────────────────────────────
@@ -329,10 +292,11 @@ def test_drain_db_batch_missing_live_row_drops_outbox_entry(db_path, worker, pg_
 
 
 def test_drain_db_batch_unknown_table_logs_and_drops(db_path, worker, pg_client):
-    """If the outbox somehow has an entry for a table NOT in
-    _REPLICATED_TABLES (e.g. schema drift between the lint-test
-    allowlist and the worker's PK map), the drain function must NOT
-    crash. Log + drop so the queue isn't permanently blocked."""
+    """If the outbox somehow has an entry for a table NOT in the
+    canonical REPLICATED_TABLES dict (which can only happen if a
+    table was removed from the canonical module faster than the
+    outbox could drain — exceedingly unlikely), the drain function
+    must NOT crash. Log + drop so the queue isn't permanently blocked."""
     with sqlite3.connect(db_path) as conn:
         with conn:
             outbox.enqueue_row(conn, table="future_table_xyz", pk=1)
@@ -398,3 +362,112 @@ def test_drain_db_batch_propagates_delete_scope_errors(db_path, worker, pg_clien
         assert outbox.pending_count_delete_scope(conn) > 0
     finally:
         conn.close()
+
+
+# ── Per-table failure semantics (Fix 2: partial-batch bookkeeping) ─
+
+def test_drain_db_batch_per_table_failure_only_loses_failing_table(
+    db_path, worker, pg_client,
+):
+    """When one table's upsert succeeds but a later table's upsert
+    raises, the SUCCEEDED table's outbox entries are deleted (it
+    shipped — no need to re-ship next cycle) while the FAILED
+    table's entries are retained for retry.
+
+    This is the partial-batch bookkeeping fix: the old behaviour
+    propagated the exception without deleting ANY outbox entries,
+    so the succeeded table got re-shipped next cycle (idempotent
+    on the server but wasteful).
+    """
+    from database.db_logger import log_sensor_data, log_weather
+    log_sensor_data(22.0, 45.0, 400, 20)
+    log_weather(
+        temp=15.0, humidity=70.0, feels_like=14.0,
+        wind_speed=5.0, weather_code=801, uv_index=2.0,
+    )
+
+    # weather_log raises; sensor_data succeeds. Dict iteration order
+    # in Python 3.7+ is insertion order, and the outbox's by_table
+    # ordering follows the enqueue order — so sensor_data ships
+    # first and weather_log raises second.
+    def _selective_failure(*, table, **_):
+        if table == "weather_log":
+            raise Exception("connection refused on weather_log")
+
+    pg_client.upsert_rows.side_effect = _selective_failure
+
+    conn = sqlite3.connect(db_path)
+    try:
+        with pytest.raises(Exception, match="connection refused"):
+            worker._drain_db_batch(conn, pg_client)
+    finally:
+        conn.close()
+
+    # Verify per-table outbox state:
+    #   sensor_data — shipped + deleted, no longer in outbox.
+    #   weather_log — failed, still in outbox for retry.
+    conn = sqlite3.connect(db_path)
+    try:
+        sensor_pending = conn.execute(
+            "SELECT COUNT(*) FROM outbox_changes WHERE table_name='sensor_data'"
+        ).fetchone()[0]
+        weather_pending = conn.execute(
+            "SELECT COUNT(*) FROM outbox_changes WHERE table_name='weather_log'"
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    assert sensor_pending == 0, (
+        "sensor_data shipped successfully so its outbox entry should be deleted"
+    )
+    assert weather_pending == 1, (
+        "weather_log failed so its outbox entry must be retained for retry"
+    )
+
+
+def test_drain_db_batch_per_scope_failure_only_loses_failing_scope(
+    db_path, worker, pg_client,
+):
+    """The same per-iteration commit boundary applies to delete_scope.
+    First scope succeeds → outbox entry deleted. Second scope raises
+    → its outbox entry retained for retry. (Without the per-iteration
+    delete the second scope's failure would re-ship the first scope
+    on the next cycle, which is wasteful but idempotent.)
+    """
+    conn = sqlite3.connect(db_path)
+    try:
+        with conn:
+            outbox.enqueue_delete_scope(conn, table="incidents", scope={})
+            outbox.enqueue_delete_scope(
+                conn, table="incident_alerts", scope={},
+            )
+    finally:
+        conn.close()
+
+    def _selective_failure(*, table, **_):
+        if table == "incident_alerts":
+            raise Exception("connection refused on incident_alerts")
+
+    pg_client.delete_scope.side_effect = _selective_failure
+
+    conn = sqlite3.connect(db_path)
+    try:
+        with pytest.raises(Exception, match="connection refused"):
+            worker._drain_db_batch(conn, pg_client)
+    finally:
+        conn.close()
+
+    # incidents scope shipped + deleted; incident_alerts scope retained.
+    conn = sqlite3.connect(db_path)
+    try:
+        incidents_pending = conn.execute(
+            "SELECT COUNT(*) FROM outbox_delete_scope "
+            "WHERE table_name='incidents'"
+        ).fetchone()[0]
+        alerts_pending = conn.execute(
+            "SELECT COUNT(*) FROM outbox_delete_scope "
+            "WHERE table_name='incident_alerts'"
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    assert incidents_pending == 0
+    assert alerts_pending == 1

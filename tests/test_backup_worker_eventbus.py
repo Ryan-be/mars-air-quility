@@ -24,11 +24,8 @@ no-ops. This keeps Tasks 12-15's existing tests unchanged.
 Spec: docs/superpowers/specs/2026-05-18-mlss-backup-design.md
 """
 import sqlite3
-import tempfile
-import gc
 import queue
 import time
-from pathlib import Path
 from unittest.mock import patch
 import pytest
 
@@ -45,23 +42,9 @@ def fast_intervals(monkeypatch):
     monkeypatch.setattr("mlss_monitor.backup.worker._DRAINING_POLL_S", 0.005)
 
 
-@pytest.fixture
-def db_path(monkeypatch):
-    """Real SQLite tempfile with the full live schema. The worker's
-    _publish_status opens its own connection to DB_FILE, so we patch
-    that import target plus init_db.DB_FILE so create_db hits the
-    tempfile."""
-    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-    tmp.close()
-    import database.init_db as init_db
-    original = init_db.DB_FILE
-    init_db.DB_FILE = tmp.name
-    monkeypatch.setattr("mlss_monitor.backup.worker.DB_FILE", tmp.name)
-    init_db.create_db()
-    yield tmp.name
-    init_db.DB_FILE = original
-    gc.collect()
-    Path(tmp.name).unlink(missing_ok=True)
+# The ``db_path`` fixture is provided by ``tests/conftest.py`` —
+# it patches ``mlss_monitor.backup.worker.DB_FILE`` so the worker's
+# _publish_status opens its connection against the tempfile.
 
 
 # ── Subscribe / hot-reload (Task 16) ─────────────────────────────────

@@ -14,34 +14,15 @@ Covered:
   - unknown target_key prefix → log + drop (schema drift guard)
   - errors propagate from put + head (run loop catches → BACKOFF)
   - missing-source drop on one entry doesn't abort the rest of the batch
+
+The ``db_path`` fixture is provided by ``tests/conftest.py``.
 """
 import sqlite3
-import tempfile
-import gc
-from pathlib import Path
 from unittest.mock import MagicMock
 import pytest
 
 from mlss_monitor.backup import outbox
 from mlss_monitor.backup.worker import BackupWorker, _bucket_suffix_for_key
-
-
-@pytest.fixture
-def db_path(monkeypatch):
-    """Real SQLite tempfile primed with the full live schema (incl.
-    backup outbox tables). Mirrors the fixture in
-    test_backup_worker_drain_db.py — kept independent so each test file
-    can run in isolation."""
-    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-    tmp.close()
-    import database.init_db as init_db
-    original = init_db.DB_FILE
-    init_db.DB_FILE = tmp.name
-    init_db.create_db()
-    yield tmp.name
-    init_db.DB_FILE = original
-    gc.collect()
-    Path(tmp.name).unlink(missing_ok=True)
 
 
 @pytest.fixture

@@ -41,15 +41,28 @@ def enqueue_blob(conn: sqlite3.Connection, *, kind: str, source_path: str,
                  target_key: str, sha256: str) -> None:
     """Insert a blob pointer in outbox_blobs.
 
-    Idempotent on target_key — if the same key is queued twice we silently
-    keep the first entry. The S3 bucket+key is the canonical identity; two
-    physical paths producing the same S3 key would conflict on upload anyway.
+    Idempotent on target_key — if the same key is queued twice the
+    SECOND enqueue's source_path + sha256 win (the first enqueue's
+    first_seen_at is preserved so the queued-age metric stays
+    meaningful).
+
+    Rationale: target_key encodes (unit, taken_at-UTC-second) for
+    photos or (model, iso-timestamp) for model artefacts. UNIQUE
+    constraints on the live tables make a same-target_key re-enqueue
+    with different content rare, but model saves can in principle
+    replay at the same UTC second under load — and if they do, we
+    want the latest bytes on S3, not whatever was queued first.
+    Without the UPDATE, the stale-sha first blob would ship and the
+    refreshed content would be silently dropped.
     """
     now = _now_iso()
     conn.execute(
-        "INSERT OR IGNORE INTO outbox_blobs "
+        "INSERT INTO outbox_blobs "
         "(kind, source_path, target_key, sha256, first_seen_at) "
-        "VALUES (?, ?, ?, ?, ?)",
+        "VALUES (?, ?, ?, ?, ?) "
+        "ON CONFLICT(target_key) DO UPDATE SET "
+        "  source_path = excluded.source_path, "
+        "  sha256 = excluded.sha256",
         (kind, source_path, target_key, sha256, now),
     )
 

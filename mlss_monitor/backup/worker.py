@@ -53,6 +53,7 @@ from typing import TYPE_CHECKING
 from database.init_db import DB_FILE
 from mlss_monitor.backup import config, outbox
 from mlss_monitor.backup.postgres_client import PostgresClient
+from mlss_monitor.backup.replicated_tables import REPLICATED_TABLES
 from mlss_monitor.backup.s3_client import S3Client
 
 if TYPE_CHECKING:  # pragma: no cover — typing-only to avoid circular import
@@ -73,45 +74,11 @@ _DRAINING_POLL_S = 0.1    # tight loop during active drain
 
 # ── Replicated-table PK schema ─────────────────────────────────────
 #
-# Per-table PK metadata, mirrors the REPLICATED_TABLES list in
-# tests/test_no_direct_writes_to_replicated_tables.py. Used by
-# _drain_db_batch to:
-#   * parse the outbox `pk` string back into typed value(s)
-#   * build the SELECT … WHERE pk_col = ? query that reads live state
-#   * pass pk_columns into PostgresClient.upsert_rows
-#
-# pk_columns: ordered column names of the SQLite PK. The conflict target
-# on Postgres is (*pk_columns, source_pi_id).
-#
-# pk_types: matching Python types — outbox.pk is always TEXT, so "1"
-# must be parsed to int(1) for INTEGER-PK tables before the WHERE
-# binding lines up.
-#
-# Verified against database/init_db.py + database/grow_schema.py.
-# Most tables have INTEGER autoincrement PK; the exceptions are
-# `incidents` (TEXT id like "INC-2026-05-18T12:00:00") and the
-# composite-PK tables (incident_alerts, incident_signature_features,
-# grow_unit_capabilities).
-_REPLICATED_TABLES: dict[str, dict] = {
-    "sensor_data":                 {"pk_columns": ["id"],                         "pk_types": [int]},
-    "weather_log":                 {"pk_columns": ["id"],                         "pk_types": [int]},
-    "inferences":                  {"pk_columns": ["id"],                         "pk_types": [int]},
-    "event_tags":                  {"pk_columns": ["id"],                         "pk_types": [int]},
-    "incidents":                   {"pk_columns": ["id"],                         "pk_types": [str]},   # TEXT PK
-    "incident_alerts":             {"pk_columns": ["incident_id", "alert_id"],    "pk_types": [str, int]},
-    "incident_signature_features": {"pk_columns": ["incident_id", "feature_idx"], "pk_types": [str, int]},
-    "grow_units":                  {"pk_columns": ["id"],                         "pk_types": [int]},
-    "grow_telemetry":              {"pk_columns": ["id"],                         "pk_types": [int]},
-    "grow_unit_capabilities":      {"pk_columns": ["unit_id", "channel"],         "pk_types": [int, str]},
-    "grow_watering_events":        {"pk_columns": ["id"],                         "pk_types": [int]},
-    "grow_errors":                 {"pk_columns": ["id"],                         "pk_types": [int]},
-    "grow_photos":                 {"pk_columns": ["id"],                         "pk_types": [int]},
-    "grow_journal_entries":        {"pk_columns": ["id"],                         "pk_types": [int]},
-    "grow_plant_profiles":         {"pk_columns": ["id"],                         "pk_types": [int]},
-    "grow_light_windows":          {"pk_columns": ["id"],                         "pk_types": [int]},
-    "grow_timelapse_jobs":         {"pk_columns": ["id"],                         "pk_types": [int]},
-    "grow_medium_defaults":        {"pk_columns": ["medium_type"],                "pk_types": [str]},   # TEXT PK
-}
+# Canonical definition lives in mlss_monitor/backup/replicated_tables.py
+# (imported above as REPLICATED_TABLES). One module owns the set and
+# both the worker drain loop AND the lint test in
+# tests/test_no_direct_writes_to_replicated_tables.py import from
+# there — drift between the two is now impossible by construction.
 
 
 def _parse_pk(pk_str: str, pk_types: list[type]) -> tuple:
@@ -413,84 +380,128 @@ class BackupWorker:
     ) -> bool:
         """Drain one batch of outbox entries to Postgres.
 
-        Order of operations:
+        Dispatches to two helpers in strict order:
 
-          1. ``outbox_delete_scope`` FIRST — strict-mirror wipes must
-             land on the server BEFORE the corresponding INSERTs so a
-             DELETE+INSERT replace arrives atomically. If we shipped
-             INSERTs first, the server would briefly have old + new
-             versions overlapping; a mid-batch crash would leave stale
-             rows behind.
+          1. ``_ship_delete_scope_batch`` FIRST — strict-mirror wipes
+             must land on the server BEFORE the corresponding INSERTs
+             so a DELETE+INSERT replace arrives atomically. If we
+             shipped INSERTs first, the server would briefly have old
+             + new versions overlapping; a mid-batch crash would leave
+             stale rows behind.
 
-          2. ``outbox_changes`` second — group entries by table_name,
-             fetch the CURRENT row state from live SQLite for each pk,
-             upsert per-table via PostgresClient.
+          2. ``_ship_row_batch`` second — per-table upsert+delete so
+             a mid-batch Postgres failure on table B doesn't waste
+             outbox entries for already-shipped table A.
 
-        Returns True if any work was shipped (rows or scopes), False
-        if both queues were empty. The Task 15 run loop uses False to
-        flip the worker state back to IDLE.
+        Returns True if any work was shipped (rows or scopes, drops or
+        ships), False if both queues were empty. The run loop uses
+        False to flip the worker state back to IDLE.
 
-        Edge cases:
-
-        - Missing live row (deleted between enqueue and ship): log +
-          drop the outbox entry without shipping. Normal for
-          append-mostly tables — operator cleared the Pi-side row but
-          the server keeps its copy (append-mostly deletes don't
-          enqueue a delete_scope).
-
-        - Unknown table in outbox (schema drift between the lint
-          allowlist and ``_REPLICATED_TABLES``): log + drop so the
-          queue doesn't permanently block.
-
-        - PostgresClient errors propagate. The run loop catches them
-          and transitions to BACKOFF via ``_on_ship_failed``. Outbox
-          entries are NOT deleted on failure — they retry on the next
-          drain cycle.
-
-        Connections + client are passed in so this is unit-testable in
-        isolation; the run loop (Task 15) will own the live SQLite
-        connection and the PostgresClient instance and pass them in.
+        Failure semantics are per-helper — see ``_ship_row_batch`` for
+        the per-table commit boundary that distinguishes this from the
+        original "ship everything then delete everything" shape.
         """
-        # 1. Delete-scope queue first.
-        scope_entries = outbox.peek_delete_scope(sqlite_conn, limit=100)
-        for entry in scope_entries:
+        scopes_shipped = self._ship_delete_scope_batch(sqlite_conn, pg_client)
+        rows_shipped = self._ship_row_batch(sqlite_conn, pg_client)
+        return scopes_shipped or rows_shipped
+
+    def _ship_delete_scope_batch(
+        self,
+        sqlite_conn: sqlite3.Connection,
+        pg_client,
+    ) -> bool:
+        """Ship one peek's worth of delete_scope entries to Postgres.
+
+        Per-entry ship + delete + commit (rather than ship-all then
+        delete-all) so a mid-batch Postgres failure on the third entry
+        doesn't waste the first two ships — they're already removed
+        from the outbox by the time we attempt the third.
+
+        The explicit ``sqlite_conn.commit()`` after each delete is
+        load-bearing: the run loop opens the connection with
+        ``contextlib.closing`` which does NOT auto-commit on exit.
+        Without it, a successful drain whose connection is then closed
+        would silently lose every outbox delete and re-ship the same
+        entries forever.
+
+        Errors from ``pg_client.delete_scope`` propagate. The run
+        loop catches them and transitions to BACKOFF. The failing
+        entry stays in the outbox for retry on the next drain cycle.
+
+        Returns True if any entries were processed (shipped + deleted),
+        False if the queue was empty.
+        """
+        entries = outbox.peek_delete_scope(sqlite_conn, limit=100)
+        if not entries:
+            return False
+        for entry in entries:
             scope = json.loads(entry["scope_json"])
             pg_client.delete_scope(
                 table=entry["table_name"], scope=scope,
             )
-        if scope_entries:
-            # Delete only AFTER every ship succeeded — if any
-            # delete_scope call above raised, the exception propagated
-            # and we never get here; the entries stay for retry.
-            outbox.delete_delete_scope(
-                sqlite_conn, ids=[e["id"] for e in scope_entries],
-            )
+            # Delete THIS entry's outbox row only after its ship
+            # succeeded. Per-iteration commit boundary so a later
+            # failure doesn't re-ship earlier entries.
+            outbox.delete_delete_scope(sqlite_conn, ids=[entry["id"]])
+            sqlite_conn.commit()
+        return True
 
-        # 2. Row pointers.
-        row_entries = outbox.peek_rows(sqlite_conn, limit=1000)
-        if not row_entries:
-            # Only-delete-scope batch (or empty batch). Return True
-            # only when scopes shipped (work was done).
-            return bool(scope_entries)
+    def _ship_row_batch(
+        self,
+        sqlite_conn: sqlite3.Connection,
+        pg_client,
+    ) -> bool:
+        """Ship one peek's worth of row pointers to Postgres.
 
-        # Group by table_name. For each table we'll fetch live state
-        # and ship as a single batch.
-        by_table: dict[str, list[dict]] = {}
-        ids_to_delete: list[int] = []
-        for entry in row_entries:
+        Per-table ship + delete (rather than ship-all-tables then
+        delete-all) so a mid-batch Postgres failure on table B doesn't
+        waste outbox entries for already-shipped table A. Re-shipping
+        rows IS idempotent on the server (``ON CONFLICT UPDATE``) but
+        wasteful — we'd repeat the upsert next cycle for no benefit.
+
+        Edge cases handled BEFORE any Postgres call (so a Postgres
+        outage doesn't delay these cheap drops):
+
+        - Unknown table in outbox (schema drift between the lint
+          allowlist and ``REPLICATED_TABLES``): log + drop without
+          shipping so the queue doesn't permanently block.
+
+        - Missing live row (deleted between enqueue and ship): log +
+          drop without shipping. Normal for append-mostly tables —
+          operator cleared the Pi-side row but the server keeps its
+          previously-shipped copy.
+
+        For each ship-needed table:
+        - ``pg_client.upsert_rows`` errors propagate. The failing
+          table's outbox entries stay in place for retry; earlier
+          tables in the same batch that shipped successfully have
+          already been removed (per-table commit boundary).
+
+        Returns True if any entries were processed (shipped, dropped,
+        or both), False if the queue was empty.
+        """
+        entries = outbox.peek_rows(sqlite_conn, limit=1000)
+        if not entries:
+            return False
+
+        # Triage entries into ship-needed (grouped by table) vs
+        # drop-immediately (unknown table or missing live row).
+        by_table: dict[str, list[tuple[int, dict]]] = {}
+        drop_immediately_ids: list[int] = []
+        for entry in entries:
             table = entry["table_name"]
-            schema = _REPLICATED_TABLES.get(table)
+            schema = REPLICATED_TABLES.get(table)
             if schema is None:
                 # Schema drift — unknown table. Log + orphan the
                 # entry so a future schema change doesn't permanently
                 # block the queue. (If this fires in production, the
-                # lint allowlist or _REPLICATED_TABLES is out of date.)
+                # lint allowlist or REPLICATED_TABLES is out of date.)
                 log.warning(
                     "backup db: unknown replicated table %r — "
                     "dropping outbox entry id=%s",
                     table, entry["id"],
                 )
-                ids_to_delete.append(entry["id"])
+                drop_immediately_ids.append(entry["id"])
                 continue
             pk_values = _parse_pk(entry["pk"], schema["pk_types"])
             live_row = _read_live_row(
@@ -505,24 +516,40 @@ class BackupWorker:
                     "dropping outbox entry id=%s",
                     table, entry["pk"], entry["id"],
                 )
-                ids_to_delete.append(entry["id"])
+                drop_immediately_ids.append(entry["id"])
                 continue
-            by_table.setdefault(table, []).append(live_row)
-            ids_to_delete.append(entry["id"])
+            by_table.setdefault(table, []).append((entry["id"], live_row))
 
-        # Ship per-table. Errors propagate — outbox entries stay queued
-        # for retry because delete_rows is only called after all
-        # upserts succeed.
-        for table, rows in by_table.items():
-            schema = _REPLICATED_TABLES[table]
+        # Drop unknown/missing entries first — no Postgres calls
+        # needed, so this happens even if every table below errors.
+        # Commit immediately so a later failure doesn't waste the
+        # drop work either.
+        if drop_immediately_ids:
+            outbox.delete_rows(sqlite_conn, ids=drop_immediately_ids)
+            sqlite_conn.commit()
+
+        # Ship each table separately. A failure on table B leaves
+        # table A's outbox entries gone (shipped + committed) and
+        # table B's entries in place for retry — instead of the old
+        # behaviour where ALL entries were retained on any failure
+        # and re-shipped.
+        #
+        # The explicit per-table ``commit()`` is load-bearing: the
+        # run loop opens the connection with ``contextlib.closing``
+        # which does NOT auto-commit on exit. Without it, a
+        # successful drain would silently lose every outbox delete
+        # and re-ship the same rows on the next cycle.
+        for table, items in by_table.items():
+            schema = REPLICATED_TABLES[table]
+            ids = [i for i, _ in items]
+            rows = [r for _, r in items]
             pg_client.upsert_rows(
                 table=table,
                 pk_columns=schema["pk_columns"],
                 rows=rows,
             )
-
-        if ids_to_delete:
-            outbox.delete_rows(sqlite_conn, ids=ids_to_delete)
+            outbox.delete_rows(sqlite_conn, ids=ids)
+            sqlite_conn.commit()
 
         return True
 
@@ -569,7 +596,13 @@ class BackupWorker:
         ``_on_ship_failed``. The failing entry stays in the outbox for
         retry; earlier entries in the same batch that already shipped
         successfully are not rolled back (their outbox entries were
-        already deleted per-iteration).
+        already deleted + committed per-iteration).
+
+        The explicit per-entry ``sqlite_conn.commit()`` is load-bearing:
+        the run loop opens the connection with ``contextlib.closing``
+        which does NOT auto-commit on exit. Without it, a successful
+        drain whose connection is then closed would silently lose every
+        outbox delete and re-ship the same blobs forever.
 
         Connection + client are passed in so this is unit-testable in
         isolation; the run loop (Task 15) will own the live SQLite
@@ -589,6 +622,7 @@ class BackupWorker:
                     entry["source_path"], entry["id"],
                 )
                 outbox.delete_blobs(sqlite_conn, ids=[entry["id"]])
+                sqlite_conn.commit()
                 continue
 
             # Route to the right bucket. Unknown prefix is schema drift
@@ -601,6 +635,7 @@ class BackupWorker:
                     exc, entry["id"],
                 )
                 outbox.delete_blobs(sqlite_conn, ids=[entry["id"]])
+                sqlite_conn.commit()
                 continue
 
             # Idempotency: if the blob is already on S3 (crash-resume
@@ -611,6 +646,7 @@ class BackupWorker:
                 bucket_suffix=bucket_suffix, key=entry["target_key"],
             ):
                 outbox.delete_blobs(sqlite_conn, ids=[entry["id"]])
+                sqlite_conn.commit()
                 continue
 
             # Ship. Errors propagate — outbox entry stays in place for
@@ -622,6 +658,7 @@ class BackupWorker:
                 sha256=entry["sha256"],
             )
             outbox.delete_blobs(sqlite_conn, ids=[entry["id"]])
+            sqlite_conn.commit()
 
         return True
 
@@ -750,18 +787,30 @@ class BackupWorker:
                 continue
 
             # IDLE or DRAINING: attempt a drain.
+            #
+            # We intentionally do NOT publish a status event BEFORE
+            # the drain. On an empty queue the resulting transition
+            # would be IDLE → DRAINING → IDLE in microseconds, and
+            # the UI would see a useless DRAINING flicker on every
+            # tick. Status is published only at the END of the tick
+            # (success / queue-empty / failure) so subscribers see
+            # the durable state, not the transient one.
+            #
+            # ``last_attempt_at`` is still set on every tick so the
+            # status panel can report "last drain attempted at …"
+            # without needing the intermediate publish.
             self._on_ship_started()
             self.last_attempt_at = datetime.utcnow()
-            self._publish_status()  # transition into DRAINING
             try:
                 shipped_any = self._drain_one_batch()
                 self.last_success_at = datetime.utcnow()
                 self._on_ship_succeeded()
                 if not shipped_any:
                     self._on_queue_empty()
-                # One publish covers ship_succeeded + (optional)
-                # queue_empty — the UI cares about the final state
-                # of this tick, not the intermediate DRAINING flicker.
+                # Single publish at the END of the tick captures the
+                # durable state (DRAINING if more work shipped this
+                # tick, IDLE if queue empty). The UI cares about the
+                # settled state, not the transient mid-tick DRAINING.
                 self._publish_status()
             except Exception as exc:  # pylint: disable=broad-except
                 log.warning(
@@ -849,5 +898,12 @@ class BackupWorker:
     def _source_pi_id(self) -> str:
         """source_pi_id tags this Pi's data on the server. For Phase 4
         we default to ``'pi-1'``; Phase 6 will expose this as a config
-        field so multi-Pi deployments can distinguish their data."""
-        return "pi-1"
+        field so multi-Pi deployments can distinguish their data.
+
+        Returns a non-empty string. The PostgresClient constructor
+        sentinel will reject empty / whitespace input — this assertion
+        is a belt-and-braces for callers that bypass the client (e.g.
+        future log helpers)."""
+        pi_id = "pi-1"
+        assert pi_id and pi_id.strip(), "_source_pi_id() must return non-empty"
+        return pi_id

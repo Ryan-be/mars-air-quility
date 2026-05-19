@@ -91,6 +91,76 @@ def db(tmp_path):
     _patch_db("data/sensor_data.db")  # restore after test
 
 
+# ── Backup pipeline shared fixtures ──────────────────────────────────
+#
+# Most backup tests need an SQLite tempfile primed with the full live
+# schema (mlss + grow + backup outbox tables) AND a set of monkeypatches
+# so every importer of ``database.init_db.DB_FILE`` (and its module-level
+# copies in db_logger, grow.handlers, backup.worker, backup.config) hits
+# the tempfile rather than the production data path.
+#
+# The fixture was duplicated across ~8 backup test files with subtle
+# variations (which DB_FILE imports got patched). Centralising it here
+# eliminates the drift surface — adding a new module that snapshots
+# DB_FILE at import time only needs one place to update.
+#
+# The fixture is named ``db_path`` (not ``backup_db_path``) to match
+# the historical name in all the test files so we don't have to rename
+# the parameter at every call site. It does NOT collide with the
+# ``db`` fixture above — different name, different shape (returns a
+# path string, not a path + setup).
+
+
+@pytest.fixture
+def db_path(monkeypatch):
+    """Real SQLite tempfile primed with the full live schema (mlss +
+    grow + backup outbox).
+
+    Multiple modules cache the DB path on import (``from database.init_db
+    import DB_FILE``) so we patch each module-level copy as well as
+    ``init_db.DB_FILE`` itself. The list below covers every module
+    referenced by backup-pipeline code paths:
+
+      - ``database.init_db`` — schema creation
+      - ``database.db_logger`` — sensor / weather / inference writers
+      - ``mlss_monitor.grow.handlers`` — grow event writers
+      - ``mlss_monitor.backup.config`` — config storage in app_settings
+      - ``mlss_monitor.backup.worker`` — _publish_status opens its own
+        connection
+
+    Tests that need additional seed data (e.g. a grow_unit row for FK
+    validation) should do that inline after taking this fixture — see
+    test_backup_phase2_smoke for the canonical pattern.
+    """
+    import tempfile
+    import gc
+    from pathlib import Path
+
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp.close()
+    import database.init_db as init_db
+    original = init_db.DB_FILE
+    init_db.DB_FILE = tmp.name
+
+    # Patch every module-level snapshot of DB_FILE that backup-pipeline
+    # code paths read. monkeypatch.setattr restores on test teardown.
+    # Each module is patched defensively — a module that hasn't been
+    # imported yet would fail setattr, but every backup test already
+    # imports backup modules transitively so they're all loaded.
+    monkeypatch.setattr("database.db_logger.DB_FILE", tmp.name)
+    monkeypatch.setattr("mlss_monitor.grow.handlers.DB_FILE", tmp.name)
+    monkeypatch.setattr("mlss_monitor.backup.config.DB_FILE", tmp.name)
+    monkeypatch.setattr("mlss_monitor.backup.worker.DB_FILE", tmp.name)
+
+    init_db.create_db()
+    try:
+        yield tmp.name
+    finally:
+        init_db.DB_FILE = original
+        gc.collect()
+        Path(tmp.name).unlink(missing_ok=True)
+
+
 @pytest.fixture
 def app_client(db, monkeypatch):  # pylint: disable=redefined-outer-name
     """Flask test client with hardware and smart plug stubbed out."""

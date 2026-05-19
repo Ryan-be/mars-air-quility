@@ -1,33 +1,31 @@
-"""@tee_to_outbox decorator — live write + outbox enqueue in one transaction."""
+"""@tee_to_outbox decorator — live write + outbox enqueue in one transaction.
+
+Uses the shared ``db_path`` fixture from ``tests/conftest.py`` and adds
+a ``test_t`` table on top for the decorator-target table — keeps the
+decorator tests self-contained while sharing the DB_FILE plumbing.
+"""
 import sqlite3
-import tempfile
 import gc
-from pathlib import Path
 import pytest
 
 from mlss_monitor.backup.outbox import tee_to_outbox
 
 
 @pytest.fixture
-def db_path():
-    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-    tmp.close()
-    import database.init_db as init_db
-    original = init_db.DB_FILE
-    init_db.DB_FILE = tmp.name
-    init_db.create_db()
-    # Also create a test table so we can write to it
-    conn = sqlite3.connect(tmp.name)
+def db_path_with_test_t(db_path):  # noqa: F811 — pytest fixture override
+    """Extends the shared ``db_path`` fixture with a ``test_t`` table
+    for decorator unit tests. The decorator wraps writes to a single
+    named table; ``test_t`` keeps these tests isolated from the live
+    schema's replicated tables."""
+    conn = sqlite3.connect(db_path)
     conn.execute("CREATE TABLE test_t (id INTEGER PRIMARY KEY, v TEXT)")
     conn.commit()
     conn.close()
-    yield tmp.name
-    init_db.DB_FILE = original
-    gc.collect()
-    Path(tmp.name).unlink(missing_ok=True)
+    return db_path
 
 
-def test_decorator_writes_live_and_outbox(db_path):
+def test_decorator_writes_live_and_outbox(db_path_with_test_t):
+    db_path = db_path_with_test_t
     @tee_to_outbox(table="test_t", db_file=db_path)
     def save_thing(conn, value):
         cur = conn.execute("INSERT INTO test_t(v) VALUES (?)", (value,))
@@ -47,7 +45,8 @@ def test_decorator_writes_live_and_outbox(db_path):
     assert outbox_entry == ("test_t", str(pk))
 
 
-def test_decorator_atomic_on_helper_exception(db_path):
+def test_decorator_atomic_on_helper_exception(db_path_with_test_t):
+    db_path = db_path_with_test_t
     @tee_to_outbox(table="test_t", db_file=db_path)
     def save_thing(conn, value):
         conn.execute("INSERT INTO test_t(v) VALUES (?)", (value,))
@@ -66,7 +65,8 @@ def test_decorator_atomic_on_helper_exception(db_path):
     assert outbox_count == 0
 
 
-def test_decorator_coalesces_on_duplicate_pk(db_path):
+def test_decorator_coalesces_on_duplicate_pk(db_path_with_test_t):
+    db_path = db_path_with_test_t
     @tee_to_outbox(table="test_t", db_file=db_path)
     def upsert_thing(conn, pk, value):
         conn.execute(
@@ -87,7 +87,8 @@ def test_decorator_coalesces_on_duplicate_pk(db_path):
     assert rows == [("1",)]  # one entry, coalesced
 
 
-def test_decorator_returns_helper_return_value(db_path):
+def test_decorator_returns_helper_return_value(db_path_with_test_t):
+    db_path = db_path_with_test_t
     @tee_to_outbox(table="test_t", db_file=db_path)
     def save_thing(conn, value):
         cur = conn.execute("INSERT INTO test_t(v) VALUES (?)", (value,))
@@ -101,7 +102,8 @@ def test_decorator_returns_helper_return_value(db_path):
     assert result > 0
 
 
-def test_decorator_raises_value_error_when_helper_returns_none(db_path):
+def test_decorator_raises_value_error_when_helper_returns_none(db_path_with_test_t):
+    db_path = db_path_with_test_t
     @tee_to_outbox(table="test_t", db_file=db_path)
     def bad_save(conn, value):
         conn.execute("INSERT INTO test_t(v) VALUES (?)", (value,))

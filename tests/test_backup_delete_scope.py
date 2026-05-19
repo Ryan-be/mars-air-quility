@@ -1,27 +1,13 @@
 """Strict-mirror delete-scope outbox — for tables where the operator's
-DELETE+INSERT replace pattern must propagate the delete to the server."""
+DELETE+INSERT replace pattern must propagate the delete to the server.
+
+The ``db_path`` fixture is provided by ``tests/conftest.py``.
+"""
 import json
 import sqlite3
-import tempfile
 import gc
-from pathlib import Path
-import pytest
 
 from mlss_monitor.backup import outbox
-
-
-@pytest.fixture
-def db_path():
-    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-    tmp.close()
-    import database.init_db as init_db
-    original = init_db.DB_FILE
-    init_db.DB_FILE = tmp.name
-    init_db.create_db()
-    yield tmp.name
-    init_db.DB_FILE = original
-    gc.collect()
-    Path(tmp.name).unlink(missing_ok=True)
 
 
 def _conn(db_path):
