@@ -109,6 +109,39 @@ class PostgresClient:
                 cur.executemany(sql, values)
             # `with conn:` auto-commits on context exit if no exception.
 
+    def delete_scope(self, *, table: str, scope: dict) -> None:
+        """Delete rows on the server matching ``source_pi_id`` AND every
+        column in ``scope``. Empty ``scope`` deletes ALL of this Pi's
+        rows from the table.
+
+        Used by the BackupWorker DB sub-worker to ship strict-mirror
+        wipes (outbox_delete_scope entries) BEFORE the corresponding
+        INSERTs, so an operator's DELETE+INSERT replace pattern arrives
+        atomically on the server side.
+
+        SQL shape::
+
+            DELETE FROM {table}
+             WHERE source_pi_id = %s
+               AND col1 = %s AND col2 = %s ...
+
+        ``source_pi_id`` is always the first parameter. Empty ``scope``
+        leaves the WHERE clause at just the ``source_pi_id`` predicate
+        — i.e. "wipe all of this Pi's rows from {table}".
+        """
+        if not isinstance(scope, dict):
+            raise TypeError(f"scope must be a dict, got {type(scope).__name__}")
+        where_clauses = ["source_pi_id = %s"]
+        values: list = [self.source_pi_id]
+        for col, val in scope.items():
+            where_clauses.append(f"{col} = %s")
+            values.append(val)
+        sql = f"DELETE FROM {table} WHERE {' AND '.join(where_clauses)}"
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, values)
+            # `with conn:` auto-commits on context exit if no exception.
+
     def run_ddl(self, sql: str) -> None:
         """Execute arbitrary DDL. Used by POST /init?pipeline=db to apply
         the server-side schema (the create-table statements that add

@@ -1,7 +1,10 @@
 """Background worker that drains the outbox to Postgres + S3.
 
-Phase 4 Task 12: state machine and backoff curve only — no I/O, no
-threading lifecycle yet (Task 15 adds the run loop).
+Phase 4 Task 12: state machine and backoff curve.
+Phase 4 Task 13: DB sub-worker drain loop (`_drain_db_batch`) +
+    per-table PK schema + outbox-pk parser.
+Task 15 (still pending) adds the threading lifecycle / run loop that
+ties everything together.
 
 Two BackupWorker instances run in parallel — one with pipeline='db'
 draining outbox_changes + outbox_delete_scope via PostgresClient, and
@@ -28,15 +31,107 @@ Spec: docs/superpowers/specs/2026-05-18-mlss-backup-design.md
 from __future__ import annotations
 
 import enum
+import json
 import logging
+import sqlite3
 import threading
 from datetime import datetime
+
+from mlss_monitor.backup import outbox
 
 log = logging.getLogger(__name__)
 
 BACKOFF_CAP_S = 600.0  # 10 minutes — caps the exponential climb so the
                        # worker still re-checks roughly every 10 min even
                        # if the remote has been down for hours.
+
+
+# ── Replicated-table PK schema ─────────────────────────────────────
+#
+# Per-table PK metadata, mirrors the REPLICATED_TABLES list in
+# tests/test_no_direct_writes_to_replicated_tables.py. Used by
+# _drain_db_batch to:
+#   * parse the outbox `pk` string back into typed value(s)
+#   * build the SELECT … WHERE pk_col = ? query that reads live state
+#   * pass pk_columns into PostgresClient.upsert_rows
+#
+# pk_columns: ordered column names of the SQLite PK. The conflict target
+# on Postgres is (*pk_columns, source_pi_id).
+#
+# pk_types: matching Python types — outbox.pk is always TEXT, so "1"
+# must be parsed to int(1) for INTEGER-PK tables before the WHERE
+# binding lines up.
+#
+# Verified against database/init_db.py + database/grow_schema.py.
+# Most tables have INTEGER autoincrement PK; the exceptions are
+# `incidents` (TEXT id like "INC-2026-05-18T12:00:00") and the
+# composite-PK tables (incident_alerts, incident_signature_features,
+# grow_unit_capabilities).
+_REPLICATED_TABLES: dict[str, dict] = {
+    "sensor_data":                 {"pk_columns": ["id"],                         "pk_types": [int]},
+    "weather_log":                 {"pk_columns": ["id"],                         "pk_types": [int]},
+    "inferences":                  {"pk_columns": ["id"],                         "pk_types": [int]},
+    "event_tags":                  {"pk_columns": ["id"],                         "pk_types": [int]},
+    "incidents":                   {"pk_columns": ["id"],                         "pk_types": [str]},   # TEXT PK
+    "incident_alerts":             {"pk_columns": ["incident_id", "alert_id"],    "pk_types": [str, int]},
+    "incident_signature_features": {"pk_columns": ["incident_id", "feature_idx"], "pk_types": [str, int]},
+    "grow_units":                  {"pk_columns": ["id"],                         "pk_types": [int]},
+    "grow_telemetry":              {"pk_columns": ["id"],                         "pk_types": [int]},
+    "grow_unit_capabilities":      {"pk_columns": ["unit_id", "channel"],         "pk_types": [int, str]},
+    "grow_watering_events":        {"pk_columns": ["id"],                         "pk_types": [int]},
+    "grow_errors":                 {"pk_columns": ["id"],                         "pk_types": [int]},
+    "grow_photos":                 {"pk_columns": ["id"],                         "pk_types": [int]},
+    "grow_journal_entries":        {"pk_columns": ["id"],                         "pk_types": [int]},
+    "grow_plant_profiles":         {"pk_columns": ["id"],                         "pk_types": [int]},
+    "grow_light_windows":          {"pk_columns": ["id"],                         "pk_types": [int]},
+    "grow_timelapse_jobs":         {"pk_columns": ["id"],                         "pk_types": [int]},
+    "grow_medium_defaults":        {"pk_columns": ["medium_type"],                "pk_types": [str]},   # TEXT PK
+}
+
+
+def _parse_pk(pk_str: str, pk_types: list[type]) -> tuple:
+    """Convert outbox.pk (always TEXT) into a tuple of typed values.
+
+    Single-PK tables: pk_str is just the value, e.g. "42" → (42,) for
+    int PK or "INC-…" → ("INC-…",) for str PK.
+
+    Composite-PK tables: pk_str is f"{a}:{b}" — for example "1:pump"
+    for grow_unit_capabilities(unit_id, channel). The "incidents:alerts"
+    case is trickier because the incident_id itself contains colons
+    (ISO 8601 timestamp like "INC-2026-05-18T12:00:00"), so we always
+    split from the RIGHT len(pk_types)-1 times. That way the rightmost
+    colon delimits the trailing integer (alert_id / feature_idx) and
+    the timestamp's internal colons stay intact.
+    """
+    if len(pk_types) == 1:
+        parts = [pk_str]
+    else:
+        # Composite. rsplit from the right N-1 times so any colons
+        # inside an early-position string PK are preserved.
+        parts = pk_str.rsplit(":", len(pk_types) - 1)
+    return tuple(t(p) for t, p in zip(pk_types, parts))
+
+
+def _read_live_row(
+    conn: sqlite3.Connection,
+    table: str,
+    pk_columns: list[str],
+    pk_values: tuple,
+) -> dict | None:
+    """SELECT * FROM {table} WHERE pk match. Returns a dict of
+    column→value, or None if the row no longer exists.
+
+    None means the row was deleted between enqueue and ship; the drain
+    loop logs it and drops the outbox entry without shipping. The PG
+    side keeps its previously-shipped copy (append-mostly delete
+    semantics — operator-cleared rows on the Pi do NOT propagate)."""
+    conn.row_factory = sqlite3.Row
+    where = " AND ".join(f"{c} = ?" for c in pk_columns)
+    row = conn.execute(
+        f"SELECT * FROM {table} WHERE {where}",
+        pk_values,
+    ).fetchone()
+    return dict(row) if row else None
 
 
 class State(enum.Enum):
@@ -143,3 +238,125 @@ class BackupWorker:
         config gets a fresh chance without waiting out the old backoff."""
         self._reload_event.set()
         self._reset_backoff()
+
+    # -- DB pipeline drain (Task 13) ------------------------------------
+
+    def _drain_db_batch(
+        self,
+        sqlite_conn: sqlite3.Connection,
+        pg_client,
+    ) -> bool:
+        """Drain one batch of outbox entries to Postgres.
+
+        Order of operations:
+
+          1. ``outbox_delete_scope`` FIRST — strict-mirror wipes must
+             land on the server BEFORE the corresponding INSERTs so a
+             DELETE+INSERT replace arrives atomically. If we shipped
+             INSERTs first, the server would briefly have old + new
+             versions overlapping; a mid-batch crash would leave stale
+             rows behind.
+
+          2. ``outbox_changes`` second — group entries by table_name,
+             fetch the CURRENT row state from live SQLite for each pk,
+             upsert per-table via PostgresClient.
+
+        Returns True if any work was shipped (rows or scopes), False
+        if both queues were empty. The Task 15 run loop uses False to
+        flip the worker state back to IDLE.
+
+        Edge cases:
+
+        - Missing live row (deleted between enqueue and ship): log +
+          drop the outbox entry without shipping. Normal for
+          append-mostly tables — operator cleared the Pi-side row but
+          the server keeps its copy (append-mostly deletes don't
+          enqueue a delete_scope).
+
+        - Unknown table in outbox (schema drift between the lint
+          allowlist and ``_REPLICATED_TABLES``): log + drop so the
+          queue doesn't permanently block.
+
+        - PostgresClient errors propagate. The run loop catches them
+          and transitions to BACKOFF via ``_on_ship_failed``. Outbox
+          entries are NOT deleted on failure — they retry on the next
+          drain cycle.
+
+        Connections + client are passed in so this is unit-testable in
+        isolation; the run loop (Task 15) will own the live SQLite
+        connection and the PostgresClient instance and pass them in.
+        """
+        # 1. Delete-scope queue first.
+        scope_entries = outbox.peek_delete_scope(sqlite_conn, limit=100)
+        for entry in scope_entries:
+            scope = json.loads(entry["scope_json"])
+            pg_client.delete_scope(
+                table=entry["table_name"], scope=scope,
+            )
+        if scope_entries:
+            # Delete only AFTER every ship succeeded — if any
+            # delete_scope call above raised, the exception propagated
+            # and we never get here; the entries stay for retry.
+            outbox.delete_delete_scope(
+                sqlite_conn, ids=[e["id"] for e in scope_entries],
+            )
+
+        # 2. Row pointers.
+        row_entries = outbox.peek_rows(sqlite_conn, limit=1000)
+        if not row_entries:
+            # Only-delete-scope batch (or empty batch). Return True
+            # only when scopes shipped (work was done).
+            return bool(scope_entries)
+
+        # Group by table_name. For each table we'll fetch live state
+        # and ship as a single batch.
+        by_table: dict[str, list[dict]] = {}
+        ids_to_delete: list[int] = []
+        for entry in row_entries:
+            table = entry["table_name"]
+            schema = _REPLICATED_TABLES.get(table)
+            if schema is None:
+                # Schema drift — unknown table. Log + orphan the
+                # entry so a future schema change doesn't permanently
+                # block the queue. (If this fires in production, the
+                # lint allowlist or _REPLICATED_TABLES is out of date.)
+                log.warning(
+                    "backup db: unknown replicated table %r — "
+                    "dropping outbox entry id=%s",
+                    table, entry["id"],
+                )
+                ids_to_delete.append(entry["id"])
+                continue
+            pk_values = _parse_pk(entry["pk"], schema["pk_types"])
+            live_row = _read_live_row(
+                sqlite_conn, table, schema["pk_columns"], pk_values,
+            )
+            if live_row is None:
+                # Row was deleted between enqueue and ship. Drop the
+                # outbox entry; the server keeps its previously-shipped
+                # copy (append-mostly delete doesn't propagate).
+                log.info(
+                    "backup db: live row %r:%r missing — "
+                    "dropping outbox entry id=%s",
+                    table, entry["pk"], entry["id"],
+                )
+                ids_to_delete.append(entry["id"])
+                continue
+            by_table.setdefault(table, []).append(live_row)
+            ids_to_delete.append(entry["id"])
+
+        # Ship per-table. Errors propagate — outbox entries stay queued
+        # for retry because delete_rows is only called after all
+        # upserts succeed.
+        for table, rows in by_table.items():
+            schema = _REPLICATED_TABLES[table]
+            pg_client.upsert_rows(
+                table=table,
+                pk_columns=schema["pk_columns"],
+                rows=rows,
+            )
+
+        if ids_to_delete:
+            outbox.delete_rows(sqlite_conn, ids=ids_to_delete)
+
+        return True

@@ -151,6 +151,65 @@ def test_run_ddl_executes_sql_and_commits(client):
     mock_cur.execute.assert_called_once_with("CREATE TABLE foo (id int)")
 
 
+def test_delete_scope_empty_scope_produces_pi_only_where(client):
+    """Empty scope dict means 'wipe everything for this Pi from this
+    table'. SQL must reduce to just the source_pi_id predicate — the
+    only safety net preventing one Pi from nuking another Pi's data."""
+    with patch("mlss_monitor.backup.postgres_client.psycopg2.connect") as mock_connect:
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+        mock_connect.return_value.__enter__.return_value = mock_conn
+        client.delete_scope(table="incidents", scope={})
+    mock_cur.execute.assert_called_once()
+    sql, values = mock_cur.execute.call_args[0]
+    assert sql == "DELETE FROM incidents WHERE source_pi_id = %s"
+    assert values == ["pi-1"]
+
+
+def test_delete_scope_populated_scope_appends_and_clauses(client):
+    """A populated scope dict adds an ``AND col = %s`` for each key.
+    Used for narrower wipes like 'all of unit_id=3's
+    grow_unit_capabilities for this Pi'."""
+    with patch("mlss_monitor.backup.postgres_client.psycopg2.connect") as mock_connect:
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+        mock_connect.return_value.__enter__.return_value = mock_conn
+        client.delete_scope(
+            table="grow_unit_capabilities", scope={"unit_id": 3},
+        )
+    sql, values = mock_cur.execute.call_args[0]
+    assert sql == (
+        "DELETE FROM grow_unit_capabilities "
+        "WHERE source_pi_id = %s AND unit_id = %s"
+    )
+    # source_pi_id is ALWAYS the first parameter — the order matters
+    # because the SQL is built in that order.
+    assert values == ["pi-1", 3]
+
+
+def test_delete_scope_source_pi_id_is_always_first_param(client):
+    """With multiple scope keys, source_pi_id stays the first parameter
+    so the SQL placeholders line up correctly."""
+    with patch("mlss_monitor.backup.postgres_client.psycopg2.connect") as mock_connect:
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+        mock_connect.return_value.__enter__.return_value = mock_conn
+        client.delete_scope(
+            table="grow_light_windows",
+            scope={"unit_id": 5, "phase": "vegetative"},
+        )
+    sql, values = mock_cur.execute.call_args[0]
+    assert sql.startswith("DELETE FROM grow_light_windows WHERE source_pi_id = %s")
+    assert values[0] == "pi-1"
+    # Both scope columns appear in the WHERE clause after source_pi_id.
+    assert "unit_id = %s" in sql
+    assert "phase = %s" in sql
+    assert set(values[1:]) == {5, "vegetative"}
+
+
 def test_init_passes_ssl_options_to_psycopg2():
     """Verify the sslmode + sslrootcert are forwarded to psycopg2.connect."""
     from mlss_monitor.backup.postgres_client import PostgresClient
