@@ -28,6 +28,7 @@ websockets = "^12.0"
 argon2-cffi = "^23.1"
 psycopg2-binary = "^2.9"
 mlss-contracts = {path = "contracts", develop = true}
+boto3 = "^1.43.10"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0"
