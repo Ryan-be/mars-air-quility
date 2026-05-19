@@ -299,6 +299,16 @@ def _mark_complete(conn, job_id: int, output_path: str) -> None:
             (output_path, datetime.utcnow(), job_id),
         )
         if cur.rowcount == 0:
+            # Row vanished mid-render (operator wiped the queue). The MP4
+            # at output_path is now an orphan — ffmpeg already wrote it,
+            # but no DB row references it, so the photos route won't ever
+            # serve it. Log loudly so operators can find + reap stragglers
+            # via journalctl. Don't unlink here: the operator may want to
+            # recover the file; deletion is their call to make.
+            log.warning(
+                "_mark_complete: row vanished for job %s; MP4 orphaned at %s",
+                job_id, output_path,
+            )
             return
         outbox.enqueue_row(
             conn, table="grow_timelapse_jobs", pk=job_id,

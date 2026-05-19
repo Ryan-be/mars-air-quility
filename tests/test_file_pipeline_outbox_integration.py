@@ -115,23 +115,44 @@ def test_handle_photo_frame_enqueues_row_and_blob(photo_setup):
     assert (Path(images_dir) / key).exists()
 
 
-def test_handle_photo_frame_rollback_on_db_failure_does_not_orphan_file(photo_setup):
-    """If the INSERT raises (e.g. UNIQUE constraint), no JPEG should be left
-    on disk and no blob should be enqueued for the failed call."""
+def test_handle_photo_frame_rollback_on_db_failure_preserves_prior_file(photo_setup):
+    """A duplicate-taken_at IntegrityError on the second call must:
+      (a) NOT enqueue an extra blob, AND
+      (b) NOT destroy the FIRST call's JPEG on disk.
+
+    The filename is derived from taken_at, so both calls compute the same
+    abs_path. Without the file_written_by_this_call gate, the second
+    call's except handler would unlink the first call's JPEG even
+    though the IntegrityError fires BEFORE the file write.
+    """
     db_path, images_dir = photo_setup
     from mlss_monitor.grow import photo_storage
     jpeg = b"\xff\xd8\xff\xe0\x00\x10JFIF" + b"\x00" * 100
     iso = "2026-05-18T12:00:00.000Z"
     frame = _make_frame(iso, jpeg)
-    # First call succeeds
+
+    # First call succeeds — row + file + blob all land
     photo_storage.handle_photo_frame(unit_id=1, frame=frame)
-    # Second call with identical taken_at should hit UNIQUE(unit_id, taken_at)
+    blobs_after_first = _outbox_blobs(db_path)
+    assert len(blobs_after_first) == 1
+    first_call_path = Path(images_dir) / blobs_after_first[0][1]
+    assert first_call_path.exists()
+
+    # Second call with identical taken_at hits UNIQUE(unit_id, taken_at)
     with pytest.raises(sqlite3.IntegrityError):
         photo_storage.handle_photo_frame(unit_id=1, frame=frame)
-    blobs = _outbox_blobs(db_path)
-    # First call enqueued one blob; second call's blob should NOT be present
-    assert len(blobs) == 1, (
-        f"Failed second call must not leave a blob enqueued; saw {blobs}"
+
+    # (a) No extra blob — second call's INSERT rolled back before enqueue
+    blobs_after_second = _outbox_blobs(db_path)
+    assert len(blobs_after_second) == 1, (
+        f"Failed second call must not leave a blob enqueued; saw {blobs_after_second}"
+    )
+
+    # (b) First call's JPEG survives — file_written_by_this_call gate
+    # prevents the second call's except handler from unlinking it
+    assert first_call_path.exists(), (
+        f"First call's JPEG at {first_call_path} was destroyed by the "
+        f"failed second call's except handler — the unlink gate is broken."
     )
 
 

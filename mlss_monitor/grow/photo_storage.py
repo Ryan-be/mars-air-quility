@@ -268,6 +268,15 @@ def handle_photo_frame(unit_id: int, frame: bytes) -> None:
     # any partial JPEG so we don't leak a file. The two outbox enqueues are
     # the multi-table inline pattern from Task 7: one row pointer for
     # grow_photos, one blob pointer for the JPEG itself.
+    #
+    # `file_written_by_this_call` gates the unlink in the except block so
+    # we ONLY remove the JPEG if THIS call actually wrote one. Without the
+    # gate, a second call with the same `taken_at` as a prior successful
+    # call would hit UNIQUE(unit_id, taken_at) on the INSERT, exit via the
+    # except, and unlink the PRIOR call's JPEG (the filename is derived
+    # from taken_at, so it's the same on-disk path). With the gate, that
+    # IntegrityError path returns without touching the file.
+    file_written_by_this_call = False
     with closing(sqlite3.connect(DB_FILE, timeout=10)) as conn:
         try:
             with conn:  # transaction context — commit on success, rollback on exception
@@ -302,6 +311,7 @@ def handle_photo_frame(unit_id: int, frame: bytes) -> None:
                 # Write the file. If this fails we rollback the staged row.
                 with open(abs_path, "wb") as f:
                     f.write(jpeg_bytes)
+                file_written_by_this_call = True
 
                 # Enqueue the blob pointer. target_key reuses the on-disk
                 # relpath (unit_NNN/YYYY-MM-DD/HHMMSS_mmm.jpg) so the
@@ -318,13 +328,17 @@ def handle_photo_frame(unit_id: int, frame: bytes) -> None:
                     sha256=sha,
                 )
         except Exception:
-            # `with conn:` has already rolled back the transaction. File may
-            # have been written before the failure (file-write error mid-write,
-            # or a constraint violation on the blob enqueue after a successful
-            # write). Unlink so we don't leave an orphan JPEG on disk.
-            try:
-                if os.path.exists(abs_path):
-                    os.unlink(abs_path)
-            except OSError:
-                pass
+            # `with conn:` has already rolled back the transaction. If THIS
+            # call wrote a JPEG before the failure (file-write error or a
+            # later exception inside the with block), unlink it. If we
+            # exited via a constraint violation on the INSERT — which fires
+            # BEFORE the file write — the file on disk belongs to a prior
+            # successful call with the same taken_at, NOT to us, and we
+            # must not touch it.
+            if file_written_by_this_call:
+                try:
+                    if os.path.exists(abs_path):
+                        os.unlink(abs_path)
+                except OSError:
+                    pass
             raise
