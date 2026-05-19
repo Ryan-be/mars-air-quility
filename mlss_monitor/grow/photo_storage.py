@@ -21,18 +21,21 @@ Thumbnail cache (Phase 4):
   per-unit, so ``DELETE /photos`` can blow away the unit's thumbnail dir
   alongside the originals.
 """
+import hashlib
 import json
 import logging
 import os
 import sqlite3
 import struct
 import shutil
+from contextlib import closing
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 from PIL import Image
 
 from database.init_db import DB_FILE
+from mlss_monitor.backup import outbox
 
 log = logging.getLogger(__name__)
 
@@ -259,50 +262,69 @@ def handle_photo_frame(unit_id: int, frame: bytes) -> None:
         )
         raise
 
-    conn = sqlite3.connect(DB_FILE, timeout=10)
-    try:
-        # Find closest telemetry row within ±60s for the join key
-        win = timedelta(seconds=_JOIN_WINDOW_SECONDS)
-        join_row = conn.execute(
-            "SELECT id FROM grow_telemetry WHERE unit_id=? "
-            "AND timestamp_utc BETWEEN ? AND ? "
-            "ORDER BY ABS(julianday(timestamp_utc) - julianday(?)) "
-            "LIMIT 1",
-            (unit_id, taken_at_utc - win, taken_at_utc + win, taken_at_utc),
-        ).fetchone()
-        telemetry_id = join_row[0] if join_row else None
-
-        # Stage the INSERT before writing the file so a failed insert
-        # (e.g. UNIQUE violation, OperationalError) rolls back cleanly
-        # without leaving an orphan JPEG on disk.
-        conn.execute(
-            "INSERT INTO grow_photos "
-            "(unit_id, taken_at, file_path, width_px, height_px, size_bytes, "
-            " jpeg_quality, shutter_us, iso, white_balance, telemetry_id) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (unit_id, taken_at_utc, rel_path,
-             header["width"], header["height"], len(jpeg_bytes),
-             header.get("jpeg_quality"), header.get("shutter_us"),
-             header.get("iso"), header.get("white_balance"), telemetry_id),
-        )
-
-        # Write the file. If this fails we rollback the staged row.
-        with open(abs_path, "wb") as f:
-            f.write(jpeg_bytes)
-
-        # Commit only after both the row and the file are in place. If
-        # the commit fails, the outer except will rollback and unlink.
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        # File may have been written before the failure (file-write
-        # error mid-write, or commit failure after a successful write).
-        # Unlink so we don't leave an orphan JPEG on disk.
+    # Wrap the live row INSERT, the file write, AND the outbox enqueues in
+    # one transaction (`with conn:`). If anything raises, SQLite rolls back
+    # the row + both outbox entries together; the except block below unlinks
+    # any partial JPEG so we don't leak a file. The two outbox enqueues are
+    # the multi-table inline pattern from Task 7: one row pointer for
+    # grow_photos, one blob pointer for the JPEG itself.
+    with closing(sqlite3.connect(DB_FILE, timeout=10)) as conn:
         try:
-            if os.path.exists(abs_path):
-                os.unlink(abs_path)
-        except OSError:
-            pass
-        raise
-    finally:
-        conn.close()
+            with conn:  # transaction context — commit on success, rollback on exception
+                # Find closest telemetry row within ±60s for the join key
+                win = timedelta(seconds=_JOIN_WINDOW_SECONDS)
+                join_row = conn.execute(
+                    "SELECT id FROM grow_telemetry WHERE unit_id=? "
+                    "AND timestamp_utc BETWEEN ? AND ? "
+                    "ORDER BY ABS(julianday(timestamp_utc) - julianday(?)) "
+                    "LIMIT 1",
+                    (unit_id, taken_at_utc - win, taken_at_utc + win, taken_at_utc),
+                ).fetchone()
+                telemetry_id = join_row[0] if join_row else None
+
+                # Stage the INSERT before writing the file so a failed insert
+                # (e.g. UNIQUE violation, OperationalError) rolls back cleanly
+                # without leaving an orphan JPEG on disk.
+                cur = conn.execute(
+                    "INSERT INTO grow_photos "
+                    "(unit_id, taken_at, file_path, width_px, height_px, size_bytes, "
+                    " jpeg_quality, shutter_us, iso, white_balance, telemetry_id) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (unit_id, taken_at_utc, rel_path,
+                     header["width"], header["height"], len(jpeg_bytes),
+                     header.get("jpeg_quality"), header.get("shutter_us"),
+                     header.get("iso"), header.get("white_balance"), telemetry_id),
+                )
+                photo_id = cur.lastrowid
+                # Enqueue the live-row pointer for the backup shipper.
+                outbox.enqueue_row(conn, table="grow_photos", pk=photo_id)
+
+                # Write the file. If this fails we rollback the staged row.
+                with open(abs_path, "wb") as f:
+                    f.write(jpeg_bytes)
+
+                # Enqueue the blob pointer. target_key reuses the on-disk
+                # relpath (unit_NNN/YYYY-MM-DD/HHMMSS_mmm.jpg) so the
+                # server-side S3 layout mirrors the Pi-side filesystem
+                # layout exactly. SHA256 is over the in-memory bytes — we
+                # know those are the bytes that just landed on disk because
+                # f.write() above wrote the same buffer. INSERT OR IGNORE
+                # on target_key makes this idempotent across retries.
+                sha = hashlib.sha256(jpeg_bytes).hexdigest()
+                outbox.enqueue_blob(
+                    conn, kind="photo",
+                    source_path=str(abs_path),
+                    target_key=rel_path,
+                    sha256=sha,
+                )
+        except Exception:
+            # `with conn:` has already rolled back the transaction. File may
+            # have been written before the failure (file-write error mid-write,
+            # or a constraint violation on the blob enqueue after a successful
+            # write). Unlink so we don't leave an orphan JPEG on disk.
+            try:
+                if os.path.exists(abs_path):
+                    os.unlink(abs_path)
+            except OSError:
+                pass
+            raise

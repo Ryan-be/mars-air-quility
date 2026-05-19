@@ -1,14 +1,20 @@
 """AnomalyDetector: per-channel river HalfSpaceTrees with pickle persistence."""
 from __future__ import annotations
 
+import hashlib
 import logging
 import pickle
+import sqlite3
 import time
+from contextlib import closing
+from datetime import datetime
 from pathlib import Path
 
 import yaml
 from river.anomaly import HalfSpaceTrees
 
+from database.init_db import DB_FILE
+from mlss_monitor.backup import outbox
 from mlss_monitor.feature_vector import FeatureVector
 
 log = logging.getLogger(__name__)
@@ -89,6 +95,20 @@ class AnomalyDetector:
             try:
                 with open(model_path, "wb") as f:
                     pickle.dump({"model": model, "n_seen": self._n_seen[ch]}, f)
+                # Enqueue a blob pointer so the backup shipper can upload this
+                # pickle to S3. One short-lived transaction per channel so a
+                # single enqueue failure (e.g. transient sqlite lock) doesn't
+                # kill the rest of the save batch. SHA256 over the bytes that
+                # just landed on disk via model_path.read_bytes().
+                sha = hashlib.sha256(model_path.read_bytes()).hexdigest()
+                target_key = f"anomaly/{ch}/{datetime.utcnow().isoformat()}.pkl"
+                with closing(sqlite3.connect(DB_FILE, timeout=10)) as conn:
+                    with conn:
+                        outbox.enqueue_blob(
+                            conn, kind="model",
+                            source_path=str(model_path),
+                            target_key=target_key, sha256=sha,
+                        )
             except Exception as exc:
                 log.warning("AnomalyDetector: could not save model %r: %s", ch, exc)
 
