@@ -96,20 +96,12 @@ class BootstrapScanner:
     next call.
     """
 
-    def __init__(self, db_file: str, *, source_pi_id: str = "pi-1") -> None:
+    def __init__(self, db_file: str) -> None:
         """``db_file`` is the SQLite path holding the live tables AND
         the outbox + bootstrap_progress tables (they're co-located by
         design so writes share a transaction).
-
-        ``source_pi_id`` is for documentation / log lines only — the
-        worker tags shipped rows with its own source_pi_id at
-        ship-time. We don't use it inside the scanner, but accepting
-        it here means a multi-Pi deployment can log "bootstrap on
-        pi-2 enqueued N rows from sensor_data" without having to
-        thread the id through every log line by hand.
         """
         self.db_file = db_file
-        self.source_pi_id = source_pi_id
 
     # -- DB pipeline ---------------------------------------------------
 

@@ -80,103 +80,87 @@ function _toggle(doc, key, labelText) {
 }
 
 
-/** Build the db pipeline card. */
-function _renderDbCard(doc, dbCfg) {
+/**
+ * Card specs — single source of truth for the two pipeline cards. Each
+ * row of `fields` becomes one `<div class="field-row">`; each `[key,
+ * label, attrs?]` triple inside a row becomes one labelled input. The
+ * `secret` entry adds a masked password-style input that reads its
+ * "(unchanged)" / "(not set)" placeholder from `cfg[secret.set_key]`.
+ *
+ * Keeping the spec in one place means adding a field to "both"
+ * pipelines is exactly one diff, not two.
+ */
+const CARDS = [
+  {
+    section: "db",
+    title: "Database pipeline",
+    fields: [
+      [["host",     "Host",     { placeholder: "homeserver.lan" }],
+       ["port",     "Port",     { type: "number", min: 1, step: 1, default: 5432 }]],
+      [["database", "Database", { default: "mlss" }],
+       ["user",     "User",     { default: "mlss" }]],
+    ],
+    secret: { key: "password",   label: "Password",          setKey: "password_set" },
+  },
+  {
+    section: "files",
+    title: "Files pipeline (S3)",
+    fields: [
+      [["endpoint",      "Endpoint",      { placeholder: "https://s3.example.com" }],
+       ["region",        "Region",        { default: "auto" }]],
+      [["access_key_id", "Access key ID"],
+       ["bucket_prefix", "Bucket prefix", { default: "mlss-" }]],
+    ],
+    secret: { key: "secret_key", label: "Secret access key", setKey: "secret_key_set" },
+  },
+];
+
+
+/** Build one pipeline card from a CARDS spec entry. */
+function _renderCard(doc, cfg, spec) {
+  const sect = spec.section;
   const card = doc.createElement("div");
   card.className = "card bk-settings-card";
-  card.dataset.section = "db";
-  card.innerHTML = `<h3>Database pipeline</h3>`;
+  card.dataset.section = sect;
+  card.innerHTML = `<h3>${spec.title}</h3>`;
 
-  const enabled = _toggle(doc, "db.enabled", "Pipeline enabled");
-  enabled.querySelector("input").checked = !!dbCfg.enabled;
+  const enabled = _toggle(doc, `${sect}.enabled`, "Pipeline enabled");
+  enabled.querySelector("input").checked = !!cfg.enabled;
   card.appendChild(enabled);
 
-  const grid = doc.createElement("div");
-  grid.className = "field-row";
-  grid.appendChild(_field(doc, "db.host", "Host", dbCfg.host || "",
-    { placeholder: "homeserver.lan" }));
-  grid.appendChild(_field(doc, "db.port", "Port", dbCfg.port ?? 5432,
-    { type: "number", min: 1, step: 1 }));
-  card.appendChild(grid);
+  // Field rows — each inner array of triples becomes one .field-row.
+  for (const row of spec.fields) {
+    const rowEl = doc.createElement("div");
+    rowEl.className = "field-row";
+    for (const [name, label, attrs = {}] of row) {
+      const { default: dflt, ...inputAttrs } = attrs;
+      const value = cfg[name] ?? dflt ?? "";
+      rowEl.appendChild(_field(doc, `${sect}.${name}`, label, value, inputAttrs));
+    }
+    card.appendChild(rowEl);
+  }
 
-  const grid2 = doc.createElement("div");
-  grid2.className = "field-row";
-  grid2.appendChild(_field(doc, "db.database", "Database", dbCfg.database || "mlss"));
-  grid2.appendChild(_field(doc, "db.user", "User", dbCfg.user || "mlss"));
-  card.appendChild(grid2);
-
-  // Password field — masked semantics.
-  const pwWrap = doc.createElement("div");
-  pwWrap.className = "field-row";
-  pwWrap.appendChild(_field(
-    doc, "db.password", "Password", "",
+  // Secret field — masked semantics. Always its own row.
+  const { key: sKey, label: sLabel, setKey } = spec.secret;
+  const secretRow = doc.createElement("div");
+  secretRow.className = "field-row";
+  secretRow.appendChild(_field(
+    doc, `${sect}.${sKey}`, sLabel, "",
     {
       type: "password",
-      placeholder: dbCfg.password_set ? "(unchanged)" : "(not set)",
+      placeholder: cfg[setKey] ? "(unchanged)" : "(not set)",
     },
   ));
-  card.appendChild(pwWrap);
+  card.appendChild(secretRow);
 
-  // Action buttons + inline result span.
+  // Action buttons + inline result spans.
   const actions = doc.createElement("div");
   actions.className = "bk-actions-row";
   actions.innerHTML = `
-    <button type="button" class="btn-search" data-action="test-db">Test connection</button>
-    <button type="button" class="btn-search" data-action="init-db">Initialise</button>
-    <span class="bk-result" data-result="test-db"></span>
-    <span class="bk-result" data-result="init-db"></span>
-  `;
-  card.appendChild(actions);
-  return card;
-}
-
-
-/** Build the files pipeline card. */
-function _renderFilesCard(doc, filesCfg) {
-  const card = doc.createElement("div");
-  card.className = "card bk-settings-card";
-  card.dataset.section = "files";
-  card.innerHTML = `<h3>Files pipeline (S3)</h3>`;
-
-  const enabled = _toggle(doc, "files.enabled", "Pipeline enabled");
-  enabled.querySelector("input").checked = !!filesCfg.enabled;
-  card.appendChild(enabled);
-
-  const grid = doc.createElement("div");
-  grid.className = "field-row";
-  grid.appendChild(_field(doc, "files.endpoint", "Endpoint",
-    filesCfg.endpoint || "", { placeholder: "https://s3.example.com" }));
-  grid.appendChild(_field(doc, "files.region", "Region",
-    filesCfg.region || "auto"));
-  card.appendChild(grid);
-
-  const grid2 = doc.createElement("div");
-  grid2.className = "field-row";
-  grid2.appendChild(_field(doc, "files.access_key_id", "Access key ID",
-    filesCfg.access_key_id || ""));
-  grid2.appendChild(_field(doc, "files.bucket_prefix", "Bucket prefix",
-    filesCfg.bucket_prefix || "mlss-"));
-  card.appendChild(grid2);
-
-  // Secret key — masked semantics.
-  const skWrap = doc.createElement("div");
-  skWrap.className = "field-row";
-  skWrap.appendChild(_field(
-    doc, "files.secret_key", "Secret access key", "",
-    {
-      type: "password",
-      placeholder: filesCfg.secret_key_set ? "(unchanged)" : "(not set)",
-    },
-  ));
-  card.appendChild(skWrap);
-
-  const actions = doc.createElement("div");
-  actions.className = "bk-actions-row";
-  actions.innerHTML = `
-    <button type="button" class="btn-search" data-action="test-files">Test connection</button>
-    <button type="button" class="btn-search" data-action="init-files">Initialise</button>
-    <span class="bk-result" data-result="test-files"></span>
-    <span class="bk-result" data-result="init-files"></span>
+    <button type="button" class="btn-search" data-action="test-${sect}">Test connection</button>
+    <button type="button" class="btn-search" data-action="init-${sect}">Initialise</button>
+    <span class="bk-result" data-result="test-${sect}"></span>
+    <span class="bk-result" data-result="init-${sect}"></span>
   `;
   card.appendChild(actions);
   return card;
@@ -203,8 +187,9 @@ export function renderSettingsForm({ config, ownerDocument, fetchFn }) {
   // The two side-by-side pipeline cards.
   const grid = doc.createElement("div");
   grid.className = "settings-grid bk-pipeline-grid";
-  grid.appendChild(_renderDbCard(doc, config.db || {}));
-  grid.appendChild(_renderFilesCard(doc, config.files || {}));
+  for (const spec of CARDS) {
+    grid.appendChild(_renderCard(doc, config[spec.section] || {}, spec));
+  }
   form.appendChild(grid);
 
   // -- Inline button handlers --

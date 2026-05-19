@@ -90,25 +90,48 @@ def _login(client, *, role="admin"):
 
 
 # ─────────────────────────────────────────────────────────────────────
-# GET /config — RBAC + response shape
+# RBAC matrix — every /api/admin/backup/* endpoint requires admin role
 # ─────────────────────────────────────────────────────────────────────
 
 
-def test_get_config_anonymous_returns_401(client, db_path, event_bus):  # noqa: ARG001
-    r = client.get("/api/admin/backup/config")
-    assert r.status_code == 401
+@pytest.mark.parametrize("method,path,role,expected_status", [
+    # Anonymous → 401 (require_role rejects unauthenticated sessions
+    # before checking the role).
+    ("GET",  "/api/admin/backup/config",            None,         401),
+    ("PUT",  "/api/admin/backup/config",            None,         401),
+    ("GET",  "/api/admin/backup/status",            None,         401),
+    ("POST", "/api/admin/backup/test?pipeline=db",  None,         401),
+    ("POST", "/api/admin/backup/init?pipeline=db",  None,         401),
+    ("POST", "/api/admin/backup/maintenance",       None,         401),
+    # Authenticated but non-admin → 403 (require_role enforces the
+    # admin role discriminator after auth succeeds).
+    ("GET",  "/api/admin/backup/config",            "viewer",     403),
+    ("GET",  "/api/admin/backup/config",            "controller", 403),
+    ("PUT",  "/api/admin/backup/config",            "viewer",     403),
+    ("POST", "/api/admin/backup/maintenance",       "controller", 403),
+])
+def test_admin_backup_rbac_matrix(
+    client, db_path, event_bus,  # noqa: ARG001
+    method, path, role, expected_status,
+):
+    """Every /api/admin/backup/* endpoint must reject anonymous (401)
+    and non-admin (403) callers. Happy-path admin behaviour is asserted
+    by the per-endpoint tests below — those tests assume the access
+    gate works."""
+    if role:
+        _login(client, role=role)
+    if method == "GET":
+        resp = client.get(path)
+    elif method == "PUT":
+        resp = client.put(path, json={})
+    else:
+        resp = client.post(path, json={})
+    assert resp.status_code == expected_status
 
 
-def test_get_config_viewer_returns_403(client, db_path, event_bus):  # noqa: ARG001
-    _login(client, role="viewer")
-    r = client.get("/api/admin/backup/config")
-    assert r.status_code == 403
-
-
-def test_get_config_controller_returns_403(client, db_path, event_bus):  # noqa: ARG001
-    _login(client, role="controller")
-    r = client.get("/api/admin/backup/config")
-    assert r.status_code == 403
+# ─────────────────────────────────────────────────────────────────────
+# GET /config — response shape
+# ─────────────────────────────────────────────────────────────────────
 
 
 def test_get_config_admin_returns_masked(client, db_path, event_bus):  # noqa: ARG001
@@ -129,19 +152,8 @@ def test_get_config_admin_returns_masked(client, db_path, event_bus):  # noqa: A
 
 
 # ─────────────────────────────────────────────────────────────────────
-# PUT /config — RBAC + persistence + reconcile + hot-reload event
+# PUT /config — persistence + reconcile + hot-reload event
 # ─────────────────────────────────────────────────────────────────────
-
-
-def test_put_config_anonymous_returns_401(client, db_path, event_bus):  # noqa: ARG001
-    r = client.put("/api/admin/backup/config", json={"enabled": True})
-    assert r.status_code == 401
-
-
-def test_put_config_viewer_returns_403(client, db_path, event_bus):  # noqa: ARG001
-    _login(client, role="viewer")
-    r = client.put("/api/admin/backup/config", json={"enabled": True})
-    assert r.status_code == 403
 
 
 def test_put_config_admin_persists(client, db_path, event_bus):  # noqa: ARG001
@@ -254,13 +266,8 @@ def test_put_config_unchanged_enabled_does_not_restart(client, db_path, event_bu
 
 
 # ─────────────────────────────────────────────────────────────────────
-# GET /status — RBAC + payload shape
+# GET /status — payload shape
 # ─────────────────────────────────────────────────────────────────────
-
-
-def test_get_status_anonymous_returns_401(client, db_path, event_bus):  # noqa: ARG001
-    r = client.get("/api/admin/backup/status")
-    assert r.status_code == 401
 
 
 def test_get_status_admin_returns_payload(client, db_path, event_bus):
@@ -307,11 +314,6 @@ def test_get_status_thread_alive_reflects_worker(client, db_path, event_bus):
 # ─────────────────────────────────────────────────────────────────────
 # POST /test — connection probe
 # ─────────────────────────────────────────────────────────────────────
-
-
-def test_post_test_anonymous_returns_401(client, db_path, event_bus):  # noqa: ARG001
-    r = client.post("/api/admin/backup/test?pipeline=db")
-    assert r.status_code == 401
 
 
 def test_post_test_invalid_pipeline_returns_400(client, db_path, event_bus):  # noqa: ARG001
@@ -361,11 +363,6 @@ def test_post_test_files_calls_s3_test_connection(client, db_path, event_bus):  
 # ─────────────────────────────────────────────────────────────────────
 
 
-def test_post_init_anonymous_returns_401(client, db_path, event_bus):  # noqa: ARG001
-    r = client.post("/api/admin/backup/init?pipeline=db")
-    assert r.status_code == 401
-
-
 def test_post_init_invalid_pipeline_returns_400(client, db_path, event_bus):  # noqa: ARG001
     _login(client, role="admin")
     r = client.post("/api/admin/backup/init?pipeline=bogus")
@@ -410,14 +407,6 @@ def test_post_init_files_creates_all_buckets(client, db_path, event_bus):  # noq
 # ─────────────────────────────────────────────────────────────────────
 # POST /maintenance — admin actions
 # ─────────────────────────────────────────────────────────────────────
-
-
-def test_post_maintenance_anonymous_returns_401(client, db_path, event_bus):  # noqa: ARG001
-    r = client.post(
-        "/api/admin/backup/maintenance",
-        json={"action": "pause", "confirm": True},
-    )
-    assert r.status_code == 401
 
 
 def test_post_maintenance_missing_confirm_returns_400(client, db_path, event_bus):  # noqa: ARG001
