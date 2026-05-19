@@ -3,6 +3,8 @@
 Phase 4 Task 12: state machine and backoff curve.
 Phase 4 Task 13: DB sub-worker drain loop (`_drain_db_batch`) +
     per-table PK schema + outbox-pk parser.
+Phase 4 Task 14: Files sub-worker drain loop (`_drain_files_batch`) +
+    target_key → bucket_suffix routing helper.
 Task 15 (still pending) adds the threading lifecycle / run loop that
 ties everything together.
 
@@ -33,6 +35,7 @@ from __future__ import annotations
 import enum
 import json
 import logging
+import os
 import sqlite3
 import threading
 from datetime import datetime
@@ -134,6 +137,42 @@ def _read_live_row(
     return dict(row) if row else None
 
 
+# ── Files pipeline: target_key → bucket suffix ─────────────────────
+
+def _bucket_suffix_for_key(target_key: str) -> str:
+    """Derive the S3 bucket suffix from the target_key prefix.
+
+    target_key shapes (from Phase 2 file pipeline writers):
+      - 'unit_NNN/YYYY-MM-DD/...jpg'         → 'photos'
+      - 'anomaly/<channel>/<iso>.pkl'        → 'anomaly'
+      - 'multivar_anomaly/<model>/<iso>.pkl' → 'multivar-anomaly'
+      - 'attribution/classifier/<iso>.pkl'   → 'attribution'
+
+    Note the underscore→hyphen normalisation for ``multivar_anomaly``:
+    S3 bucket naming uses hyphens by convention (DNS-compatible names),
+    but the on-disk filesystem layout uses underscores to match the
+    Python module names (``mlss_monitor.multivar_anomaly``). Don't
+    "fix" this — both forms are intentional.
+
+    Raises ``ValueError`` on unknown prefix. The drain loop catches
+    this and logs + drops the outbox entry so a schema-drift prefix
+    can't permanently block the queue.
+
+    Order note: ``multivar_anomaly/`` check goes before ``anomaly/``
+    for clarity, though prefix matching wouldn't actually collide
+    ("multivar_anomaly" does not start with "anomaly").
+    """
+    if target_key.startswith("unit_"):
+        return "photos"
+    if target_key.startswith("multivar_anomaly/"):
+        return "multivar-anomaly"
+    if target_key.startswith("anomaly/"):
+        return "anomaly"
+    if target_key.startswith("attribution/"):
+        return "attribution"
+    raise ValueError(f"Cannot derive S3 bucket for target_key {target_key!r}")
+
+
 class State(enum.Enum):
     DISABLED = "disabled"
     IDLE     = "idle"
@@ -143,8 +182,8 @@ class State(enum.Enum):
 
 
 class BackupWorker:
-    """One pipeline's worker. Pure-logic state machine in this task —
-    Tasks 13-15 add the drain loops and threading."""
+    """One pipeline's worker. State machine + drain loops; Task 15
+    will add the run-loop threading that ties them together."""
 
     def __init__(self, *, pipeline: str) -> None:
         """`pipeline` is 'db' or 'files'. Determines which drain loop runs
@@ -358,5 +397,104 @@ class BackupWorker:
 
         if ids_to_delete:
             outbox.delete_rows(sqlite_conn, ids=ids_to_delete)
+
+        return True
+
+    # -- Files pipeline drain (Task 14) ---------------------------------
+
+    def _drain_files_batch(
+        self,
+        sqlite_conn: sqlite3.Connection,
+        s3_client,
+    ) -> bool:
+        """Drain one batch of outbox_blobs entries to S3.
+
+        Per-entry flow:
+
+          1. If ``source_path`` no longer exists on disk: log + drop
+             the outbox entry without any network round-trip. Normal
+             for append-mostly artefacts where the operator cleared
+             the Pi-side file (e.g. clear_photos route unlinks JPEGs)
+             but the server keeps its previously-shipped copy.
+
+          2. Derive the S3 bucket suffix from ``target_key`` via
+             ``_bucket_suffix_for_key``. Unknown prefix → log + drop
+             so schema drift doesn't permanently block the queue.
+
+          3. HEAD-check the destination. If the object is already
+             there (idempotency — previous ship succeeded but the
+             worker crashed before the outbox delete committed),
+             skip the upload but still drop the outbox entry.
+
+          4. PUT if missing.
+
+          5. Drop the outbox entry after a successful ship (or skip).
+
+        Returns True if any entries were processed (shipped, skipped,
+        or dropped), False if the outbox was empty. The Task 15 run
+        loop uses False to flip the worker state back to IDLE.
+
+        Batch size respects ``outbox.peek_blobs`` default (10) —
+        blobs are multi-MB uploads, so we ship slower than the DB
+        pipeline by design.
+
+        Errors from ``s3_client.head`` or ``s3_client.put`` propagate.
+        The run loop catches them and transitions to BACKOFF via
+        ``_on_ship_failed``. The failing entry stays in the outbox for
+        retry; earlier entries in the same batch that already shipped
+        successfully are not rolled back (their outbox entries were
+        already deleted per-iteration).
+
+        Connection + client are passed in so this is unit-testable in
+        isolation; the run loop (Task 15) will own the live SQLite
+        connection and the S3Client instance and pass them in.
+        """
+        entries = outbox.peek_blobs(sqlite_conn, limit=10)
+        if not entries:
+            return False
+
+        for entry in entries:
+            # Cheap dead-source check first — saves a network round-trip
+            # if the operator cleared the file between enqueue and ship.
+            if not os.path.exists(entry["source_path"]):
+                log.info(
+                    "backup files: source %r missing — "
+                    "dropping outbox entry id=%s",
+                    entry["source_path"], entry["id"],
+                )
+                outbox.delete_blobs(sqlite_conn, ids=[entry["id"]])
+                continue
+
+            # Route to the right bucket. Unknown prefix is schema drift
+            # — log + drop so the queue isn't permanently blocked.
+            try:
+                bucket_suffix = _bucket_suffix_for_key(entry["target_key"])
+            except ValueError as exc:
+                log.warning(
+                    "backup files: %s — dropping outbox entry id=%s",
+                    exc, entry["id"],
+                )
+                outbox.delete_blobs(sqlite_conn, ids=[entry["id"]])
+                continue
+
+            # Idempotency: if the blob is already on S3 (crash-resume
+            # mid-batch), skip the upload but still drop the outbox
+            # entry. HEAD errors (auth, network) propagate — caller
+            # decides retry strategy.
+            if s3_client.head(
+                bucket_suffix=bucket_suffix, key=entry["target_key"],
+            ):
+                outbox.delete_blobs(sqlite_conn, ids=[entry["id"]])
+                continue
+
+            # Ship. Errors propagate — outbox entry stays in place for
+            # retry on the next drain cycle.
+            s3_client.put(
+                bucket_suffix=bucket_suffix,
+                key=entry["target_key"],
+                source_path=entry["source_path"],
+                sha256=entry["sha256"],
+            )
+            outbox.delete_blobs(sqlite_conn, ids=[entry["id"]])
 
         return True
