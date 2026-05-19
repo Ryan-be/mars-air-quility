@@ -75,6 +75,11 @@ def _patch_db(path: str):
     dbl.DB_FILE = path
     udb.DB_FILE = path
     ht_mod.DB_FILE = path
+    # The @tee_to_outbox decorator (mlss_monitor.backup.outbox) opens its
+    # own connection at call-time by reading database.db_logger.DB_FILE —
+    # patched above — so decorated writers (log_sensor_data, save_inference,
+    # log_weather, add/remove/edit_annotation, add_inference_tag) now hit
+    # the test DB rather than the production data/sensor_data.db.
 
 
 @pytest.fixture

@@ -4,6 +4,7 @@ import statistics
 from datetime import datetime, timedelta, timezone
 
 from config import config
+from mlss_monitor.backup.outbox import tee_to_outbox
 
 
 DB_FILE = config.get("DB_FILE", "data/sensor_data.db")
@@ -74,12 +75,16 @@ def _connect():
     return conn
 
 
-def log_sensor_data(temp, hum, eco2, tvoc, annotation=None, fan_power_w=None, vpd_kpa=None,
+@tee_to_outbox(table="sensor_data")
+def log_sensor_data(conn, temp, hum, eco2, tvoc, annotation=None, fan_power_w=None, vpd_kpa=None,
                     pm1_0=None, pm2_5=None, pm10=None,
                     gas_co=None, gas_no2=None, gas_nh3=None):
     """
     Log sensor data into the SQLite database.
 
+    :param conn: sqlite3.Connection injected by the @tee_to_outbox decorator.
+                 Callers do NOT pass this — the decorator opens its own short-lived
+                 connection and prepends it before the call.
     :param temp: temperature in °C
     :param hum: relative humidity in %
     :param eco2: equivalent CO₂ in ppm
@@ -93,10 +98,10 @@ def log_sensor_data(temp, hum, eco2, tvoc, annotation=None, fan_power_w=None, vp
     :param gas_co: CO reading from MICS6814 (None if unavailable)
     :param gas_no2: NO2 reading from MICS6814 (None if unavailable)
     :param gas_nh3: NH3 reading from MICS6814 (None if unavailable)
+    :return: row id of the inserted sensor_data row (needed by the decorator
+             so it can enqueue the outbox pointer with the right PK).
     """
-    conn = _connect()
     cur = conn.cursor()
-
     cur.execute("""
         INSERT INTO sensor_data
             (timestamp, temperature, humidity, eco2, tvoc, annotation, fan_power_w, vpd_kpa,
@@ -104,9 +109,7 @@ def log_sensor_data(temp, hum, eco2, tvoc, annotation=None, fan_power_w=None, vp
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (_normalise_ts(datetime.utcnow().isoformat()), temp, hum, eco2, tvoc, annotation, fan_power_w, vpd_kpa,
           pm1_0, pm2_5, pm10, gas_co, gas_no2, gas_nh3))
-
-    conn.commit()
-    conn.close()
+    return cur.lastrowid
 
 
 def get_sensor_data():
@@ -145,63 +148,61 @@ def get_sensor_data_by_date(start_date, end_date):
     return rows
 
 
-def add_annotation(sensor_id, annotation):
+@tee_to_outbox(table="sensor_data")
+def add_annotation(conn, sensor_id, annotation):
     """
     Add an annotation to a sensor data entry.
-    :param sensor_id:
-    :param annotation:
-    :return:
-    """
-    conn = _connect()
-    cur = conn.cursor()
 
+    :param conn: sqlite3.Connection injected by the @tee_to_outbox decorator.
+    :param sensor_id: PK of the row to annotate.
+    :param annotation: free-text annotation.
+    :return: ``sensor_id`` so the decorator enqueues the outbox pointer with
+             the right PK (this is an UPDATE, not an INSERT — no lastrowid).
+    """
+    cur = conn.cursor()
     cur.execute("""
         UPDATE sensor_data
         SET annotation = ?
         WHERE id = ?
     """, (annotation, sensor_id))
-
-    conn.commit()
-    conn.close()
+    return sensor_id
 
 
-def remove_annotation(sensor_id):
+@tee_to_outbox(table="sensor_data")
+def remove_annotation(conn, sensor_id):
     """
     Remove an annotation from a sensor data entry.
-    :param sensor_id:
-    :return:
-    """
-    conn = _connect()
-    cur = conn.cursor()
 
+    :param conn: sqlite3.Connection injected by the @tee_to_outbox decorator.
+    :param sensor_id: PK of the row to clear.
+    :return: ``sensor_id`` (decorator uses it to enqueue the outbox pointer).
+    """
+    cur = conn.cursor()
     cur.execute("""
         UPDATE sensor_data
         SET annotation = NULL
         WHERE id = ?
     """, (sensor_id,))
-
-    conn.commit()
-    conn.close()
+    return sensor_id
 
 
-def edit_annotation(sensor_id, new_annotation):
+@tee_to_outbox(table="sensor_data")
+def edit_annotation(conn, sensor_id, new_annotation):
     """
     Edit an existing annotation for a sensor data entry.
-    :param sensor_id:
-    :param new_annotation:
-    :return:
-    """
-    conn = _connect()
-    cur = conn.cursor()
 
+    :param conn: sqlite3.Connection injected by the @tee_to_outbox decorator.
+    :param sensor_id: PK of the row to update.
+    :param new_annotation: replacement annotation text.
+    :return: ``sensor_id`` (decorator uses it to enqueue the outbox pointer).
+    """
+    cur = conn.cursor()
     cur.execute("""
         UPDATE sensor_data
         SET annotation = ?
         WHERE id = ?
     """, (new_annotation, sensor_id))
-
-    conn.commit()
-    conn.close()
+    return sensor_id
 
 
 def get_fan_settings():
@@ -235,16 +236,19 @@ def get_fan_settings():
     return d
 
 
-def log_weather(temp, humidity, feels_like, wind_speed, weather_code, uv_index):
-    """Store one hourly weather snapshot."""
-    conn = _connect()
+@tee_to_outbox(table="weather_log")
+def log_weather(conn, temp, humidity, feels_like, wind_speed, weather_code, uv_index):
+    """Store one hourly weather snapshot.
+
+    :param conn: sqlite3.Connection injected by the @tee_to_outbox decorator.
+    :return: row id of the inserted weather_log row (needed by the decorator).
+    """
     cur = conn.cursor()
     cur.execute("""
         INSERT INTO weather_log (timestamp, temp, humidity, feels_like, wind_speed, weather_code, uv_index)
         VALUES (?, ?, ?, ?, ?, ?, ?)
     """, (datetime.utcnow().isoformat(), temp, humidity, feels_like, wind_speed, weather_code, uv_index))
-    conn.commit()
-    conn.close()
+    return cur.lastrowid
 
 
 def get_latest_weather(max_age_minutes: int = 90):
@@ -392,14 +396,25 @@ def set_fan_enabled(enabled: bool):
 
 # ── Inference CRUD ────────────────────────────────────────────────────────────
 
-def save_inference(event_type, severity, title, description, action,
-                   evidence, confidence, start_id=None, end_id=None,
-                   annotation=None):
+@tee_to_outbox(table="inferences")
+def _save_inference_to_db(conn, event_type, severity, title, description, action,
+                          evidence, confidence, start_id=None, end_id=None,
+                          annotation=None):
+    """Internal helper: INSERT the inference row + promote evidence to typed
+    columns, all in one transaction owned by the @tee_to_outbox decorator.
+
+    The public entrypoint is :func:`save_inference`, which wraps this with
+    the SSE broadcast side-effect (kept OUT of the transaction so a bus
+    publish failure never rolls back the inference write).
+
+    :return: row id of the inserted inferences row. Both the decorator
+             (for outbox enqueue) and the public wrapper (to return to the
+             caller and feed the SSE payload) use this.
+    """
     # Normalise datetime values inside evidence to ISO strings so the
     # typed-column splitter serialises cleanly. _deep_to_str is a no-op
     # on plain dicts of scalars.
     norm_evidence = _deep_to_str(evidence) if isinstance(evidence, dict) else evidence
-    conn = _connect()
     cur = conn.cursor()
     cur.execute("""
         INSERT INTO inferences
@@ -415,7 +430,9 @@ def save_inference(event_type, severity, title, description, action,
     inf_id = cur.lastrowid
     # Promote evidence to typed columns + extras blob. Done in the
     # same connection so it's part of the same transaction as the
-    # INSERT. See mlss_monitor/inference_evidence_storage.py.
+    # INSERT (and atomic with the outbox enqueue performed by
+    # @tee_to_outbox after this helper returns).
+    # See mlss_monitor/inference_evidence_storage.py.
     from mlss_monitor.inference_evidence_storage import (  # pylint: disable=import-outside-toplevel
         persist_evidence,
     )
@@ -423,8 +440,24 @@ def save_inference(event_type, severity, title, description, action,
         conn, inf_id,
         norm_evidence if isinstance(norm_evidence, dict) else None,
     )
-    conn.commit()
-    conn.close()
+    return inf_id
+
+
+def save_inference(event_type, severity, title, description, action,
+                   evidence, confidence, start_id=None, end_id=None,
+                   annotation=None):
+    """Save an inference + broadcast it on the SSE bus.
+
+    The DB write (INSERT inferences + UPDATE evidence columns + outbox
+    enqueue) all commit in a single transaction via :func:`_save_inference_to_db`.
+    The SSE broadcast runs AFTER commit so a bus failure never rolls back
+    the inference write.
+    """
+    inf_id = _save_inference_to_db(
+        event_type, severity, title, description, action,
+        evidence, confidence,
+        start_id=start_id, end_id=end_id, annotation=annotation,
+    )
 
     # Broadcast to SSE subscribers
     try:
@@ -602,6 +635,24 @@ def get_inference_tags(inference_id):
     ]
 
 
+@tee_to_outbox(table="event_tags")
+def _add_inference_tag_to_db(conn, inference_id, tag, confidence=1.0):
+    """Internal helper: INSERT the event_tags row inside the
+    @tee_to_outbox transaction. Public entrypoint is :func:`add_inference_tag`,
+    which adds the allowed-tag validation and the post-commit ML
+    retraining hook.
+
+    :return: row id of the inserted event_tags row (used by the decorator
+             for the outbox enqueue).
+    """
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO event_tags (inference_id, tag, confidence, created_at) VALUES (?, ?, ?, ?)",
+        (inference_id, tag, confidence, datetime.now().isoformat()),
+    )
+    return cur.lastrowid
+
+
 def add_inference_tag(inference_id, tag, confidence=1.0, *, allowed_tags=None):
     """Add a tag to an inference.
 
@@ -614,15 +665,9 @@ def add_inference_tag(inference_id, tag, confidence=1.0, *, allowed_tags=None):
     """
     if allowed_tags is not None and tag not in allowed_tags:
         raise ValueError(f"Unknown tag: {tag!r}. Allowed: {sorted(allowed_tags)}")
-    conn = _connect()
-    cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO event_tags (inference_id, tag, confidence, created_at) VALUES (?, ?, ?, ?)",
-        (inference_id, tag, confidence, datetime.now().isoformat()),
-    )
-    conn.commit()
-    conn.close()
-    # Trigger ML training
+    _add_inference_tag_to_db(inference_id, tag, confidence)
+    # Trigger ML training — runs AFTER commit so a training failure never
+    # rolls back the tag write (training is best-effort).
     try:
         from mlss_monitor import state  # pylint: disable=import-outside-toplevel
         if state.detection_engine and state.detection_engine._attribution_engine:

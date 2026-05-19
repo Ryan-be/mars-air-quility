@@ -161,14 +161,35 @@ def tee_to_outbox(*, table: str, db_file: str | None = None):
     enqueues, commits. The two writes share one transaction so a crash
     between them is impossible.
 
-    `db_file` is optional — defaults to config.DB_FILE at call-time. Tests
-    that use a tempfile pass an explicit override.
+    DB path resolution order (call-time, not decoration-time):
+      1. Explicit ``db_file`` kwarg passed to the decorator factory
+         (test-only override that bakes the path in).
+      2. ``database.db_logger.DB_FILE`` if importable — this is the
+         module-level constant the rest of the codebase uses, so test
+         fixtures that monkeypatch it automatically take effect here too.
+      3. ``config.DB_FILE`` via the global Dynaconf instance.
+      4. The literal ``data/sensor_data.db``.
+
+    The lookup happens fresh on every call so a test fixture that mutates
+    ``db_logger.DB_FILE`` between calls is honoured.
     """
     def wrap(fn):
         @functools.wraps(fn)
         def wrapped(*args, **kwargs):
-            from config import config as _cfg
-            path = db_file or _cfg.get("DB_FILE", "data/sensor_data.db")
+            if db_file is not None:
+                path = db_file
+            else:
+                # Prefer the module-level constant the rest of the
+                # codebase reads (test fixtures patch it). Fall back to
+                # the global config object if db_logger isn't importable
+                # (e.g. during early bootstrap where outbox is wired
+                # before db_logger is loaded).
+                try:
+                    from database import db_logger as _dbl  # local import
+                    path = _dbl.DB_FILE
+                except Exception:  # pylint: disable=broad-except
+                    from config import config as _cfg
+                    path = _cfg.get("DB_FILE", "data/sensor_data.db")
             with closing(sqlite3.connect(path, timeout=10)) as conn:
                 with conn:  # transaction context — commit on success, rollback on exception
                     pk = fn(conn, *args, **kwargs)

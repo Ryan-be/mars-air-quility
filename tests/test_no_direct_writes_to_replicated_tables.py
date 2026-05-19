@@ -15,8 +15,13 @@ import pytest
 REPO = Path(__file__).resolve().parent.parent
 
 REPLICATED_TABLES = [
-    "sensor_data", "weather",
-    "inferences", "incidents", "incident_alerts", "attribution_tags",
+    # The names below mirror the LIVE schema (CREATE TABLE statements in
+    # database/init_db.py and database/grow_schema.py). The spec used a
+    # couple of conceptual names (`weather`, `attribution_tags`) that
+    # don't exist as actual tables — using truth here is what makes the
+    # regex below actually find writers.
+    "sensor_data", "weather_log",
+    "inferences", "incidents", "incident_alerts", "event_tags",
     "grow_telemetry", "grow_photos", "grow_journal_entries",
     "grow_units", "grow_plant_profiles", "grow_unit_capabilities",
     "grow_watering_events", "grow_errors", "grow_light_windows",
@@ -50,7 +55,6 @@ ALLOWED_FILES = {
     "mlss_monitor/routes/api_grow_enroll.py",   # first-boot enrollment: insert/refresh grow_units row + bearer-token hash
     "mlss_monitor/routes/api_grow_errors.py",   # PATCH /api/grow/errors/<id>: UPDATE grow_errors (ack/resolve/snooze)
     "mlss_monitor/routes/api_grow_ws.py",       # WS connection-event audit: INSERT grow_errors + UPDATE resolved_at on reconnect
-    "mlss_monitor/event_tags.py",               # attribution_tags CRUD
     "scripts/migrate_categories.py",            # one-shot inference category migration (operator tool, idempotent)
     "tests/",                                   # tests can write directly
 }
