@@ -48,9 +48,10 @@ api_backup_bp = Blueprint("api_backup", __name__)
 
 
 # Bucket suffixes the files pipeline ships to. Mirrors the prefixes
-# handled in ``BackupWorker._bucket_suffix_for_key``: photos (camera
-# JPEGs), anomaly (per-channel detector pickles), multivar-anomaly
-# (multivariate detector pickles), attribution (classifier pickles).
+# handled in ``mlss_monitor.backup._drain._bucket_suffix_for_key``:
+# photos (camera JPEGs), anomaly (per-channel detector pickles),
+# multivar-anomaly (multivariate detector pickles), attribution
+# (classifier pickles).
 _BUCKET_SUFFIXES = ("photos", "anomaly", "multivar-anomaly", "attribution")
 
 

@@ -1,8 +1,9 @@
 """BackupWorker run loop + thread lifecycle.
 
-Tests the daemon thread orchestration that ties Task 13's _drain_db_batch
-and Task 14's _drain_files_batch together: start/stop, state-dispatched
-sleeps, and per-tick client construction.
+Tests the daemon thread orchestration that ties Task 13's
+``_drain.drain_db_batch`` and Task 14's ``_drain.drain_files_batch``
+together: start/stop, state-dispatched sleeps, and per-tick client
+construction.
 
 Strategy: mock _drain_one_batch (so we don't need a real Postgres/S3)
 and patch the sleep constants to milliseconds so tests run in <1s.
@@ -257,11 +258,12 @@ def test_run_loop_exits_cleanly_on_stop(worker, fast_intervals):
 # -- _drain_one_batch ------------------------------------------------
 
 def test_drain_one_batch_dispatches_to_db_method():
-    """Pipeline 'db' → _drain_db_batch is called, _drain_files_batch
-    is not. Verifies the pipeline-string dispatch wiring."""
+    """Pipeline 'db' → _drain.drain_db_batch is called,
+    _drain.drain_files_batch is not. Verifies the pipeline-string
+    dispatch wiring."""
     w = BackupWorker(pipeline="db")
-    with patch.object(w, "_drain_db_batch", return_value=True) as db_drain, \
-         patch.object(w, "_drain_files_batch") as files_drain, \
+    with patch("mlss_monitor.backup._drain.drain_db_batch", return_value=True) as db_drain, \
+         patch("mlss_monitor.backup._drain.drain_files_batch") as files_drain, \
          patch.object(w, "_build_client", return_value=MagicMock()):
         result = w._drain_one_batch()
     assert result is True
@@ -270,11 +272,11 @@ def test_drain_one_batch_dispatches_to_db_method():
 
 
 def test_drain_one_batch_dispatches_to_files_method():
-    """Pipeline 'files' → _drain_files_batch is called, _drain_db_batch
-    is not."""
+    """Pipeline 'files' → _drain.drain_files_batch is called,
+    _drain.drain_db_batch is not."""
     w = BackupWorker(pipeline="files")
-    with patch.object(w, "_drain_db_batch") as db_drain, \
-         patch.object(w, "_drain_files_batch", return_value=False) as files_drain, \
+    with patch("mlss_monitor.backup._drain.drain_db_batch") as db_drain, \
+         patch("mlss_monitor.backup._drain.drain_files_batch", return_value=False) as files_drain, \
          patch.object(w, "_build_client", return_value=MagicMock()):
         result = w._drain_one_batch()
     assert result is False

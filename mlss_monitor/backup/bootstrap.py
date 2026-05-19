@@ -14,7 +14,7 @@ Two pipelines, both resumable via ``bootstrap_progress``:
     ``replicated_tables.py``), walks rows by ROWID, and enqueues each
     via ``outbox.enqueue_row``. The pk string format matches the live
     writers (``str(pk)`` for single-PK, ``f"{a}:{b}"`` for composite)
-    so the worker's ``_parse_pk`` reads them back the same way.
+    so ``replicated_tables.parse_pk`` reads them back the same way.
 
   - ``start_files_bootstrap`` walks each ``(kind, root)`` pair
     recursively with ``Path.rglob``, hashes the bytes, and enqueues
@@ -74,7 +74,7 @@ def _format_pk_for_outbox(row: sqlite3.Row, pk_columns: list[str]) -> str:
         internally — we pass through whatever the SELECT returned).
       - Composite-PK rows: ``f"{a}:{b}"`` — the same `':'.join` shape
         used by ``grow/handlers.py`` and ``incident_grouper.py``. The
-        worker's ``_parse_pk`` rsplit-from-right uses the rightmost
+        ``replicated_tables.parse_pk`` rsplit-from-right uses the rightmost
         colon as the delimiter so a TEXT first column containing colons
         (e.g. an ISO 8601 ``incident_id``) round-trips intact.
 

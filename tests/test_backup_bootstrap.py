@@ -205,9 +205,9 @@ def test_start_db_bootstrap_composite_pk_incident_alerts(db_path):
     the incident_id itself contains colons (ISO 8601 timestamp).
 
     The pk strings produced by bootstrap MUST round-trip through
-    ``worker._parse_pk`` so the timestamp's internal colons stay
-    intact and the alert_id parses as an int."""
-    from mlss_monitor.backup.worker import _parse_pk
+    ``replicated_tables.parse_pk`` so the timestamp's internal colons
+    stay intact and the alert_id parses as an int."""
+    from mlss_monitor.backup.replicated_tables import parse_pk
 
     incident_id = "INC-2026-05-18T12:00:00"
     real_alert_ids = _seed_incident_with_alerts(db_path, incident_id, n_alerts=2)
@@ -220,10 +220,10 @@ def test_start_db_bootstrap_composite_pk_incident_alerts(db_path):
     expected = {f"{incident_id}:{aid}" for aid in real_alert_ids}
     assert set(alerts) == expected
 
-    # Round-trip through the worker's parser — bootstrap's pk strings
+    # Round-trip through the canonical parser — bootstrap's pk strings
     # must be readable by the same logic that ships them.
     for pk in alerts:
-        parsed_incident, parsed_alert = _parse_pk(pk, [str, int])
+        parsed_incident, parsed_alert = parse_pk(pk, [str, int])
         assert parsed_incident == incident_id
         assert parsed_alert in real_alert_ids
 
