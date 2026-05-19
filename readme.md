@@ -955,9 +955,9 @@ worth disambiguating up-front:
   `mlss_monitor/backup/`. Pointer tables (not row copies) populated by
   the `@tee_to_outbox` decorator in the same transaction as every live
   write to a replicated table; drained by the background worker out to
-  the off-Pi Postgres + S3 backup target. The worker isn't wired into
-  app startup yet (Phase 8) but the storage + lint guard + clients +
-  worker primitives all ship on this branch.
+  the off-Pi Postgres + S3 backup target. Disabled by default — admins
+  configure + enable from `/admin/backup`; see
+  [docs/BACKUP.md](docs/BACKUP.md) for the operator guide.
 
 - [Schema reference](docs/DATABASE.md) — every table, every column, indexes, retention/eviction policies, the override cascade for tunables
 - [JSON storage audit](docs/JSON_STORAGE_AUDIT.md) — current state of JSON-in-TEXT-column usage + roadmap for promotion to typed columns
@@ -1379,11 +1379,12 @@ mars-air-quility/
 │   │                         #     auth, capability watchdog, timelapse jobs)
 │   ├── data_sources/         #   sensor source abstraction (AHT20, SGP30, PM, MICS6814, weather)
 │   ├── attribution/          #   fingerprint scorer + River-based ML classifier
-│   ├── backup/               #   off-Pi backup pipeline — Phases 1-4 complete, not yet wired
-│   │                         #     into app startup (Phase 8). outbox helpers +
+│   ├── backup/               #   off-Pi backup pipeline (see docs/BACKUP.md). outbox helpers +
 │   │                         #     @tee_to_outbox decorator, settings, Postgres + S3 clients,
 │   │                         #     and a daemon-thread worker (state machine + exponential
-│   │                         #     backoff + hot-reload via event bus + status emission)
+│   │                         #     backoff + hot-reload via event bus + status emission).
+│   │                         #     Wired into _start_background_services; only spawns
+│   │                         #     when backup is enabled in config.
 │   ├── event_bus.py          #   in-process pub/sub for SSE
 │   ├── inference_engine.py   #   short/hourly/daily detectors
 │   ├── incident_grouper.py   #   sessionises inferences into incidents
@@ -1459,17 +1460,16 @@ mars-air-quility/
 
 > **Off-Pi backup pipeline** (`mlss_monitor/backup/`, on this branch):
 > the hub-side companion to the firmware-side WS outbox in
-> `grow_unit/src/mlss_grow/buffer.py`. Phases 1-4 are complete —
-> hub-side outbox tables in the existing SQLite, a `@tee_to_outbox`
-> decorator + allowlist lint test so every write to a replicated table
-> enqueues a pointer in the same transaction, Postgres + S3 clients,
-> and a daemon-thread worker with a state machine
-> (`DISABLED/IDLE/DRAINING/BACKOFF/PAUSED`), exponential backoff
-> (1 s → 600 s cap), hot-reload via the event bus, and status emission
-> for the future admin UI. The worker isn't wired into app startup yet;
-> Phases 5-9 (historical bootstrap, admin API + UI, app wiring, E2E)
-> are still pending. When they land, the relevant config + status
-> routes will get rows in the API table above.
+> `grow_unit/src/mlss_grow/buffer.py`. Hub-side outbox tables in the
+> existing SQLite, a `@tee_to_outbox` decorator + allowlist lint test
+> so every write to a replicated table enqueues a pointer in the same
+> transaction, Postgres + S3 clients, a daemon-thread worker with a
+> state machine (`DISABLED/IDLE/DRAINING/BACKOFF/PAUSED`), exponential
+> backoff (1 s → 600 s cap), hot-reload via the event bus, status
+> emission, an admin API + UI at `/admin/backup`, and the
+> `_start_background_services` wiring that only spawns workers when
+> backup is enabled. See [docs/BACKUP.md](docs/BACKUP.md) for the
+> operator guide.
 
 ---
 
@@ -1496,14 +1496,10 @@ Every user-facing document in the repo, organised by topic:
 - [docs/CONFIGURATION.md](docs/CONFIGURATION.md) — env-var reference for the MLSS server
 - [docs/DATABASE.md](docs/DATABASE.md) — schema reference for both `sensor_data.db` and the on-Pi `buffer.sqlite`
 - [docs/PRODUCTION.md](docs/PRODUCTION.md) — nginx, TLS, OAuth, firewall, gunicorn pre-launch checklist
+- [docs/BACKUP.md](docs/BACKUP.md) — off-Pi backup pipeline operator guide
 - [docs/USB_SSD_BOOT_GUIDE.md](docs/USB_SSD_BOOT_GUIDE.md) — migrate the MLSS server from SD to USB SSD
 - [docs/EVENT_TAGGING_FLOW.md](docs/EVENT_TAGGING_FLOW.md) — how user range-tags flow into the ML attribution training
 - [docs/JSON_STORAGE_AUDIT.md](docs/JSON_STORAGE_AUDIT.md) — JSON-in-TEXT-column audit + promotion roadmap
-
-> The off-Pi backup subsystem on this branch (`mlss_monitor/backup/`)
-> doesn't have an operator-facing doc yet — Phase 8 will add
-> `docs/BACKUP.md` alongside the app-wiring work. The hub-side outbox
-> tables are covered in [DATABASE.md](docs/DATABASE.md).
 
 **Plant Grow Unit subsystem**
 

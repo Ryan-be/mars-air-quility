@@ -162,6 +162,15 @@ state.GITHUB_CLIENT_SECRET = config.get("GITHUB_CLIENT_SECRET", None)
 state.ALLOWED_GITHUB_USER  = config.get("ALLOWED_GITHUB_USER", None)
 state.service_start_time   = datetime.utcnow()
 
+# Backup worker handles — pre-initialised here so getattr(state, ...)
+# in mlss_monitor.routes.api_backup is predictable even before
+# _start_background_services has run (or when backups are disabled and
+# no worker is ever created). _reconcile_workers in api_backup treats
+# missing attribute the same as None, but giving these names an explicit
+# None at import time keeps the wiring legible from a single grep.
+state.backup_db_worker    = None
+state.backup_files_worker = None
+
 # ── GitHub OAuth ──────────────────────────────────────────────────────────────
 
 _oauth = OAuth(app)
@@ -864,6 +873,44 @@ def _start_background_services():
         start_runner_thread()
     except Exception as exc:  # pylint: disable=broad-except
         log.warning("timelapse_jobs.start_runner_thread failed: %s", exc)
+
+    # Backup workers — only start if backups are enabled in config.
+    # User constraint: "the worker should only run if backups are enabled"
+    # means the thread literally doesn't start when disabled, not just
+    # parks in DISABLED state. The PUT /api/admin/backup/config endpoint
+    # handles the runtime enable transition via _reconcile_workers in
+    # routes/api_backup.py — this block handles the boot-time case.
+    try:
+        from mlss_monitor.backup import config as backup_config
+        from mlss_monitor.backup.worker import BackupWorker
+        cfg = backup_config.load()
+        if cfg["enabled"]:
+            for pipeline in ("db", "files"):
+                if not cfg[pipeline]["enabled"]:
+                    log.info(
+                        "Backup pipeline %r is disabled — worker not started",
+                        pipeline,
+                    )
+                    continue
+                worker = BackupWorker(
+                    pipeline=pipeline,
+                    event_bus=state.event_bus,
+                )
+                worker._on_enabled()
+                if cfg["paused"]:
+                    # Order matters: _on_paused must run BEFORE start() so
+                    # the thread parks in PAUSED rather than IDLE on its
+                    # first tick. Otherwise a brief IDLE→DRAINING flicker
+                    # is possible before the listener thread observes the
+                    # PAUSED state set by a subsequent admin action.
+                    worker._on_paused()
+                worker.start()
+                setattr(state, f"backup_{pipeline}_worker", worker)
+                log.info("Backup worker started: pipeline=%r", pipeline)
+        else:
+            log.info("Backup is disabled — no workers started")
+    except Exception as exc:  # pylint: disable=broad-except
+        log.warning("Backup worker startup failed: %s", exc)
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
