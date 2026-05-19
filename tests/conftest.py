@@ -151,6 +151,12 @@ def db_path(monkeypatch):
     monkeypatch.setattr("mlss_monitor.grow.handlers.DB_FILE", tmp.name)
     monkeypatch.setattr("mlss_monitor.backup.config.DB_FILE", tmp.name)
     monkeypatch.setattr("mlss_monitor.backup.worker.DB_FILE", tmp.name)
+    # The admin backup blueprint also snapshots DB_FILE at import — its
+    # clear_outbox / force_rebootstrap actions open their own connection
+    # against the module-level constant.
+    monkeypatch.setattr(
+        "mlss_monitor.routes.api_backup.DB_FILE", tmp.name, raising=False,
+    )
 
     init_db.create_db()
     try:
