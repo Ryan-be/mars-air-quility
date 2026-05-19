@@ -62,13 +62,18 @@ def save_signature(
         (incident_id,),
     )
     if vector:
+        # Build the (incident_id, feature_idx, value) rows once so the INSERT
+        # and the outbox enqueues iterate over the same source of truth — a
+        # future change to the indexing scheme (e.g. sparse vectors) has one
+        # place to update, not two.
+        rows = [(incident_id, idx, float(value))
+                for idx, value in enumerate(vector)]
         conn.executemany(
             "INSERT INTO incident_signature_features "
             "(incident_id, feature_idx, value) VALUES (?, ?, ?)",
-            [(incident_id, idx, float(value))
-             for idx, value in enumerate(vector)],
+            rows,
         )
-        for idx in range(len(vector)):
+        for _incident_id, idx, _value in rows:
             outbox.enqueue_row(
                 conn, table="incident_signature_features",
                 pk=f"{incident_id}:{idx}",
