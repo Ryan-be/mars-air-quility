@@ -403,9 +403,17 @@ class BackupWorker:
                 # event so the wait wakes immediately.
                 if self._reload_event.wait(timeout=self.backoff_delay):
                     self._reload_event.clear()
-                # Whether we slept the full backoff or were woken early,
-                # try again on next iteration (state stays BACKOFF until
-                # the next drain succeeds or fails).
+                # Promote out of BACKOFF so the NEXT iteration takes
+                # the drain branch below. Without this flip, the state
+                # would stay BACKOFF forever and the loop would just
+                # cycle through this branch's wait — defeating the
+                # whole point of the backoff/retry mechanism. The
+                # promotion is to DRAINING because we're about to
+                # attempt a ship; if that ship fails again, the
+                # except-branch in the drain block re-enters
+                # BACKOFF with an increased backoff_delay (set by
+                # `_on_ship_failed`, called from the except).
+                self.state = State.DRAINING
                 continue
 
             # IDLE or DRAINING: attempt a drain.

@@ -34,6 +34,7 @@ boto3 = "^1.43.10"
 pytest = "^8.0"
 pytest-asyncio = "^0.24"
 beautifulsoup4 = "^4.12"
+testcontainers = {version = "^4.8", extras = ["postgres", "minio"]}
 
 [tool.poetry.group.visualization]
 optional = true
@@ -52,6 +53,9 @@ mlss-monitor = "app:main"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+markers = [
+    "e2e: end-to-end test requiring Docker (Postgres + MinIO testcontainers)",
+]
 
 [build-system]
 requires = ["poetry-core"]

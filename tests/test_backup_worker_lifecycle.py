@@ -181,8 +181,18 @@ def test_run_loop_disabled_does_not_drain(worker, fast_intervals):
 
 def test_run_loop_failure_transitions_to_backoff(worker, fast_intervals):
     """A drain that raises → state becomes BACKOFF + last_error
-    captured. The run loop catches the exception (so the thread
-    doesn't die) and the state machine handles the rest."""
+    captured + drain was attempted. The run loop catches the
+    exception (so the thread doesn't die) and the state machine
+    handles the rest.
+
+    Note: with the BACKOFF→DRAINING auto-promotion (so the retry
+    happens after the backoff wait), the state at any given
+    snapshot oscillates between BACKOFF (just after a failure)
+    and DRAINING (about to retry). Both indicate the worker is in
+    the failure cycle — the durable signals are
+    ``last_error`` (the captured exception) and the fact that
+    drain was called repeatedly (the retry loop fired).
+    """
     drain = MagicMock(side_effect=Exception("Postgres connection refused"))
     with patch.object(worker, "_drain_one_batch", drain):
         worker._on_enabled()
@@ -190,8 +200,12 @@ def test_run_loop_failure_transitions_to_backoff(worker, fast_intervals):
         worker.start()
         time.sleep(0.1)
         worker.stop()
-    assert worker.state == State.BACKOFF
+    assert worker.state in (State.BACKOFF, State.DRAINING), (
+        f"Expected BACKOFF (just failed) or DRAINING (about to retry), "
+        f"got {worker.state}"
+    )
     assert "Postgres" in (worker.last_error or "")
+    assert drain.call_count >= 1, "Drain should have been attempted"
 
 
 def test_run_loop_resume_via_reload_wakes_from_paused(worker, fast_intervals):
