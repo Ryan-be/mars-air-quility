@@ -596,26 +596,41 @@ def get_distinct_attribution_sources() -> set:
     return sources
 
 
-def update_inference_notes(inference_id, notes):
-    conn = _connect()
+@tee_to_outbox(table="inferences")
+def update_inference_notes(conn, inference_id, notes):
+    """Update the operator-written ``user_notes`` column on an inference.
+
+    :param conn: sqlite3.Connection injected by the @tee_to_outbox decorator.
+                 Callers do NOT pass this — the decorator opens its own
+                 short-lived connection and prepends it before the call.
+    :param inference_id: PK of the inference row to annotate.
+    :param notes: free-text notes string (empty string clears).
+    :return: ``inference_id`` so the decorator enqueues the outbox pointer
+             with the right PK (this is an UPDATE, not an INSERT — no
+             ``lastrowid``).
+    """
     cur = conn.cursor()
     cur.execute(
         "UPDATE inferences SET user_notes = ? WHERE id = ?",
         (notes, inference_id),
     )
-    conn.commit()
-    conn.close()
+    return inference_id
 
 
-def dismiss_inference(inference_id):
-    conn = _connect()
+@tee_to_outbox(table="inferences")
+def dismiss_inference(conn, inference_id):
+    """Set ``dismissed=1`` on an inference so it stops surfacing in the UI.
+
+    :param conn: sqlite3.Connection injected by the @tee_to_outbox decorator.
+    :param inference_id: PK of the inference row to dismiss.
+    :return: ``inference_id`` (decorator uses it to enqueue the outbox pointer).
+    """
     cur = conn.cursor()
     cur.execute(
         "UPDATE inferences SET dismissed = 1 WHERE id = ?",
         (inference_id,),
     )
-    conn.commit()
-    conn.close()
+    return inference_id
 
 
 def get_inference_tags(inference_id):

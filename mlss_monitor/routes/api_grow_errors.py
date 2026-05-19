@@ -32,10 +32,12 @@ Two endpoints on this blueprint:
 The fleet-wide errors page (/grow/errors) is the consumer.
 """
 import sqlite3
+from contextlib import closing
 from datetime import datetime
 from flask import Blueprint, jsonify, request
 
 from database.init_db import DB_FILE
+from mlss_monitor.backup import outbox
 from mlss_monitor.rbac import require_role
 
 api_grow_errors_bp = Blueprint("api_grow_errors", __name__)
@@ -224,13 +226,13 @@ def patch_error(error_id):
     sql = "UPDATE grow_errors SET " + ", ".join(set_clauses) + " WHERE id=?"
     values.append(error_id)
 
-    conn = sqlite3.connect(DB_FILE, timeout=10)
-    try:
-        cur = conn.execute(sql, values)
-        if cur.rowcount == 0:
-            return jsonify({"error": "error_not_found"}), 404
-        conn.commit()
-    finally:
-        conn.close()
+    with closing(sqlite3.connect(DB_FILE, timeout=10)) as conn:
+        with conn:
+            cur = conn.execute(sql, values)
+            # rowcount-gate BEFORE the enqueue: a no-op UPDATE on a
+            # missing row must not leave a phantom outbox pointer.
+            if cur.rowcount == 0:
+                return jsonify({"error": "error_not_found"}), 404
+            outbox.enqueue_row(conn, table="grow_errors", pk=error_id)
 
     return jsonify({"ok": True})

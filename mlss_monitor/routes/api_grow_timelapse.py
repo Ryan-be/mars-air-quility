@@ -23,10 +23,12 @@ silently fails 30s later.
 import logging
 import os
 import sqlite3
+from contextlib import closing
 from datetime import datetime
 from flask import Blueprint, jsonify, request, session, send_from_directory, abort
 
 from database.init_db import DB_FILE
+from mlss_monitor.backup import outbox
 from mlss_monitor.grow.api_helpers import RANGE_TO_HOURS
 from mlss_monitor.grow.timelapse_jobs import (
     _resolve_timelapses_dir,
@@ -97,29 +99,33 @@ def create_job(unit_id):
     requested_by = session.get("user") or "unknown"
     now = datetime.utcnow()
 
-    conn = sqlite3.connect(DB_FILE, timeout=5)
-    conn.row_factory = sqlite3.Row
-    try:
-        unit_row = conn.execute(
-            "SELECT id FROM grow_units WHERE id=? AND is_active=1",
-            (unit_id,),
-        ).fetchone()
-        if unit_row is None:
-            return jsonify({"error": "unit_not_found"}), 404
+    with closing(sqlite3.connect(DB_FILE, timeout=10)) as conn:
+        conn.row_factory = sqlite3.Row
+        with conn:
+            unit_row = conn.execute(
+                "SELECT id FROM grow_units WHERE id=? AND is_active=1",
+                (unit_id,),
+            ).fetchone()
+            if unit_row is None:
+                return jsonify({"error": "unit_not_found"}), 404
 
-        cur = conn.execute(
-            "INSERT INTO grow_timelapse_jobs "
-            "(unit_id, requested_by, requested_at, range, fps, status) "
-            "VALUES (?, ?, ?, ?, ?, 'queued')",
-            (unit_id, requested_by, now, range_str, fps),
-        )
-        job_id = cur.lastrowid
-        conn.commit()
+            cur = conn.execute(
+                "INSERT INTO grow_timelapse_jobs "
+                "(unit_id, requested_by, requested_at, range, fps, status) "
+                "VALUES (?, ?, ?, ?, ?, 'queued')",
+                (unit_id, requested_by, now, range_str, fps),
+            )
+            job_id = cur.lastrowid
+            # Mirror the INSERT to the outbox inside the same transaction
+            # so the queued row never escapes the live DB without a
+            # backup pointer.
+            outbox.enqueue_row(
+                conn, table="grow_timelapse_jobs", pk=job_id,
+            )
+        # Read fresh state outside the transaction (INSERT committed).
         row = conn.execute(
             "SELECT * FROM grow_timelapse_jobs WHERE id=?", (job_id,),
         ).fetchone()
-    finally:
-        conn.close()
     return jsonify(_row_to_dict(row)), 202
 
 

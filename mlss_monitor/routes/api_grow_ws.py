@@ -17,6 +17,7 @@ import ssl as _ssl
 import threading
 import time
 from collections import namedtuple
+from contextlib import closing
 from datetime import datetime
 from http import HTTPStatus
 from threading import Lock as _ThreadLock
@@ -29,6 +30,7 @@ from database.init_db import DB_FILE
 from mlss_contracts.ws_messages import (
     TelemetryPayload, CapabilitiesPayload, EventPayload,
 )
+from mlss_monitor.backup import outbox
 from mlss_monitor.grow.auth import verify_secret
 from mlss_monitor.grow.handlers import (
     handle_telemetry, handle_capabilities, handle_event,
@@ -202,27 +204,58 @@ def _record_connection_event(unit_id: int, kind: str) -> None:
 
     Best-effort: any DB error is logged at WARNING and swallowed. Failing
     audit logging MUST NOT tear down a live WS handler.
+
+    Outbox: each affected grow_errors row gets a row-pointer enqueued
+    inside the same transaction as the live write. Design choice for
+    the kind='online' resolve-UPDATE: SELECT the affected open-offline
+    IDs BEFORE the UPDATE so each can be enqueued individually. This
+    mirrors how Task 7 handled grow/handlers.py::sensor_recovered, and
+    means the server-side replica sees the resolved_at change on every
+    historical offline row — not just the new online row. The
+    affected-ids set is normally 0 or 1; only a reconnect storm with
+    multiple open offline rows would have it >1, in which case all of
+    them want to be mirrored.
     """
     try:
-        conn = sqlite3.connect(DB_FILE, timeout=5)
-        try:
-            now = datetime.utcnow()
-            if kind == "online":
-                conn.execute(
-                    "UPDATE grow_errors SET resolved_at=? "
-                    "WHERE unit_id=? AND kind='offline' AND resolved_at IS NULL",
-                    (now, unit_id),
+        with closing(sqlite3.connect(DB_FILE, timeout=10)) as conn:
+            with conn:
+                now = datetime.utcnow()
+                resolved_offline_ids: list[int] = []
+                if kind == "online":
+                    # SELECT-then-UPDATE so we know which row PKs the
+                    # resolve-UPDATE touched and can enqueue them. The
+                    # whole sequence runs inside the same transaction
+                    # (`with conn:`) so a concurrent INSERT/UPDATE on
+                    # grow_errors can't slip between the SELECT and the
+                    # UPDATE.
+                    resolved_offline_ids = [
+                        r[0] for r in conn.execute(
+                            "SELECT id FROM grow_errors "
+                            "WHERE unit_id=? AND kind='offline' "
+                            "AND resolved_at IS NULL",
+                            (unit_id,),
+                        ).fetchall()
+                    ]
+                    conn.execute(
+                        "UPDATE grow_errors SET resolved_at=? "
+                        "WHERE unit_id=? AND kind='offline' "
+                        "AND resolved_at IS NULL",
+                        (now, unit_id),
+                    )
+                    for offline_id in resolved_offline_ids:
+                        outbox.enqueue_row(
+                            conn, table="grow_errors", pk=offline_id,
+                        )
+                severity = "warning" if kind == "offline" else "info"
+                cur = conn.execute(
+                    "INSERT INTO grow_errors "
+                    "(unit_id, timestamp_utc, severity, kind, message) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (unit_id, now, severity, kind, f"unit {kind}"),
                 )
-            severity = "warning" if kind == "offline" else "info"
-            conn.execute(
-                "INSERT INTO grow_errors "
-                "(unit_id, timestamp_utc, severity, kind, message) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (unit_id, now, severity, kind, f"unit {kind}"),
-            )
-            conn.commit()
-        finally:
-            conn.close()
+                outbox.enqueue_row(
+                    conn, table="grow_errors", pk=cur.lastrowid,
+                )
     except Exception as exc:  # pylint: disable=broad-except
         log.warning(
             "connection_event write failed for unit %s: %s", unit_id, exc

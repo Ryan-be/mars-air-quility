@@ -27,10 +27,12 @@ out — keeps team annotations from accidentally clobbering each other
 while still letting an admin clean up an obviously-mistaken note.
 """
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timedelta
 from flask import Blueprint, jsonify, request, session
 
 from database.init_db import DB_FILE
+from mlss_monitor.backup import outbox
 from mlss_monitor.grow.api_helpers import RANGE_TO_HOURS
 from mlss_monitor.rbac import require_role
 
@@ -155,34 +157,37 @@ def create_entry(unit_id):
     author = session.get("user") or "unknown"
     now = datetime.utcnow()
 
-    conn = sqlite3.connect(DB_FILE, timeout=5)
-    conn.row_factory = sqlite3.Row
-    try:
-        # Fast-fail on unknown / soft-deleted unit so the operator gets a
-        # 404 instead of a successful insert that no one will ever see.
-        unit_row = conn.execute(
-            "SELECT id FROM grow_units WHERE id=? AND is_active=1",
-            (unit_id,),
-        ).fetchone()
-        if unit_row is None:
-            return jsonify({"error": "unit_not_found"}), 404
+    with closing(sqlite3.connect(DB_FILE, timeout=10)) as conn:
+        conn.row_factory = sqlite3.Row
+        with conn:
+            # Fast-fail on unknown / soft-deleted unit so the operator gets a
+            # 404 instead of a successful insert that no one will ever see.
+            unit_row = conn.execute(
+                "SELECT id FROM grow_units WHERE id=? AND is_active=1",
+                (unit_id,),
+            ).fetchone()
+            if unit_row is None:
+                return jsonify({"error": "unit_not_found"}), 404
 
-        cur = conn.execute(
-            "INSERT INTO grow_journal_entries "
-            "(unit_id, timestamp_utc, author, body, created_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (unit_id, ts, author, body.strip(), now),
-        )
-        new_id = cur.lastrowid
-        conn.commit()
+            cur = conn.execute(
+                "INSERT INTO grow_journal_entries "
+                "(unit_id, timestamp_utc, author, body, created_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (unit_id, ts, author, body.strip(), now),
+            )
+            new_id = cur.lastrowid
+            # Mirror the INSERT to the outbox in the same transaction.
+            outbox.enqueue_row(
+                conn, table="grow_journal_entries", pk=new_id,
+            )
+        # Outside the `with conn:` block — the INSERT has committed, so
+        # the row is visible to this read.
         row = conn.execute(
             "SELECT id, unit_id, timestamp_utc, author, body, "
             "       created_at, updated_at "
             "FROM grow_journal_entries WHERE id=?",
             (new_id,),
         ).fetchone()
-    finally:
-        conn.close()
     return jsonify(_row_to_dict(row)), 201
 
 
@@ -204,32 +209,40 @@ def update_entry(unit_id, entry_id):
     if err:
         return jsonify({"error": err}), 400
 
-    conn = sqlite3.connect(DB_FILE, timeout=5)
-    conn.row_factory = sqlite3.Row
-    try:
-        row = conn.execute(
-            "SELECT id, author FROM grow_journal_entries "
-            "WHERE id=? AND unit_id=?",
-            (entry_id, unit_id),
-        ).fetchone()
-        if row is None:
-            return jsonify({"error": "entry_not_found"}), 404
-        if not _author_or_admin(row["author"]):
-            return jsonify({"error": "forbidden_author"}), 403
+    with closing(sqlite3.connect(DB_FILE, timeout=10)) as conn:
+        conn.row_factory = sqlite3.Row
+        with conn:
+            row = conn.execute(
+                "SELECT id, author FROM grow_journal_entries "
+                "WHERE id=? AND unit_id=?",
+                (entry_id, unit_id),
+            ).fetchone()
+            if row is None:
+                return jsonify({"error": "entry_not_found"}), 404
+            if not _author_or_admin(row["author"]):
+                return jsonify({"error": "forbidden_author"}), 403
 
-        conn.execute(
-            "UPDATE grow_journal_entries SET body=?, updated_at=? WHERE id=?",
-            (body.strip(), datetime.utcnow(), entry_id),
-        )
-        conn.commit()
+            cur = conn.execute(
+                "UPDATE grow_journal_entries SET body=?, updated_at=? WHERE id=?",
+                (body.strip(), datetime.utcnow(), entry_id),
+            )
+            # Defence-in-depth: the SELECT above already proved the row
+            # exists, but if a concurrent DELETE landed between SELECT
+            # and UPDATE we'd get rowcount=0. Return 404 BEFORE the
+            # enqueue so a no-op UPDATE never leaves a phantom outbox
+            # pointer.
+            if cur.rowcount == 0:
+                return jsonify({"error": "entry_not_found"}), 404
+            outbox.enqueue_row(
+                conn, table="grow_journal_entries", pk=entry_id,
+            )
+        # Read fresh state outside the transaction (UPDATE committed).
         updated = conn.execute(
             "SELECT id, unit_id, timestamp_utc, author, body, "
             "       created_at, updated_at "
             "FROM grow_journal_entries WHERE id=?",
             (entry_id,),
         ).fetchone()
-    finally:
-        conn.close()
     return jsonify(_row_to_dict(updated))
 
 
