@@ -46,4 +46,13 @@ def create_tables(conn: sqlite3.Connection) -> None:
       PRIMARY KEY(pipeline, scope)
     );
     """)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS outbox_delete_scope (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      table_name      TEXT NOT NULL,
+      scope_json      TEXT NOT NULL,
+      first_seen_at   DATETIME NOT NULL,
+      ship_attempts   INTEGER NOT NULL DEFAULT 0
+    );
+    """)
     conn.commit()

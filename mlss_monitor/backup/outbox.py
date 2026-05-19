@@ -9,6 +9,7 @@ state can never lag the live system.
 Spec: docs/superpowers/specs/2026-05-18-mlss-backup-design.md
 """
 import functools
+import json
 import sqlite3
 from contextlib import closing
 from datetime import datetime
@@ -202,3 +203,53 @@ def tee_to_outbox(*, table: str, db_file: str | None = None):
             return pk
         return wrapped
     return wrap
+
+
+def enqueue_delete_scope(conn: sqlite3.Connection, *, table: str, scope: dict) -> None:
+    """Queue a 'wipe these rows for this Pi' marker for a strict-mirror table.
+
+    The shipper processes these BEFORE the corresponding INSERT entries in
+    outbox_changes so a regroup/replace operation arrives atomically on
+    the server side. `scope` is JSON-serialised — empty dict means 'all
+    rows for this Pi'; populated dict means 'all rows matching these
+    column values for this Pi' (e.g. {"unit_id": 3, "phase": "vegetative"}
+    for grow_light_windows).
+
+    Used for strict-mirror tables only: incidents, incident_alerts,
+    incident_signature_features, grow_light_windows, grow_unit_capabilities.
+    Append-mostly tables (sensor_data, grow_telemetry, photos, etc.) never
+    call this.
+    """
+    now = _now_iso()
+    conn.execute(
+        "INSERT INTO outbox_delete_scope "
+        "(table_name, scope_json, first_seen_at) "
+        "VALUES (?, ?, ?)",
+        (table, json.dumps(scope, sort_keys=True), now),
+    )
+
+
+def peek_delete_scope(conn: sqlite3.Connection, limit: int = 100) -> list[dict]:
+    """Return up to `limit` pending delete-scope entries in monotonic order."""
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        "SELECT id, table_name, scope_json, first_seen_at, ship_attempts "
+        "FROM outbox_delete_scope ORDER BY id LIMIT ?",
+        (limit,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def delete_delete_scope(conn: sqlite3.Connection, *, ids: Iterable[int]) -> None:
+    """Remove entries after the server has ACKed the wipe."""
+    id_list = list(ids)
+    if not id_list:
+        return
+    placeholders = ",".join("?" * len(id_list))
+    conn.execute(f"DELETE FROM outbox_delete_scope WHERE id IN ({placeholders})",
+                 tuple(id_list))
+
+
+def pending_count_delete_scope(conn: sqlite3.Connection) -> int:
+    """Count of pending delete-scope entries — for status panel."""
+    return conn.execute("SELECT COUNT(*) FROM outbox_delete_scope").fetchone()[0]
