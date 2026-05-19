@@ -183,11 +183,10 @@ def test_handle_event_sensor_degraded_enqueues_error_and_unit(db_path):
     assert "grow_units" in tables
 
 
-def test_handle_event_sensor_recovered_enqueues_unit_at_minimum(db_path):
-    """sensor_recovered does an UPDATE on grow_errors (closes open degraded
-    rows). The UPDATE may affect 0, 1, or many rows; for simplicity we only
-    require grow_units to be enqueued. If the implementer chooses to also
-    enqueue every affected grow_errors row, that's allowed."""
+def test_handle_event_sensor_recovered_with_no_open_errors_only_enqueues_unit(db_path):
+    """sensor_recovered with no matching open grow_errors row: the SELECT
+    returns empty, the UPDATE affects zero rows, and the enqueue loop is a
+    no-op. Only grow_units (bumped via last_seen_at) is enqueued."""
     from mlss_monitor.grow.handlers import handle_event
     ts = datetime.now(timezone.utc).replace(tzinfo=None)
     handle_event(unit_id=1, ts=ts, payload={
@@ -197,6 +196,41 @@ def test_handle_event_sensor_recovered_enqueues_unit_at_minimum(db_path):
     rows = _outbox_rows(db_path)
     tables = {t for t, _ in rows}
     assert "grow_units" in tables
+    # No open grow_errors row seeded -> nothing to resolve -> no enqueue
+    assert "grow_errors" not in tables
+
+
+def test_handle_event_sensor_recovered_enqueues_affected_grow_errors(db_path):
+    """sensor_recovered SELECTs affected rows and enqueues each one so
+    the server sees the resolved_at UPDATE. Pre-seed an open sensor_degraded
+    row so the SELECT returns something."""
+    from mlss_monitor.grow.handlers import handle_event
+    # Seed an open grow_errors row that sensor_recovered should close
+    seed_ts = datetime.utcnow()
+    conn = sqlite3.connect(db_path)
+    cur = conn.execute(
+        "INSERT INTO grow_errors "
+        "(unit_id, timestamp_utc, severity, kind, message, details_json, "
+        " subject_sensor) "
+        "VALUES (1, ?, 'warning', 'sensor_degraded', 'bad reads', '{}', 'soil_moisture')",
+        (seed_ts,),
+    )
+    seeded_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+
+    ts = datetime.now(timezone.utc).replace(tzinfo=None)
+    handle_event(unit_id=1, ts=ts, payload={
+        "kind": "sensor_recovered",
+        "details": {"sensor": "soil_moisture"},
+    })
+
+    rows = _outbox_rows(db_path)
+    assert ("grow_errors", str(seeded_id)) in rows, (
+        f"Expected sensor_recovered to enqueue the resolved grow_errors row; saw {rows}"
+    )
+    # And grow_units still bumped
+    assert ("grow_units", "1") in rows
 
 
 def test_handle_event_safety_cap_hit_enqueues_error_and_unit(db_path):
