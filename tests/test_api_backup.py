@@ -841,45 +841,28 @@ def test_default_file_roots_includes_photos_dir():
     assert photo_entries[0][1].as_posix().endswith("data/grow_images")
 
 
-def test_default_file_roots_includes_model_dir():
-    """Model artefact directory must be present so a bootstrap walks
-    the anomaly_detector + multivar_anomaly_detector pickles.
-    AnomalyDetector and MultivarAnomalyDetector share data/anomaly_models
-    (per DetectionEngine's constructor in app.py), so we expose it
-    once."""
+def test_default_file_roots_excludes_models_intentionally():
+    """Models are NOT bootstrapped. Documented in _BOOTSTRAP_FILE_ROOTS:
+    bootstrap walks a tree and produces target_key from the relative
+    path, but the live writers (AnomalyDetector._save_models etc.)
+    enqueue blobs with bucket-routed prefixes (anomaly/<channel>/
+    <iso>.pkl). Walking data/anomaly_models would produce target_keys
+    like "tvoc_ppb.pkl" that _drain._bucket_suffix_for_key would
+    log-drop. Models get re-enqueued on every save cycle (~3 min),
+    so the next training cycle after backups are enabled re-ships
+    every model with the correct shape.
+
+    This test locks in that design choice — a future contributor
+    adding model dirs back to bootstrap without also fixing the
+    target_key shape would resurrect the silent-drop bug.
+    """
     from mlss_monitor.routes.api_backup import _default_file_roots
     roots = _default_file_roots()
     model_entries = [(kind, p) for kind, p in roots if kind == "model"]
-    assert len(model_entries) >= 1
-    paths_str = [p.as_posix() for _, p in model_entries]
-    assert any("data/anomaly_models" in s for s in paths_str)
-
-
-def test_default_file_roots_paths_match_writer_paths():
-    """Critical regression guard: if the live writers' model_dir
-    paths drift away from _default_file_roots()'s paths, the
-    bootstrap walks the wrong tree and misses files. This test
-    locks the two in lockstep by reading the writer-side path
-    directly from app.py's DetectionEngine construction.
-
-    If this test fails, the fix is to update either app.py OR
-    _default_file_roots() — and the comment in api_backup.py
-    documents that they MUST stay in sync.
-    """
-    from pathlib import Path
-    from mlss_monitor.routes.api_backup import (
-        _default_file_roots, _PROJECT_ROOT,
-    )
-    # Mirror the literal in mlss_monitor/app.py line 403:
-    #     model_dir=_PROJECT_ROOT / "data" / "anomaly_models"
-    # If app.py changes that path, this test catches it.
-    expected_model_dir = _PROJECT_ROOT / "data" / "anomaly_models"
-    roots = _default_file_roots()
-    model_paths = [p for kind, p in roots if kind == "model"]
-    assert expected_model_dir in model_paths, (
-        f"_default_file_roots() does not include the model_dir used by "
-        f"DetectionEngine in app.py ({expected_model_dir!r}). The bootstrap "
-        f"will walk an empty tree and miss pre-existing model pickles."
+    assert model_entries == [], (
+        f"Bootstrap should not walk model directories — see the "
+        f"_BOOTSTRAP_FILE_ROOTS comment in api_backup.py for why. "
+        f"Found unexpected model entries: {model_entries!r}"
     )
 
 

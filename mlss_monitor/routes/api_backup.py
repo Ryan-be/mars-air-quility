@@ -74,21 +74,39 @@ _BUCKET_SUFFIXES = ("photos", "anomaly", "multivar-anomaly", "attribution")
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
-# Directories holding model pickles. Each entry is (kind, path):
-#   ('photo', data/grow_images)         — JPEGs from handle_photo_frame
-#   ('model', data/anomaly_models)      — AnomalyDetector + MultivarAnomalyDetector
-#                                          share this directory per
-#                                          DetectionEngine's constructor.
-#   ('model', data/)                    — AttributionEngine writes a single
-#                                          classifier.pkl at data/classifier.pkl;
-#                                          scanned by walking the data root
-#                                          would also pick up unrelated files,
-#                                          so we keep this list minimal and
-#                                          rely on the live writer to enqueue
-#                                          classifier.pkl going forward.
-_MODEL_DIRS_FOR_BOOTSTRAP: list[tuple[str, Path]] = [
+# Filesystem roots bootstrap walks. Each entry is (kind, root) where
+# kind is the outbox_blobs.kind discriminator.
+#
+# Why only photos here, not models:
+#
+# Bootstrap walks a tree + enqueues every file under (kind, root) with
+# target_key = path.relative_to(root). That works perfectly for photos
+# because handle_photo_frame writes JPEGs under
+# data/grow_images/unit_NNN/YYYY-MM-DD/HHMMSS_mmm.jpg, so the bootstrap
+# target_key "unit_NNN/YYYY-MM-DD/HHMMSS_mmm.jpg" matches the live
+# writer's prefix exactly and _drain._bucket_suffix_for_key routes it
+# to the mlss-photos bucket.
+#
+# Model pickles are different: the live writers (AnomalyDetector,
+# MultivarAnomalyDetector, AttributionEngine) write to flat files like
+# data/anomaly_models/tvoc_ppb.pkl but enqueue blobs with target_keys
+# like anomaly/tvoc_ppb/<iso>.pkl (bucket-routed prefix + per-save
+# timestamp). A bootstrap walking data/anomaly_models would produce
+# target_key "tvoc_ppb.pkl" — no recognised prefix — which _drain
+# would log-drop. So bootstrap of models would silently waste outbox
+# entries.
+#
+# Models don't NEED bootstrap anyway: every _save_models call (every
+# ~3 minutes during active learning, per AnomalyDetector._SAVE_EVERY_N
+# at line 41) enqueues a blob via outbox.enqueue_blob with the correct
+# bucket-routed target_key. So the FIRST training cycle after backups
+# are enabled re-ships every model with the right shape. Historical
+# model snapshots from before the enable are lost to the backup
+# server — that's an accepted tradeoff (models are derived, not raw
+# observed data; the replicated `inferences` table on the server can
+# regenerate them).
+_BOOTSTRAP_FILE_ROOTS: list[tuple[str, Path]] = [
     ("photo", _PROJECT_ROOT / "data" / "grow_images"),
-    ("model", _PROJECT_ROOT / "data" / "anomaly_models"),
 ]
 
 
@@ -97,23 +115,15 @@ def _default_file_roots() -> list[tuple[str, Path]]:
     force_rebootstrap maintenance action) should walk.
 
     Each entry is (``kind``, ``root``) where ``kind`` is the
-    ``outbox_blobs.kind`` discriminator. Paths are computed from
-    ``_PROJECT_ROOT`` so they're stable regardless of the gunicorn
-    process cwd — they must match the trees the live writers
-    populate (``photo_storage.handle_photo_frame``,
-    ``AnomalyDetector._save_models``, etc.).
+    ``outbox_blobs.kind`` discriminator. Paths come from
+    ``_BOOTSTRAP_FILE_ROOTS`` (module constant) and are stable
+    regardless of the gunicorn process cwd.
 
-    The ``classifier.pkl`` that ``AttributionEngine`` writes lives
-    at ``data/classifier.pkl`` (a single file, not a directory).
-    The live writer enqueues it via ``outbox.enqueue_blob`` the
-    next time training runs; we don't include the ``data/`` root
-    here because rglob would scan unrelated files. A first-time
-    operator who never re-trains attribution before enabling
-    backups gets the model on the next training cycle — acceptable
-    because attribution models are retrained whenever a tag is
-    added or removed.
+    See ``_BOOTSTRAP_FILE_ROOTS`` for why models aren't bootstrapped
+    — the short version is "they get re-enqueued on every save
+    cycle anyway".
     """
-    return list(_MODEL_DIRS_FOR_BOOTSTRAP)
+    return list(_BOOTSTRAP_FILE_ROOTS)
 
 
 # ─────────────────────────────────────────────────────────────────────
