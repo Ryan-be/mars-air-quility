@@ -369,15 +369,56 @@ def test_post_init_invalid_pipeline_returns_400(client, db_path, event_bus):  # 
     assert r.status_code == 400
 
 
-def test_post_init_db_returns_stub(client, db_path, event_bus):  # noqa: ARG001
-    """DB init is a Phase 9 placeholder — should return 200 with a
-    message rather than crash."""
+def test_post_init_db_applies_generated_ddl(client, db_path, event_bus):  # noqa: ARG001
+    """DB init derives the server DDL from the live SQLite schema +
+    applies it via PostgresClient.run_ddl. Both the generator and the
+    Postgres client are exercised here — generator runs for real
+    against the tempfile, the client is mocked because the test
+    environment has no Postgres."""
+    from mlss_monitor.backup.replicated_tables import REPLICATED_TABLES
+
     _login(client, role="admin")
-    r = client.post("/api/admin/backup/init?pipeline=db")
+    with patch(
+        "mlss_monitor.routes.api_backup.PostgresClient"
+    ) as mock_cls:
+        mock_client = mock_cls.return_value
+        r = client.post("/api/admin/backup/init?pipeline=db")
+
     assert r.status_code == 200
     body = r.get_json()
     assert body["ok"] is True
-    assert "not yet implemented" in body["message"].lower()
+    # tables_created enumerates every replicated table.
+    assert set(body["tables_created"]) == set(REPLICATED_TABLES.keys())
+
+    # run_ddl was called exactly once with a multi-statement DDL string
+    # produced by the generator.
+    mock_client.run_ddl.assert_called_once()
+    ddl_arg = mock_client.run_ddl.call_args.args[0]
+    # Every replicated table appears in the emitted DDL.
+    for table in REPLICATED_TABLES:
+        assert f"CREATE TABLE IF NOT EXISTS {table}" in ddl_arg
+    # And the backup-specific columns are present.
+    assert "source_pi_id TEXT NOT NULL" in ddl_arg
+    assert "ingested_at" in ddl_arg
+
+
+def test_post_init_db_returns_500_when_run_ddl_raises(client, db_path, event_bus):  # noqa: ARG001
+    """If the Postgres client fails (auth, network, bad config) the
+    endpoint surfaces 500 + the error message rather than letting the
+    exception bubble out as a Flask 500 HTML page."""
+    _login(client, role="admin")
+    with patch(
+        "mlss_monitor.routes.api_backup.PostgresClient"
+    ) as mock_cls:
+        mock_cls.return_value.run_ddl.side_effect = RuntimeError(
+            "auth failure: password is wrong"
+        )
+        r = client.post("/api/admin/backup/init?pipeline=db")
+
+    assert r.status_code == 500
+    body = r.get_json()
+    assert body["ok"] is False
+    assert "auth failure" in body["error"]
 
 
 def test_post_init_files_creates_all_buckets(client, db_path, event_bus):  # noqa: ARG001

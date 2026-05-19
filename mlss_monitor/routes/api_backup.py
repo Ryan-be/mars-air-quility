@@ -35,9 +35,10 @@ from flask import Blueprint, jsonify, request, session
 
 from database.init_db import DB_FILE
 from mlss_monitor import state
-from mlss_monitor.backup import config
+from mlss_monitor.backup import config, server_schema
 from mlss_monitor.backup.bootstrap import BootstrapScanner
 from mlss_monitor.backup.postgres_client import PostgresClient
+from mlss_monitor.backup.replicated_tables import REPLICATED_TABLES
 from mlss_monitor.backup.s3_client import S3Client
 from mlss_monitor.backup.worker import BackupWorker
 from mlss_monitor.rbac import require_role
@@ -276,24 +277,40 @@ def init_backup_pipeline():
     Files: iterate the four known bucket suffixes + create each
     (idempotent — S3Client.make_bucket swallows BucketAlreadyOwnedByYou).
 
-    DB: stub until Phase 9 defines the server-side replicated-table
-    schema (the source_pi_id + ingested_at columns added to every
-    replicated table). For now we return 200 with a "not yet
-    implemented" message so the UI can disable the button + show a
-    Phase-9-pending hint."""
+    DB: derive the server-side DDL from the live SQLite schema via
+    server_schema.generate_ddl + apply it through PostgresClient.run_ddl.
+    Every CREATE in the DDL is IF NOT EXISTS so re-running init on a
+    populated server is a no-op.
+    """
     pipeline = request.args.get("pipeline")
     if pipeline not in ("db", "files"):
         return jsonify({"error": "pipeline must be 'db' or 'files'"}), 400
 
     if pipeline == "db":
-        # TODO Phase 9: emit the CREATE TABLE statements that mirror
-        # mlss_monitor/backup/replicated_tables.py with the server-side
-        # source_pi_id + ingested_at columns, then call
-        # PostgresClient.run_ddl(sql).
-        return jsonify({
-            "ok": True,
-            "message": "init not yet implemented — server schema TBD",
-        })
+        cfg = config.load()
+        try:
+            client = PostgresClient(
+                host=cfg["db"]["host"],
+                port=cfg["db"]["port"],
+                database=cfg["db"]["database"],
+                user=cfg["db"]["user"],
+                password=config.get_secret("db", "password") or "",
+                source_pi_id=_source_pi_id(),
+                timeout=cfg["advanced"]["connection_timeout_s"],
+            )
+            ddl = server_schema.generate_ddl(DB_FILE)
+            client.run_ddl(ddl)
+            return jsonify({
+                "ok": True,
+                "tables_created": list(REPLICATED_TABLES.keys()),
+            })
+        except ValueError as exc:
+            # Missing local SQLite table (live schema not init'd) or
+            # PostgresClient empty source_pi_id sentinel — both are
+            # 400-class misconfigurations rather than 500 server errors.
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        except Exception as exc:  # pylint: disable=broad-except
+            return jsonify({"ok": False, "error": str(exc)}), 500
 
     cfg = config.load()
     try:
