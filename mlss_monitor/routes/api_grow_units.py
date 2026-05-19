@@ -17,11 +17,13 @@ import logging
 import os
 import secrets
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timedelta
 from flask import Blueprint, jsonify, request
 
 from database.init_db import DB_FILE
 from mlss_monitor import state
+from mlss_monitor.backup import outbox
 from mlss_monitor.grow import health_watchdog
 from mlss_monitor.grow.auth import hash_secret
 from mlss_monitor.grow.photo_storage import (
@@ -608,22 +610,25 @@ def rotate_unit_token(unit_id):
     raw_token = secrets.token_urlsafe(32)
     new_hash = hash_secret(raw_token)
 
-    conn = sqlite3.connect(DB_FILE, timeout=10)
-    try:
-        cur = conn.execute(
-            "UPDATE grow_units SET bearer_token_hash=? "
-            "WHERE id=? AND is_active=1",
-            (new_hash, unit_id),
-        )
-        if cur.rowcount == 0:
-            return jsonify({"error": "unit_not_found"}), 404
-        conn.execute(
-            "INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)",
-            (_stash_token_key(unit_id), raw_token),
-        )
-        conn.commit()
-    finally:
-        conn.close()
+    with closing(sqlite3.connect(DB_FILE, timeout=10)) as conn:
+        with conn:
+            cur = conn.execute(
+                "UPDATE grow_units SET bearer_token_hash=? "
+                "WHERE id=? AND is_active=1",
+                (new_hash, unit_id),
+            )
+            if cur.rowcount == 0:
+                # Return BEFORE enqueueing — a missing-unit POST mustn't
+                # leave a phantom outbox pointer behind.
+                return jsonify({"error": "unit_not_found"}), 404
+            outbox.enqueue_row(conn, table="grow_units", pk=unit_id)
+            # The token stash on app_settings is local-only (not replicated)
+            # so no outbox enqueue here — it just rides the same transaction
+            # to stay atomic with the hash rotation.
+            conn.execute(
+                "INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)",
+                (_stash_token_key(unit_id), raw_token),
+            )
 
     # Drop any cached (unit_id, old_token) entries so the previous token
     # can't survive its 60s TTL after rotation. Other units' entries are
@@ -681,17 +686,15 @@ def delete_unit(unit_id):
         404 if no active unit with that id (already soft-deleted, or never
             existed)
     """
-    conn = sqlite3.connect(DB_FILE, timeout=10)
-    try:
-        cur = conn.execute(
-            "UPDATE grow_units SET is_active=0 WHERE id=? AND is_active=1",
-            (unit_id,),
-        )
-        if cur.rowcount == 0:
-            return jsonify({"error": "unit_not_found"}), 404
-        conn.commit()
-    finally:
-        conn.close()
+    with closing(sqlite3.connect(DB_FILE, timeout=10)) as conn:
+        with conn:
+            cur = conn.execute(
+                "UPDATE grow_units SET is_active=0 WHERE id=? AND is_active=1",
+                (unit_id,),
+            )
+            if cur.rowcount == 0:
+                return jsonify({"error": "unit_not_found"}), 404
+            outbox.enqueue_row(conn, table="grow_units", pk=unit_id)
     return jsonify({"ok": True})
 
 

@@ -1,9 +1,11 @@
 """POST /api/grow/enroll — first-boot enrollment endpoint for new units."""
 import sqlite3
+from contextlib import closing
 from datetime import datetime
 from flask import Blueprint, request, jsonify
 
 from database.init_db import DB_FILE
+from mlss_monitor.backup import outbox
 from mlss_monitor.grow.auth import (
     verify_enrollment_key, generate_token, hash_secret, AuthError,
 )
@@ -39,32 +41,32 @@ def enroll():
     raw_token = generate_token()
     token_hash = hash_secret(raw_token)
 
-    conn = sqlite3.connect(DB_FILE, timeout=10)
-    conn.execute("PRAGMA foreign_keys=ON")
-    try:
-        existing = conn.execute(
-            "SELECT id FROM grow_units WHERE hardware_serial=?",
-            (hardware_serial,),
-        ).fetchone()
-        if existing:
-            unit_id = existing[0]
-            conn.execute(
-                "UPDATE grow_units SET bearer_token_hash=?, is_active=1, "
-                "label=COALESCE(label, ?) WHERE id=?",
-                (token_hash, plant_name, unit_id),
-            )
-        else:
-            cur = conn.execute(
-                "INSERT INTO grow_units "
-                "(hardware_serial, label, enrolled_at, bearer_token_hash, "
-                " plant_type, medium_type, phase_set_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (hardware_serial, plant_name, now, token_hash,
-                 plant_type, medium_type, now),
-            )
-            unit_id = cur.lastrowid
-        conn.commit()
-    finally:
-        conn.close()
+    with closing(sqlite3.connect(DB_FILE, timeout=10)) as conn:
+        conn.execute("PRAGMA foreign_keys=ON")
+        with conn:  # transaction: live write + outbox enqueue commit together
+            existing = conn.execute(
+                "SELECT id FROM grow_units WHERE hardware_serial=?",
+                (hardware_serial,),
+            ).fetchone()
+            if existing:
+                unit_id = existing[0]
+                conn.execute(
+                    "UPDATE grow_units SET bearer_token_hash=?, is_active=1, "
+                    "label=COALESCE(label, ?) WHERE id=?",
+                    (token_hash, plant_name, unit_id),
+                )
+            else:
+                cur = conn.execute(
+                    "INSERT INTO grow_units "
+                    "(hardware_serial, label, enrolled_at, bearer_token_hash, "
+                    " plant_type, medium_type, phase_set_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (hardware_serial, plant_name, now, token_hash,
+                     plant_type, medium_type, now),
+                )
+                unit_id = cur.lastrowid
+            # Same enqueue for both UPDATE (re-enrol) and INSERT (new unit)
+            # — the backup shipper reads current state by pk at ship-time.
+            outbox.enqueue_row(conn, table="grow_units", pk=unit_id)
 
     return jsonify({"unit_id": unit_id, "token": raw_token}), 201
