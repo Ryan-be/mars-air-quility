@@ -504,7 +504,7 @@ class BackupWorker:
                 database=cfg["db"]["database"],
                 user=cfg["db"]["user"],
                 password=config.get_secret("db", "password") or "",
-                source_pi_id=self._source_pi_id(),
+                source_pi_id=cfg["source_pi_id"],
                 timeout=cfg["advanced"]["connection_timeout_s"],
             )
         if self.pipeline == "files":
@@ -519,16 +519,3 @@ class BackupWorker:
         raise ValueError(
             f"Unknown pipeline {self.pipeline!r} — expected 'db' or 'files'"
         )
-
-    def _source_pi_id(self) -> str:
-        """source_pi_id tags this Pi's data on the server. For Phase 4
-        we default to ``'pi-1'``; Phase 6 will expose this as a config
-        field so multi-Pi deployments can distinguish their data.
-
-        Returns a non-empty string. The PostgresClient constructor
-        sentinel will reject empty / whitespace input — this assertion
-        is a belt-and-braces for callers that bypass the client (e.g.
-        future log helpers)."""
-        pi_id = "pi-1"
-        assert pi_id and pi_id.strip(), "_source_pi_id() must return non-empty"
-        return pi_id

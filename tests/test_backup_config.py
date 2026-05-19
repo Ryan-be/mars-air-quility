@@ -138,3 +138,86 @@ def test_storage_uses_app_settings_table_with_backup_prefix(db_path):
         conn.close()
     assert rows.get("backup.db.host") == "x.example.com"
     assert rows.get("backup.db.port") == "5432"
+
+
+# ── source_pi_id top-level field ──────────────────────────────────────
+
+
+def test_source_pi_id_default_is_pi_1(db_path):
+    """Default value when no row has been written. Matches the
+    PostgresClient default historically used by every test in this
+    repo, so existing call sites keep their semantics."""
+    from mlss_monitor.backup import config
+    cfg = config.load()
+    assert cfg["source_pi_id"] == "pi-1"
+
+
+def test_source_pi_id_roundtrip(db_path):
+    """save({source_pi_id: ...}) → load() returns the new value."""
+    from mlss_monitor.backup import config
+    config.save({"source_pi_id": "pi-7"})
+    cfg = config.load()
+    assert cfg["source_pi_id"] == "pi-7"
+
+
+def test_source_pi_id_persisted_under_app_settings_key(db_path):
+    """Storage layout: backup.source_pi_id row in app_settings.
+    Adding a new top-level field shouldn't accidentally land it under
+    a section prefix (e.g. backup.db.source_pi_id)."""
+    from mlss_monitor.backup import config
+    import sqlite3
+    config.save({"source_pi_id": "pi-2"})
+    conn = sqlite3.connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT value FROM app_settings WHERE key='backup.source_pi_id'"
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row is not None
+    assert row[0] == "pi-2"
+
+
+def test_save_rejects_empty_source_pi_id(db_path):
+    """Empty string is rejected at save time — PostgresClient.delete_scope
+    would otherwise build WHERE source_pi_id = '' and cross-Pi-wipe.
+    Validate at write time so a malformed config can never persist."""
+    import pytest
+    from mlss_monitor.backup import config
+    with pytest.raises(ValueError, match="source_pi_id"):
+        config.save({"source_pi_id": ""})
+
+
+def test_save_rejects_whitespace_source_pi_id(db_path):
+    """Whitespace-only is rejected for the same reason — the value
+    is .strip()ed downstream by PostgresClient, so '   ' would behave
+    identically to ''."""
+    import pytest
+    from mlss_monitor.backup import config
+    with pytest.raises(ValueError, match="source_pi_id"):
+        config.save({"source_pi_id": "   "})
+
+
+def test_save_rejects_non_string_source_pi_id(db_path):
+    """A misbehaving caller passing None / int still fails fast.
+    isinstance check matches PostgresClient's contract (str-only)."""
+    import pytest
+    from mlss_monitor.backup import config
+    with pytest.raises(ValueError, match="source_pi_id"):
+        config.save({"source_pi_id": None})  # type: ignore[arg-type]
+
+
+def test_save_rejection_does_not_partially_persist_other_fields(db_path):
+    """A partial save that mixes a good db.host with a bad
+    source_pi_id should reject atomically — the validation happens
+    BEFORE any rows hit app_settings, so neither field lands."""
+    import pytest
+    from mlss_monitor.backup import config
+    with pytest.raises(ValueError, match="source_pi_id"):
+        config.save({
+            "source_pi_id": "",  # rejected
+            "db": {"host": "should-not-persist"},
+        })
+    cfg = config.load()
+    # db.host stays empty (the default), proving the save rolled back.
+    assert cfg["db"]["host"] == ""

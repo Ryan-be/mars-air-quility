@@ -56,23 +56,124 @@ api_backup_bp = Blueprint("api_backup", __name__)
 _BUCKET_SUFFIXES = ("photos", "anomaly", "multivar-anomaly", "attribution")
 
 
-def _source_pi_id() -> str:
-    """Per Phase 4 ``BackupWorker._source_pi_id``: this Pi's data on the
-    server is partitioned by this string. Hard-coded ``"pi-1"`` until
-    Phase 8 wires the multi-Pi config field — at that point this helper
-    grows to ``cfg.get("source_pi_id", "pi-1")``.
-    """
-    return "pi-1"
+# ─────────────────────────────────────────────────────────────────────
+# Model-artefact discovery — single source of truth
+# ─────────────────────────────────────────────────────────────────────
+#
+# The on-disk locations of ML model pickles are defined in two places:
+# ``mlss_monitor.app`` (where DetectionEngine is instantiated) and
+# ``mlss_monitor.attribution.engine`` (the AttributionEngine's pkl
+# path). Both compute their paths from ``Path(__file__).resolve()`` so
+# they're stable regardless of the gunicorn cwd. We mirror the same
+# computation here so the bootstrap walks exactly the trees the live
+# writers populate.
+#
+# CRITICAL: if a future change moves either model dir, update BOTH the
+# writer side AND this constant — they MUST stay in lockstep or the
+# bootstrap will walk an empty tree and miss pre-existing artefacts.
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
+# Directories holding model pickles. Each entry is (kind, path):
+#   ('photo', data/grow_images)         — JPEGs from handle_photo_frame
+#   ('model', data/anomaly_models)      — AnomalyDetector + MultivarAnomalyDetector
+#                                          share this directory per
+#                                          DetectionEngine's constructor.
+#   ('model', data/)                    — AttributionEngine writes a single
+#                                          classifier.pkl at data/classifier.pkl;
+#                                          scanned by walking the data root
+#                                          would also pick up unrelated files,
+#                                          so we keep this list minimal and
+#                                          rely on the live writer to enqueue
+#                                          classifier.pkl going forward.
+_MODEL_DIRS_FOR_BOOTSTRAP: list[tuple[str, Path]] = [
+    ("photo", _PROJECT_ROOT / "data" / "grow_images"),
+    ("model", _PROJECT_ROOT / "data" / "anomaly_models"),
+]
 
 
 def _default_file_roots() -> list[tuple[str, Path]]:
-    """Filesystem roots a Force-re-bootstrap should walk. Phase 9 will
-    expand this once the ML model writers expose discoverable on-disk
-    locations — for now we only re-walk the photo tree which is
-    populated by the live ``photo_storage.handle_photo_frame``."""
-    return [
-        ("photo", Path("data/grow_images")),
-    ]
+    """Filesystem roots a bootstrap (auto-run on first enable OR
+    force_rebootstrap maintenance action) should walk.
+
+    Each entry is (``kind``, ``root``) where ``kind`` is the
+    ``outbox_blobs.kind`` discriminator. Paths are computed from
+    ``_PROJECT_ROOT`` so they're stable regardless of the gunicorn
+    process cwd — they must match the trees the live writers
+    populate (``photo_storage.handle_photo_frame``,
+    ``AnomalyDetector._save_models``, etc.).
+
+    The ``classifier.pkl`` that ``AttributionEngine`` writes lives
+    at ``data/classifier.pkl`` (a single file, not a directory).
+    The live writer enqueues it via ``outbox.enqueue_blob`` the
+    next time training runs; we don't include the ``data/`` root
+    here because rglob would scan unrelated files. A first-time
+    operator who never re-trains attribution before enabling
+    backups gets the model on the next training cycle — acceptable
+    because attribution models are retrained whenever a tag is
+    added or removed.
+    """
+    return list(_MODEL_DIRS_FOR_BOOTSTRAP)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Bootstrap kickoff — shared by auto-run + force_rebootstrap
+# ─────────────────────────────────────────────────────────────────────
+
+
+def _kick_off_bootstrap(*, force_reset: bool) -> None:
+    """Spawn the bootstrap scan in a daemon thread.
+
+    Single source of truth for the two callers that need to launch a
+    bootstrap:
+
+      - PUT /api/admin/backup/config calls this with
+        ``force_reset=False`` after every config save. The function
+        gates on ``bootstrap_progress`` being empty so it auto-runs
+        exactly once — on the first successful enable — and is a
+        no-op on subsequent saves.
+
+      - POST /api/admin/backup/maintenance ``force_rebootstrap`` calls
+        this with ``force_reset=True``. ``bootstrap_progress`` is
+        wiped first so the scan re-enqueues every row + file from
+        zero.
+
+    The scan runs in a daemon thread so the HTTP request returns
+    promptly — a full re-bootstrap on a Pi with months of history can
+    take many minutes.
+    """
+    scanner = BootstrapScanner(db_file=DB_FILE)
+
+    if force_reset:
+        scanner.reset("db")
+        scanner.reset("files")
+    else:
+        # Auto-run case: skip if bootstrap_progress already has any rows.
+        # A partial in-progress bootstrap counts as "already started" —
+        # we don't want PUT /config racing a still-running scan.
+        with closing(sqlite3.connect(DB_FILE, timeout=10)) as conn:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM bootstrap_progress"
+            ).fetchone()[0]
+        if count > 0:
+            log.info(
+                "Bootstrap auto-run skipped — bootstrap_progress has %d row(s)",
+                count,
+            )
+            return
+
+    def _run():
+        try:
+            scanner.start_db_bootstrap()
+            scanner.start_files_bootstrap(_default_file_roots())
+        except Exception as exc:  # pylint: disable=broad-except
+            log.warning("Bootstrap thread failed: %s", exc)
+
+    threading.Thread(
+        target=_run,
+        daemon=True,
+        name="backup-bootstrap-oneshot",
+    ).start()
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -103,10 +204,22 @@ def put_backup_config():
     """
     body = request.get_json(silent=True) or {}
     old_cfg = config.load()
-    config.save(body)
+    try:
+        config.save(body)
+    except ValueError as exc:
+        # ``source_pi_id`` validation rejection — surface as 400 so the
+        # UI sees the failure rather than a Flask 500 HTML page.
+        return jsonify({"ok": False, "error": str(exc)}), 400
     new_cfg = config.load()
 
     _reconcile_workers(old_cfg, new_cfg)
+
+    # Auto-run bootstrap iff this is the first time backups have been
+    # enabled (i.e. bootstrap_progress is empty). Idempotent: subsequent
+    # config saves see populated bootstrap_progress and no-op. Spawned
+    # in a daemon thread so this PUT returns promptly even on a Pi
+    # with months of history to scan.
+    _kick_off_bootstrap(force_reset=False)
 
     # Publish AFTER reconcile so still-running workers see the new
     # config when they reload. Workers that were just stopped never
@@ -245,7 +358,7 @@ def test_backup_connection():
                 database=cfg["db"]["database"],
                 user=cfg["db"]["user"],
                 password=config.get_secret("db", "password") or "",
-                source_pi_id=_source_pi_id(),
+                source_pi_id=cfg["source_pi_id"],
                 timeout=cfg["advanced"]["connection_timeout_s"],
             )
         else:
@@ -295,7 +408,7 @@ def init_backup_pipeline():
                 database=cfg["db"]["database"],
                 user=cfg["db"]["user"],
                 password=config.get_secret("db", "password") or "",
-                source_pi_id=_source_pi_id(),
+                source_pi_id=cfg["source_pi_id"],
                 timeout=cfg["advanced"]["connection_timeout_s"],
             )
             ddl = server_schema.generate_ddl(DB_FILE)
@@ -401,20 +514,10 @@ def backup_maintenance():
         return jsonify({"ok": True, "action": "resumed"})
 
     if action == "force_rebootstrap":
-        scanner = BootstrapScanner(db_file=DB_FILE)
-        scanner.reset("db")
-        scanner.reset("files")
-        # Re-scan in a background thread so the HTTP request returns
-        # promptly — a real re-scan can take many minutes on a Pi with
-        # months of history.
-        threading.Thread(
-            target=lambda: (
-                scanner.start_db_bootstrap(),
-                scanner.start_files_bootstrap(_default_file_roots()),
-            ),
-            daemon=True,
-            name="backup-bootstrap-oneshot",
-        ).start()
+        # Shares the kickoff helper with PUT /config's auto-run path —
+        # ``force_reset=True`` wipes bootstrap_progress first so the
+        # scan re-enqueues every row + file from zero.
+        _kick_off_bootstrap(force_reset=True)
         return jsonify({"ok": True, "action": "force_rebootstrap started"})
 
     return jsonify({"error": f"unknown action {action!r}"}), 400

@@ -301,6 +301,7 @@ def test_build_client_returns_postgres_for_db_pipeline(monkeypatch):
     change credentials without restarting the thread."""
     w = BackupWorker(pipeline="db")
     fake_cfg = {
+        "source_pi_id": "pi-1",
         "db": {"host": "x", "port": 5432, "database": "d", "user": "u"},
         "advanced": {"connection_timeout_s": 10},
     }
@@ -357,6 +358,7 @@ def test_build_client_handles_missing_secret(monkeypatch):
     crashing the build_client call."""
     w = BackupWorker(pipeline="db")
     fake_cfg = {
+        "source_pi_id": "pi-1",
         "db": {"host": "x", "port": 5432, "database": "d", "user": "u"},
         "advanced": {"connection_timeout_s": 10},
     }
@@ -376,8 +378,13 @@ def test_build_client_unknown_pipeline_raises(monkeypatch):
     Stub config.load + get_secret so we don't hit the live DB — the
     test is asserting the dispatch ValueError, not the config layer.
     """
-    monkeypatch.setattr("mlss_monitor.backup.worker.config.load",
-                        lambda: {"db": {}, "files": {}, "advanced": {}})
+    monkeypatch.setattr(
+        "mlss_monitor.backup.worker.config.load",
+        lambda: {
+            "source_pi_id": "pi-1",
+            "db": {}, "files": {}, "advanced": {},
+        },
+    )
     monkeypatch.setattr("mlss_monitor.backup.worker.config.get_secret",
                         lambda pipeline, key: None)
     w = BackupWorker(pipeline="bogus")

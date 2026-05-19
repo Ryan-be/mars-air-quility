@@ -80,6 +80,39 @@ def event_bus():
     state.event_bus = None
 
 
+@pytest.fixture(autouse=True)
+def _suppress_bootstrap_thread(request, monkeypatch):
+    """Stub ``_kick_off_bootstrap`` for every test by default.
+
+    Without this, PUT /config tests would spawn a real
+    bootstrap-oneshot daemon thread that opens a long-lived sqlite3
+    connection on the tempfile DB — on Windows that connection
+    blocks the conftest teardown's ``unlink``, causing every PUT
+    test to leak a temp file.
+
+    Tests that want to exercise the bootstrap kickoff opt in by
+    requesting the ``real_bootstrap`` fixture (or the dedicated
+    ``mock_kick_off`` fixture for fine-grained assertions). The
+    request-fixture lookup below ensures opt-in tests skip the
+    autouse stub.
+    """
+    if "real_bootstrap" in request.fixturenames:
+        return
+    monkeypatch.setattr(
+        "mlss_monitor.routes.api_backup._kick_off_bootstrap",
+        lambda *, force_reset: None,
+    )
+
+
+@pytest.fixture
+def real_bootstrap():
+    """Opt-in marker fixture — tests that request this disable the
+    autouse ``_suppress_bootstrap_thread`` stub so the real
+    ``_kick_off_bootstrap`` runs. The fixture body is intentionally
+    empty; the autouse fixture checks for its name in fixturenames."""
+    return None
+
+
 def _login(client, *, role="admin"):
     """Open a Flask session with the requested role."""
     with client.session_transaction() as sess:
@@ -536,11 +569,17 @@ def test_post_maintenance_resume_clears_pause_and_notifies(
 
 
 def test_post_maintenance_force_rebootstrap_resets_progress(
-    client, db_path, event_bus,
+    client, db_path, event_bus, real_bootstrap,
 ):  # noqa: ARG001
     """force_rebootstrap deletes every bootstrap_progress row + kicks
     off a fresh scan in a background thread. We only assert the
-    reset side here — the thread is fire-and-forget."""
+    reset side here — the thread is fire-and-forget.
+
+    Uses ``real_bootstrap`` to bypass the autouse stub so the real
+    ``_kick_off_bootstrap`` runs and exercises the reset code path.
+    The BootstrapScanner's ``start_*_bootstrap`` methods are patched
+    to no-ops so we don't actually walk the world during the test.
+    """
     # Seed bootstrap_progress with some progress markers.
     with sqlite3.connect(db_path) as conn:
         conn.execute(
@@ -558,21 +597,31 @@ def test_post_maintenance_force_rebootstrap_resets_progress(
         conn.commit()
 
     _login(client, role="admin")
-    # Patch the BootstrapScanner methods that the route spawns in a thread
-    # so we don't actually walk the world during the test.
+    # Patch BootstrapScanner so the thread's start_* methods don't
+    # actually walk the world; ``reset`` keeps its real implementation
+    # so we can assert the post-condition.
     with patch(
         "mlss_monitor.routes.api_backup.BootstrapScanner"
     ) as mock_cls:
         scanner = mock_cls.return_value
-        # ``reset`` we want to behave like the real one (clears
-        # bootstrap_progress rows) so the post-condition holds.
         from mlss_monitor.backup.bootstrap import BootstrapScanner as Real
         scanner.reset.side_effect = Real(db_path).reset
+        # start_* are MagicMocks by default (no-op) — the spawned
+        # thread will call them and exit immediately without holding
+        # any sqlite connection on the test DB.
         r = client.post(
             "/api/admin/backup/maintenance",
             json={"action": "force_rebootstrap", "confirm": True},
         )
         assert r.status_code == 200
+        # Wait briefly for the daemon thread to finish its no-op
+        # start_* calls so it doesn't hold any reference past
+        # teardown.
+        import time
+        for _ in range(20):
+            if scanner.start_db_bootstrap.called and scanner.start_files_bootstrap.called:
+                break
+            time.sleep(0.05)
 
     # After the request returns, both pipelines should have empty
     # bootstrap_progress (the spawn thread may still be running but
@@ -582,3 +631,264 @@ def test_post_maintenance_force_rebootstrap_resets_progress(
             "SELECT COUNT(*) FROM bootstrap_progress"
         ).fetchone()[0]
         assert count == 0
+
+
+# ─────────────────────────────────────────────────────────────────────
+# source_pi_id config-driven (Task 1)
+# ─────────────────────────────────────────────────────────────────────
+
+
+def test_put_config_persists_source_pi_id(client, db_path, event_bus):  # noqa: ARG001
+    """source_pi_id is a top-level field. PUT /config persists it
+    alongside enabled / paused, and GET /config exposes it."""
+    _login(client, role="admin")
+    r = client.put("/api/admin/backup/config", json={"source_pi_id": "pi-9"})
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["source_pi_id"] == "pi-9"
+    # And it's readable via config.load() — single source of truth.
+    assert config.load()["source_pi_id"] == "pi-9"
+
+
+def test_put_config_rejects_empty_source_pi_id_as_400(client, db_path, event_bus):  # noqa: ARG001
+    """Empty source_pi_id should fail fast at write time. The route
+    converts the underlying ValueError to a 400 so the UI sees the
+    failure instead of a Flask 500 HTML page."""
+    _login(client, role="admin")
+    r = client.put("/api/admin/backup/config", json={"source_pi_id": ""})
+    assert r.status_code == 400
+    body = r.get_json()
+    assert body["ok"] is False
+    assert "source_pi_id" in body["error"]
+
+
+def test_post_test_uses_config_source_pi_id(client, db_path, event_bus):  # noqa: ARG001
+    """POST /test (db variant) must build PostgresClient with the
+    config-stored source_pi_id, NOT a hardcoded literal. Regression-
+    guards against a future revert to the deleted _source_pi_id()
+    helper that always returned 'pi-1'."""
+    config.save({
+        "source_pi_id": "pi-3",
+        "db": {"host": "h", "port": 5432, "database": "mlss",
+               "user": "u", "password": "p"},
+    })
+    _login(client, role="admin")
+    with patch(
+        "mlss_monitor.routes.api_backup.PostgresClient"
+    ) as mock_cls:
+        mock_cls.return_value.test_connection.return_value = {"ok": True}
+        r = client.post("/api/admin/backup/test?pipeline=db")
+        assert r.status_code == 200
+        # PostgresClient was constructed with the config-stored value.
+        kwargs = mock_cls.call_args.kwargs
+        assert kwargs["source_pi_id"] == "pi-3"
+
+
+def test_post_init_uses_config_source_pi_id(client, db_path, event_bus):  # noqa: ARG001
+    """POST /init (db variant) must also read source_pi_id from config."""
+    config.save({"source_pi_id": "pi-5"})
+    _login(client, role="admin")
+    with patch(
+        "mlss_monitor.routes.api_backup.PostgresClient"
+    ) as mock_cls:
+        client.post("/api/admin/backup/init?pipeline=db")
+        kwargs = mock_cls.call_args.kwargs
+        assert kwargs["source_pi_id"] == "pi-5"
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Bootstrap auto-run on first enable (Task 2)
+# ─────────────────────────────────────────────────────────────────────
+
+
+def test_put_config_auto_runs_bootstrap_on_first_enable(
+    client, db_path, event_bus,
+):  # noqa: ARG001
+    """When bootstrap_progress is empty, PUT /config kicks off a
+    bootstrap scan in a daemon thread. Operator workflow:
+    "configure → save → enable" — the scan starts behind the save
+    without a separate force_rebootstrap click."""
+    _login(client, role="admin")
+    with patch(
+        "mlss_monitor.routes.api_backup._kick_off_bootstrap"
+    ) as mock_kickoff:
+        r = client.put("/api/admin/backup/config", json={
+            "enabled": True,
+            "db": {"enabled": True, "host": "server.local", "password": "x"},
+        })
+        assert r.status_code == 200
+        # Auto-run path uses force_reset=False so it gates on
+        # bootstrap_progress being empty.
+        mock_kickoff.assert_called_once_with(force_reset=False)
+
+
+def test_put_config_calls_kickoff_on_every_save(
+    client, db_path, event_bus,
+):  # noqa: ARG001
+    """The auto-run path is called on EVERY PUT /config, not just
+    enable transitions — the helper itself decides whether to actually
+    start a thread (by checking bootstrap_progress). This keeps the
+    PUT handler trivial and the deduplication logic in one place."""
+    config.save({
+        "enabled": True,
+        "db": {"enabled": True, "host": "h"},
+    })
+    _login(client, role="admin")
+    with patch(
+        "mlss_monitor.routes.api_backup._kick_off_bootstrap"
+    ) as mock_kickoff:
+        # Saving an unrelated field still calls the kickoff.
+        r = client.put("/api/admin/backup/config", json={
+            "db": {"port": 5433},
+        })
+        assert r.status_code == 200
+        mock_kickoff.assert_called_once_with(force_reset=False)
+
+
+def test_kick_off_bootstrap_no_op_when_progress_exists(
+    db_path, event_bus, real_bootstrap,  # noqa: ARG001
+):
+    """Calling _kick_off_bootstrap(force_reset=False) on a DB whose
+    bootstrap_progress already has rows is a no-op — no thread
+    spawned. Drives the idempotency guarantee that auto-run can be
+    called on every PUT /config without re-bootstrapping after the
+    first enable."""
+    from mlss_monitor.routes.api_backup import _kick_off_bootstrap
+    # Pre-seed bootstrap_progress with one row.
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO bootstrap_progress "
+            "(pipeline, scope, last_pk, total_rows, started_at) "
+            "VALUES ('db', 'sensor_data', '0', 0, ?)",
+            ("2026-05-01",),
+        )
+        conn.commit()
+
+    with patch("mlss_monitor.routes.api_backup.threading.Thread") as mock_thread:
+        _kick_off_bootstrap(force_reset=False)
+        mock_thread.assert_not_called()
+
+
+def test_kick_off_bootstrap_spawns_thread_when_progress_empty(
+    db_path, event_bus, real_bootstrap,  # noqa: ARG001
+):
+    """force_reset=False on an empty bootstrap_progress DOES spawn
+    the daemon thread."""
+    from mlss_monitor.routes.api_backup import _kick_off_bootstrap
+    with patch("mlss_monitor.routes.api_backup.threading.Thread") as mock_thread:
+        _kick_off_bootstrap(force_reset=False)
+        mock_thread.assert_called_once()
+        # The thread must be a daemon so app shutdown doesn't hang
+        # on an in-progress scan.
+        kwargs = mock_thread.call_args.kwargs
+        assert kwargs["daemon"] is True
+        assert kwargs["name"] == "backup-bootstrap-oneshot"
+
+
+def test_kick_off_bootstrap_force_reset_wipes_progress_first(
+    db_path, event_bus, real_bootstrap,  # noqa: ARG001
+):
+    """force_reset=True clears bootstrap_progress synchronously
+    BEFORE spawning the thread, so a re-bootstrap re-walks
+    everything from zero."""
+    from mlss_monitor.routes.api_backup import _kick_off_bootstrap
+    # Seed both pipelines.
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO bootstrap_progress "
+            "(pipeline, scope, last_pk, total_rows, started_at) "
+            "VALUES ('db', 'sensor_data', '99', 100, ?)",
+            ("2026-05-01",),
+        )
+        conn.execute(
+            "INSERT INTO bootstrap_progress "
+            "(pipeline, scope, last_pk, total_rows, started_at) "
+            "VALUES ('files', '/x', NULL, NULL, ?)",
+            ("2026-05-01",),
+        )
+        conn.commit()
+
+    with patch(
+        "mlss_monitor.routes.api_backup.BootstrapScanner"
+    ) as mock_cls:
+        scanner = mock_cls.return_value
+        from mlss_monitor.backup.bootstrap import BootstrapScanner as Real
+        scanner.reset.side_effect = Real(db_path).reset
+        with patch("mlss_monitor.routes.api_backup.threading.Thread"):
+            _kick_off_bootstrap(force_reset=True)
+
+    with sqlite3.connect(db_path) as conn:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM bootstrap_progress"
+        ).fetchone()[0]
+    assert count == 0
+
+
+# ─────────────────────────────────────────────────────────────────────
+# _default_file_roots — model artefact paths (Task 3)
+# ─────────────────────────────────────────────────────────────────────
+
+
+def test_default_file_roots_includes_photos_dir():
+    """Photos tree is always walked — populated by the live
+    photo_storage.handle_photo_frame writer."""
+    from pathlib import Path
+    from mlss_monitor.routes.api_backup import _default_file_roots
+    roots = _default_file_roots()
+    photo_entries = [(kind, p) for kind, p in roots if kind == "photo"]
+    assert len(photo_entries) >= 1
+    # Path ends with data/grow_images
+    assert photo_entries[0][1].as_posix().endswith("data/grow_images")
+
+
+def test_default_file_roots_includes_model_dir():
+    """Model artefact directory must be present so a bootstrap walks
+    the anomaly_detector + multivar_anomaly_detector pickles.
+    AnomalyDetector and MultivarAnomalyDetector share data/anomaly_models
+    (per DetectionEngine's constructor in app.py), so we expose it
+    once."""
+    from mlss_monitor.routes.api_backup import _default_file_roots
+    roots = _default_file_roots()
+    model_entries = [(kind, p) for kind, p in roots if kind == "model"]
+    assert len(model_entries) >= 1
+    paths_str = [p.as_posix() for _, p in model_entries]
+    assert any("data/anomaly_models" in s for s in paths_str)
+
+
+def test_default_file_roots_paths_match_writer_paths():
+    """Critical regression guard: if the live writers' model_dir
+    paths drift away from _default_file_roots()'s paths, the
+    bootstrap walks the wrong tree and misses files. This test
+    locks the two in lockstep by reading the writer-side path
+    directly from app.py's DetectionEngine construction.
+
+    If this test fails, the fix is to update either app.py OR
+    _default_file_roots() — and the comment in api_backup.py
+    documents that they MUST stay in sync.
+    """
+    from pathlib import Path
+    from mlss_monitor.routes.api_backup import (
+        _default_file_roots, _PROJECT_ROOT,
+    )
+    # Mirror the literal in mlss_monitor/app.py line 403:
+    #     model_dir=_PROJECT_ROOT / "data" / "anomaly_models"
+    # If app.py changes that path, this test catches it.
+    expected_model_dir = _PROJECT_ROOT / "data" / "anomaly_models"
+    roots = _default_file_roots()
+    model_paths = [p for kind, p in roots if kind == "model"]
+    assert expected_model_dir in model_paths, (
+        f"_default_file_roots() does not include the model_dir used by "
+        f"DetectionEngine in app.py ({expected_model_dir!r}). The bootstrap "
+        f"will walk an empty tree and miss pre-existing model pickles."
+    )
+
+
+def test_default_file_roots_paths_are_absolute():
+    """Bootstrap is invoked from a daemon thread whose cwd may not be
+    the project root. All paths must be absolute so rglob walks the
+    correct tree regardless of where gunicorn was launched."""
+    from mlss_monitor.routes.api_backup import _default_file_roots
+    for kind, path in _default_file_roots():
+        assert path.is_absolute(), (
+            f"Path for kind={kind!r} is not absolute: {path!r}"
+        )

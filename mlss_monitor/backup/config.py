@@ -10,6 +10,7 @@ Storage layout — flat ``key TEXT PRIMARY KEY`` rows, one per field:
 
     backup.enabled                        → "true" / "false"
     backup.paused                         → "true" / "false"
+    backup.source_pi_id                   → "pi-1"
     backup.db.enabled                     → "true" / "false"
     backup.db.host                        → "server.local"
     backup.db.port                        → "5432"
@@ -46,8 +47,15 @@ from database.init_db import DB_FILE
 # (python_type, default_value).
 _SCHEMA: dict[str, dict[str, tuple[type, Any]]] = {
     "_top": {
-        "enabled": (bool, False),
-        "paused":  (bool, False),
+        "enabled":      (bool, False),
+        "paused":       (bool, False),
+        # Tags this Pi's data on the backup server. Multi-Pi deployments
+        # set this per-host so a single Postgres / S3 endpoint can keep
+        # each Pi's rows separated. Validated at ``save()`` time — empty
+        # or whitespace-only values are rejected before they can be
+        # persisted, because ``PostgresClient.delete_scope`` would
+        # otherwise build ``WHERE source_pi_id = ''`` and cross-Pi-wipe.
+        "source_pi_id": (str,  "pi-1"),
     },
     "db": {
         "enabled":  (bool, False),
@@ -153,7 +161,26 @@ def save(partial: dict) -> None:
           - non-empty str → overwrite.
       * All non-secret fields are written verbatim when present in the
         partial dict, including empty strings (clearing a host is valid).
+
+    Raises:
+        ValueError: ``source_pi_id`` is present but empty / whitespace-only.
+            Validating here (rather than at PostgresClient construction
+            time) means a malformed config can never persist — the route
+            handler converts the ValueError to a 400 and the operator
+            sees the failure before any worker tries to ``delete_scope``
+            with the bad value.
     """
+    # Validate first so a partial that mixes a good field with a bad
+    # source_pi_id rejects atomically (nothing is written).
+    if "source_pi_id" in partial:
+        value = partial["source_pi_id"]
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(
+                "source_pi_id must be a non-empty string — "
+                "PostgresClient.delete_scope would otherwise build "
+                "'WHERE source_pi_id = \\'\\'' and cross-Pi-wipe."
+            )
+
     rows_to_write: list[tuple[str, str]] = []
 
     # Top-level fields.
