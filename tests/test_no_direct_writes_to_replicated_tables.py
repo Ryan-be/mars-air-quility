@@ -21,7 +21,8 @@ REPLICATED_TABLES = [
     # don't exist as actual tables — using truth here is what makes the
     # regex below actually find writers.
     "sensor_data", "weather_log",
-    "inferences", "incidents", "incident_alerts", "event_tags",
+    "inferences", "incidents", "incident_alerts",
+    "incident_signature_features", "event_tags",
     "grow_telemetry", "grow_photos", "grow_journal_entries",
     "grow_units", "grow_plant_profiles", "grow_unit_capabilities",
     "grow_watering_events", "grow_errors", "grow_light_windows",
@@ -44,6 +45,7 @@ ALLOWED_FILES = {
     "mlss_monitor/grow/photo_storage.py",       # write_photo
     "mlss_monitor/grow/timelapse_jobs.py",      # render-job runner: marks queued→running→complete/failed (companion to api_grow_timelapse.py which only schedules)
     "mlss_monitor/incident_grouper.py",         # save_incident
+    "mlss_monitor/incident_signature_storage.py", # save_signature: incident similarity-vector writer
     "mlss_monitor/inference_evidence_storage.py", # store_evidence: UPDATE inferences with typed evidence columns
     "mlss_monitor/backup/outbox.py",            # holds example SQL inside tee_to_outbox docstring; does not itself write replicated tables
     "mlss_monitor/routes/api_grow_journal.py",  # journal CRUD

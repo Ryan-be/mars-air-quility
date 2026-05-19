@@ -22,6 +22,8 @@ from __future__ import annotations
 
 import sqlite3
 
+from mlss_monitor.backup import outbox
+
 
 def save_signature(
     conn: sqlite3.Connection,
@@ -34,7 +36,27 @@ def save_signature(
     Caller is responsible for ``conn.commit()``. This mirrors the
     existing pattern used by ``incident_grouper.regroup_all`` which
     batches an entire regroup into a single transaction.
+
+    Backup wiring: ``incident_signature_features`` is a strict-mirror
+    table. The per-incident DELETE is propagated via
+    :func:`outbox.enqueue_delete_scope` so the server doesn't accumulate
+    stale rows when an individual incident's signature is updated
+    outside a full ``regroup_all``. Each new feature row is then
+    enqueued individually via :func:`outbox.enqueue_row` for shipping.
+
+    Inside ``regroup_all`` an outer whole-table ``enqueue_delete_scope``
+    (scope ``{}``) is already queued before the bulk wipe, which makes
+    the per-incident scope below redundant in that path. We keep it
+    anyway because the shipper applies whichever delete-scope it sees
+    first and either order is correct (whole-table wipe first leaves
+    nothing for the per-incident wipe to do; per-incident wipe first is
+    a no-op once the whole-table wipe lands). This keeps
+    ``save_signature`` self-contained for callers outside ``regroup_all``.
     """
+    outbox.enqueue_delete_scope(
+        conn, table="incident_signature_features",
+        scope={"incident_id": incident_id},
+    )
     conn.execute(
         "DELETE FROM incident_signature_features WHERE incident_id=?",
         (incident_id,),
@@ -46,6 +68,11 @@ def save_signature(
             [(incident_id, idx, float(value))
              for idx, value in enumerate(vector)],
         )
+        for idx in range(len(vector)):
+            outbox.enqueue_row(
+                conn, table="incident_signature_features",
+                pk=f"{incident_id}:{idx}",
+            )
 
 
 def load_signature(
