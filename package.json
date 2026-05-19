@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "test:js": "node --test tests/js/"
+    "test:js": "node --test tests/js/test_*.mjs"
   },
   "devDependencies": {
     "jsdom": "^24.0"
