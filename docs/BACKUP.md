@@ -24,6 +24,31 @@ local-only state that wouldn't be useful on the server.
 
 ---
 
+## Prerequisites
+
+Before deploying the hub with backup enabled, install the system
+package `libpq-dev` (provides `pg_config` so `psycopg2-binary` can
+build from source on architectures without prebuilt wheels — the Pi
+typically has no wheel for its Python+arch combo):
+
+```bash
+sudo apt install -y libpq-dev
+```
+
+`scripts/setup_pi.sh` does this automatically on a fresh Pi, and
+`bin/deploy` runs `apt install -y libpq-dev` before `poetry install`
+on every deploy (idempotent, so it's a no-op once installed).
+
+The hub does **not** provision the Postgres server itself: you need
+an existing Postgres instance reachable from the hub, with an empty
+database that the configured backup user owns. The hub creates
+*tables* inside that database (see Setup step 2 below) but won't
+create the database — that's a different privilege level on the
+Postgres side, and operators typically want control over server
+provisioning anyway.
+
+---
+
 ## Setup (three steps from `/admin/backup`)
 
 1. **Test connection** for both pipelines. The hub tries to reach the
@@ -32,12 +57,21 @@ local-only state that wouldn't be useful on the server.
    failing connect surfaces as `{"ok": false, "error": ...}` so you can
    diagnose before flipping anything live.
 
-2. **Initialise** the file pipeline (creates the four buckets:
-   `mlss-photos`, `mlss-anomaly`, `mlss-multivar-anomaly`,
-   `mlss-attribution`). Init is idempotent (S3Client swallows
-   `BucketAlreadyOwnedByYou`). DB pipeline init is operator-managed for
-   now — set up the receiving Postgres schema separately following the
-   spec.
+2. **Initialise** both pipelines. Both calls are idempotent — clicking
+   Initialise twice is safe.
+
+   - *DB pipeline*: the hub introspects every replicated table from
+     your live SQLite via `PRAGMA table_info` and generates the
+     equivalent Postgres `CREATE TABLE IF NOT EXISTS` augmented with
+     the partition column (`source_pi_id TEXT NOT NULL`) + a server
+     timestamp (`ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`) + a
+     composite primary key `(*original_pk, source_pi_id)` + a
+     time-series index. The DDL is applied against the configured
+     Postgres database. See the server-side schema generator in
+     [`mlss_monitor/backup/server_schema.py`](../mlss_monitor/backup/server_schema.py).
+   - *File pipeline*: creates the four buckets (`mlss-photos`,
+     `mlss-anomaly`, `mlss-multivar-anomaly`, `mlss-attribution`).
+     S3Client swallows `BucketAlreadyOwnedByYou` so re-init is safe.
 
 3. **Enable** the master toggle and per-pipeline toggles. Workers start
    immediately — the PUT /api/admin/backup/config endpoint reconciles

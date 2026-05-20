@@ -15,6 +15,15 @@ cd "$REPO_ROOT"
 echo "==> git pull"
 git pull --ff-only
 
+# libpq-dev provides pg_config, which psycopg2-binary needs when no
+# prebuilt wheel exists for this Python+arch combo (the install then
+# falls back to a source build). Idempotent — apt is a no-op if it's
+# already installed. Cheap enough to run unconditionally so a fresh
+# host doesn't surprise the operator with `pg_config executable not
+# found` mid-`poetry install`.
+echo "==> apt install libpq-dev (psycopg2-binary build prerequisite)"
+sudo apt-get install -y libpq-dev
+
 echo "==> poetry install (production deps only)"
 poetry install --without dev
 

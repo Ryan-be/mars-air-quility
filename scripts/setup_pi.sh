@@ -26,6 +26,13 @@ echo ""
 # time-lapse video rendering on the History tab. Without it the POST
 # endpoint returns 503 ffmpeg_not_installed on first use — install it
 # here so a fresh setup is ready to go end-to-end.
+#
+# libpq-dev provides pg_config, which psycopg2-binary needs when no
+# prebuilt wheel exists for the Pi's Python+arch combo (the install
+# then falls back to a source build). Only the MLSS hub uses this —
+# grow units don't run the Postgres backup client — but it's cheap to
+# install everywhere and avoids `pg_config executable not found` on
+# first `poetry install` when the backup pipeline is enabled.
 info "Installing system build dependencies..."
 sudo apt-get update -q
 sudo apt-get install -y \
@@ -34,6 +41,7 @@ sudo apt-get install -y \
     libssl-dev \
     libffi-dev \
     libjpeg-dev \
+    libpq-dev \
     zlib1g-dev \
     i2c-tools \
     git \
