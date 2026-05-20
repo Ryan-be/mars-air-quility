@@ -140,6 +140,37 @@ Inference thresholds are stored in the `inference_thresholds` table. Each thresh
 
 ---
 
+## Notifications (MLSS Mobile)
+
+Web Push notifications use a **VAPID** keypair generated lazily on
+first dispatch and stored in `app_settings`. There are no env vars
+to set — the dispatcher and the 30-day history pruner are wired
+unconditionally inside `_start_background_services()` in
+[`mlss_monitor/app.py`](../mlss_monitor/app.py) and operator-facing
+config (the contact email, severity floors) all lives in the UI or
+the DB.
+
+| Key | Where | Default | Effect |
+|---|---|---|---|
+| `app_settings.vapid_public_key` | DB (auto-generated) | generated on first push | Public half of the VAPID EC P-256 keypair. Exposed to PWA clients via `/api/notifications/vapid-public-key`. |
+| `app_settings.vapid_private_key` | DB (auto-generated) | generated on first push | Private half of the keypair. Signs outgoing pushes. **Treat as secret.** |
+| `app_settings.vapid_contact_email` | DB (operator-set via UI) | empty | `mailto:` URL surfaced to push services per RFC 8292. Push services may contact this address if the server misbehaves. Set it via `/admin` → Notifications card. |
+| `users.notify_air_quality` | DB (per-user) | `warning` | Severity floor for air-quality pushes — `off` / `info` / `warning` / `critical` |
+| `users.notify_grow_units` | DB (per-user) | `warning` | Severity floor for grow-unit pushes |
+| `users.notify_system_health` | DB (per-user) | `warning` | Severity floor for system-health pushes |
+| `users.notify_backup_pipeline` | DB (per-user) | `warning` | Severity floor for backup-pipeline pushes |
+
+Rotating the VAPID keypair (delete the two `app_settings` rows +
+restart the service) invalidates every existing push subscription —
+users must re-enable push on each device.
+
+See [docs/MOBILE.md](MOBILE.md) for the operator-facing iPhone
+install + push enablement guide and
+[docs/DATABASE.md](DATABASE.md#notifications-mlss-mobile) for the
+`push_subscriptions` / `notification_history` table reference.
+
+---
+
 ## Dynaconf details
 
 Configuration is loaded in `config.py`:

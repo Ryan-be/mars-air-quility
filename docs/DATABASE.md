@@ -618,6 +618,102 @@ it's a request-time check.
 
 ---
 
+## Notifications (MLSS Mobile)
+
+The MLSS Mobile feature adds three schema additions for per-user push
+notifications: four columns on `users` for severity floors,
+`push_subscriptions` for per-device Web Push endpoints, and
+`notification_history` for the in-app inbox at `/notifications`. All
+three live in the main DB (`data/sensor_data.db`) and are created /
+migrated by [`database/init_db.py`](../database/init_db.py).
+
+#### `users` table additions — per-user notification preferences
+
+Four `ALTER TABLE ADD COLUMN` migrations added by the MLSS Mobile
+branch. Each holds the **severity floor** for one category — the
+lowest severity that will trigger a push for this user. Valid values:
+`off` (never notify), `info` (every event), `warning` (warning +
+critical — the default), `critical` (critical only).
+
+| Column | Default | Category |
+|---|---|---|
+| `notify_air_quality` | `warning` | TVOC / eCO2 / PM / gas inferences |
+| `notify_grow_units` | `warning` | Grow-unit `grow_errors` rows |
+| `notify_system_health` | `warning` | Sensor offline, plug unreachable, disk full |
+| `notify_backup_pipeline` | `warning` | Backup worker failures / disabled / backoff |
+
+SQLite cannot add a `CHECK` constraint via `ALTER TABLE`, so values are
+validated at the API layer
+([`mlss_monitor/routes/api_notifications.py`](../mlss_monitor/routes/api_notifications.py)).
+The dispatcher (`mlss_monitor/notifications/dispatcher.py`) compares
+event severity against the user's floor for the event's category
+before queueing a push.
+
+#### `push_subscriptions` — per-device Web Push endpoints
+
+One row per (user, device) subscription. `endpoint` is the unique URL
+the browser's Push API returns (Apple, FCM, or another push service);
+the UNIQUE constraint prevents duplicates when the same device
+re-subscribes. `p256dh` + `auth` are the per-subscription encryption
+keys used by `pywebpush` to encrypt the payload end-to-end (RFC 8291).
+
+| Column | Type | Note |
+|---|---|---|
+| `id` | INTEGER PK AUTOINCREMENT | |
+| `user_id` | INTEGER NOT NULL FK | `ON DELETE CASCADE` — removing a user drops all their subs |
+| `endpoint` | TEXT NOT NULL UNIQUE | Push-service URL returned by the browser |
+| `p256dh` | TEXT NOT NULL | base64url EC P-256 public key |
+| `auth` | TEXT NOT NULL | base64url auth secret |
+| `device_label` | TEXT | Optional human label set in the Notifications card UI |
+| `created_at` | DATETIME NOT NULL | Set at subscribe time |
+| `last_used_at` | DATETIME | NULL until the dispatcher first delivers a push |
+
+Index: `idx_push_sub_user(user_id)` — drives the per-user fan-out
+query in the dispatcher.
+
+When a push service replies `410 Gone` (the subscription has been
+invalidated client-side), the dispatcher deletes the row
+automatically — no operator action needed for the usual "user
+reinstalled iOS" / "endpoint expired" case.
+
+#### `notification_history` — in-app inbox + delivery audit
+
+One row per (user, coalesce-window). The dispatcher coalesces events
+in a **60-second window** per (user_id, category, severity): the first
+event inserts a row + pushes; subsequent events in the window update
+`event_count` (and the displayed title becomes `"3× ..."`) but do
+**not** generate a second push to the same device. This is the
+durable record — iOS expires lockscreen notifications after a few
+days, so the `/notifications` page reads from this table.
+
+| Column | Type | Note |
+|---|---|---|
+| `id` | INTEGER PK AUTOINCREMENT | |
+| `user_id` | INTEGER NOT NULL FK | `ON DELETE CASCADE` |
+| `category` | TEXT NOT NULL | One of `air_quality`, `grow_units`, `system_health`, `backup_pipeline` |
+| `severity` | TEXT NOT NULL | `info` / `warning` / `critical` (never `off` — those are filtered before insert) |
+| `title` | TEXT NOT NULL | Human-readable. Mutated to `"Nx ..."` on coalesce |
+| `body` | TEXT | Optional second line |
+| `deep_link` | TEXT | URL the notification opens (e.g. `/incidents`, `/grow/3`) |
+| `event_count` | INTEGER NOT NULL DEFAULT 1 | Incremented within the coalesce window |
+| `delivered_count` | INTEGER NOT NULL DEFAULT 0 | Sum of successful push deliveries across this user's devices |
+| `failed_count` | INTEGER NOT NULL DEFAULT 0 | Sum of failed deliveries (excluding `410 Gone`, which drops the sub) |
+| `created_at` | DATETIME NOT NULL | First-event timestamp; coalesce window is anchored here |
+| `read_at` | DATETIME | NULL until the user marks read via the inbox UI |
+
+Index: `idx_notif_hist_user_time(user_id, created_at DESC)` —
+drives the inbox feed query.
+
+**Retention.** Rows older than 30 days are pruned once daily by a
+daemon thread
+([`mlss_monitor/notifications/cleanup.py`](../mlss_monitor/notifications/cleanup.py))
+started from `app.py`'s `_start_background_services()`. The
+30-day window matches the design spec — long enough to investigate
+"why didn't I get notified about X?" a few weeks later, short enough
+that the table stays small.
+
+---
+
 ## Configuration
 
 | Setting | Where | Default | Effect |

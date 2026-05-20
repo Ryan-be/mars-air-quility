@@ -482,3 +482,37 @@ Until Phase 8 lands, the outbox tables fill up on every write but
 never drain — the disk cost is pointer rows only (~50 bytes each) and
 the lint guard keeps the design coherent in the meantime.
 
+---
+
+## ✅ Shipped: MLSS Mobile (PWA + Web Push)
+
+**Date shipped:** 2026-05-21 (branch `feature/mlss-mobile`)
+
+**What it solved:**
+
+- Combined roadmap items: real-time notifications + mobile-first
+  install.
+- iOS Safari PWA install enabled via a local CA + iOS
+  `.mobileconfig` profile generator — avoids Apple's $99/yr Developer
+  Program requirement that a "native" App Store app would need.
+- Web Push lockscreen notifications via VAPID + `pywebpush` —
+  covers air-quality inferences, grow-unit errors, system-health
+  failures, and backup-pipeline issues.
+- Per-user severity floors (`off` / `info` / `warning` / `critical`)
+  across four categories, with a 60-second
+  per-(user, category, severity) coalesce so a burst of related
+  events collapses into a single `"3× ..."` notification instead of
+  buzzing the phone three times.
+- `/notifications` inbox page for reviewing the last 30 days of
+  events (iOS expires lockscreen notifications after a few days —
+  the inbox is the durable record).
+- Responsive CSS (`static/css/mobile.css`) overhauls the UI for
+  iPhone: bottom-fixed tab nav, 44 px tap targets, 16 px font on
+  inputs (avoids iOS zoom-on-focus), single-column cards on narrow
+  screens.
+
+**User docs:** [docs/MOBILE.md](MOBILE.md)
+**Schema:** [docs/DATABASE.md → Notifications](DATABASE.md#notifications-mlss-mobile)
+**Config reference:** [docs/CONFIGURATION.md → Notifications](CONFIGURATION.md#notifications-mlss-mobile)
+**Spec + plan:** branch worktree (not tracked in main).
+
