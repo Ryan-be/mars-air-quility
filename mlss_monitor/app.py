@@ -221,6 +221,10 @@ state.open_meteo = OpenMeteoClient()
 # bearer token issued at enroll time.
 _PUBLIC_ENDPOINTS = {"auth.login", "auth.logout", "auth.github_login",
                      "auth.github_callback", "static",
+                     # Browsers may refetch the service worker without a
+                     # session cookie (background sync, push wake) — keep
+                     # it auth-free so push notifications keep working.
+                     "pages.service_worker",
                      "api_grow_enroll.enroll",
                      "api_grow_dist.install_sh",
                      "api_grow_dist.serve_wheel",
