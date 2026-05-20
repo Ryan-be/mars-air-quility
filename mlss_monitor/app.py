@@ -905,6 +905,15 @@ def _start_background_services():
     except Exception as exc:  # pylint: disable=broad-except
         log.warning("Notification dispatcher startup failed: %s", exc)
 
+    # MLSS Mobile: prune notification_history rows older than 30 days
+    # once a day. Daemon thread; failures are logged but don't crash.
+    try:
+        from mlss_monitor.notifications.cleanup import start_cleanup_loop
+        start_cleanup_loop()
+        log.info("Notification cleanup loop started")
+    except Exception as exc:  # pylint: disable=broad-except
+        log.warning("Notification cleanup startup failed: %s", exc)
+
 
 def _start_backup_workers(cfg: dict, state_module, logger) -> None:
     """Start BackupWorker thread(s) per the config.
