@@ -1282,6 +1282,20 @@ testing = ["coverage", "eventlet (>=0.40.3)", "gevent (>=24.10.1)", "h2 (>=4.1.0
 tornado = ["tornado (>=6.5.0)"]
 
 [[package]]
+name = "http-ece"
+version = "1.2.1"
+description = "Encrypted Content Encoding for HTTP"
+optional = false
+python-versions = "*"
+groups = ["main"]
+files = [
+    {file = "http_ece-1.2.1.tar.gz", hash = "sha256:8c6ab23116bbf6affda894acfd5f2ca0fb8facbcbb72121c11c75c33e7ce8cff"},
+]
+
+[package.dependencies]
+cryptography = ">=2.5"
+
+[[package]]
 name = "idna"
 version = "3.11"
 description = "Internationalized Domain Names in Applications (IDNA)"
@@ -2316,6 +2330,24 @@ files = [
 ]
 
 [[package]]
+name = "py-vapid"
+version = "1.9.4"
+description = "Simple VAPID header generation library"
+optional = false
+python-versions = "*"
+groups = ["main"]
+files = [
+    {file = "py_vapid-1.9.4-py2.py3-none-any.whl", hash = "sha256:f165a5bf90dcf966b226114f01f178f137579a09784c7f0628fa2f0a299741b6"},
+    {file = "py_vapid-1.9.4.tar.gz", hash = "sha256:a004023560cbc54e34fc06380a0580f04ffcc788e84fb6d19e9339eeb6551a28"},
+]
+
+[package.dependencies]
+cryptography = ">=46"
+
+[package.extras]
+test = ["coverage", "flake8", "mock (>=1.0)", "pytest"]
+
+[[package]]
 name = "pycparser"
 version = "3.0"
 description = "C parser in Python"
@@ -2691,6 +2723,28 @@ files = [
     {file = "pyusb-1.3.1-py3-none-any.whl", hash = "sha256:bf9b754557af4717fe80c2b07cc2b923a9151f5c08d17bdb5345dac09d6a0430"},
     {file = "pyusb-1.3.1.tar.gz", hash = "sha256:3af070b607467c1c164f49d5b0caabe8ac78dbed9298d703a8dbf9df4052d17e"},
 ]
+
+[[package]]
+name = "pywebpush"
+version = "2.3.0"
+description = "WebPush publication library"
+optional = false
+python-versions = ">=3.10"
+groups = ["main"]
+files = [
+    {file = "pywebpush-2.3.0-py3-none-any.whl", hash = "sha256:3d97469fb14d4323c362319d438183737249a4115b50e146ce233e7f01e3cf98"},
+    {file = "pywebpush-2.3.0.tar.gz", hash = "sha256:d1e27db8de9e6757c1875f67292554bd54c41874c36f4b5c4ebb5442dce204f2"},
+]
+
+[package.dependencies]
+aiohttp = "*"
+cryptography = ">=2.6.1"
+http-ece = ">=1.1.0"
+py-vapid = ">=1.7.0"
+requests = ">=2.21.0"
+
+[package.extras]
+dev = ["black", "mock", "pytest"]
 
 [[package]]
 name = "pywin32"
@@ -3499,4 +3553,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "8b5326347afe19f3841d663638b5d47c1637a8d7b574912b89d1d946c7a81210"
+content-hash = "b660ef97763e1c7fe772a5e466e089447b05851b20cc777979b0e4b04fbec6dd"
