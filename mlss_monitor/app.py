@@ -171,6 +171,11 @@ state.service_start_time   = datetime.utcnow()
 state.backup_db_worker    = None
 state.backup_files_worker = None
 
+# MLSS Mobile: pre-init the notification dispatcher handle so getattr
+# in api routes is predictable even before _start_background_services
+# runs. The real instance is created in _start_background_services().
+state.notification_dispatcher = None
+
 # ── GitHub OAuth ──────────────────────────────────────────────────────────────
 
 _oauth = OAuth(app)
@@ -886,6 +891,19 @@ def _start_background_services():
         _start_backup_workers(backup_config.load(), state, log)
     except Exception as exc:  # pylint: disable=broad-except
         log.warning("Backup worker startup failed: %s", exc)
+
+    # MLSS Mobile: notification dispatcher subscribes to the event bus
+    # and fans out Web Push to per-user push_subscriptions. Daemon
+    # thread, same lifecycle as the backup workers above.
+    try:
+        from mlss_monitor.notifications.dispatcher import start_dispatcher
+        state.notification_dispatcher = start_dispatcher(
+            event_bus=state.event_bus,
+            db_file=DB_FILE,
+        )
+        log.info("Notification dispatcher started")
+    except Exception as exc:  # pylint: disable=broad-except
+        log.warning("Notification dispatcher startup failed: %s", exc)
 
 
 def _start_backup_workers(cfg: dict, state_module, logger) -> None:
