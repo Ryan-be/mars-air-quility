@@ -162,6 +162,15 @@ state.GITHUB_CLIENT_SECRET = config.get("GITHUB_CLIENT_SECRET", None)
 state.ALLOWED_GITHUB_USER  = config.get("ALLOWED_GITHUB_USER", None)
 state.service_start_time   = datetime.utcnow()
 
+# Backup worker handles — pre-initialised here so getattr(state, ...)
+# in mlss_monitor.routes.api_backup is predictable even before
+# _start_background_services has run (or when backups are disabled and
+# no worker is ever created). _reconcile_workers in api_backup treats
+# missing attribute the same as None, but giving these names an explicit
+# None at import time keeps the wiring legible from a single grep.
+state.backup_db_worker    = None
+state.backup_files_worker = None
+
 # ── GitHub OAuth ──────────────────────────────────────────────────────────────
 
 _oauth = OAuth(app)
@@ -864,6 +873,64 @@ def _start_background_services():
         start_runner_thread()
     except Exception as exc:  # pylint: disable=broad-except
         log.warning("timelapse_jobs.start_runner_thread failed: %s", exc)
+
+    # Backup workers — only start if backups are enabled in config.
+    # Extracted into _start_backup_workers so tests can drive the block
+    # directly without stubbing the entire background-services bootstrap.
+    try:
+        from mlss_monitor.backup import config as backup_config
+        _start_backup_workers(backup_config.load(), state, log)
+    except Exception as exc:  # pylint: disable=broad-except
+        log.warning("Backup worker startup failed: %s", exc)
+
+
+def _start_backup_workers(cfg: dict, state_module, logger) -> None:
+    """Start BackupWorker thread(s) per the config.
+
+    Extracted from _start_background_services so tests can drive this
+    block directly without stubbing the entire background-services
+    bootstrap.
+
+    User constraint: "the worker should only run if backups are
+    enabled" — the thread literally doesn't start when disabled, not
+    just parks in DISABLED state. The PUT /api/admin/backup/config
+    endpoint handles the runtime enable transition via
+    _reconcile_workers in routes/api_backup.py; this function handles
+    the boot-time case.
+
+    ``cfg`` is the result of ``mlss_monitor.backup.config.load()``.
+    ``state_module`` is dependency-injected so tests can pass a fake;
+    production wires the real ``mlss_monitor.state`` module. ``logger``
+    is similarly injected so callers control where the messages land.
+    """
+    if not cfg["enabled"]:
+        logger.info("Backup is disabled — no workers started")
+        return
+
+    from mlss_monitor.backup.worker import BackupWorker
+
+    for pipeline in ("db", "files"):
+        if not cfg[pipeline]["enabled"]:
+            logger.info(
+                "Backup pipeline %r is disabled — worker not started",
+                pipeline,
+            )
+            continue
+        worker = BackupWorker(
+            pipeline=pipeline,
+            event_bus=state_module.event_bus,
+        )
+        worker._on_enabled()
+        if cfg["paused"]:
+            # Order matters: _on_paused must run BEFORE start() so the
+            # thread parks in PAUSED rather than IDLE on its first
+            # tick. Otherwise a brief IDLE→DRAINING flicker is
+            # possible before the listener thread observes the PAUSED
+            # state set by a subsequent admin action.
+            worker._on_paused()
+        worker.start()
+        setattr(state_module, f"backup_{pipeline}_worker", worker)
+        logger.info("Backup worker started: pipeline=%r", pipeline)
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

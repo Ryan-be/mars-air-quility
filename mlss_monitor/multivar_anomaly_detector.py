@@ -2,14 +2,20 @@
 """MultivarAnomalyDetector: composite multi-dimensional HalfSpaceTrees models."""
 from __future__ import annotations
 
+import hashlib
 import logging
 import pickle
+import sqlite3
 import time
+from contextlib import closing
+from datetime import datetime
 from pathlib import Path
 
 import yaml
 from river.anomaly import HalfSpaceTrees
 
+from database.init_db import DB_FILE
+from mlss_monitor.backup import outbox
 from mlss_monitor.feature_vector import FeatureVector
 
 log = logging.getLogger(__name__)
@@ -107,6 +113,19 @@ class MultivarAnomalyDetector:
                         "n_seen": self._n_seen[mid],
                         "ema": self._ema.get(mid, {}),
                     }, f)
+                # Enqueue a blob pointer for the backup shipper. Per-model
+                # try/except ensures one failed enqueue doesn't break other
+                # models in the same save batch. SHA256 over bytes that just
+                # landed on disk.
+                sha = hashlib.sha256(path.read_bytes()).hexdigest()
+                target_key = f"multivar_anomaly/{mid}/{datetime.utcnow().isoformat()}.pkl"
+                with closing(sqlite3.connect(DB_FILE, timeout=10)) as conn:
+                    with conn:
+                        outbox.enqueue_blob(
+                            conn, kind="model",
+                            source_path=str(path),
+                            target_key=target_key, sha256=sha,
+                        )
             except Exception as exc:
                 log.warning("MultivarAnomalyDetector: could not save %r: %s", mid, exc)
 

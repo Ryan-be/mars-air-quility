@@ -10,10 +10,12 @@ import logging
 import queue
 import sqlite3
 import threading
+from contextlib import closing
 from datetime import datetime
 from statistics import correlation
 from typing import Any
 
+from mlss_monitor.backup import outbox
 from mlss_monitor.incident_signature_storage import save_signature
 
 log = logging.getLogger(__name__)
@@ -467,74 +469,104 @@ def regroup_all(db_file: str) -> None:
     edges = build_edges(primary, split_markers)
     components = connected_components(primary, edges)
 
-    conn = sqlite3.connect(db_file, timeout=15)
-    cur = conn.cursor()
-    cur.execute("PRAGMA journal_mode=WAL")
+    # `with closing(...)` guarantees the connection is closed even on
+    # exception. The inner `with conn:` is the transaction context — it
+    # commits on success or rolls back on exception, replacing the
+    # explicit conn.commit() / conn.close() pair that used to live at
+    # the end of this block.
+    with closing(sqlite3.connect(db_file, timeout=15)) as conn:
+        with conn:
+            cur = conn.cursor()
+            cur.execute("PRAGMA journal_mode=WAL")
 
-    # Fresh rebuild — clear then insert.  Keeps the grouping idempotent.
-    # incident_signature_features has ON DELETE CASCADE on incidents(id), but
-    # foreign_keys pragma isn't on for this connection, so we wipe the
-    # sub-table explicitly — same pattern as incident_alerts above.
-    cur.execute("DELETE FROM incident_signature_features")
-    cur.execute("DELETE FROM incident_alerts")
-    cur.execute("DELETE FROM incidents")
+            # Fresh rebuild — clear then insert.  Keeps the grouping
+            # idempotent. incident_signature_features has ON DELETE
+            # CASCADE on incidents(id), but foreign_keys pragma isn't on
+            # for this connection, so we wipe the sub-table explicitly —
+            # same pattern as incident_alerts above.
+            #
+            # Backup wiring: these three tables are strict-mirror in the
+            # outbox design, so the whole-table wipe needs to propagate
+            # to the backup server. We enqueue an empty-scope delete
+            # marker for each table BEFORE the DELETEs so the shipper
+            # sees the delete event in order (the per-row INSERT pointers
+            # enqueued below land after, so the server applies them in
+            # the same logical order — wipe, then re-insert).
+            outbox.enqueue_delete_scope(conn, table="incidents", scope={})
+            outbox.enqueue_delete_scope(conn, table="incident_alerts", scope={})
+            outbox.enqueue_delete_scope(
+                conn, table="incident_signature_features", scope={})
 
-    for component in components:
-        if not component:
-            continue
-        sorted_comp = sorted(component, key=lambda a: a["created_at"])
-        t_start = datetime.fromisoformat(sorted_comp[0]["created_at"])
-        t_end = datetime.fromisoformat(sorted_comp[-1]["created_at"])
-        incident_id = make_incident_id(t_start)
+            cur.execute("DELETE FROM incident_signature_features")
+            cur.execute("DELETE FROM incident_alerts")
+            cur.execute("DELETE FROM incidents")
 
-        # Confidence: min P over the edges that touch this component.
-        comp_ids = {a["id"] for a in component}
-        comp_edges = [
-            (src, dst, p) for src, dst, p in edges
-            if src in comp_ids and dst in comp_ids
-        ]
-        conf = incident_confidence(comp_edges)
+            for component in components:
+                if not component:
+                    continue
+                sorted_comp = sorted(component, key=lambda a: a["created_at"])
+                t_start = datetime.fromisoformat(sorted_comp[0]["created_at"])
+                t_end = datetime.fromisoformat(sorted_comp[-1]["created_at"])
+                incident_id = make_incident_id(t_start)
 
-        max_sev = max(
-            (a.get("severity", "info") for a in component),
-            key=lambda s: _SEVERITY_ORDER.get(s, 0),
-        )
-        title = generate_incident_title(component)
-        vector = build_incident_similarity_vector(component)
-        # Insert the parent row first; save_signature() then writes the
-        # 32-element vector into the typed
-        # incident_signature_features sub-table.
-        cur.execute(
-            "INSERT OR REPLACE INTO incidents "
-            "(id, started_at, ended_at, max_severity, confidence, title) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (incident_id,
-             t_start.isoformat(sep=" "),
-             t_end.isoformat(sep=" "),
-             max_sev, conf, title),
-        )
-        save_signature(conn, incident_id, vector)
+                # Confidence: min P over the edges that touch this component.
+                comp_ids = {a["id"] for a in component}
+                comp_edges = [
+                    (src, dst, p) for src, dst, p in edges
+                    if src in comp_ids and dst in comp_ids
+                ]
+                conf = incident_confidence(comp_edges)
 
-        # Primary alerts: is_primary=1
-        for alert in component:
-            cur.execute(
-                "INSERT OR IGNORE INTO incident_alerts "
-                "(incident_id, alert_id, is_primary) VALUES (?, ?, ?)",
-                (incident_id, alert["id"], 1),
-            )
-
-        # Cross-incident alerts that fall within this incident's time window.
-        for cross_alert in cross:
-            ct = datetime.fromisoformat(cross_alert["created_at"])
-            if t_start <= ct <= t_end:
-                cur.execute(
-                    "INSERT OR IGNORE INTO incident_alerts "
-                    "(incident_id, alert_id, is_primary) VALUES (?, ?, ?)",
-                    (incident_id, cross_alert["id"], 0),
+                max_sev = max(
+                    (a.get("severity", "info") for a in component),
+                    key=lambda s: _SEVERITY_ORDER.get(s, 0),
                 )
+                title = generate_incident_title(component)
+                vector = build_incident_similarity_vector(component)
+                # Insert the parent row first; save_signature() then writes
+                # the 32-element vector into the typed
+                # incident_signature_features sub-table.
+                cur.execute(
+                    "INSERT OR REPLACE INTO incidents "
+                    "(id, started_at, ended_at, max_severity, confidence, title) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (incident_id,
+                     t_start.isoformat(sep=" "),
+                     t_end.isoformat(sep=" "),
+                     max_sev, conf, title),
+                )
+                outbox.enqueue_row(conn, table="incidents", pk=incident_id)
+                # save_signature enqueues per-feature row pointers itself.
+                save_signature(conn, incident_id, vector)
 
-    conn.commit()
-    conn.close()
+                # Primary alerts: is_primary=1
+                for alert in component:
+                    cur.execute(
+                        "INSERT OR IGNORE INTO incident_alerts "
+                        "(incident_id, alert_id, is_primary) VALUES (?, ?, ?)",
+                        (incident_id, alert["id"], 1),
+                    )
+                    outbox.enqueue_row(
+                        conn, table="incident_alerts",
+                        pk=f"{incident_id}:{alert['id']}",
+                    )
+
+                # Cross-incident alerts that fall within this incident's time window.
+                for cross_alert in cross:
+                    ct = datetime.fromisoformat(cross_alert["created_at"])
+                    if t_start <= ct <= t_end:
+                        cur.execute(
+                            "INSERT OR IGNORE INTO incident_alerts "
+                            "(incident_id, alert_id, is_primary) VALUES (?, ?, ?)",
+                            (incident_id, cross_alert["id"], 0),
+                        )
+                        outbox.enqueue_row(
+                            conn, table="incident_alerts",
+                            pk=f"{incident_id}:{cross_alert['id']}",
+                        )
+
+        # `with conn:` exits here, committing the transaction.
+    # `with closing(...)` exits here, closing the connection.
 
 
 # ── Background thread ──────────────────────────────────────────────────────────

@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block title %}MLSS – Backup settings{% endblock %}
+
+{% block extra_css %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/backup.css') }}">
+{% endblock %}
+
+{% block topbar_controls %}
+  <a href="{{ url_for('pages.admin') }}" class="btn">
+    <rux-icon icon="settings" size="extra-small"></rux-icon>
+    Settings
+  </a>
+{% endblock %}
+
+{% block content %}
+
+  <section class="bk-page">
+    <header class="bk-pageheader">
+      <h2>Backup settings</h2>
+      <p class="settings-blurb">
+        Ship MLSS data to your home server. The database pipeline replicates
+        replicated_tables to Postgres; the files pipeline ships photos and
+        ML model snapshots to S3.
+      </p>
+    </header>
+
+    <!-- Section 1: Master enable + per-pipeline status panel -->
+    <div id="bk-status-host" class="bk-section">
+      <section class="card bk-status-panel">
+        <h3>Backup status</h3>
+        <p class="bk-empty">Loading…</p>
+      </section>
+    </div>
+
+    <!-- Section 2: Per-pipeline config form -->
+    <div id="bk-settings-host" class="bk-section">
+      <p class="loading-text" style="padding:1rem;color:var(--color-text-secondary);">
+        Loading config…
+      </p>
+    </div>
+
+    <!-- Save button — anchored below the form so submit feels natural -->
+    <div class="bk-save-row">
+      <button id="bk-save-btn" type="button" class="btn-save">Save settings</button>
+      <span id="bk-save-status"></span>
+    </div>
+
+    <!-- Section 3: Advanced controls (confirm-gated) -->
+    <div id="bk-advanced-host" class="bk-section"></div>
+
+  </section>
+
+{% endblock %}
+
+{% block scripts %}
+  <script type="module" src="{{ url_for('static', filename='js/backup/page.mjs') }}"></script>
+{% endblock %}

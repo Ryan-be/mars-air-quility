@@ -33,6 +33,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from database.init_db import DB_FILE
+from mlss_monitor.backup import outbox
 from mlss_monitor.grow.api_helpers import RANGE_TO_HOURS
 from mlss_monitor.grow.photo_storage import _resolve_images_dir
 
@@ -170,13 +171,27 @@ def render_job(job_id: int) -> None:
             return
 
         # Mark running so a sibling worker (future scale-up) doesn't
-        # double-claim this row.
-        conn.execute(
-            "UPDATE grow_timelapse_jobs SET status='running', started_at=? "
-            "WHERE id=? AND status='queued'",
-            (datetime.utcnow(), job_id),
-        )
-        conn.commit()
+        # double-claim this row. The UPDATE + outbox enqueue commit in
+        # one transaction (`with conn:`) so the running flip can never
+        # escape the live DB without its backup pointer.
+        with conn:
+            cur = conn.execute(
+                "UPDATE grow_timelapse_jobs SET status='running', started_at=? "
+                "WHERE id=? AND status='queued'",
+                (datetime.utcnow(), job_id),
+            )
+            # Defence-in-depth: if a concurrent worker beat us to the
+            # queued→running flip the rowcount is 0 — return BEFORE the
+            # enqueue so the loser doesn't leave a phantom outbox pointer.
+            if cur.rowcount == 0:
+                log.info(
+                    "render_job: job %s already claimed by another worker",
+                    job_id,
+                )
+                return
+            outbox.enqueue_row(
+                conn, table="grow_timelapse_jobs", pk=job_id,
+            )
         # Re-read to pick up the latest values
         row = conn.execute(
             "SELECT * FROM grow_timelapse_jobs WHERE id=?", (job_id,),
@@ -254,23 +269,50 @@ def render_job(job_id: int) -> None:
 
 
 def _mark_failed(conn, job_id: int, message: str) -> None:
-    conn.execute(
-        "UPDATE grow_timelapse_jobs "
-        "SET status='failed', error_message=?, completed_at=? "
-        "WHERE id=?",
-        (message, datetime.utcnow(), job_id),
-    )
-    conn.commit()
+    # UPDATE + outbox enqueue committed atomically via `with conn:` so
+    # a crash mid-commit can't leave the live row updated without its
+    # backup pointer.
+    with conn:
+        cur = conn.execute(
+            "UPDATE grow_timelapse_jobs "
+            "SET status='failed', error_message=?, completed_at=? "
+            "WHERE id=?",
+            (message, datetime.utcnow(), job_id),
+        )
+        # Defensive rowcount-gate: if the row vanished (operator wiped
+        # the queue mid-render), don't leave a phantom outbox pointer.
+        if cur.rowcount == 0:
+            return
+        outbox.enqueue_row(
+            conn, table="grow_timelapse_jobs", pk=job_id,
+        )
 
 
 def _mark_complete(conn, job_id: int, output_path: str) -> None:
-    conn.execute(
-        "UPDATE grow_timelapse_jobs "
-        "SET status='complete', output_path=?, completed_at=? "
-        "WHERE id=?",
-        (output_path, datetime.utcnow(), job_id),
-    )
-    conn.commit()
+    # UPDATE + outbox enqueue committed atomically (see _mark_failed
+    # for rationale).
+    with conn:
+        cur = conn.execute(
+            "UPDATE grow_timelapse_jobs "
+            "SET status='complete', output_path=?, completed_at=? "
+            "WHERE id=?",
+            (output_path, datetime.utcnow(), job_id),
+        )
+        if cur.rowcount == 0:
+            # Row vanished mid-render (operator wiped the queue). The MP4
+            # at output_path is now an orphan — ffmpeg already wrote it,
+            # but no DB row references it, so the photos route won't ever
+            # serve it. Log loudly so operators can find + reap stragglers
+            # via journalctl. Don't unlink here: the operator may want to
+            # recover the file; deletion is their call to make.
+            log.warning(
+                "_mark_complete: row vanished for job %s; MP4 orphaned at %s",
+                job_id, output_path,
+            )
+            return
+        outbox.enqueue_row(
+            conn, table="grow_timelapse_jobs", pk=job_id,
+        )
 
 
 # ---------------------------------------------------------------------------

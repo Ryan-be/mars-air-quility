@@ -67,6 +67,11 @@ def post_fork(server, worker):
     - the background services (sensor loop, weather loop, detection engine,
       anomaly bootstrap Timer) via `_start_background_services()` after
       clearing the idempotency guard inherited from the master.
+    - the BackupWorker thread(s) — `_start_background_services()` reads
+      `mlss_monitor.backup.config.load()` and only spawns a worker when
+      both the master `enabled` flag and the per-pipeline (`db`/`files`)
+      `enabled` flag are set. When disabled, no thread runs at all (see
+      docs/BACKUP.md for the operator semantics).
     """
     try:
         import asyncio

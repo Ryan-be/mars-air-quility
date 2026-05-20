@@ -153,6 +153,16 @@ def admin():
     return render_template("admin.html")
 
 
+@pages_bp.route("/admin/backup")
+@require_role("admin")
+def admin_backup():
+    """Backup-pipeline operator UI. Admin-only at the page level even
+    though every consumed API endpoint also requires admin — defence
+    in depth, and a non-admin landing here gets an honest 403 instead
+    of a half-rendered "loading…" stuck panel."""
+    return render_template("admin_backup.html")
+
+
 @pages_bp.route("/settings/insights-engine")
 @require_role("admin")
 def insights_engine():

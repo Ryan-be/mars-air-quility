@@ -1,0 +1,324 @@
+/* /admin/backup styles. Extends admin.css conventions — .card,
+   .toggle-row, .field-row, .field, .btn-save are reused from there. */
+
+/* ── Page wrapper ─────────────────────────────────────────────────── */
+.bk-page {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.2em;
+}
+.bk-pageheader { margin-bottom: 0.4em; }
+.bk-pageheader h2 {
+  font-size: 18px;
+  font-weight: 500;
+  margin: 0 0 0.3em;
+  color: var(--color-text-primary);
+}
+.bk-pageheader .settings-blurb {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.bk-section { display: contents; }
+
+/* ── Status panel ─────────────────────────────────────────────────── */
+.bk-status-panel { /* inherits .card */ }
+.bk-empty,
+.bk-empty-pipeline {
+  font-size: 0.9em;
+  color: var(--color-text-secondary);
+  margin: 0.6em 0 0;
+}
+.bk-paused-banner {
+  background: rgba(77, 172, 255, 0.12);
+  border: 1px solid var(--color-status-standby, #4dacff);
+  color: var(--color-status-standby, #4dacff);
+  border-radius: 3px;
+  padding: 0.4em 0.8em;
+  font-size: 0.85em;
+  margin: 0.5em 0;
+}
+
+.bk-pipelines {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1em;
+  margin-top: 0.8em;
+}
+.bk-pipeline-card {
+  background: var(--color-background-surface-default);
+  border: 1px solid var(--color-border-interactive-muted);
+  border-radius: 3px;
+  padding: 0.8em 0.9em;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
+}
+.bk-pipeline-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  font-size: 0.85em;
+}
+.bk-pipeline-name {
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--color-text-secondary);
+}
+
+/* ── State chip (colour-coded) ────────────────────────────────────── */
+.bk-state-chip {
+  display: inline-block;
+  padding: 0.15em 0.6em;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  border-radius: 12px;
+  text-transform: uppercase;
+  font-family: var(--font-family-monospace, monospace);
+}
+.bk-state-idle {
+  background: rgba(86, 240, 0, 0.15);
+  color: var(--color-status-normal, #56f000);
+  border: 1px solid var(--color-status-normal, #56f000);
+}
+.bk-state-draining {
+  background: rgba(255, 179, 2, 0.15);
+  color: var(--color-status-caution, #ffb302);
+  border: 1px solid var(--color-status-caution, #ffb302);
+}
+.bk-state-backoff {
+  background: rgba(255, 56, 56, 0.15);
+  color: var(--color-status-critical, #ff3838);
+  border: 1px solid var(--color-status-critical, #ff3838);
+}
+.bk-state-paused {
+  background: rgba(77, 172, 255, 0.15);
+  color: var(--color-status-standby, #4dacff);
+  border: 1px solid var(--color-status-standby, #4dacff);
+}
+.bk-state-disabled {
+  background: rgba(128, 128, 128, 0.12);
+  color: var(--color-text-placeholder);
+  border: 1px solid var(--color-border-interactive-muted);
+}
+
+/* Thread-alive indicator */
+.bk-thread-alive,
+.bk-thread-dead {
+  font-size: 11px;
+  font-weight: 500;
+  margin-left: auto;
+}
+.bk-thread-alive { color: var(--color-status-normal, #56f000); }
+.bk-thread-dead  { color: var(--color-status-critical, #ff3838); }
+
+/* Pending-counts row */
+.bk-pending-row {
+  display: flex;
+  gap: 1em;
+  font-size: 0.85em;
+  color: var(--color-text-secondary);
+}
+.bk-pending strong {
+  color: var(--color-text-primary);
+  font-family: var(--font-family-monospace, monospace);
+  font-size: 1.05em;
+}
+
+/* Timestamps */
+.bk-ts-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15em;
+  font-size: 0.78em;
+  color: var(--color-text-placeholder);
+  font-family: var(--font-family-monospace, monospace);
+}
+.bk-backoff-row {
+  font-size: 0.78em;
+  color: var(--color-text-placeholder);
+}
+
+/* Error block (collapsed by default via <details>) */
+.bk-error-wrap {
+  margin-top: 0.4em;
+  border-top: 1px dashed var(--color-border-interactive-muted);
+  padding-top: 0.5em;
+}
+.bk-error-wrap summary {
+  font-size: 0.8em;
+  color: var(--color-status-critical);
+  cursor: pointer;
+  user-select: none;
+}
+.bk-error {
+  font-family: var(--font-family-monospace, monospace);
+  font-size: 0.78em;
+  color: var(--color-status-critical);
+  background: rgba(255, 56, 56, 0.08);
+  border: 1px solid rgba(255, 56, 56, 0.25);
+  border-radius: 3px;
+  padding: 0.5em 0.7em;
+  margin: 0.4em 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+/* ── Settings form ────────────────────────────────────────────────── */
+.bk-settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1em;
+}
+.bk-pipeline-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+  gap: 1.2em;
+}
+.bk-settings-card {
+  /* inherits .card */
+  display: flex;
+  flex-direction: column;
+  gap: 0.8em;
+}
+
+/* Native checkbox styled as a switch — uses .toggle-row from admin.css */
+.bk-switch {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+/* Input row alignment inside settings cards */
+.bk-settings-card .field input[type="text"],
+.bk-settings-card .field input[type="number"],
+.bk-settings-card .field input[type="password"] {
+  width: 100%;
+  background: var(--color-background-base-default);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border-interactive-muted);
+  border-radius: 3px;
+  padding: 0.5em 0.6em;
+  font-size: 0.9em;
+  box-sizing: border-box;
+}
+.bk-settings-card .field input:focus {
+  outline: none;
+  border-color: var(--color-border-interactive-default);
+}
+.bk-settings-card .field input::placeholder {
+  color: var(--color-text-placeholder);
+  font-style: italic;
+}
+
+/* Test / Initialise button row */
+.bk-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6em;
+  margin-top: 0.4em;
+  padding-top: 0.6em;
+  border-top: 1px dashed var(--color-border-interactive-muted);
+}
+.bk-result {
+  font-size: 0.82em;
+  color: var(--color-text-secondary);
+  flex: 1;
+  min-width: 100px;
+}
+.bk-result-ok  { color: var(--color-status-normal, #56f000); }
+.bk-result-err { color: var(--color-status-critical, #ff3838); }
+
+/* ── Save row ─────────────────────────────────────────────────────── */
+.bk-save-row {
+  display: flex;
+  align-items: center;
+  gap: 1em;
+  padding: 0.6em 0;
+}
+#bk-save-status { font-size: 0.85em; min-height: 1.2em; }
+
+/* ── Advanced controls ────────────────────────────────────────────── */
+.bk-advanced-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6em;
+}
+.bk-advanced-controls > button {
+  align-self: flex-start;
+  margin: 0.2em 0;
+  padding: 0.5em 1em;
+  font-size: 0.85em;
+  cursor: pointer;
+  font-family: inherit;
+  border-radius: 3px;
+}
+
+/* Inline confirm dialog (hidden until opened) */
+.bk-confirm-inline {
+  background: var(--color-background-base-default);
+  border: 1px solid var(--color-status-critical);
+  border-radius: 3px;
+  padding: 1em 1.2em;
+  margin: 0.3em 0 0.6em;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6em;
+}
+.bk-confirm-warn {
+  font-size: 0.85em;
+  color: var(--color-status-critical);
+  margin: 0;
+  line-height: 1.5;
+}
+.bk-confirm-instruct {
+  font-size: 0.85em;
+  color: var(--color-text-secondary);
+  margin: 0;
+}
+.bk-confirm-instruct code {
+  background: var(--color-background-surface-default);
+  color: var(--color-text-primary);
+  padding: 0.1em 0.4em;
+  border-radius: 2px;
+  font-size: 1em;
+  letter-spacing: 0.05em;
+}
+.bk-confirm-challenge {
+  background: var(--color-background-surface-default);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border-interactive-muted);
+  border-radius: 3px;
+  padding: 0.5em 0.6em;
+  font-family: var(--font-family-monospace, monospace);
+  font-size: 0.95em;
+  max-width: 220px;
+}
+.bk-confirm-challenge:focus {
+  outline: none;
+  border-color: var(--color-status-critical);
+}
+.bk-confirm-actions {
+  display: flex;
+  gap: 0.6em;
+}
+.bk-confirm-result {
+  font-size: 0.82em;
+  margin: 0;
+  min-height: 1em;
+}
+
+/* Disabled confirm-button visual */
+.bk-confirm-inline button[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

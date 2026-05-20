@@ -61,6 +61,31 @@ def test_admin_astro_landmarks(app_client):
     assert 'data-tab="settings"' in body, "Missing data-tab=settings"
 
 
+def test_admin_has_backup_subnav_link(app_client):
+    """Admin page links to /admin/backup so the page is discoverable."""
+    client, _ = app_client
+    resp = client.get("/admin")
+    assert resp.status_code == 200
+    body = resp.data.decode()
+    assert "/admin/backup" in body, "Missing /admin/backup discovery link"
+
+
+def test_admin_backup_page_renders_for_admin(app_client):
+    """/admin/backup loads with the host elements the orchestrator needs."""
+    client, _ = app_client
+    resp = client.get("/admin/backup")
+    assert resp.status_code == 200
+    body = resp.data.decode()
+    # The orchestrator (static/js/backup/page.mjs) queries these IDs
+    # — if the template is renamed we want the test to flag it.
+    assert 'id="bk-status-host"' in body
+    assert 'id="bk-settings-host"' in body
+    assert 'id="bk-advanced-host"' in body
+    assert 'id="bk-save-btn"' in body
+    # JS module is loaded
+    assert "js/backup/page.mjs" in body
+
+
 def test_insights_engine_astro_landmarks(app_client):
     """Insights engine page returns 200 and contains AstroUXDS structural landmarks."""
     client, _ = app_client

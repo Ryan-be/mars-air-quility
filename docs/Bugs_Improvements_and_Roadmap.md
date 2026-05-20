@@ -411,3 +411,74 @@ All three share the existing I2C bus on the grow unit (Seesaw soil sensor at 0x3
 
 **Future extension — LVPD (leaf VPD)**: closer to "true plant happiness" than air-VPD because it uses leaf surface temperature (typically 2–5 °C cooler than air due to evapotranspiration) instead of air temperature. Requires an IR thermopile sensor (MLX90614, ~£8 I2C 0x5A) pointed at the canopy. Worth re-evaluating once air-VPD is in production and we have a baseline to compare against.
 
+---
+
+## Off-Pi backup pipeline (`mlss_monitor/backup/`)
+
+Asynchronous replication of canonical ML data from the hub's SQLite to
+a home Postgres + S3 backend, so SD-card failure / fire / theft of the
+hub doesn't lose years of training data. Designed as nine phases; the
+first four landed on this branch.
+
+### Partially shipped — Phases 1-4 of 9
+
+- ~~**Phase 1 — outbox storage + lint guard.**~~ Four pointer tables
+  added to the hub's SQLite (`outbox_changes`, `outbox_blobs`,
+  `outbox_delete_scope`, `bootstrap_progress` — see
+  [DATABASE.md](DATABASE.md#backup-outbox-tables)). Outbox storage
+  helpers in `mlss_monitor/backup/outbox.py` (`enqueue_row`,
+  `enqueue_blob`, `enqueue_delete_scope`, `peek_*`, `delete_*`,
+  `pending_count_*`). Lint test
+  `tests/test_no_direct_writes_to_replicated_tables.py` enforces every
+  write to a replicated table goes through an allowlisted helper, so
+  the outbox enqueue can't be bypassed.
+- ~~**Phase 2 — `@tee_to_outbox` decorator + writer refactor.**~~
+  Decorator wraps every replicated-table writer (`db_logger`,
+  `grow/handlers`, `incident_grouper.regroup_all`, grow API route
+  handlers, time-lapse jobs, inference evidence storage, …) so the
+  outbox pointer commits in the same transaction as the live row.
+  Strict-mirror tables (`incidents`, `incident_alerts`,
+  `incident_signature_features`, `grow_light_windows`,
+  `grow_unit_capabilities`) use the `outbox_delete_scope` path so
+  wholesale-rebuild call sites replicate correctly.
+- ~~**Phase 3 — Postgres + S3 clients + config.**~~ `PostgresClient`
+  (`test_connection`, `upsert_rows` with `INSERT…ON CONFLICT`,
+  `delete_scope`, `run_ddl`), `S3Client` (`test_connection`, `head`,
+  `put`, `make_bucket` — boto3 wrapper, S3-compatible: MinIO / AWS /
+  Cloudflare R2 / etc.), and a config module that stores settings in
+  `app_settings` under the `backup.*` prefix with password masking on
+  read and `get_secret` for the worker.
+- ~~**Phase 4 — `BackupWorker` daemon thread.**~~ State machine
+  (`DISABLED / IDLE / DRAINING / BACKOFF / PAUSED`), DB + files drain
+  loops, exponential backoff (1 s → 600 s cap, resets on success),
+  hot-reload via `EventBus` subscription so the admin saving new config
+  wakes the worker without a restart, and status emission via
+  `EventBus.publish` after every meaningful state change for the
+  future admin SSE-driven status panel. Two instances run in parallel
+  (`pipeline='db'` and `pipeline='files'`) with independent state +
+  backoff so a Postgres outage doesn't block S3 shipping.
+
+### Pending — Phases 5-9
+
+- **Phase 5 — historical bootstrap.** One-shot scan that walks every
+  existing row in the replicated tables and enqueues a pointer so a
+  clean Postgres can be back-filled from the live DB. The
+  `bootstrap_progress` table is already in the schema; no producer or
+  consumer yet.
+- **Phase 6 — admin REST API.** `GET/POST /api/admin/backup/config`,
+  `GET /api/admin/backup/status`, `POST /api/admin/backup/test-connections`,
+  `POST /api/admin/backup/pause` / `resume`.
+- **Phase 7 — admin UI.** Settings → Backup page wiring the above
+  endpoints, with the SSE status panel listening for the
+  `backup_status_changed` event the worker already publishes.
+- **Phase 8 — wire `BackupWorker` into `app.py` startup.** The worker
+  is feature-complete but no code path constructs and starts it yet.
+  This phase also ships the operator-facing `docs/BACKUP.md`.
+- **Phase 9 — E2E smoke + operator runbook.** End-to-end test against
+  a containerised Postgres + MinIO; document the bring-up procedure
+  and the disaster-recovery restore path.
+
+Until Phase 8 lands, the outbox tables fill up on every write but
+never drain — the disk cost is pointer rows only (~50 bytes each) and
+the lint guard keeps the design coherent in the meantime.
+

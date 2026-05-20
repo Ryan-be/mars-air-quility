@@ -435,6 +435,99 @@ This is the same pattern applied to `grow_units.last_known_state_json`,
 `grow_units.light_phase_override_json`, `incidents.signature`, and
 `inferences.evidence`.
 
+### Backup outbox tables
+
+Defined in [`database/backup_schema.py`](../database/backup_schema.py)
+and created at startup by `init_db.py`. Four tables that exist
+alongside the air-quality + grow tables in the same `sensor_data.db`,
+co-located so the `@tee_to_outbox` decorator in
+[`mlss_monitor/backup/outbox.py`](../mlss_monitor/backup/outbox.py) can
+enqueue a pointer in the same transaction that writes the live row —
+the backup state literally cannot lag the live system.
+
+Pointer-table design: these tables hold `(table_name, pk)` references,
+not row copies. At ship-time the worker re-reads the live table by PK
+and writes the current state to Postgres, so multiple updates to the
+same row collapse into one ship. Photos and time-lapse MP4s are
+referenced by `(source_path, target_key, sha256)` and uploaded
+byte-for-byte to S3.
+
+> Status (this branch): the schema, helpers, decorator, lint guard,
+> and worker are in place. The worker isn't wired into `app.py` yet
+> (Phase 8). Until then the tables fill up on every write but never
+> drain — which is harmless other than the disk cost (pointer rows
+> only, ~50 bytes each; blobs are referenced not copied).
+
+#### `outbox_changes` — row pointers to ship to Postgres
+
+UNIQUE `(table_name, pk)` — re-enqueueing the same row coalesces:
+`first_seen_at` is preserved, `last_change_at` is bumped. The shipper
+batches by `id ASC`, reads live state per PK, and `DELETE`s the pointer
+after Postgres ACKs the UPSERT.
+
+| Column | Type | Note |
+|---|---|---|
+| `id` | INTEGER PK AUTOINCREMENT | Drains in monotonic insert order |
+| `table_name` | TEXT NOT NULL | One of the replicated tables (see backup spec) |
+| `pk` | TEXT NOT NULL | Stringified primary key — composite PKs are JSON-encoded |
+| `first_seen_at` | DATETIME NOT NULL | Set on first enqueue, never updated |
+| `last_change_at` | DATETIME NOT NULL | Bumped on every re-enqueue |
+| `ship_attempts` | INTEGER NOT NULL DEFAULT 0 | Incremented on each failed ship |
+
+#### `outbox_blobs` — file pointers to ship to S3
+
+UNIQUE `(target_key)` — the S3 bucket+key is the canonical identity, so
+re-enqueueing the same key is silently dropped (`INSERT OR IGNORE`).
+Two physical paths that produce the same S3 key would conflict on
+upload anyway.
+
+| Column | Type | Note |
+|---|---|---|
+| `id` | INTEGER PK AUTOINCREMENT | Drains in monotonic insert order |
+| `kind` | TEXT NOT NULL | `photo` / `timelapse` etc. — routes to a bucket suffix |
+| `source_path` | TEXT NOT NULL | Local path the worker reads from |
+| `target_key` | TEXT NOT NULL | S3 key (object name within its bucket) |
+| `sha256` | TEXT NOT NULL | Verified after upload via HEAD |
+| `first_seen_at` | DATETIME NOT NULL | Set on first enqueue |
+| `ship_attempts` | INTEGER NOT NULL DEFAULT 0 | Incremented on each failed ship |
+
+#### `outbox_delete_scope` — strict-mirror wipe markers
+
+Some tables (`incidents`, `incident_alerts`,
+`incident_signature_features`, `grow_light_windows`,
+`grow_unit_capabilities`) are rebuilt wholesale by their owning code
+path — e.g. `incident_grouper.regroup_all()` deletes every row and
+re-inserts. UPSERT-on-PK can't replicate "rows that used to exist on
+the replica but don't any more" so the regroup path enqueues a
+`scope_json` marker (the SQL WHERE clause the wipe used). At ship-time
+the worker translates that into a Postgres `DELETE` on the same scope
+before the per-row UPSERTs land.
+
+| Column | Type | Note |
+|---|---|---|
+| `id` | INTEGER PK AUTOINCREMENT | Drains in monotonic order |
+| `table_name` | TEXT NOT NULL | The wipe-target table |
+| `scope_json` | TEXT NOT NULL | JSON-encoded WHERE-clause args (e.g. `{"unit_id": 3}`) |
+| `first_seen_at` | DATETIME NOT NULL | Set on first enqueue |
+| `ship_attempts` | INTEGER NOT NULL DEFAULT 0 | Incremented on each failed ship |
+
+#### `bootstrap_progress` — historical-data scan checkpoints
+
+PRIMARY KEY `(pipeline, scope)`. Reserved for the future Phase 5
+historical-data scan that walks every existing row and enqueues a
+pointer so a clean Postgres can be back-filled from the live DB. The
+table exists now so the schema is stable on first deployment; no
+producer or consumer in shipped code on this branch.
+
+| Column | Type | Note |
+|---|---|---|
+| `pipeline` | TEXT NOT NULL (PK) | `db` or `files` |
+| `scope` | TEXT NOT NULL (PK) | Table name or blob-kind subset |
+| `last_pk` | TEXT | Cursor for resume |
+| `total_rows` | INTEGER | Optional progress target |
+| `started_at` | DATETIME NOT NULL | First scan attempt |
+| `completed_at` | DATETIME | NULL until the scan finishes |
+
 ---
 
 ## Grow unit buffer database

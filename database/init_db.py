@@ -417,6 +417,10 @@ def create_db():
     # Plant Grow Unit tables (Phase 1)
     create_grow_schema(cur)
 
+    # Backup outbox tables (Pi-side queue for the dual-write backup feature)
+    from database import backup_schema
+    backup_schema.create_tables(conn)
+
     conn.commit()
     conn.close()
 

@@ -32,6 +32,7 @@ import asyncio
 import json
 import logging
 import sqlite3
+from contextlib import closing
 from datetime import datetime
 from typing import NamedTuple
 
@@ -48,6 +49,7 @@ from mlss_contracts.config_payloads import (
     SafetyOverrideRequest,
 )
 from mlss_monitor import state
+from mlss_monitor.backup import outbox
 from mlss_monitor.grow.api_helpers import serialise_validation_errors
 from mlss_monitor.rbac import require_role
 from mlss_monitor.routes.api_grow_ws import _validate_bearer
@@ -139,15 +141,16 @@ def put_profile(unit_id):
     values.append(unit_id)
     sql = f"UPDATE grow_units SET {', '.join(set_clauses)} WHERE id=?"
 
-    conn = sqlite3.connect(DB_FILE, timeout=10)
-    try:
-        cur = conn.execute(sql, values)
-        if cur.rowcount == 0:
-            conn.rollback()
-            return jsonify({"error": "unit_not_found"}), 404
-        conn.commit()
-    finally:
-        conn.close()
+    with closing(sqlite3.connect(DB_FILE, timeout=10)) as conn:
+        with conn:  # transaction: commit on success, rollback on exception
+            cur = conn.execute(sql, values)
+            if cur.rowcount == 0:
+                # Return BEFORE the enqueue so unknown unit_ids don't leak a
+                # phantom outbox pointer. `with conn:` commits the (empty)
+                # transaction on the return path, but no live row changed so
+                # there is nothing for the backup shipper to chase.
+                return jsonify({"error": "unit_not_found"}), 404
+            outbox.enqueue_row(conn, table="grow_units", pk=unit_id)
 
     _push_config_changed(unit_id, "profile")
     return jsonify({"ok": True})
@@ -227,14 +230,12 @@ def put_pid(unit_id):
     if not persistable:
         # Either an empty body, or only deadband_pct (currently non-persisted).
         # Still verify the unit exists so the caller doesn't get a misleading
-        # 200 for a unit that isn't there.
-        conn = sqlite3.connect(DB_FILE, timeout=10)
-        try:
+        # 200 for a unit that isn't there. No live write happens here, so no
+        # outbox enqueue either — the no-op path is fully read-only.
+        with closing(sqlite3.connect(DB_FILE, timeout=10)) as conn:
             row = conn.execute(
                 "SELECT 1 FROM grow_units WHERE id=?", (unit_id,)
             ).fetchone()
-        finally:
-            conn.close()
         if row is None:
             return jsonify({"error": "unit_not_found"}), 404
         return jsonify({"ok": True})
@@ -243,15 +244,12 @@ def put_pid(unit_id):
     values = list(persistable.values()) + [unit_id]
     sql = f"UPDATE grow_units SET {', '.join(set_clauses)} WHERE id=?"
 
-    conn = sqlite3.connect(DB_FILE, timeout=10)
-    try:
-        cur = conn.execute(sql, values)
-        if cur.rowcount == 0:
-            conn.rollback()
-            return jsonify({"error": "unit_not_found"}), 404
-        conn.commit()
-    finally:
-        conn.close()
+    with closing(sqlite3.connect(DB_FILE, timeout=10)) as conn:
+        with conn:
+            cur = conn.execute(sql, values)
+            if cur.rowcount == 0:
+                return jsonify({"error": "unit_not_found"}), 404
+            outbox.enqueue_row(conn, table="grow_units", pk=unit_id)
 
     _push_config_changed(unit_id, "pid")
     return jsonify({"ok": True})
@@ -290,33 +288,40 @@ def put_light_windows(unit_id):
             "detail": serialise_validation_errors(exc.errors()),
         }), 400
 
-    conn = sqlite3.connect(DB_FILE, timeout=10)
-    try:
-        if not conn.execute(
-            "SELECT 1 FROM grow_units WHERE id=?", (unit_id,),
-        ).fetchone():
-            return jsonify({"error": "unit_not_found"}), 404
+    with closing(sqlite3.connect(DB_FILE, timeout=10)) as conn:
+        with conn:
+            if not conn.execute(
+                "SELECT 1 FROM grow_units WHERE id=?", (unit_id,),
+            ).fetchone():
+                # Return BEFORE any DELETE / enqueue so an unknown-unit PUT
+                # doesn't leave a delete-scope marker that would wipe
+                # nothing on the server side. The transaction commits
+                # cleanly (no writes happened).
+                return jsonify({"error": "unit_not_found"}), 404
 
-        # Replace all windows for this (unit, phase). Other phases untouched.
-        # sqlite3 default isolation_level='' opens an implicit transaction on
-        # the first DML statement — DELETE + INSERTs share one transaction and
-        # roll back together if any INSERT raises (since `finally: conn.close()`
-        # runs without a prior commit). The conn.commit() at the end is what
-        # makes the changes durable.
-        conn.execute(
-            "DELETE FROM grow_light_windows WHERE unit_id=? AND phase=?",
-            (unit_id, payload.phase),
-        )
-        for i, w in enumerate(payload.windows):
-            conn.execute(
-                "INSERT INTO grow_light_windows "
-                "(unit_id, phase, start_hh_mm, end_hh_mm, sort_order) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (unit_id, payload.phase, w.start, w.end, i),
+            # Strict-mirror replace. Enqueue the delete-scope BEFORE the
+            # DELETE so the shipper sees "wipe these rows" ordered ahead of
+            # the per-row pointers it ships next; the server applies the
+            # wipe + the inserts atomically.
+            outbox.enqueue_delete_scope(
+                conn,
+                table="grow_light_windows",
+                scope={"unit_id": unit_id, "phase": payload.phase},
             )
-        conn.commit()
-    finally:
-        conn.close()
+            conn.execute(
+                "DELETE FROM grow_light_windows WHERE unit_id=? AND phase=?",
+                (unit_id, payload.phase),
+            )
+            for i, w in enumerate(payload.windows):
+                cur = conn.execute(
+                    "INSERT INTO grow_light_windows "
+                    "(unit_id, phase, start_hh_mm, end_hh_mm, sort_order) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (unit_id, payload.phase, w.start, w.end, i),
+                )
+                outbox.enqueue_row(
+                    conn, table="grow_light_windows", pk=cur.lastrowid,
+                )
 
     _push_config_changed(unit_id, "light_windows")
     return jsonify({"ok": True})
@@ -347,18 +352,15 @@ def put_calibration(unit_id):
             "detail": serialise_validation_errors(exc.errors()),
         }), 400
 
-    conn = sqlite3.connect(DB_FILE, timeout=10)
-    try:
-        cur = conn.execute(
-            "UPDATE grow_units SET soil_dry_raw=?, soil_wet_raw=? WHERE id=?",
-            (payload.dry_raw, payload.wet_raw, unit_id),
-        )
-        if cur.rowcount == 0:
-            conn.rollback()
-            return jsonify({"error": "unit_not_found"}), 404
-        conn.commit()
-    finally:
-        conn.close()
+    with closing(sqlite3.connect(DB_FILE, timeout=10)) as conn:
+        with conn:
+            cur = conn.execute(
+                "UPDATE grow_units SET soil_dry_raw=?, soil_wet_raw=? WHERE id=?",
+                (payload.dry_raw, payload.wet_raw, unit_id),
+            )
+            if cur.rowcount == 0:
+                return jsonify({"error": "unit_not_found"}), 404
+            outbox.enqueue_row(conn, table="grow_units", pk=unit_id)
 
     _push_config_changed(unit_id, "calibration")
     return jsonify({"ok": True})
@@ -394,20 +396,17 @@ def put_photo_schedule(unit_id):
             "detail": serialise_validation_errors(exc.errors()),
         }), 400
 
-    conn = sqlite3.connect(DB_FILE, timeout=10)
-    try:
-        cur = conn.execute(
-            "UPDATE grow_units SET "
-            "photo_active_start_hour=?, photo_active_end_hour=? "
-            "WHERE id=?",
-            (payload.start_hour, payload.end_hour, unit_id),
-        )
-        if cur.rowcount == 0:
-            conn.rollback()
-            return jsonify({"error": "unit_not_found"}), 404
-        conn.commit()
-    finally:
-        conn.close()
+    with closing(sqlite3.connect(DB_FILE, timeout=10)) as conn:
+        with conn:
+            cur = conn.execute(
+                "UPDATE grow_units SET "
+                "photo_active_start_hour=?, photo_active_end_hour=? "
+                "WHERE id=?",
+                (payload.start_hour, payload.end_hour, unit_id),
+            )
+            if cur.rowcount == 0:
+                return jsonify({"error": "unit_not_found"}), 404
+            outbox.enqueue_row(conn, table="grow_units", pk=unit_id)
 
     _push_config_changed(unit_id, "photo_schedule")
     return jsonify({"ok": True})
@@ -444,14 +443,12 @@ def post_safety_override(unit_id):
 
     # Verify unit exists before pushing — keeps a 404 from masquerading as
     # a 503 when the unit_id is wrong (different from a real-but-offline unit).
-    conn = sqlite3.connect(DB_FILE, timeout=10)
-    try:
+    # Read-only branch: no outbox enqueue.
+    with closing(sqlite3.connect(DB_FILE, timeout=10)) as conn:
         if not conn.execute(
             "SELECT 1 FROM grow_units WHERE id=?", (unit_id,),
         ).fetchone():
             return jsonify({"error": "unit_not_found"}), 404
-    finally:
-        conn.close()
 
     triggered_by = session.get("user") or "unknown"
     command = json.dumps({
@@ -486,28 +483,30 @@ def post_safety_override(unit_id):
 
     # Audit trail. Recorded only after the push confirmed — if the unit
     # never received the command, no action happened and no audit row.
-    conn = sqlite3.connect(DB_FILE, timeout=10)
-    try:
-        conn.execute(
-            "INSERT INTO grow_errors "
-            "(unit_id, timestamp_utc, severity, kind, message, details_json) "
-            "VALUES (?, ?, 'info', 'safety_override_invoked', ?, ?)",
-            (
-                unit_id,
-                datetime.utcnow(),
-                f"safety_override action={payload.action} "
-                f"duration_s={payload.duration_s}",
-                json.dumps({
-                    "action": payload.action,
-                    "duration_s": payload.duration_s,
-                    "acknowledged_warnings": payload.acknowledged_warnings,
-                    "triggered_by": triggered_by,
-                }),
-            ),
-        )
-        conn.commit()
-    finally:
-        conn.close()
+    # The INSERT + outbox enqueue land in one transaction so the backup
+    # shipper can never see the live row without its pointer.
+    with closing(sqlite3.connect(DB_FILE, timeout=10)) as conn:
+        with conn:
+            cur = conn.execute(
+                "INSERT INTO grow_errors "
+                "(unit_id, timestamp_utc, severity, kind, message, details_json) "
+                "VALUES (?, ?, 'info', 'safety_override_invoked', ?, ?)",
+                (
+                    unit_id,
+                    datetime.utcnow(),
+                    f"safety_override action={payload.action} "
+                    f"duration_s={payload.duration_s}",
+                    json.dumps({
+                        "action": payload.action,
+                        "duration_s": payload.duration_s,
+                        "acknowledged_warnings": payload.acknowledged_warnings,
+                        "triggered_by": triggered_by,
+                    }),
+                ),
+            )
+            outbox.enqueue_row(
+                conn, table="grow_errors", pk=cur.lastrowid,
+            )
 
     return jsonify({"ok": True}), 202
 

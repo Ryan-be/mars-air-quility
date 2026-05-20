@@ -27,6 +27,27 @@ These features are already built into the application:
 
 ---
 
+## System packages
+
+`scripts/setup_pi.sh` installs everything below automatically on a
+fresh Pi; this section is for the case where you're bringing up the
+hub on a non-Pi host (e.g. a Debian server) and bypassing setup_pi.sh.
+
+- [ ] **`libpq-dev`** — provides `pg_config`; needed for
+  `psycopg2-binary` to build from source on architectures without
+  prebuilt wheels (the off-Pi backup pipeline's Postgres client). Skip
+  only if you're certain backup will never be enabled on this host.
+  ```bash
+  sudo apt install -y libpq-dev
+  ```
+- [ ] **`ffmpeg`** — grow-unit time-lapse rendering shells out to
+  ffmpeg; missing it returns `503 ffmpeg_not_installed` on first use.
+  ```bash
+  sudo apt install -y ffmpeg
+  ```
+
+---
+
 ## Authentication and secrets
 
 - [ ] **Set `MLSS_SECRET_KEY`** to a cryptographically random value:

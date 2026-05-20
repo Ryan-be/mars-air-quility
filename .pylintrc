@@ -40,3 +40,12 @@ max-line-length=120
 
 [DESIGN]
 max-args=8
+
+[TYPECHECK]
+# @tee_to_outbox injects `conn` at call-time. Without telling pylint the
+# decorator mutates the signature, every caller of an @tee_to_outbox-wrapped
+# function trips E1120 "no value for argument" because pylint statically
+# resolves the call to the original FunctionDef (which still has `conn` as
+# the first parameter). signature-mutators turns off arity checking for
+# functions decorated with the listed names.
+signature-mutators=tee_to_outbox

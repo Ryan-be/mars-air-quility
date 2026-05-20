@@ -29,6 +29,7 @@ Three endpoint families on this blueprint:
 """
 import secrets
 import sqlite3
+from contextlib import closing
 from typing import Optional
 
 from flask import Blueprint, jsonify, request
@@ -36,6 +37,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from database.init_db import DB_FILE
 from mlss_contracts._validators import make_min_le_max_validator
+from mlss_monitor.backup import outbox
 from mlss_monitor.grow.api_helpers import serialise_validation_errors
 from mlss_monitor.grow.auth import hash_secret
 from mlss_monitor.rbac import require_role
@@ -159,14 +161,14 @@ def update_plant_profile(profile_id):
         f"UPDATE grow_plant_profiles SET {', '.join(set_clauses)} WHERE id=?"
     )
 
-    conn = sqlite3.connect(DB_FILE, timeout=10)
-    try:
-        cur = conn.execute(sql, values)
-        if cur.rowcount == 0:
-            return jsonify({"error": "profile_not_found"}), 404
-        conn.commit()
-    finally:
-        conn.close()
+    with closing(sqlite3.connect(DB_FILE, timeout=10)) as conn:
+        with conn:
+            cur = conn.execute(sql, values)
+            if cur.rowcount == 0:
+                return jsonify({"error": "profile_not_found"}), 404
+            outbox.enqueue_row(
+                conn, table="grow_plant_profiles", pk=profile_id,
+            )
     return jsonify({"ok": True})
 
 

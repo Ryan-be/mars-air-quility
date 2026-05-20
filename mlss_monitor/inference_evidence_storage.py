@@ -89,6 +89,14 @@ def persist_evidence(
     Caller is responsible for ``conn.commit()``. This mirrors the
     existing pattern in :mod:`mlss_monitor.incident_signature_storage`,
     keeping the write transactional with any surrounding row insert.
+
+    Outbox: enqueues a row pointer for the updated inferences row inside
+    the caller's transaction. The outbox table coalesces on
+    (table_name, pk) so callers that wrap this in their own
+    ``@tee_to_outbox``-decorated helper (e.g. :func:`save_inference`'s
+    ``_save_inference_to_db``) get the INSERT + UPDATE collapsed into a
+    single pointer, which is the right behaviour — the shipper reads
+    current state at ship-time.
     """
     typed, extras = split_evidence(evidence)
     extras_json = json.dumps(extras) if extras else None
@@ -104,6 +112,12 @@ def persist_evidence(
         f"UPDATE inferences SET {', '.join(set_clauses)} WHERE id=?",
         values,
     )
+    # Mirror the live UPDATE to the outbox inside the same transaction.
+    # Local import keeps the dependency direction clean: outbox is part
+    # of mlss_monitor.backup, and this module already lives under
+    # mlss_monitor — no new top-level cycle introduced.
+    from mlss_monitor.backup import outbox  # pylint: disable=import-outside-toplevel
+    outbox.enqueue_row(conn, table="inferences", pk=inference_id)
 
 
 def load_evidence(

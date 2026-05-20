@@ -2,15 +2,21 @@
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import logging
 import pickle
+import sqlite3
+from contextlib import closing
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from river import linear_model, preprocessing  # pylint: disable=import-error
 
 from database.db_logger import get_inference_tags, get_inferences  # pylint: disable=import-outside-toplevel
+from database.init_db import DB_FILE
 from mlss_monitor.attribution.loader import Fingerprint, load_fingerprints
 from mlss_monitor.attribution.scorer import combine, sensor_score, temporal_score
+from mlss_monitor.backup import outbox
 from mlss_monitor.feature_vector import FeatureVector
 
 log = logging.getLogger(__name__)
@@ -260,7 +266,6 @@ class AttributionEngine:
                     continue
                 # Reconstruct FV (simplified, assuming all fields present)
                 from mlss_monitor.feature_vector import FeatureVector  # pylint: disable=import-outside-toplevel,reimported
-                from datetime import datetime  # pylint: disable=import-outside-toplevel
                 fv = FeatureVector(
                     timestamp=datetime.fromisoformat(fv_dict["timestamp"]),
                     **{k: v for k, v in fv_dict.items() if k != "timestamp"}
@@ -312,9 +317,6 @@ class AttributionEngine:
         feature_vector when raw data is unavailable (e.g. older than retention).
         """
         try:
-            # pylint: disable=import-outside-toplevel
-            from datetime import datetime, timedelta, timezone
-
             # Reset model so repeated retrains don't accumulate duplicate samples.
             self._ml_model = _StringLabelClassifier()
 
@@ -402,6 +404,23 @@ class AttributionEngine:
                 log.info("AttributionEngine: classifier saved to disk")
             except Exception as exc:  # pylint: disable=broad-exception-caught
                 log.warning("AttributionEngine: could not save classifier: %s", exc)
+            # Enqueue a blob pointer so the backup shipper can upload this
+            # classifier pickle to S3. Separate try/except so a transient
+            # sqlite issue doesn't mask the (already-completed) pickle save.
+            try:
+                sha = hashlib.sha256(self._pkl_path.read_bytes()).hexdigest()
+                target_key = f"attribution/classifier/{datetime.utcnow().isoformat()}.pkl"
+                with closing(sqlite3.connect(DB_FILE, timeout=10)) as conn:
+                    with conn:
+                        outbox.enqueue_blob(
+                            conn, kind="model",
+                            source_path=str(self._pkl_path),
+                            target_key=target_key, sha256=sha,
+                        )
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                log.warning(
+                    "AttributionEngine: could not enqueue classifier blob: %s", exc,
+                )
         except Exception as exc:  # pylint: disable=broad-exception-caught
             log.warning("AttributionEngine: training error: %s", exc)
 
