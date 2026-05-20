@@ -183,6 +183,12 @@
     <p id="thresholdStatus"></p>
   </div>
 
+  <!-- ── Notifications card ──────────────────────────────────────────── -->
+  <div id="notifications-card-mount"></div>
+
+  <!-- ── Mobile install card ─────────────────────────────────────────── -->
+  <div id="mobile-install-card-mount"></div>
+
 </div><!-- /.settings-grid -->
 </div><!-- /#tab-settings -->
 
@@ -921,4 +927,15 @@
       }).join('');
     }
   </script>
+
+<script type="module">
+  import { renderNotificationsCard } from
+    "{{ url_for('static', filename='js/notifications/settings.mjs') }}";
+  import { renderMobileInstallCard } from
+    "{{ url_for('static', filename='js/notifications/mobile-install.mjs') }}";
+  document.getElementById("notifications-card-mount")
+    .appendChild(renderNotificationsCard());
+  document.getElementById("mobile-install-card-mount")
+    .appendChild(renderMobileInstallCard());
+</script>
 {% endblock %}
