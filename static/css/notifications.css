@@ -1,0 +1,116 @@
+/* MLSS Mobile: Notifications inbox page */
+
+.inbox {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 20px 16px;
+}
+
+.inbox-header h2 {
+  margin: 0;
+  font-size: 1.5rem;
+}
+.inbox-subtitle {
+  margin: 4px 0 16px;
+  color: var(--color-text-secondary);
+  font-size: 0.85rem;
+}
+
+.inbox-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.inbox-row {
+  background: var(--color-bg-secondary, #1a2027);
+  border: 1px solid var(--color-border, #2a3038);
+  border-radius: 4px;
+  transition: background 0.1s ease, transform 0.1s ease;
+}
+.inbox-row:hover {
+  background: var(--color-bg-hover, #232a32);
+}
+.inbox-row:active {
+  transform: scale(0.99);
+}
+
+.inbox-row-link {
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  gap: 12px;
+  padding: 12px;
+  text-decoration: none;
+  color: var(--color-text-primary);
+}
+
+.inbox-row--unread {
+  border-left: 3px solid var(--color-status-serious, #ffb302);
+}
+.inbox-row--read {
+  opacity: 0.7;
+}
+
+.inbox-row-icon {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 4px;
+}
+
+.inbox-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.inbox-dot--unread {
+  background: var(--color-status-serious, #ffb302);
+}
+.inbox-dot--read {
+  background: transparent;
+  border: 1px solid var(--color-text-secondary);
+}
+
+.inbox-row-top {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8rem;
+}
+
+.inbox-severity {
+  font-weight: 600;
+}
+.inbox-severity--info     { color: var(--color-text-secondary); }
+.inbox-severity--warning  { color: var(--color-status-serious, #ffb302); }
+.inbox-severity--critical { color: var(--color-status-critical, #ff3838); }
+
+.inbox-when {
+  color: var(--color-text-secondary);
+}
+
+.inbox-title {
+  margin-top: 4px;
+  font-weight: 500;
+}
+.inbox-body {
+  margin-top: 2px;
+  color: var(--color-text-secondary);
+  font-size: 0.9rem;
+}
+.inbox-count {
+  margin-top: 4px;
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+  font-style: italic;
+}
+
+.inbox-empty {
+  padding: 32px;
+  text-align: center;
+  color: var(--color-text-secondary);
+}
+.inbox-error {
+  padding: 16px;
+  color: var(--color-status-critical, #ff3838);
+}

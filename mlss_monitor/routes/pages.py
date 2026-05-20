@@ -59,6 +59,13 @@ def incidents_page():
     return render_template("incidents.html")
 
 
+@pages_bp.route("/notifications")
+@require_role("viewer", "controller", "admin")
+def notifications_page():
+    """In-app inbox for recent push notifications (last 30 days)."""
+    return render_template("notifications.html")
+
+
 @pages_bp.route("/grow")
 def grow_fleet():
     # Phase 3 Task 6: pass disk-usage info so the template can surface a

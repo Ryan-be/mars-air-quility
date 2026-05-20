@@ -142,6 +142,14 @@
       <span>Incidents</span>
     </a>
 
+    <!-- Notifications -->
+    <a href="{{ url_for('pages.notifications_page') }}"
+       data-tab="notifications"
+       class="{{ 'active' if active == 'pages.notifications_page' else '' }}">
+      <rux-icon icon="notifications-active" size="extra-small"></rux-icon>
+      <span>Notifications</span>
+    </a>
+
     <!-- Grow (also covers Grow Errors + Grow Settings via the sub-nav row
          on those pages — see templates/_grow_subnav.html) -->
     <a href="{{ url_for('pages.grow_fleet') }}"
