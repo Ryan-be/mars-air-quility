@@ -26,10 +26,12 @@ local-only state that wouldn't be useful on the server.
 
 ## Prerequisites
 
-Before deploying the hub with backup enabled, install the system
-package `libpq-dev` (provides `pg_config` so `psycopg2-binary` can
-build from source on architectures without prebuilt wheels — the Pi
-typically has no wheel for its Python+arch combo):
+### On the hub (Pi)
+
+Install the system package `libpq-dev` (provides `pg_config` so
+`psycopg2-binary` can build from source on architectures without
+prebuilt wheels — the Pi typically has no wheel for its Python+arch
+combo):
 
 ```bash
 sudo apt install -y libpq-dev
@@ -39,13 +41,81 @@ sudo apt install -y libpq-dev
 `bin/deploy` runs `apt install -y libpq-dev` before `poetry install`
 on every deploy (idempotent, so it's a no-op once installed).
 
-The hub does **not** provision the Postgres server itself: you need
-an existing Postgres instance reachable from the hub, with an empty
-database that the configured backup user owns. The hub creates
-*tables* inside that database (see Setup step 2 below) but won't
-create the database — that's a different privilege level on the
-Postgres side, and operators typically want control over server
-provisioning anyway.
+### On the backup server (Postgres)
+
+The hub does **not** provision the Postgres server itself. Stand up
+Postgres any way you like (native install on a Proxmox VM, an LXC
+container, a managed cloud Postgres — the hub only needs network
+reachability). The hub has been tested against Postgres 16.
+
+After installing Postgres, create an empty database + a user the hub
+will connect as:
+
+```sql
+-- Run as a superuser (`sudo -u postgres psql`)
+CREATE USER mlss_hub WITH PASSWORD 'choose-a-strong-password';
+CREATE DATABASE mlss OWNER mlss_hub;
+
+-- Grant CREATE so the hub's "Initialise" step (see Setup below) can
+-- create the replicated tables. After Initialise has run once you
+-- can REVOKE CREATE and leave only INSERT/UPDATE/SELECT — see the
+-- Security note at the bottom of this file.
+GRANT ALL PRIVILEGES ON DATABASE mlss TO mlss_hub;
+```
+
+Then make the server reachable from the Pi:
+
+1. Edit `/etc/postgresql/<version>/main/postgresql.conf` and set
+   `listen_addresses = '*'` (or a specific IP).
+2. Edit `/etc/postgresql/<version>/main/pg_hba.conf` and add a line
+   for the Pi's subnet, e.g.:
+   ```
+   host    mlss    mlss_hub    192.168.1.0/24    scram-sha-256
+   ```
+3. `sudo systemctl restart postgresql`.
+4. Open port 5432 on the host firewall to the Pi's IP.
+
+**TLS is strongly recommended** — the hub defaults to `sslmode=require`.
+If you need to test against plain TCP first, set `sslmode=disable` in
+the `Advanced` form in `/admin/backup` and tighten later.
+
+### On the backup server (MinIO or any S3-compatible store)
+
+The hub uses boto3, so anything S3-compatible works: MinIO,
+SeaweedFS, Cloudflare R2, Backblaze B2, AWS S3 itself. MinIO via the
+official .deb is the simplest local option:
+
+```bash
+# On the backup server (Debian/Ubuntu x86_64):
+wget https://dl.min.io/server/minio/release/linux-amd64/minio.deb
+sudo dpkg -i minio.deb
+
+# Create a data directory + service user (see the MinIO quickstart
+# guide for the canonical setup):
+sudo useradd -r minio-user -s /sbin/nologin
+sudo mkdir -p /srv/minio/data
+sudo chown minio-user:minio-user /srv/minio/data
+
+# Configure via /etc/default/minio (MinIO reads env vars from here
+# when run via its systemd unit):
+sudo tee /etc/default/minio >/dev/null <<'EOF'
+MINIO_ROOT_USER=admin
+MINIO_ROOT_PASSWORD=choose-a-strong-password
+MINIO_VOLUMES=/srv/minio/data
+MINIO_OPTS="--console-address :9001 --address :9000"
+EOF
+
+sudo systemctl enable --now minio
+```
+
+That gives you a MinIO server on `:9000` (S3 API) + `:9001` (web
+console). The hub creates the four buckets for you when you click
+**Initialise** on the files pipeline — no manual `mc` commands needed.
+
+For MinIO buckets you'd typically mint a non-root access key from
+the MinIO console (`http://<server>:9001`) and give it `PutObject` +
+`HeadObject` on the `mlss-*` bucket pattern only. Configure that
+key + secret in the hub's `/admin/backup` form.
 
 ---
 
@@ -138,12 +208,33 @@ cleartext in the hub's `app_settings` SQLite table — Pi-level disk
 encryption and filesystem ACLs are the only protection. This matches
 how `bearer_token_hash` for grow units is handled. Don't reuse
 high-value credentials here; mint dedicated backup users with the
-minimum privileges:
+minimum privileges.
 
-- **Postgres** — `INSERT, UPDATE` on the replicated tables + the
-  `source_pi_id` discriminator column.
-- **S3** — `PutObject`, `HeadObject`, and `ListBuckets` on the
-  `mlss-*` buckets only.
+**Postgres** — two privilege levels:
+
+- *Bootstrap* (only needed while you click Initialise the first
+  time, and again if you ever add a new replicated table to the live
+  schema): `CREATE` on the database so the hub can run
+  `CREATE TABLE IF NOT EXISTS` + `CREATE INDEX IF NOT EXISTS`.
+- *Steady state* (after the schema exists): `INSERT, UPDATE, SELECT`
+  on the replicated tables. Revoke `CREATE` and other DDL privileges
+  to harden the role.
+
+```sql
+-- After running Initialise from /admin/backup, harden the role:
+REVOKE CREATE ON DATABASE mlss FROM mlss_hub;
+REVOKE CREATE ON SCHEMA public FROM mlss_hub;
+GRANT INSERT, UPDATE, SELECT ON ALL TABLES IN SCHEMA public TO mlss_hub;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT INSERT, UPDATE, SELECT ON TABLES TO mlss_hub;
+```
+
+**S3** — minimum policy: `PutObject`, `HeadObject` on
+`arn:aws:s3:::mlss-*/*` only. `ListBuckets` is required for the
+"Test connection" preflight; you can scope it to the prefix via a
+condition if your backend supports it. `CreateBucket` is only needed
+during Initialise (same pattern as Postgres `CREATE` — drop it
+afterwards if you want to minimise blast radius).
 
 ---
 
