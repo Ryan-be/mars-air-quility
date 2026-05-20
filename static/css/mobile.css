@@ -1,0 +1,188 @@
+/*
+ * MLSS Mobile: narrow-viewport overrides (max-width: 768px).
+ *
+ * Loaded AFTER base.css from base.html. Pure CSS — no JS coordination.
+ * Designed for iPhone use (PWA install on iOS); the same rules apply
+ * to any narrow viewport (small laptops in split-screen, etc).
+ *
+ * Strategy:
+ *   - Global status bar: shrink, hide non-essential monitors.
+ *   - Tab nav: bottom-fixed, icon-only, 44px tap targets.
+ *   - Cards & forms: single column, full width, 44px min height.
+ *   - Tables: horizontal scroll, sticky first column.
+ *   - Body padding: leave room for the bottom nav so content isn't covered.
+ */
+
+@media (max-width: 768px) {
+
+  /* ─── Global status bar ─────────────────────────────────────────── */
+  .global-status-bar {
+    padding: 4px 8px;
+    flex-wrap: wrap;
+    height: auto;
+    min-height: 44px;
+  }
+
+  .gsb-app-mark .gsb-app-name {
+    font-size: 0.95rem;
+  }
+
+  /* Hide AIR + SENSORS on narrow; keep ENV + INFERENCE so the user can
+     still see the two most-important subsystem statuses at a glance. */
+  .gsb-monitors {
+    gap: 6px;
+  }
+  .gsb-monitor#gsb-btn-air,
+  .gsb-monitor#gsb-btn-sensors {
+    display: none;
+  }
+  .gsb-monitor-status {
+    display: none;
+  }
+
+  .gsb-clock {
+    display: none;
+  }
+
+  .gsb-user .session-user {
+    font-size: 0.8rem;
+  }
+
+  /* ─── Tab nav: fixed bottom nav, icon-only ──────────────────────── */
+  nav.tab-nav {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 1000;
+    height: 56px;
+    background: var(--color-bg-secondary, #1a2027);
+    border-top: 1px solid var(--color-border, #2a3038);
+    display: flex;
+    justify-content: space-around;
+    align-items: stretch;
+    overflow-x: auto;
+    padding: 0;
+  }
+  nav.tab-nav a {
+    flex: 1 1 auto;
+    min-width: 44px;
+    min-height: 44px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 6px;
+    gap: 2px;
+  }
+  nav.tab-nav a rux-icon {
+    --size: 24px;
+    font-size: 22px;
+  }
+  /* Icon-only on mobile to fit 5+ tabs; labels hidden but accessible. */
+  nav.tab-nav a span {
+    font-size: 9px;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  /* ─── Make room for the bottom nav so content isn't hidden ──────── */
+  main.page-content {
+    padding-bottom: 72px;
+  }
+  .page-controls-bar {
+    padding-bottom: 8px;
+  }
+
+  /* ─── Cards & grids: single column ──────────────────────────────── */
+  .settings-grid {
+    grid-template-columns: 1fr !important;
+    gap: 12px;
+  }
+  .card {
+    width: 100%;
+    padding: 12px;
+  }
+
+  /* ─── Forms: stack fields, 44px tap targets ─────────────────────── */
+  .field-row {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .field {
+    width: 100%;
+  }
+  .field input,
+  .field select,
+  .field textarea,
+  .notif-select,
+  input[type="text"],
+  input[type="number"],
+  input[type="email"],
+  input[type="password"],
+  select,
+  textarea {
+    min-height: 44px;
+    font-size: 16px; /* prevents iOS zoom-on-focus */
+    padding: 8px 12px;
+  }
+
+  /* ─── Buttons: 44px min, full-width on narrow ───────────────────── */
+  .btn,
+  .btn-save,
+  .btn-secondary,
+  .btn-danger,
+  .btn-modal-cancel,
+  .btn-modal-confirm,
+  .btn-search,
+  .btn-logout,
+  .btn-reset {
+    min-height: 44px;
+    padding: 10px 16px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  /* Inline button groups (e.g. mobile-install card) shouldn't all be
+     100% — let them flex-wrap and share the row. */
+  .mobile-install-actions .btn-save,
+  .mobile-install-actions .btn-secondary,
+  .notif-device-row .btn-danger,
+  .modal-actions .btn-modal-cancel,
+  .modal-actions .btn-modal-confirm {
+    width: auto;
+    min-width: 44%;
+  }
+
+  /* ─── Tables: horizontal scroll ─────────────────────────────────── */
+  .card table,
+  table.log-table,
+  table.insights-table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    white-space: nowrap;
+  }
+  .card table thead,
+  table.log-table thead,
+  table.insights-table thead {
+    position: sticky;
+    top: 0;
+  }
+
+  /* ─── Inbox tweaks ─────────────────────────────────────────────── */
+  .inbox {
+    padding: 12px 8px;
+  }
+
+  /* ─── Topbar controls: stack ───────────────────────────────────── */
+  .page-controls-bar {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  /* ─── Tooltips: don't truncate the popover under the narrow bar ── */
+  .mlss-tip-pop {
+    max-width: 90vw;
+  }
+}
