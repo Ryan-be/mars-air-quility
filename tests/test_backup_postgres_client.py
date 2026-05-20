@@ -91,7 +91,7 @@ def test_upsert_rows_builds_correct_sql(client):
         )
     # Verify execute(many) was called once with the right SQL shape
     assert mock_cur.executemany.called
-    sql, values = mock_cur.executemany.call_args[0]
+    sql, _values = mock_cur.executemany.call_args[0]
     assert "INSERT INTO sensor_data" in sql
     assert "ON CONFLICT (id, source_pi_id)" in sql
     assert "DO UPDATE SET temperature=EXCLUDED.temperature" in sql

@@ -7,7 +7,7 @@ import logging
 import pickle
 import sqlite3
 from contextlib import closing
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from river import linear_model, preprocessing  # pylint: disable=import-error
@@ -266,7 +266,6 @@ class AttributionEngine:
                     continue
                 # Reconstruct FV (simplified, assuming all fields present)
                 from mlss_monitor.feature_vector import FeatureVector  # pylint: disable=import-outside-toplevel,reimported
-                from datetime import datetime  # pylint: disable=import-outside-toplevel
                 fv = FeatureVector(
                     timestamp=datetime.fromisoformat(fv_dict["timestamp"]),
                     **{k: v for k, v in fv_dict.items() if k != "timestamp"}
@@ -318,9 +317,6 @@ class AttributionEngine:
         feature_vector when raw data is unavailable (e.g. older than retention).
         """
         try:
-            # pylint: disable=import-outside-toplevel
-            from datetime import datetime, timedelta, timezone
-
             # Reset model so repeated retrains don't accumulate duplicate samples.
             self._ml_model = _StringLabelClassifier()
 

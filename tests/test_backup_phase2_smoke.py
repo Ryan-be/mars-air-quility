@@ -8,7 +8,6 @@ requiring you to know which test file owns that specific writer.
 import sqlite3
 import tempfile
 import gc
-import json
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 import pytest
@@ -18,7 +17,10 @@ import pytest
 def db_path(monkeypatch):
     """Fresh DB + monkeypatched DB_FILE references so every writer
     hits this temp file."""
-    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    # NamedTemporaryFile is intentionally NOT used as a context manager —
+    # the file must outlive this fixture so pytest setup/teardown can
+    # patch/unpatch DB_FILE around the yield.
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)  # pylint: disable=consider-using-with
     tmp.close()
     import database.init_db as init_db
     original = init_db.DB_FILE

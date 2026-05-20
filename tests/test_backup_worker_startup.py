@@ -47,18 +47,17 @@ def fake_logger():
     """Capture log calls instead of routing them through stdlib
     logging. Tests don't assert log contents — they just need the
     object to expose ``.info`` / ``.warning`` without side effects."""
-    calls: list[tuple[str, tuple]] = []
-
     class _Logger:
+        def __init__(self):
+            self.calls: list[tuple[str, tuple]] = []
+
         def info(self, msg, *args):
-            calls.append(("info", (msg, *args)))
+            self.calls.append(("info", (msg, *args)))
 
         def warning(self, msg, *args):
-            calls.append(("warning", (msg, *args)))
+            self.calls.append(("warning", (msg, *args)))
 
-    logger = _Logger()
-    logger.calls = calls  # type: ignore[attr-defined]
-    return logger
+    return _Logger()
 
 
 @pytest.fixture
@@ -222,10 +221,11 @@ def test_backup_startup_failure_does_not_crash_app(monkeypatch):
     # contract is exercised end-to-end.
     try:
         from mlss_monitor.backup import config as backup_config
-        from mlss_monitor.app import _start_backup_workers as _start
         from mlss_monitor import state as state_module
         import logging as _logging
-        _start(backup_config.load(), state_module, _logging.getLogger(__name__))
+        _start_backup_workers(
+            backup_config.load(), state_module, _logging.getLogger(__name__),
+        )
     except Exception:
         # Expected — assert we got here via the simulated raise, not
         # via some unrelated import failure.

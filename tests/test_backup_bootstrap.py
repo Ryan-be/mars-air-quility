@@ -26,9 +26,6 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 
-import pytest
-
-from mlss_monitor.backup import outbox
 from mlss_monitor.backup.bootstrap import BootstrapScanner
 
 

@@ -9,7 +9,6 @@ The `db` fixture (in conftest.py) already redirects config.DB_FILE to the
 tempfile, so the decorator's call-time connection opens the test DB.
 """
 import sqlite3
-import pytest
 
 
 def _outbox_rows(db_path: str, *, table: str | None = None):

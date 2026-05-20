@@ -27,7 +27,6 @@ NOT enqueue — those tests live in test_no_direct_writes_to_replicated_tables.p
 import sqlite3
 import tempfile
 from datetime import datetime, timedelta
-from unittest.mock import patch
 
 import pytest
 

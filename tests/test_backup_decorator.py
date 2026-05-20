@@ -106,8 +106,8 @@ def test_decorator_raises_value_error_when_helper_returns_none(db_path_with_test
     db_path = db_path_with_test_t
     @tee_to_outbox(table="test_t", db_file=db_path)
     def bad_save(conn, value):
+        # bug — forgot to return pk; the decorator must raise ValueError
         conn.execute("INSERT INTO test_t(v) VALUES (?)", (value,))
-        return None  # bug — forgot to return pk
 
     try:
         with pytest.raises(ValueError, match="returned None"):

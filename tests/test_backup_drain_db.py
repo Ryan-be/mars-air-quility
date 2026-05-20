@@ -382,7 +382,7 @@ def test_drain_db_batch_per_table_failure_only_loses_failing_table(
     # first and weather_log raises second.
     def _selective_failure(*, table, **_):
         if table == "weather_log":
-            raise Exception("connection refused on weather_log")
+            raise RuntimeError("connection refused on weather_log")
 
     pg_client.upsert_rows.side_effect = _selective_failure
 
@@ -435,7 +435,7 @@ def test_drain_db_batch_per_scope_failure_only_loses_failing_scope(
 
     def _selective_failure(*, table, **_):
         if table == "incident_alerts":
-            raise Exception("connection refused on incident_alerts")
+            raise RuntimeError("connection refused on incident_alerts")
 
     pg_client.delete_scope.side_effect = _selective_failure
 

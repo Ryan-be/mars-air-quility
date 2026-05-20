@@ -198,7 +198,9 @@ def fresh_sqlite_db(monkeypatch):
     design, not a shared one).
     """
     import database.init_db as init_db  # pylint: disable=import-outside-toplevel
-    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    # NamedTemporaryFile must outlive this fixture; pytest setup/teardown
+    # cycles around the yield need the path to remain valid.
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)  # pylint: disable=consider-using-with
     tmp.close()
     original = init_db.DB_FILE
     init_db.DB_FILE = tmp.name

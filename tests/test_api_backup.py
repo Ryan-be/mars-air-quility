@@ -15,11 +15,7 @@ don't need to spin up the production sensor loop.
 """
 from __future__ import annotations
 
-import json
 import sqlite3
-import threading
-import time
-from contextlib import closing
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -98,9 +94,13 @@ def _suppress_bootstrap_thread(request, monkeypatch):
     """
     if "real_bootstrap" in request.fixturenames:
         return
+
+    def _noop_kick_off(*, force_reset):  # pylint: disable=unused-argument
+        return None
+
     monkeypatch.setattr(
         "mlss_monitor.routes.api_backup._kick_off_bootstrap",
-        lambda *, force_reset: None,
+        _noop_kick_off,
     )
 
 
@@ -253,7 +253,10 @@ def test_put_config_enable_starts_worker(client, db_path, event_bus):
         assert r.status_code == 200
         # Worker was constructed for the db pipeline + started
         mock_cls.assert_any_call(pipeline="db", event_bus=event_bus)
-        worker_instance.start.assert_called()
+        # pylint mis-infers worker_instance.start as a <lambda> from the
+        # autouse _kick_off_bootstrap monkeypatch above — MagicMock does
+        # have assert_called, so suppress the false positive.
+        worker_instance.start.assert_called()  # pylint: disable=no-member
     # The (mock) worker is now held in state
     assert state.backup_db_worker is not None
 
@@ -832,7 +835,6 @@ def test_kick_off_bootstrap_force_reset_wipes_progress_first(
 def test_default_file_roots_includes_photos_dir():
     """Photos tree is always walked — populated by the live
     photo_storage.handle_photo_frame writer."""
-    from pathlib import Path
     from mlss_monitor.routes.api_backup import _default_file_roots
     roots = _default_file_roots()
     photo_entries = [(kind, p) for kind, p in roots if kind == "photo"]

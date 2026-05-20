@@ -15,7 +15,7 @@ import sqlite3
 import struct
 import sys
 import tempfile
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -28,7 +28,9 @@ _river_mocked = isinstance(sys.modules.get("river"), MagicMock)
 @pytest.fixture
 def db_path():
     """Fresh on-disk DB with init_db.create_db() schema (incl. outbox tables)."""
-    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    # NamedTemporaryFile must outlive this fixture; the path is yielded to
+    # the test and cleaned up after the yield resumes on teardown.
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)  # pylint: disable=consider-using-with
     tmp.close()
     import database.init_db as init_db
     original = init_db.DB_FILE
@@ -180,7 +182,9 @@ def test_anomaly_detector_save_enqueues_per_channel_blobs(
     det = AnomalyDetector(config_path=cfg, model_dir=model_dir)
     # Feed enough to trigger _save_models (_SAVE_EVERY_N = 3)
     for v in (1.0, 2.0, 3.0):
-        det.learn_and_score(FeatureVector(tvoc_current=v))
+        det.learn_and_score(
+            FeatureVector(timestamp=datetime.now(timezone.utc), tvoc_current=v)
+        )
     blobs = _outbox_blobs(db_path)
     assert any(
         kind == "model"
@@ -257,7 +261,11 @@ def test_multivar_anomaly_detector_save_enqueues_per_model_blobs(
     det = MultivarAnomalyDetector(config_path=cfg, model_dir=model_dir)
     for v in (1.0, 2.0, 3.0):
         det.learn_and_score(
-            FeatureVector(tvoc_current=v, eco2_current=400.0 + v)
+            FeatureVector(
+                timestamp=datetime.now(timezone.utc),
+                tvoc_current=v,
+                eco2_current=400.0 + v,
+            )
         )
     blobs = _outbox_blobs(db_path)
     assert any(

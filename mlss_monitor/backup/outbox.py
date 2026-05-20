@@ -9,6 +9,7 @@ state can never lag the live system.
 Spec: docs/superpowers/specs/2026-05-18-mlss-backup-design.md
 """
 import functools
+import inspect
 import json
 import sqlite3
 from contextlib import closing
@@ -214,6 +215,24 @@ def tee_to_outbox(*, table: str, db_file: str | None = None):
                         )
                     enqueue_row(conn, table=table, pk=pk)
             return pk
+
+        # Strip `conn` from the exposed signature so pylint + other static
+        # analysers see the public API (callers don't pass conn; the
+        # decorator injects it). functools.wraps preserves the original
+        # signature via __wrapped__, which otherwise produces a flood of
+        # spurious "no-value-for-parameter" warnings at every call site.
+        #
+        # We set __signature__ for inspect.signature() consumers AND delete
+        # __wrapped__ so astroid (pylint's static analyser) doesn't walk
+        # back to the original AST and re-derive the full signature.
+        sig = inspect.signature(fn)
+        wrapped.__signature__ = sig.replace(
+            parameters=[p for name, p in sig.parameters.items() if name != "conn"]
+        )
+        try:
+            del wrapped.__wrapped__
+        except AttributeError:  # pragma: no cover — wraps always sets it
+            pass
         return wrapped
     return wrap
 

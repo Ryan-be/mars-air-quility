@@ -166,10 +166,14 @@ def test_drain_files_batch_routes_by_target_key_prefix(db_path, s3_client, tmp_p
     """Four entries with different target_key prefixes → four different
     bucket_suffix values on the S3Client.put call args. Verifies the
     end-to-end routing via _bucket_suffix_for_key."""
-    photo = tmp_path / "photo.jpg"; photo.write_bytes(b"j")
-    anom = tmp_path / "anom.pkl"; anom.write_bytes(b"p")
-    multi = tmp_path / "multi.pkl"; multi.write_bytes(b"m")
-    attr = tmp_path / "attr.pkl"; attr.write_bytes(b"a")
+    photo = tmp_path / "photo.jpg"
+    photo.write_bytes(b"j")
+    anom = tmp_path / "anom.pkl"
+    anom.write_bytes(b"p")
+    multi = tmp_path / "multi.pkl"
+    multi.write_bytes(b"m")
+    attr = tmp_path / "attr.pkl"
+    attr.write_bytes(b"a")
 
     with sqlite3.connect(db_path) as conn:
         with conn:
@@ -203,7 +207,8 @@ def test_drain_files_batch_unknown_target_key_logs_and_drops(db_path, s3_client,
     log capture appears to retain the connection object via the
     captured stack frame on Windows, blocking the tempfile unlink in
     the fixture teardown."""
-    f = tmp_path / "x.bin"; f.write_bytes(b"x")
+    f = tmp_path / "x.bin"
+    f.write_bytes(b"x")
     conn = sqlite3.connect(db_path)
     try:
         with conn:

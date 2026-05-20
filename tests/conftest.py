@@ -136,11 +136,13 @@ def db_path(monkeypatch):
     import gc
     from pathlib import Path
 
-    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    # NamedTemporaryFile is intentionally NOT used as a context manager here:
+    # the file must outlive this fixture function so pytest setup/teardown can
+    # patch/unpatch DB_FILE across yields. R1732 is suppressed accordingly.
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)  # pylint: disable=consider-using-with
     tmp.close()
-    import database.init_db as init_db
-    original = init_db.DB_FILE
-    init_db.DB_FILE = tmp.name
+    original = dbi.DB_FILE
+    dbi.DB_FILE = tmp.name
 
     # Patch every module-level snapshot of DB_FILE that backup-pipeline
     # code paths read. monkeypatch.setattr restores on test teardown.
@@ -158,11 +160,11 @@ def db_path(monkeypatch):
         "mlss_monitor.routes.api_backup.DB_FILE", tmp.name, raising=False,
     )
 
-    init_db.create_db()
+    dbi.create_db()
     try:
         yield tmp.name
     finally:
-        init_db.DB_FILE = original
+        dbi.DB_FILE = original
         gc.collect()
         Path(tmp.name).unlink(missing_ok=True)
 

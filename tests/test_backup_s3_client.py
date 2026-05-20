@@ -3,7 +3,7 @@
 Mocks boto3.client — no real S3 instance required. The integration test
 (later) will hit a real MinIO instance.
 """
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 import pytest
 
 

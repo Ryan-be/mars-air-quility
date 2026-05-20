@@ -8,7 +8,9 @@ import pytest
 
 @pytest.fixture
 def fresh_db():
-    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    # NamedTemporaryFile must outlive this fixture; the temp file path is
+    # yielded to the test and removed on teardown after the yield resumes.
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)  # pylint: disable=consider-using-with
     tmp.close()
     import database.init_db as init_db
     init_db.DB_FILE = tmp.name

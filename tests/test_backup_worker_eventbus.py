@@ -29,7 +29,7 @@ import time
 from unittest.mock import patch
 import pytest
 
-from mlss_monitor.backup.worker import BackupWorker, State
+from mlss_monitor.backup.worker import BackupWorker
 from mlss_monitor.event_bus import EventBus
 
 

@@ -38,7 +38,7 @@ def test_enqueue_row_coalesces_on_duplicate(db_path):
     finally:
         gc.collect()
     assert len(rows) == 1
-    table, pk, first, last = rows[0]
+    _table, _pk, first, last = rows[0]
     assert first < last  # last_change_at updated, first_seen_at preserved
 
 

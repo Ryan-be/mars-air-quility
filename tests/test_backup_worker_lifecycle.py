@@ -10,7 +10,6 @@ and patch the sleep constants to milliseconds so tests run in <1s.
 
 Spec: docs/superpowers/specs/2026-05-18-mlss-backup-design.md
 """
-import threading
 import time
 from datetime import datetime
 from unittest.mock import patch, MagicMock

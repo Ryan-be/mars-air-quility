@@ -10,7 +10,9 @@ import pytest
 
 @pytest.fixture
 def db_path(monkeypatch):
-    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    # NamedTemporaryFile must outlive this fixture; path is yielded to
+    # the test and cleaned up on teardown after the yield resumes.
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)  # pylint: disable=consider-using-with
     tmp.close()
     import database.init_db as init_db
     original = init_db.DB_FILE

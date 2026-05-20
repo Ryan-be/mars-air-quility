@@ -35,7 +35,9 @@ for _mod in [
 
 @pytest.fixture
 def db_path():
-    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    # NamedTemporaryFile must outlive this fixture; path is yielded to
+    # the test and cleaned up on teardown after the yield resumes.
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)  # pylint: disable=consider-using-with
     tmp.close()
     import database.init_db as init_db
     original = init_db.DB_FILE
@@ -131,7 +133,7 @@ def test_regroup_all_enqueues_incidents_row_per_component(db_path):
 
 def test_regroup_all_enqueues_incident_alerts_composite_pk(db_path):
     from mlss_monitor.incident_grouper import regroup_all
-    a1, a2 = _seed_two_alerts(db_path)
+    _seed_two_alerts(db_path)
     regroup_all(db_path)
     rows = _outbox_rows(db_path)
     alert_pks = [pk for tn, pk in rows if tn == "incident_alerts"]

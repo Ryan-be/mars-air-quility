@@ -165,7 +165,6 @@ def test_source_pi_id_persisted_under_app_settings_key(db_path):
     Adding a new top-level field shouldn't accidentally land it under
     a section prefix (e.g. backup.db.source_pi_id)."""
     from mlss_monitor.backup import config
-    import sqlite3
     config.save({"source_pi_id": "pi-2"})
     conn = sqlite3.connect(db_path)
     try:

@@ -28,23 +28,32 @@ ALLOWED_FILES = {
     "database/init_db.py",                      # schema creation, seed data
     "database/db_logger.py",                    # save_sensor_data, save_inference
     "database/grow_schema.py",                  # grow-schema seed data
-    "database/import_csv_to_db.py",             # one-shot CSV import tool (manual operator script, not part of live pipeline)
+    # one-shot CSV import tool (manual operator script, not part of live pipeline)
+    "database/import_csv_to_db.py",
     "mlss_monitor/grow/handlers.py",            # handle_telemetry, handle_capabilities, handle_event
     "mlss_monitor/grow/photo_storage.py",       # write_photo
-    "mlss_monitor/grow/timelapse_jobs.py",      # render-job runner: marks queued→running→complete/failed (companion to api_grow_timelapse.py which only schedules)
+    # render-job runner: marks queued→running→complete/failed (companion to
+    # api_grow_timelapse.py which only schedules)
+    "mlss_monitor/grow/timelapse_jobs.py",
     "mlss_monitor/incident_grouper.py",         # save_incident
     "mlss_monitor/incident_signature_storage.py", # save_signature: incident similarity-vector writer
     "mlss_monitor/inference_evidence_storage.py", # store_evidence: UPDATE inferences with typed evidence columns
-    "mlss_monitor/backup/outbox.py",            # holds example SQL inside tee_to_outbox docstring; does not itself write replicated tables
+    # holds example SQL inside tee_to_outbox docstring; does not itself
+    # write replicated tables
+    "mlss_monitor/backup/outbox.py",
     "mlss_monitor/routes/api_grow_journal.py",  # journal CRUD
     "mlss_monitor/routes/api_grow_units.py",    # decommission, capability writes
     "mlss_monitor/routes/api_grow_config.py",   # PUT config writes
     "mlss_monitor/routes/api_grow_settings.py", # plant profile updates
     "mlss_monitor/routes/api_grow_timelapse.py", # timelapse job writes
     "mlss_monitor/routes/api_grow_danger.py",   # delete unit, clear buffer
-    "mlss_monitor/routes/api_grow_enroll.py",   # first-boot enrollment: insert/refresh grow_units row + bearer-token hash
-    "mlss_monitor/routes/api_grow_errors.py",   # PATCH /api/grow/errors/<id>: UPDATE grow_errors (ack/resolve/snooze)
-    "mlss_monitor/routes/api_grow_ws.py",       # WS connection-event audit: INSERT grow_errors + UPDATE resolved_at on reconnect
+    # first-boot enrollment: insert/refresh grow_units row + bearer-token hash
+    "mlss_monitor/routes/api_grow_enroll.py",
+    # PATCH /api/grow/errors/<id>: UPDATE grow_errors (ack/resolve/snooze)
+    "mlss_monitor/routes/api_grow_errors.py",
+    # WS connection-event audit: INSERT grow_errors + UPDATE resolved_at
+    # on reconnect
+    "mlss_monitor/routes/api_grow_ws.py",
     "scripts/migrate_categories.py",            # one-shot inference category migration (operator tool, idempotent)
     "tests/",                                   # tests can write directly
 }
