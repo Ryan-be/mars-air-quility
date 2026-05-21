@@ -199,4 +199,108 @@
   .mlss-tip-pop {
     max-width: 90vw;
   }
+
+  /* ─── Safe-area: prevent curved-corner clipping everywhere ────────── */
+  /* viewport-fit=cover (set in base.html) lets iOS expose the inset
+     env() values for the notch + curved corners. Bottom nav already
+     pads itself; everything else that touches the viewport edges
+     needs the same treatment so labels/icons aren't half-eaten by
+     the rounded screen edges. */
+  .global-status-bar {
+    padding-top:   calc(4px + env(safe-area-inset-top,    0px));
+    padding-left:  calc(8px + env(safe-area-inset-left,   0px));
+    padding-right: calc(8px + env(safe-area-inset-right,  0px));
+  }
+  main.page-content,
+  .page-controls-bar {
+    padding-left:  max(env(safe-area-inset-left,  0px), 12px);
+    padding-right: max(env(safe-area-inset-right, 0px), 12px);
+  }
+  /* Page-level sub-tab bars also reach the edges — pad them too. */
+  .tab-bar,
+  rux-tabs {
+    padding-left:  max(env(safe-area-inset-left,  0px), 4px);
+    padding-right: max(env(safe-area-inset-right, 0px), 4px);
+  }
+
+  /* ─── Page-level sub-tab bars (admin Settings/Users, /grow, etc.) ── */
+  /* Without overrides these are plain <button class="tab-btn"> elements
+     using browser default styles — they render as "just a list of
+     clickable text" on mobile. Make them a scrollable horizontal strip
+     with 44px tap targets and an active underline. */
+  .tab-bar {
+    display: flex;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    gap: 0;
+    border-bottom: 1px solid var(--color-border, #2a3038);
+    margin-bottom: 12px;
+  }
+  .tab-bar .tab-btn,
+  .tab-bar a.tab-btn {
+    flex: 0 0 auto;
+    min-height: 44px;
+    padding: 10px 14px;
+    background: transparent;
+    color: var(--color-text-secondary, #8a96a3);
+    border: none;
+    border-bottom: 2px solid transparent;
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+    text-decoration: none;
+    /* Override the .btn full-width rule above — sub-tabs share a row. */
+    width: auto;
+  }
+  .tab-bar .tab-btn.tab-active,
+  .tab-bar a.tab-btn.tab-active {
+    color: var(--color-text-primary, #e7eef5);
+    border-bottom-color: var(--color-status-normal, #56f000);
+    background: rgba(86, 240, 0, 0.06);
+  }
+  .tab-bar .tab-btn rux-icon {
+    --size: 18px;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+
+  /* ─── AstroUXDS rux-tabs (History page sub-nav) ───────────────────── */
+  /* rux-tabs is a shadow-DOM web component — by default its inner
+     <slot> lays children out in a flex row but doesn't enable touch
+     scrolling on the host. Force flex+nowrap+scroll on the host so
+     the History sub-tabs become a swipeable strip instead of wrapping
+     into a vertical list. rux-tab children stay un-touched (the
+     component owns its own active-state styling). */
+  rux-tabs {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    width: 100%;
+    margin-bottom: 12px;
+  }
+  rux-tab {
+    flex: 0 0 auto;
+    min-width: max-content;
+    min-height: 44px;
+    white-space: nowrap;
+  }
+
+  /* Page topbar controls (the row with Time-range select etc.) — keep
+     items on a single scrollable row rather than stacking awkwardly. */
+  .page-controls-bar {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    align-items: center;
+    gap: 8px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+  .page-controls-bar > * {
+    flex: 0 0 auto;
+  }
 }

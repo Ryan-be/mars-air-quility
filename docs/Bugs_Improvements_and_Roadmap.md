@@ -516,3 +516,58 @@ the lint guard keeps the design coherent in the meantime.
 **Config reference:** [docs/CONFIGURATION.md → Notifications](CONFIGURATION.md#notifications-mlss-mobile)
 **Spec + plan:** branch worktree (not tracked in main).
 
+
+
+---
+
+## 🌱 Grow-unit onboarding — deferred polish
+
+Follow-ups from the `feature/mlss-mobile` branch (the YAML-wizard +
+CA-pin work shipped; these are nice-to-haves that didn't make the
+cut).
+
+### Auto-discovery via mDNS / Avahi
+
+**Problem.** The "set IP, set key, done" YAML still requires the
+operator to type the hub's LAN IP into `mlss_host`. On a fresh Pi
+that hasn't had its DNS configured to resolve `mlss.local`, the IP
+is the only working option — and IPs change when the router's lease
+table rolls over.
+
+**Proposal.** Publish `mlss.local` via Avahi on the hub (already
+installed on Raspberry Pi OS by default). Set the hostname via
+`raspi-config nonint do_hostname mlss` in `scripts/setup_pi.sh` so
+new hub installs broadcast it automatically. Then update
+`mlss-grow.yaml.template` to default `mlss_host: mlss.local` and
+fall back to a manual IP only if mDNS resolution fails on the grow
+Pi.
+
+**Catch.** Pi Zero W's mDNS resolver is occasionally flaky on
+boot-time first-look (avahi-daemon races with the wifi link bring-up).
+Worth measuring before deploying — if first-boot enrolments retry
+through a transient mDNS miss the user-visible outcome is "the unit
+takes 90s instead of 30s to appear", which is acceptable.
+
+**Effort:** ~half-day. New rule for setup_pi.sh, yaml template change,
+docs update in `docs/PLANT_GROW_UNIT_SETUP.md`.
+
+### Fleet-view "trust anchor" badge
+
+**Problem.** After the CA-publish + `install.sh` rotation-safe update,
+existing grow units still pin the LEAF cert (TOFU) and will break on
+the next cert rotation. There's no way to tell at a glance which
+units have which trust anchor.
+
+**Proposal.** Have the grow firmware report its `/etc/mlss/server.crt`
+fingerprint (SHA256 truncated to 8 chars) on every WS handshake or
+capability handshake. The hub compares to its own ca.crt fingerprint
+and its current leaf fingerprint, and stores a flag on `grow_units`
+(`trust_anchor` = `'ca'` / `'leaf'` / `'unknown'`). The fleet card
+shows a tiny `🔒 CA` badge for rotation-safe units and `⚠ leaf`
+otherwise, with a hover tooltip explaining the difference + linking
+to a "re-run install.sh on this unit to upgrade" runbook step in
+PLANT_GROW_UNIT_SETUP.md.
+
+**Effort:** ~1 day. New column on `grow_units`, capability protocol
+extension (`fingerprint` field), fleet-card pill + tooltip, hub-side
+comparison, one new test per side.
