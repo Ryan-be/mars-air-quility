@@ -24,10 +24,17 @@ test("mobile.css contains the 768px media query", () => {
 });
 
 
-test("mobile.css has bottom-nav transform", () => {
+test("mobile.css has bottom-nav floating pill", () => {
   const css = readFileSync(cssPath, "utf8");
   assert.match(css, /nav\.tab-nav[^{]*\{[^}]*position:\s*fixed/s);
-  assert.match(css, /bottom:\s*0/);
+  // Floating pill — bottom/left/right are insets, not 0, so the nav
+  // doesn't extend into the iPhone's curved corners or under the home
+  // indicator. Uses max() to promote literal pixels to safe-area-inset
+  // values on devices that report non-zero insets (landscape, etc.).
+  assert.match(css, /bottom:\s*max\(\s*8px\s*,\s*env\(safe-area-inset-bottom/);
+  assert.match(css, /left:\s*max\(\s*8px\s*,\s*env\(safe-area-inset-left/);
+  assert.match(css, /right:\s*max\(\s*8px\s*,\s*env\(safe-area-inset-right/);
+  assert.match(css, /border-radius:\s*\d+px/);
 });
 
 
