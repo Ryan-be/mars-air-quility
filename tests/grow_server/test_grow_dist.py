@@ -254,3 +254,60 @@ def test_service_sha256_matches_actual_bytes_after_install_flow(
     manifest = client.get("/api/grow/dist/latest").get_json()
     served = client.get("/api/grow/dist/mlss-grow.service").data
     assert manifest["mlss-grow.service"]["sha256"] == hashlib.sha256(served).hexdigest()
+
+
+# ── CA cert endpoint (rotation-safe install.sh pin) ──────────────────────────
+
+def test_ca_crt_served_when_present(tmp_path, monkeypatch):
+    """install.sh pins /api/grow/ca.crt before enrollment so future leaf
+    rotations don't break the grow unit's TLS pin. Endpoint is public
+    by design (CA is a trust anchor, not a secret)."""
+    repo_root = (tmp_path / "fake_repo")
+    (repo_root / "certs").mkdir(parents=True)
+    ca = repo_root / "certs" / "ca.crt"
+    ca.write_bytes(
+        b"-----BEGIN CERTIFICATE-----\nFAKECA\n-----END CERTIFICATE-----\n"
+    )
+
+    # The route resolves the CA path relative to its own module file,
+    # so monkeypatch Path on the module to redirect at the repo root.
+    monkeypatch.setattr(
+        "mlss_monitor.routes.api_grow_dist.Path",
+        type("FakePath", (), {
+            "__new__": lambda cls, *a, **k: __import__("pathlib").Path(*a, **k),
+        }),
+        raising=False,
+    )
+    # Simpler: monkeypatch the __file__ attribute the route uses.
+    import mlss_monitor.routes.api_grow_dist as mod
+    monkeypatch.setattr(mod, "__file__",
+                        str(repo_root / "mlss_monitor" / "routes" / "api_grow_dist.py"))
+
+    from flask import Flask
+    app = Flask(__name__)
+    app.register_blueprint(mod.api_grow_dist_bp)
+    client = app.test_client()
+
+    r = client.get("/api/grow/ca.crt")
+    assert r.status_code == 200
+    assert b"BEGIN CERTIFICATE" in r.data
+    assert "x509" in r.headers["Content-Type"] or \
+           "ca-cert" in r.headers["Content-Type"]
+
+
+def test_ca_crt_404_when_missing(tmp_path, monkeypatch):
+    """Older hubs (pre-CA) don't have certs/ca.crt — install.sh treats
+    a 404 here as the signal to fall back to legacy TOFU leaf pinning."""
+    repo_root = (tmp_path / "fake_repo")
+    (repo_root / "certs").mkdir(parents=True)
+    # No ca.crt written.
+    import mlss_monitor.routes.api_grow_dist as mod
+    monkeypatch.setattr(mod, "__file__",
+                        str(repo_root / "mlss_monitor" / "routes" / "api_grow_dist.py"))
+
+    from flask import Flask
+    app = Flask(__name__)
+    app.register_blueprint(mod.api_grow_dist_bp)
+    client = app.test_client()
+    r = client.get("/api/grow/ca.crt")
+    assert r.status_code == 404

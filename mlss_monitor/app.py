@@ -233,6 +233,12 @@ _PUBLIC_ENDPOINTS = {"auth.login", "auth.logout", "auth.github_login",
                      "api_grow_enroll.enroll",
                      "api_grow_dist.install_sh",
                      "api_grow_dist.serve_wheel",
+                     # CA cert is a public trust anchor (not a secret).
+                     # install.sh fetches it BEFORE enrolling, so it
+                     # can't carry a bearer token. Pinning the CA there
+                     # makes future leaf rotations transparent to the
+                     # firmware. See scripts/generate_local_ca.sh.
+                     "api_grow_dist.serve_ca_crt",
                      # Firmware pulls fresh config on `config_changed`; uses
                      # bearer-token auth (not session). See
                      # mlss_monitor/routes/api_grow_config.py:get_unit_config.

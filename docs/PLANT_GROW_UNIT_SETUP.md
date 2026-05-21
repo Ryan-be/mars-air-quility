@@ -253,10 +253,20 @@ This will:
    wheels or the unit file (a tampered unit could expand the firmware's
    privileges, drop `NoNewPrivileges`, etc.). The script aborts if any
    hash doesn't match.
-5. **Pin the MLSS server cert** at `/etc/mlss/server.crt` (Trust On First
-   Use). Subsequent enrolment + WS + config-pull calls verify against
-   this pinned cert, so a future LAN MITM with a swapped cert is
-   rejected even if the original `curl -k` install line was unverified.
+5. **Pin the MLSS trust anchor** at `/etc/mlss/server.crt`. Two modes:
+   - **CA pin (preferred, rotation-safe):** if the hub publishes its CA
+     at `/api/grow/ca.crt` (set up via `scripts/generate_local_ca.sh`),
+     install.sh downloads and pins that. The hub can then rotate its
+     leaf cert any time and the grow unit keeps working without
+     re-pinning — leaf is signed by the pinned CA. 10-year CA validity.
+   - **Leaf TOFU pin (legacy fallback):** if the CA endpoint 404s
+     (older hub), install.sh falls back to `openssl s_client` Trust On
+     First Use against the leaf, same as before. Every leaf rotation
+     then requires re-running the cert-refresh runbook below.
+
+   Subsequent enrolment + WS + config-pull calls verify against this
+   pinned anchor, so a LAN MITM with a swapped cert is rejected even if
+   the original `curl -k` install line was unverified.
 6. Create a venv at `/opt/mlss-grow/.venv`, install both wheels
 7. Drop the systemd unit at `/etc/systemd/system/mlss-grow.service`
 8. Enable + start the service

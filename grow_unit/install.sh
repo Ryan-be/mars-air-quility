@@ -204,33 +204,47 @@ sudo -u mlss-grow /opt/mlss-grow/.venv/bin/pip install \
     "mlss_grow==${GROW_VER}" \
     "mlss_contracts==${CONTRACTS_VER}"
 
-# ── 6. Pin MLSS server cert at /etc/mlss/server.crt
-# The MLSS server presents a self-signed cert on the LAN (matches the
-# threat model in docs/superpowers/specs/2026-05-03-plant-grow-unit-system-design.md).
-# Without a pinned cert the firmware can't establish wss:// + can't
-# verify enrollment POSTs — the previous `verify=False` posture leaked
-# the enrollment_key (in the request body) to anyone doing LAN MITM.
+# ── 6. Pin MLSS trust anchor at /etc/mlss/server.crt
+# The MLSS server presents a TLS cert on the LAN. Without a pinned
+# trust anchor the firmware can't establish wss:// + can't verify
+# enrollment POSTs — the previous `verify=False` posture leaked the
+# enrollment_key (in the request body) to anyone doing LAN MITM.
 #
-# We grab the cert NOW, at install time, via openssl s_client. This is
-# Trust-On-First-Use (TOFU) — the same LAN-trust posture used by the
-# initial `curl -k` that fetched this script. After install, both the
-# enrollment POST (enrol.py) and the persistent WSS (ws_client.py)
-# verify against this pinned cert, so subsequent boots get full TLS
-# verification on every request.
+# Strategy (preferred): pin the LOCAL CA at /etc/mlss/server.crt.
+#   The hub publishes its CA at /api/grow/ca.crt (public; CA is a
+#   trust anchor, not a secret). Pinning the CA means any leaf cert
+#   signed by it validates — so when the operator rotates the leaf
+#   via scripts/generate_local_ca.sh, the grow unit keeps working
+#   without re-pinning. CA validity is 10 years.
+#
+# Fallback (legacy): if the hub doesn't publish a CA (404 from the
+# endpoint), we fall back to the original openssl s_client TOFU pin
+# of the leaf cert. That keeps install.sh working against older hubs
+# but the leaf has to be re-pinned on every cert rotation.
 #
 # Owned by root, mode 0644 — it's a trust anchor; the mlss-grow user
 # only needs to read it (the world-readable bit), never replace it.
-echo "==> Pinning MLSS server cert at /etc/mlss/server.crt (TOFU)"
 TMP_CERT="$TMP/server.crt"
-if ! openssl s_client -servername "$MLSS_HOST" -connect "${MLSS_HOST}:5000" \
-        </dev/null 2>/dev/null \
-        | openssl x509 -outform PEM > "$TMP_CERT"; then
-    echo "ERROR: failed to fetch MLSS server cert from ${MLSS_HOST}:5000" >&2
-    exit 1
-fi
-if [[ ! -s "$TMP_CERT" ]]; then
-    echo "ERROR: extracted cert is empty (openssl s_client returned no PEM)" >&2
-    exit 1
+
+echo "==> Trying to fetch MLSS CA from https://${MLSS_HOST}:5000/api/grow/ca.crt"
+if curl -sk -o "$TMP_CERT" -w "%{http_code}" \
+        "https://${MLSS_HOST}:5000/api/grow/ca.crt" | grep -q '^200$' \
+   && [[ -s "$TMP_CERT" ]] \
+   && head -1 "$TMP_CERT" | grep -q "BEGIN CERTIFICATE"; then
+    echo "==> Pinning MLSS CA at /etc/mlss/server.crt (rotation-safe)"
+else
+    echo "==> CA endpoint unavailable (older hub?). Falling back to leaf-cert TOFU"
+    if ! openssl s_client -servername "$MLSS_HOST" \
+            -connect "${MLSS_HOST}:5000" </dev/null 2>/dev/null \
+            | openssl x509 -outform PEM > "$TMP_CERT"; then
+        echo "ERROR: failed to fetch MLSS server cert from ${MLSS_HOST}:5000" >&2
+        exit 1
+    fi
+    if [[ ! -s "$TMP_CERT" ]]; then
+        echo "ERROR: extracted cert is empty (openssl s_client returned no PEM)" >&2
+        exit 1
+    fi
+    echo "==> Pinning MLSS leaf cert at /etc/mlss/server.crt (TOFU)"
 fi
 install -m 0644 -o root -g root "$TMP_CERT" /etc/mlss/server.crt
 
