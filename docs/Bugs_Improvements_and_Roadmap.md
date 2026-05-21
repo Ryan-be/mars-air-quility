@@ -526,30 +526,35 @@ Follow-ups from the `feature/mlss-mobile` branch (the YAML-wizard +
 CA-pin work shipped; these are nice-to-haves that didn't make the
 cut).
 
-### Auto-discovery via mDNS / Avahi
+## ✅ Shipped: Resilient hub host resolution
 
-**Problem.** The "set IP, set key, done" YAML still requires the
-operator to type the hub's LAN IP into `mlss_host`. On a fresh Pi
-that hasn't had its DNS configured to resolve `mlss.local`, the IP
-is the only working option — and IPs change when the router's lease
-table rolls over.
+**Date shipped:** 2026-05-21 (branch `feature/mdns-resilient-host`)
 
-**Proposal.** Publish `mlss.local` via Avahi on the hub (already
-installed on Raspberry Pi OS by default). Set the hostname via
-`raspi-config nonint do_hostname mlss` in `scripts/setup_pi.sh` so
-new hub installs broadcast it automatically. Then update
-`mlss-grow.yaml.template` to default `mlss_host: mlss.local` and
-fall back to a manual IP only if mDNS resolution fails on the grow
-Pi.
+Firmware now resolves the hub address through `/etc/mlss/host` →
+`/etc/mlss/host-cache` → mDNS `mlss.local`. Post-power-cut Avahi
+outages no longer wedge units offline — the cache fallback kicks in
+within seconds. The mDNS fallback also self-heals when the hub's
+static IP changes (rare, ~once a year). Hub-side: no changes
+(`mlss.local` is already auto-published by Pi OS's default Avahi
+config).
 
-**Catch.** Pi Zero W's mDNS resolver is occasionally flaky on
-boot-time first-look (avahi-daemon races with the wifi link bring-up).
-Worth measuring before deploying — if first-boot enrolments retry
-through a transient mDNS miss the user-visible outcome is "the unit
-takes 90s instead of 30s to appear", which is acceptable.
+Key behaviours:
+- Strategy / Chain-of-Responsibility pattern — three independent
+  `ResolutionStep` callables iterated by a 5-line orchestrator.
+  Adding a 4th step is one line in `DEFAULT_STEPS`.
+- `Candidate.is_authoritative` gates whether a successful connect
+  rewrites `/etc/mlss/host` (only mDNS-discovered IPs do).
+- Hostname-downgrade guard: refuses to silently rewrite
+  `mlss.local` → `<IP literal>` in the host file, preserving
+  operator intent.
+- Symlink-safe writes (`_write_atomically` refuses symlinks to
+  prevent a write-where-root-points primitive).
+- Privacy CI (`tests/test_no_private_ips_committed.py`) pins the
+  invariant that no RFC 1918 private IP gets committed.
 
-**Effort:** ~half-day. New rule for setup_pi.sh, yaml template change,
-docs update in `docs/PLANT_GROW_UNIT_SETUP.md`.
+**User-facing docs:** [PLANT_GROW_UNIT_SETUP.md → Host resolution](PLANT_GROW_UNIT_SETUP.md#host-resolution-after-first-boot)
+**Source:** `grow_unit/src/mlss_grow/host_resolver.py`,
+`grow_unit/src/mlss_grow/host_bootstrap.py`
 
 ### Fleet-view "trust anchor" badge
 

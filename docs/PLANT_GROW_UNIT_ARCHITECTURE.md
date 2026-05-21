@@ -489,6 +489,21 @@ mid-replay — see I2 fix in `buffer.py`.)
 
 Local config is persisted at `/var/lib/mlss-grow/config.json` and the safety loop runs from it whether or not MLSS is reachable. PIDState (last pulse, integral, last error) is persisted to `/var/lib/mlss-grow/watering_state.json` so a service restart doesn't reset accumulated history.
 
+## Resilient host resolution
+
+The firmware resolves the hub address through a three-step chain on
+each reconnect attempt: configured host (`/etc/mlss/host`) → cached
+IP (`/etc/mlss/host-cache`) → mDNS lookup of `mlss.local` (with a
+zeroconf browse fallback when libnss-mdns is unavailable). The cache
+absorbs transient DNS failures (today's main use case: post-power-cut
+Avahi outages); the mDNS step lets the firmware self-heal when the
+operator changes the hub's static IP without updating the grow unit.
+Implementation: `grow_unit/src/mlss_grow/host_resolver.py` (resolution
+chain + persistence) and `grow_unit/src/mlss_grow/host_bootstrap.py`
+(one-shot legacy yaml migration). See spec
+`docs/superpowers/specs/2026-05-21-mdns-resilient-host-resolution-design.md`
+for the full design and security model.
+
 ### Buffer housekeeping (C2)
 
 Three layers bound disk usage so a permanently-down MLSS / misconfigured

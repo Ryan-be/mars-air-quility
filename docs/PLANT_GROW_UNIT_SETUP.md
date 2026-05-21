@@ -286,6 +286,36 @@ sudo journalctl -u mlss-grow -f
 
 ---
 
+## Host resolution (after first boot)
+
+After the first successful enrolment, the firmware reads the hub
+address from `/etc/mlss/host`. The yaml at `/boot/mlss-grow.yaml`
+seeds this file once; subsequent boots use the file directly.
+
+If the configured host stops resolving (Avahi outage, router restart,
+power cut), the firmware automatically:
+
+1. **Tries `/etc/mlss/host-cache`** — the IP of the last successful
+   connection. Survives DNS hiccups in seconds.
+2. **Falls back to mDNS** — looks up `mlss.local` over the LAN.
+   Survives the hub's IP changing (rare).
+
+When mDNS succeeds with an IP different from the value in
+`/etc/mlss/host` **AND** that value is already an IP literal (not a
+hostname), the firmware updates the host file automatically and logs
+a WARN. Hostnames are preserved — the firmware refuses to silently
+downgrade `mlss.local` into a literal because that defeats the
+operator's intent of tracking-by-name.
+
+**To change the hub address manually:**
+
+```bash
+echo "<new-ip-or-hostname>" | sudo tee /etc/mlss/host
+sudo systemctl restart mlss-grow
+```
+
+---
+
 ## Adding additional units
 
 For unit #2 onwards, repeat steps 2–4 above with the same enrollment key (one key serves all units in your household). About 3 minutes per unit.
@@ -495,6 +525,7 @@ classic foot-gun).
 | Soil sensor not detected at boot | I2C cable polarity or address conflict | `sudo i2cdetect -y 1` should show `36`. Swap red/black at JST connector if missing. |
 | Photos not appearing | Camera not enabled in raspi-config OR ribbon cable backwards | `sudo raspi-config` → Interface Options → Camera. Then `libcamera-jpeg -o test.jpg`. The CSI ribbon's blue side faces the USB ports on the Pi. |
 | Pump runs continuously | Wiring backwards (NC instead of NO on relay) | Swap relay output terminal — failsafe is dark/dry, so NO must be open at rest. |
+| **Unit shows offline after a power cut.** `journalctl -u mlss-grow` shows `Name or service not known`. | mDNS / Avahi hiccup post-reboot; the firmware's cached IP also gone | Quickest fix: `echo <hub-ip> \| sudo tee /etc/mlss/host && sudo systemctl restart mlss-grow`. The mDNS fallback also self-heals within ~60s but the explicit edit is faster. See [Host resolution](#host-resolution-after-first-boot) for the chain that protects against this. |
 
 ---
 
