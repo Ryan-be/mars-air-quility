@@ -13,8 +13,12 @@ import random
 import ssl
 from datetime import datetime
 from typing import Callable, Optional
+from urllib.parse import urlparse, urlunparse
 
 from mlss_grow.buffer import LocalBuffer
+from mlss_grow.host_resolver import (
+    HostUnreachable, hub_candidates, record_successful_connect,
+)
 from mlss_grow.photo_buffer import PhotoBuffer
 from mlss_grow.ws_protocol import encode_text_message, encode_photo_frame
 
@@ -67,12 +71,23 @@ async def _default_connect(url, token, cert_path):
     )
 
 
+def _substitute_host(url: str, ip: str) -> str:
+    """Return a URL identical to ``url`` but with the host replaced by
+    ``ip``. Preserves port, path, query, scheme. Wraps IPv6 in brackets."""
+    parts = urlparse(url)
+    if ":" in ip and not ip.startswith("["):
+        ip = f"[{ip}]"
+    port = f":{parts.port}" if parts.port else ""
+    new_netloc = f"{ip}{port}"
+    return urlunparse(parts._replace(netloc=new_netloc))
+
+
 class WSClient:
     """Connect, send, receive, buffer, replay."""
 
     def __init__(self, url: str, token: str, buffer_db_path: str,
                  on_command: Callable[[dict], None],
-                 connect_fn=_default_connect,
+                 connect_fn=None,
                  backoff_base: float = 1.0, backoff_max: float = 60.0,
                  server_cert_path: "str | None" = None,
                  on_reconnect_sync: Optional[Callable[[], None]] = None,
@@ -149,11 +164,59 @@ class WSClient:
         # rides out alongside the rest.
         self._buffer.append("event", body, datetime.utcnow())
 
-    async def _connect_once(self) -> bool:
-        try:
-            self._ws = await self._connect_fn(
+    async def _try_connect_once(self):
+        """Iterate hub_candidates and try each via _default_connect.
+
+        Raises HostUnreachable when:
+          - iterator yields zero candidates (no resolver layer could
+            produce an address), OR
+          - every yielded candidate fails its WSS handshake.
+
+        On the first success, calls record_successful_connect(candidate)
+        so /etc/mlss/host-cache (and possibly /etc/mlss/host) reflect the
+        proven IP. PRECONDITION respected: _default_connect raises unless
+        the pinned cert validated AND bearer-token round-trip succeeded.
+
+        Legacy back-compat: if the constructor was given an explicit
+        connect_fn (the test-only injection point), the resolver chain
+        is bypassed entirely and the original URL is used as-is.
+        record_successful_connect is also skipped on that path - those
+        tests don't mock the cache-file writes.
+        """
+        # Legacy injection path: keep the pre-resolver single-host
+        # contract for tests that inject a fake connect_fn directly.
+        if self._connect_fn is not None:
+            return await self._connect_fn(
                 self._url, self._token, self._server_cert_path,
             )
+
+        last_err: Exception | None = None
+        candidates_seen = 0
+        for candidate in hub_candidates():
+            candidates_seen += 1
+            target_url = _substitute_host(self._url, candidate.ip)
+            try:
+                ws = await _default_connect(
+                    target_url, self._token, self._server_cert_path,
+                )
+                record_successful_connect(candidate)
+                return ws
+            except (ConnectionError, OSError) as exc:
+                last_err = exc
+                log.debug(
+                    "WS connect to candidate %s (source=%s) failed: %s",
+                    candidate.ip, candidate.source.value, exc,
+                )
+                continue
+        if candidates_seen == 0:
+            raise HostUnreachable("no candidates resolvable") from last_err
+        raise HostUnreachable(
+            f"all {candidates_seen} candidates failed",
+        ) from last_err
+
+    async def _connect_once(self) -> bool:
+        try:
+            self._ws = await self._try_connect_once()
             return True
         except Exception as exc:
             log.warning("WS connect failed: %s", exc)
