@@ -39,7 +39,9 @@ _PRIVATE_IP_RE = re.compile(
 # IP committed). Each entry is a path relative to REPO_ROOT, using
 # forward slashes on every platform (git ls-files output is normalised).
 _ALLOWLIST = frozenset({
-    # e.g. "docs/some-runbook.md",
+    # The test itself contains the regex patterns that match private
+    # IPs by design — scanning it for "10.0.0.0/8" etc. is meta-noise.
+    "tests/test_no_private_ips_committed.py",
 })
 
 # Binary / vendored / generated files we never scan. These would either
