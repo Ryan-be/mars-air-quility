@@ -173,7 +173,7 @@ test("add-unit modal: Copy YAML copies the complete block to clipboard", async (
   const { close, element } = openAddUnitModal({
     ownerDocument: dom.window.document,
     fetchFn,
-    mlssHost: "192.168.0.203",
+    mlssHost: "192.0.2.10",
   });
   try {
     element.querySelector("[data-testid='add-unit-reveal-btn']")
@@ -184,7 +184,7 @@ test("add-unit modal: Copy YAML copies the complete block to clipboard", async (
     btn.dispatchEvent(new dom.window.Event("click", { bubbles: true }));
     await _flushMicro();
     assert.ok(copied);
-    assert.match(copied, /mlss_host:\s*192\.168\.0\.203/);
+    assert.match(copied, /mlss_host:\s*192\.0\.2\.10/);
     assert.match(copied, /enrollment_key:\s*kkk/);
   } finally {
     close();
