@@ -13,7 +13,7 @@ flowchart LR
 
     subgraph LAN ["🏠 Home LAN"]
         direction TB
-        Hub("<b>MLSS Hub</b><br/>━━━━━━━━━━━<br/>Raspberry Pi 4<br/>Air sensors + fan logic<br/>Inference engine<br/>Web UI · SQLite · Photos<br/>WSS broker · Web Push")
+        Hub("<b>MLSS Hub</b> · Raspberry Pi 4<br/>━━━━━━━━━━━━━━━━━━━━━━<br/>▸ <b>Sensors:</b> TVOC · eCO₂ · PM · CO/NO₂/NH₃ · T/RH<br/>▸ <b>Compute:</b> inference engine · fan-control rules<br/>▸ <b>Serves:</b> web UI · SQLite · WSS broker · Web Push")
         Plug["<b>TP-Link Kasa</b><br/>smart plug"]
         Fan(["💨 Fan"])
         Grow1["<b>Plant Grow Unit</b><br/>━━━━━━━━━━━<br/>Pi Zero W<br/>Soil sensor + camera<br/>Pump + grow light<br/>Local PID + safety loop"]
@@ -23,14 +23,14 @@ flowchart LR
 
     Backup[("☁️ Off-Pi backup<br/>(optional)<br/>Postgres + S3")]
 
-    Phone  -. "HTTPS :5000 · Web Push" .-> Hub
-    Browser -. "HTTPS :5000 · SSE" .-> Hub
-    Hub --> |"Kasa LAN<br/>protocol"| Plug
+    Phone  -. "HTTPS :5000<br/>GitHub OAuth · Web Push" .-> Hub
+    Browser -. "HTTPS :5000<br/>GitHub OAuth · SSE" .-> Hub
+    Hub --> |"Kasa LAN<br/>(no auth · LAN-trusted)"| Plug
     Plug --> |"230 V"| Fan
-    Grow1 <== "WSS :5001<br/>telemetry · photos · commands" ==> Hub
-    Grow2 <-. "WSS :5001" .-> Hub
+    Grow1 <== "WSS :5001 · bearer token<br/>telemetry ↑ · commands ↓" ==> Hub
+    Grow2 <-. "WSS :5001<br/>telemetry ↑ · commands ↓" .-> Hub
     GrowN <-. "WSS :5001" .-> Hub
-    Hub -. "replicate<br/>(append-only)" .-> Backup
+    Hub -. "replicate (append-only)<br/>Postgres + S3 creds" .-> Backup
 
     classDef hub      fill:#4dacff,color:#000,stroke:#2a6fa0,stroke-width:3px
     classDef grow     fill:#56f000,color:#000,stroke:#2a8000,stroke-width:2px
