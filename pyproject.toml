@@ -57,6 +57,14 @@ asyncio_mode = "auto"
 markers = [
     "e2e: end-to-end test requiring Docker (Postgres + MinIO testcontainers)",
 ]
+# Lets pytest resolve `mlss_grow.*` and `mlss_contracts.*` against the
+# in-tree source even when the shared poetry venv's editable install
+# points at a different worktree's path-dep. Without this, parallel
+# feature worktrees can't run grow_unit tests without a reinstall —
+# the resolver in this branch lives at grow_unit/src/mlss_grow/ but
+# the venv's pth file points elsewhere. Project root last so test
+# helper modules in tests/ resolve via the standard rootdir mechanism.
+pythonpath = ["grow_unit/src", "contracts/src", "."]
 
 [build-system]
 requires = ["poetry-core"]
