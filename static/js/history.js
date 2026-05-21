@@ -16,6 +16,16 @@ let _weatherData = [];
 let _lastFetchRange = null;  // Track range to detect changes, forcing full corr re-render
 
 function _initHistoryTabs() {
+  // Mobile dropdown — keep it in sync with rux-tabs selection so both
+  // surfaces stay coherent when the viewport flips (e.g. rotate iPad).
+  const mobileSelect = document.getElementById("historyTabsMobile");
+  if (mobileSelect) {
+    mobileSelect.addEventListener("change", (e) => {
+      _switchToTab(e.target.value);
+      _syncRuxSelection(e.target.value);
+    });
+  }
+
   const ruxTabsEl = document.getElementById("historyTabs");
   if (ruxTabsEl) {
     // rux-tabs in Astro v6 does NOT bubble ruxTabSelected to the parent — use click delegation
@@ -24,6 +34,9 @@ function _initHistoryTabs() {
       if (!tab) return;
       const tabKey = tab.id.replace(/^tab-btn-/, "");
       _switchToTab(tabKey);
+      if (mobileSelect && mobileSelect.value !== tabKey) {
+        mobileSelect.value = tabKey;
+      }
     });
     return;
   }
@@ -42,6 +55,22 @@ function _initHistoryTabs() {
     });
   });
 }
+
+function _syncRuxSelection(tabKey) {
+  // Mirror the chosen tab back onto the rux-tabs row so a subsequent
+  // viewport flip (mobile → desktop) doesn't show a stale highlight.
+  const ruxTabsEl = document.getElementById("historyTabs");
+  if (!ruxTabsEl) return;
+  ruxTabsEl.querySelectorAll("rux-tab").forEach(t => {
+    const matches = t.id === `tab-btn-${tabKey}`;
+    if (matches) {
+      t.setAttribute("selected", "");
+    } else {
+      t.removeAttribute("selected");
+    }
+  });
+}
+
 
 function _switchToTab(tabKey) {
   TABS.forEach(t => {

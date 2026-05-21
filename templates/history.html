@@ -36,6 +36,9 @@
 
 {% block content %}
 
+  <!-- Desktop sub-nav: rux-tabs. Hidden on narrow viewports via mobile.css
+       in favour of #historyTabsMobile below, because rux-tabs renders
+       inconsistently when constrained to <500px width. -->
   <rux-tabs id="historyTabs" small>
     <rux-tab id="tab-btn-climate" selected>
       <rux-icon icon="device-thermostat" size="extra-small"></rux-icon> Climate
@@ -56,6 +59,22 @@
       <rux-icon icon="radar" size="extra-small"></rux-icon> Detections &amp; Insights
     </rux-tab>
   </rux-tabs>
+
+  <!-- Mobile sub-nav: native <select> dropdown. Shown on narrow viewports
+       (max-width: 768px) via mobile.css; hidden otherwise. JS in
+       static/js/history.js mirrors selection between this select and
+       the rux-tabs above so the rest of the page stays unaware of
+       which UI surfaced the tab change. -->
+  <label class="mobile-tab-label" for="historyTabsMobile">View</label>
+  <select id="historyTabsMobile" class="mobile-tab-select"
+          aria-label="Choose history view">
+    <option value="climate"      selected>Climate</option>
+    <option value="air-quality">Air Quality</option>
+    <option value="particulate">Particulate</option>
+    <option value="environment">Environment</option>
+    <option value="correlation">Correlation</option>
+    <option value="detections">Detections &amp; Insights</option>
+  </select>
 
   <!-- Climate tab: temperature and humidity only -->
   <div class="tab-panel" id="tab-climate">

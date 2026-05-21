@@ -266,27 +266,44 @@
     vertical-align: middle;
   }
 
-  /* ─── AstroUXDS rux-tabs (History page sub-nav) ───────────────────── */
-  /* rux-tabs is a shadow-DOM web component — by default its inner
-     <slot> lays children out in a flex row but doesn't enable touch
-     scrolling on the host. Force flex+nowrap+scroll on the host so
-     the History sub-tabs become a swipeable strip instead of wrapping
-     into a vertical list. rux-tab children stay un-touched (the
-     component owns its own active-state styling). */
+  /* ─── AstroUXDS rux-tabs: replaced by a native <select> on mobile ─── */
+  /* rux-tabs has shadow-DOM internals that don't reliably constrain
+     to <500px viewports — children overlap or wrap awkwardly. On
+     narrow screens we hide rux-tabs and show a sibling <select> that
+     drives the same _switchToTab() handler. Native selects render as
+     iOS's full-screen wheel picker, which is genuinely good UX on a
+     phone — no homemade dropdown to maintain. */
   rux-tabs {
-    display: flex;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    overflow-y: hidden;
-    -webkit-overflow-scrolling: touch;
-    width: 100%;
-    margin-bottom: 12px;
+    display: none !important;
   }
-  rux-tab {
-    flex: 0 0 auto;
-    min-width: max-content;
+  .mobile-tab-select {
+    display: block;
+    width: 100%;
     min-height: 44px;
-    white-space: nowrap;
+    margin-bottom: 12px;
+    padding: 10px 12px;
+    background: var(--color-bg-secondary, #1a2027);
+    color: var(--color-text-primary, #e7eef5);
+    border: 1px solid var(--color-border, #2a3038);
+    border-radius: 4px;
+    font-size: 16px; /* prevents iOS zoom-on-focus */
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: linear-gradient(45deg, transparent 50%, #8a96a3 50%),
+                      linear-gradient(135deg, #8a96a3 50%, transparent 50%);
+    background-position: calc(100% - 18px) calc(50% - 3px),
+                         calc(100% - 12px) calc(50% - 3px);
+    background-size: 6px 6px, 6px 6px;
+    background-repeat: no-repeat;
+  }
+  .mobile-tab-label {
+    display: block;
+    font-size: 12px;
+    color: var(--color-text-secondary, #8a96a3);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 4px;
+    margin-top: 4px;
   }
 
   /* Page topbar controls (the row with Time-range select etc.) — keep
