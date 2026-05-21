@@ -1,5 +1,55 @@
 # MLSS Monitor: Mars Life Support Sensor Monitor
 
+```mermaid
+%%{init: {'theme':'base', 'themeVariables': {
+    'primaryColor':'#1a2027',
+    'primaryBorderColor':'#2a3038',
+    'primaryTextColor':'#e7eef5',
+    'lineColor':'#4dacff',
+    'fontSize':'14px'}}}%%
+flowchart LR
+    Phone["📱 iPhone PWA<br/>(home-screen install)"]
+    Browser["💻 Operator browser<br/>(AstroUXDS dashboard)"]
+
+    subgraph LAN ["🏠 Home LAN"]
+        direction TB
+        Hub("<b>MLSS Hub</b><br/>━━━━━━━━━━━<br/>Raspberry Pi 4<br/>Air sensors + fan logic<br/>Inference engine<br/>Web UI · SQLite · Photos<br/>WSS broker · Web Push")
+        Plug["<b>TP-Link Kasa</b><br/>smart plug"]
+        Fan(["💨 Fan"])
+        Grow1["<b>Plant Grow Unit</b><br/>━━━━━━━━━━━<br/>Pi Zero W<br/>Soil sensor + camera<br/>Pump + grow light<br/>Local PID + safety loop"]
+        Grow2["<b>Plant Grow Unit #2</b><br/>Pi Zero W"]
+        GrowN["⋯ × N"]
+    end
+
+    Backup[("☁️ Off-Pi backup<br/>(optional)<br/>Postgres + S3")]
+
+    Phone  -. "HTTPS :5000 · Web Push" .-> Hub
+    Browser -. "HTTPS :5000 · SSE" .-> Hub
+    Hub --> |"Kasa LAN<br/>protocol"| Plug
+    Plug --> |"230 V"| Fan
+    Grow1 <== "WSS :5001<br/>telemetry · photos · commands" ==> Hub
+    Grow2 <-. "WSS :5001" .-> Hub
+    GrowN <-. "WSS :5001" .-> Hub
+    Hub -. "replicate<br/>(append-only)" .-> Backup
+
+    classDef hub      fill:#4dacff,color:#000,stroke:#2a6fa0,stroke-width:3px
+    classDef grow     fill:#56f000,color:#000,stroke:#2a8000,stroke-width:2px
+    classDef growExtra fill:#56f000,color:#000,stroke:#2a8000,stroke-dasharray:5 4
+    classDef effector fill:#ffb302,color:#000,stroke:#a07000
+    classDef passive  fill:#8a96a3,color:#000
+    classDef client   fill:#080c11,color:#e7eef5,stroke:#4dacff,stroke-width:2px
+    classDef cold     fill:#2a3038,color:#e7eef5,stroke:#56f000,stroke-dasharray:5 4
+    class Hub hub
+    class Grow1,Grow2 grow
+    class GrowN growExtra
+    class Plug effector
+    class Fan passive
+    class Phone,Browser client
+    class Backup cold
+```
+
+> **Hub** (blue) = the brain. **Grow units** (green) = edge plant minders, one per pot, each running its own PID + safety loop so plants survive a hub outage. **Smart plug** (amber) = effector — toggled by the hub's fan-control rules to switch ventilation on/off based on TVOC / CO₂ / humidity / PM. **Backup** (dashed) = optional off-Pi Postgres + S3 mirror for archival and ML training.
+
 MLSS is a **distributed environmental monitoring system** for the home, pitched as a prototype for Mars-habitat life-support. A central **MLSS hub** (Raspberry Pi 4 with air-quality sensors, a fan effector, and a Flask/gunicorn web dashboard) talks to **N edge Plant Grow Units** (Pi Zero W with soil moisture, camera, pump, and grow-light) over authenticated WSS. The hub provides one operator UI, one auth model, one SQLite store, and one place to back up everything; the edge units run their own safety + PID loops locally so plants survive an MLSS outage. The web UI is built with [AstroUXDS](https://astrouxds.com), NASA / Lockheed Martin's open-source space-mission design system.
 
 A list of know issues and feature improvements including recomended fixes can be found here: [Bugs, Improvements and Roadmap](docs/Bugs_Improvements_and_Roadmap.md)
