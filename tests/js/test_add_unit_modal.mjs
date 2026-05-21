@@ -118,10 +118,10 @@ test("add-unit modal: clicking Reveal calls peek-once and shows the key", async 
 });
 
 
-test("add-unit modal: install instructions reference curl + the install.sh URL", async () => {
+test("add-unit modal: emits a complete YAML block pre-filled with host + key", async () => {
   const dom = _newDom("admin");
   const fetchFn = async () => new Response(
-    JSON.stringify({ key: "k" }), { status: 200 },
+    JSON.stringify({ key: "real-enrollment-key-abc" }), { status: 200 },
   );
   const { close, element } = openAddUnitModal({
     ownerDocument: dom.window.document,
@@ -132,16 +132,87 @@ test("add-unit modal: install instructions reference curl + the install.sh URL",
     element.querySelector("[data-testid='add-unit-reveal-btn']")
       .dispatchEvent(new dom.window.Event("click", { bubbles: true }));
     await _flushMicro();
-    const instructions = element.querySelector("[data-testid='add-unit-instructions']");
-    assert.ok(instructions);
-    const text = instructions.textContent;
-    assert.match(text, /curl/);
-    assert.match(text, /mlss\.local/);
-    assert.match(text, /install\.sh/);
-    assert.match(text.toLowerCase(), /enrollment key/);
+    const yaml = element.querySelector("[data-testid='add-unit-yaml']");
+    assert.ok(yaml, "yaml snippet block must be rendered");
+    const text = yaml.textContent;
+    assert.match(text, /mlss_host:\s*mlss\.local/);
+    assert.match(text, /mlss_port:\s*5000/);
+    assert.match(text, /enrollment_key:\s*real-enrollment-key-abc/);
+    // Boot step is shown alongside the YAML
+    const boot = element.querySelector("[data-testid='add-unit-boot-step']");
+    assert.ok(boot);
+    assert.match(boot.textContent.toLowerCase(), /boot the pi/);
+    // Alt SSH/curl path is collapsed but available for re-provisioning
+    const alt = element.querySelector("[data-testid='add-unit-alt']");
+    assert.ok(alt);
+    assert.match(alt.textContent, /curl/);
+    assert.match(alt.textContent, /install\.sh/);
   } finally {
     close();
   }
+});
+
+
+test("add-unit modal: Copy YAML copies the complete block to clipboard", async () => {
+  const dom = _newDom("admin");
+  // Stub navigator.clipboard.writeText on the jsdom window. Node 22+ makes
+  // globalThis.navigator a read-only getter, so define via Object.defineProperty.
+  let copied = null;
+  Object.defineProperty(dom.window.navigator, "clipboard", {
+    configurable: true,
+    value: { writeText: async (s) => { copied = s; } },
+  });
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    get: () => dom.window.navigator,
+  });
+
+  const fetchFn = async () => new Response(
+    JSON.stringify({ key: "kkk" }), { status: 200 },
+  );
+  const { close, element } = openAddUnitModal({
+    ownerDocument: dom.window.document,
+    fetchFn,
+    mlssHost: "192.168.0.203",
+  });
+  try {
+    element.querySelector("[data-testid='add-unit-reveal-btn']")
+      .dispatchEvent(new dom.window.Event("click", { bubbles: true }));
+    await _flushMicro();
+    const btn = element.querySelector("[data-testid='add-unit-yaml-copy-btn']");
+    assert.ok(btn);
+    btn.dispatchEvent(new dom.window.Event("click", { bubbles: true }));
+    await _flushMicro();
+    assert.ok(copied);
+    assert.match(copied, /mlss_host:\s*192\.168\.0\.203/);
+    assert.match(copied, /enrollment_key:\s*kkk/);
+  } finally {
+    close();
+  }
+});
+
+
+test("add-unit modal: closing clears the rendered enrollment_key from YAML block", async () => {
+  const dom = _newDom("admin");
+  const fetchFn = async () => new Response(
+    JSON.stringify({ key: "secret-key-xyz" }), { status: 200 },
+  );
+  const { close, element } = openAddUnitModal({
+    ownerDocument: dom.window.document,
+    fetchFn,
+    mlssHost: "mlss.local",
+  });
+  element.querySelector("[data-testid='add-unit-reveal-btn']")
+    .dispatchEvent(new dom.window.Event("click", { bubbles: true }));
+  await _flushMicro();
+  const yaml = element.querySelector("[data-testid='add-unit-yaml']");
+  assert.match(yaml.textContent, /secret-key-xyz/);
+  close();
+  // After close the overlay is detached, but if anything still holds a
+  // reference to the block (history, dev tools, etc.) it must not
+  // contain the revealed key.
+  assert.doesNotMatch(yaml.textContent, /secret-key-xyz/);
+  assert.match(yaml.textContent, /REPLACE_ME/);
 });
 
 
