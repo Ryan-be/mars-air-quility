@@ -7,6 +7,7 @@ import pytest
 
 from mlss_grow.host_resolver import Candidate, HostUnreachable, Source
 from mlss_grow.host_resolver import _read_validated, _write_atomically
+from mlss_grow.host_resolver import make_host_step
 
 
 def test_source_values_are_lowercase_strings():
@@ -144,3 +145,68 @@ def test_read_validated_strips_blank_lines(tmp_path):
     f = tmp_path / "host"
     f.write_text("\n\n   mlss.local   \n\n", encoding="utf-8")
     assert _read_validated(f) == "mlss.local"
+
+
+def test_host_step_ip_literal_yields_without_dns(tmp_path):
+    f = tmp_path / "host"
+    f.write_text("192.0.2.10\n", encoding="utf-8")
+    calls = []
+    def fake_dns(_):
+        calls.append(_)
+        return []
+    step = make_host_step(host_file=f, dns_resolver=fake_dns)
+    candidates = list(step())
+    assert candidates == [Candidate("192.0.2.10", Source.HOST)]
+    assert calls == []           # IP literal: DNS never called
+
+
+def test_host_step_hostname_calls_dns_resolver(tmp_path):
+    f = tmp_path / "host"
+    f.write_text("mlss.local\n", encoding="utf-8")
+    def fake_dns(name):
+        assert name == "mlss.local"
+        return ["192.0.2.10"]
+    step = make_host_step(host_file=f, dns_resolver=fake_dns)
+    candidates = list(step())
+    assert candidates == [Candidate("192.0.2.10", Source.HOST)]
+
+
+def test_host_step_multiple_dns_results_all_yielded(tmp_path):
+    f = tmp_path / "host"
+    f.write_text("mlss.local\n", encoding="utf-8")
+    def fake_dns(_):
+        return ["192.0.2.10", "192.0.2.11"]
+    step = make_host_step(host_file=f, dns_resolver=fake_dns)
+    candidates = list(step())
+    assert candidates == [
+        Candidate("192.0.2.10", Source.HOST),
+        Candidate("192.0.2.11", Source.HOST),
+    ]
+
+
+def test_host_step_dns_failure_yields_nothing(tmp_path):
+    f = tmp_path / "host"
+    f.write_text("mlss.local\n", encoding="utf-8")
+    def fake_dns(_):
+        import socket
+        raise socket.gaierror("name not known")
+    step = make_host_step(host_file=f, dns_resolver=fake_dns)
+    assert list(step()) == []      # no raise, just empty
+
+
+def test_host_step_missing_file_yields_nothing(tmp_path):
+    step = make_host_step(
+        host_file=tmp_path / "absent",
+        dns_resolver=lambda _: ["should-never-be-called"],
+    )
+    assert list(step()) == []
+
+
+def test_host_step_malformed_file_yields_nothing(tmp_path):
+    f = tmp_path / "host"
+    f.write_text("mlss.local\n; rm -rf /\n", encoding="utf-8")
+    step = make_host_step(
+        host_file=f,
+        dns_resolver=lambda _: ["should-never-be-called"],
+    )
+    assert list(step()) == []

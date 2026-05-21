@@ -135,3 +135,46 @@ def _is_ip_literal(value: str) -> bool:
         return True
     except (ValueError, TypeError):
         return False
+
+
+import socket
+
+
+def _socket_getaddrinfo(name: str) -> list[str]:
+    """Default DNS resolver. Returns IPv4 addresses first (lower
+    latency), then IPv6. Re-raises socket.gaierror on failure so the
+    step wrapper can treat it as 'this step yields nothing'."""
+    results = socket.getaddrinfo(name, None)
+    # results is a list of 5-tuples (family, type, proto, canonname, sockaddr)
+    # where sockaddr is (host, port) for AF_INET or (host, port, ...) for AF_INET6.
+    v4 = [r[4][0] for r in results if r[0] == socket.AF_INET]
+    v6 = [r[4][0] for r in results if r[0] == socket.AF_INET6]
+    return v4 + v6
+
+
+def make_host_step(
+    host_file:    Path                          = Path("/etc/mlss/host"),
+    dns_resolver: Callable[[str], list[str]]    = _socket_getaddrinfo,
+) -> ResolutionStep:
+    """Build the Step-1 resolution step (reads /etc/mlss/host).
+
+    IP literals short-circuit DNS entirely (hot path). Hostnames are
+    looked up via the injected ``dns_resolver``. All errors -
+    file missing, malformed file, DNS failure - yield empty.
+    """
+    def _step() -> Iterator[Candidate]:
+        value = _read_validated(host_file)
+        if value is None:
+            return
+        if _is_ip_literal(value):
+            yield Candidate(ip=value, source=Source.HOST)
+            return
+        try:
+            ips = dns_resolver(value)
+        except socket.gaierror as exc:
+            log.debug("host-step DNS failed for %s: %s", value, exc)
+            return
+        for ip in ips:
+            yield Candidate(ip=ip, source=Source.HOST)
+    _step.__name__ = "host_step"
+    return _step
