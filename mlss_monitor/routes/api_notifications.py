@@ -24,14 +24,18 @@ this API exposes:
   - ``push_client`` — actual WebPush call
 """
 
+import logging
 import sqlite3
 from datetime import datetime, timedelta
 
 from flask import Blueprint, jsonify, request, session
 
 from config import config
+from mlss_monitor import state
 from mlss_monitor.notifications import vapid
 from mlss_monitor.rbac import require_role
+
+log = logging.getLogger(__name__)
 
 api_notifications_bp = Blueprint("api_notifications", __name__)
 
@@ -61,6 +65,50 @@ def _db_file() -> str:
     return config.get("DB_FILE", "data/sensor_data.db")
 
 
+def _ensure_bootstrap_admin_row(username: str) -> int | None:
+    """Lazy-create a users row for the bootstrap-admin env-var login.
+
+    The bootstrap admin (MLSS_ALLOWED_GITHUB_USER) intentionally bypasses
+    the users table during auth — see mlss_monitor/routes/auth.py and
+    database/user_db.py. Per-user features added in MLSS-Mobile (push
+    subscriptions, severity preferences, notification history) need a
+    stable users.id to scope rows by, so we lazy-insert on first use.
+
+    Idempotent: a second call after the row exists returns the same id.
+    Only auto-inserts if the session username matches ALLOWED_GITHUB_USER —
+    never creates rows for arbitrary session values.
+    """
+    bootstrap = getattr(state, "ALLOWED_GITHUB_USER", None)
+    if not bootstrap or username.lower() != bootstrap.lower():
+        return None
+    now = datetime.utcnow().isoformat()
+    conn = sqlite3.connect(_db_file())
+    try:
+        try:
+            cur = conn.execute(
+                "INSERT INTO users "
+                "(github_username, display_name, role, created_at, is_active) "
+                "VALUES (lower(?), ?, 'admin', ?, 1)",
+                (username, username, now),
+            )
+            conn.commit()
+            log.info(
+                "Lazy-created users row for bootstrap admin %s (id=%s)",
+                username, cur.lastrowid,
+            )
+            return cur.lastrowid
+        except sqlite3.IntegrityError:
+            # Someone (another request, an admin via /admin) added them
+            # between our SELECT and INSERT. Re-read.
+            row = conn.execute(
+                "SELECT id FROM users WHERE lower(github_username) = lower(?)",
+                (username,),
+            ).fetchone()
+            return row[0] if row else None
+    finally:
+        conn.close()
+
+
 def _current_user_id() -> int | None:
     """Return the logged-in user's row id, or None if the session is
     anonymous / pre-1.0 (no user_id field).
@@ -69,6 +117,10 @@ def _current_user_id() -> int | None:
     sessions (pre-MLSS-mobile) only have the github_username under ``user``
     — fall back to a lookup so existing browser cookies don't 401 the
     user out of the new endpoints.
+
+    If the user is the bootstrap admin (env-var login, no DB row by
+    design), lazy-create a users row so per-user features have a stable
+    id to scope by.
     """
     uid = session.get("user_id")
     if uid is not None:
@@ -79,11 +131,17 @@ def _current_user_id() -> int | None:
     conn = sqlite3.connect(_db_file())
     try:
         row = conn.execute(
-            "SELECT id FROM users WHERE github_username = ?", (username,)
+            "SELECT id FROM users WHERE lower(github_username) = lower(?)",
+            (username,),
         ).fetchone()
-        return row[0] if row else None
     finally:
         conn.close()
+    if row is not None:
+        return row[0]
+    # Last-chance fallback: bootstrap admin (env-var) doesn't have a DB
+    # row by design. Create one on demand so notifications work for them
+    # without an operator having to add themselves via Settings → Users.
+    return _ensure_bootstrap_admin_row(username)
 
 
 # ── VAPID public key ─────────────────────────────────────────────────────

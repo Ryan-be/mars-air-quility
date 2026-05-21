@@ -248,3 +248,66 @@ def test_unauthenticated_returns_401_or_redirect(app):
         # paths the rbac module returns 401.
         r = c.get("/api/notifications/preferences")
         assert r.status_code in (401, 302)
+
+
+def test_bootstrap_admin_without_user_row_is_lazy_created(app, monkeypatch):
+    """The MLSS_ALLOWED_GITHUB_USER login intentionally skips the users
+    table during auth (see routes/auth.py). When such a session hits a
+    per-user API the first time, we lazy-insert a users row scoped to
+    them rather than 401-ing out."""
+    # Tell api_notifications who the bootstrap admin is. state.ALLOWED_GITHUB_USER
+    # is normally set by app.py at startup.
+    monkeypatch.setattr("mlss_monitor.state.ALLOWED_GITHUB_USER",
+                        "boss", raising=False)
+
+    with app.test_client() as c:
+        with c.session_transaction() as sess:
+            sess["logged_in"] = True
+            sess["user"]      = "boss"
+            sess["user_role"] = "admin"
+            sess["user_id"]   = None  # the bootstrap-admin signature
+
+        r = c.get("/api/notifications/preferences")
+        assert r.status_code == 200
+        assert r.get_json() == {
+            "air_quality":     "warning",
+            "grow_units":      "warning",
+            "system_health":   "warning",
+            "backup_pipeline": "warning",
+        }
+
+    # users row was created exactly once.
+    conn = sqlite3.connect(app.config["_DB_PATH"])
+    rows = conn.execute(
+        "SELECT github_username, role FROM users "
+        "WHERE lower(github_username) = 'boss'"
+    ).fetchall()
+    conn.close()
+    assert len(rows) == 1
+    assert rows[0][1] == "admin"
+
+
+def test_non_bootstrap_user_without_row_returns_user_not_found(app, monkeypatch):
+    """Lazy-insert ONLY fires for the bootstrap admin. Any other session
+    user whose row is missing is treated as an inconsistent state and
+    rejected — defence against an attacker who somehow forged a session
+    cookie with an arbitrary github_username."""
+    monkeypatch.setattr("mlss_monitor.state.ALLOWED_GITHUB_USER",
+                        "boss", raising=False)
+
+    with app.test_client() as c:
+        with c.session_transaction() as sess:
+            sess["logged_in"] = True
+            sess["user"]      = "imposter"   # NOT the bootstrap admin
+            sess["user_role"] = "admin"
+            sess["user_id"]   = None
+
+        r = c.get("/api/notifications/preferences")
+        assert r.status_code in (401, 404)
+
+    conn = sqlite3.connect(app.config["_DB_PATH"])
+    rows = conn.execute(
+        "SELECT * FROM users WHERE github_username = 'imposter'"
+    ).fetchall()
+    conn.close()
+    assert rows == []
