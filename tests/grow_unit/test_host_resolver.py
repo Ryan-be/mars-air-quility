@@ -367,3 +367,82 @@ def test_hub_candidates_never_writes_files(tmp_path):
     list(hub_candidates(steps=steps))
     assert not f_host.exists()
     assert not f_cache.exists()
+
+
+from mlss_grow.host_resolver import record_successful_connect
+
+
+def test_record_writes_cache_for_non_authoritative(tmp_path):
+    host_file  = tmp_path / "host"
+    cache_file = tmp_path / "host-cache"
+    host_file.write_text("192.0.2.10\n", encoding="utf-8")
+    c = Candidate("192.0.2.10", Source.HOST)
+    record_successful_connect(c, host_file=host_file, cache_file=cache_file)
+    assert cache_file.read_text(encoding="utf-8").rstrip("\n") == "192.0.2.10"
+
+
+def test_record_writes_cache_for_authoritative(tmp_path):
+    host_file  = tmp_path / "host"
+    cache_file = tmp_path / "host-cache"
+    host_file.write_text("192.0.2.10\n", encoding="utf-8")
+    c = Candidate("192.0.2.11", Source.MDNS, is_authoritative=True)
+    record_successful_connect(c, host_file=host_file, cache_file=cache_file)
+    assert cache_file.read_text(encoding="utf-8").rstrip("\n") == "192.0.2.11"
+
+
+def test_record_updates_host_when_authoritative_and_current_is_ip(tmp_path):
+    host_file  = tmp_path / "host"
+    cache_file = tmp_path / "host-cache"
+    host_file.write_text("192.0.2.10\n", encoding="utf-8")
+    c = Candidate("192.0.2.11", Source.MDNS, is_authoritative=True)
+    record_successful_connect(c, host_file=host_file, cache_file=cache_file)
+    assert host_file.read_text(encoding="utf-8").rstrip("\n") == "192.0.2.11"
+
+
+def test_record_preserves_hostname_in_host_file(tmp_path):
+    # Operator wrote "mlss.local" - refuse to downgrade to a literal.
+    host_file  = tmp_path / "host"
+    cache_file = tmp_path / "host-cache"
+    host_file.write_text("mlss.local\n", encoding="utf-8")
+    c = Candidate("192.0.2.10", Source.MDNS, is_authoritative=True)
+    record_successful_connect(c, host_file=host_file, cache_file=cache_file)
+    # Host file unchanged
+    assert host_file.read_text(encoding="utf-8").rstrip("\n") == "mlss.local"
+    # Cache still updated
+    assert cache_file.read_text(encoding="utf-8").rstrip("\n") == "192.0.2.10"
+
+
+def test_record_does_not_overwrite_when_non_authoritative(tmp_path):
+    host_file  = tmp_path / "host"
+    cache_file = tmp_path / "host-cache"
+    host_file.write_text("192.0.2.10\n", encoding="utf-8")
+    c = Candidate("192.0.2.99", Source.CACHE)  # non-authoritative
+    record_successful_connect(c, host_file=host_file, cache_file=cache_file)
+    assert host_file.read_text(encoding="utf-8").rstrip("\n") == "192.0.2.10"
+
+
+def test_record_skips_when_authoritative_ip_matches_current(tmp_path):
+    host_file  = tmp_path / "host"
+    cache_file = tmp_path / "host-cache"
+    host_file.write_text("192.0.2.10\n", encoding="utf-8")
+    c = Candidate("192.0.2.10", Source.MDNS, is_authoritative=True)
+    # Should not log a "changed" message (and should not bump mtime
+    # because writes are skipped).
+    before = host_file.stat().st_mtime_ns
+    record_successful_connect(c, host_file=host_file, cache_file=cache_file)
+    after = host_file.stat().st_mtime_ns
+    assert before == after        # no rewrite
+
+
+@pytest.mark.skipif(os.name != "posix",
+                    reason="symlink creation requires elevation on Windows")
+def test_record_refuses_to_write_through_symlink(tmp_path):
+    real_target = tmp_path / "real-host"
+    real_target.write_text("192.0.2.10\n", encoding="utf-8")
+    host_file = tmp_path / "host"
+    host_file.symlink_to(real_target)
+    cache_file = tmp_path / "host-cache"
+    c = Candidate("192.0.2.11", Source.MDNS, is_authoritative=True)
+    with pytest.raises(PermissionError, match="symlink"):
+        record_successful_connect(c, host_file=host_file, cache_file=cache_file)
+    assert real_target.read_text(encoding="utf-8").rstrip("\n") == "192.0.2.10"

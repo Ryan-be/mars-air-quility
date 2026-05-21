@@ -306,3 +306,48 @@ def hub_candidates(
                 "resolution step %s failed: %s",
                 getattr(step, "__name__", "<step>"), exc,
             )
+
+
+def record_successful_connect(
+    candidate:  Candidate,
+    host_file:  Path = Path("/etc/mlss/host"),
+    cache_file: Path = Path("/etc/mlss/host-cache"),
+) -> None:
+    """Persist post-handshake state.
+
+    PRECONDITION (Security Finding 1): caller has completed the full
+    WSS handshake including pinned-cert validation AND bearer-token
+    auth round-trip. Calling this on a TCP-only success is a bug.
+
+    Effects:
+      - Always writes cache_file (last-known-good IP), mode 0600.
+      - Updates host_file iff ALL of:
+          (a) candidate.is_authoritative is True
+          (b) current host_file value is an IP literal (refuses to
+              downgrade a hostname like 'mlss.local' silently -
+              Security Finding 4)
+          (c) the new IP differs from the current
+    """
+    _write_atomically(cache_file, candidate.ip, mode=0o600)
+
+    if not candidate.is_authoritative:
+        return
+
+    current = _read_validated(host_file)
+    if current is None or current == candidate.ip:
+        return
+
+    if not _is_ip_literal(current):
+        log.info(
+            "mDNS resolved %s but %s holds a hostname (%s); preserving "
+            "operator intent, not self-healing.",
+            candidate.ip, host_file, current,
+        )
+        return
+
+    log.warning(
+        "Hub IP changed: %s -> %s (resolved via mDNS). Updating %s so "
+        "next boot connects directly.",
+        current, candidate.ip, host_file,
+    )
+    _write_atomically(host_file, candidate.ip, mode=0o664)
