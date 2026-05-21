@@ -109,10 +109,10 @@ class TestGenerateCerts:
         from scripts.generate_certs import generate_self_signed_cert
 
         cert, _ = generate_self_signed_cert(
-            cert_dir=str(tmp_path), ip_addresses=["192.168.1.95"],
+            cert_dir=str(tmp_path), ip_addresses=["192.0.2.95"],
         )
         result = subprocess.run(
             ["openssl", "x509", "-in", cert, "-noout", "-text"],
             capture_output=True, text=True, check=True,
         )
-        assert "IP Address:192.168.1.95" in result.stdout
+        assert "IP Address:192.0.2.95" in result.stdout

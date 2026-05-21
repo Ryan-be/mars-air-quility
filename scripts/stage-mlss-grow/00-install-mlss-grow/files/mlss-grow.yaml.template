@@ -12,7 +12,7 @@
 # your LAN (e.g. via DHCP DNS or a static entry in /etc/hosts on a
 # router). Examples:
 #   mlss_host: mlss.local
-#   mlss_host: 192.168.1.50
+#   mlss_host: 192.0.2.50
 mlss_host: REPLACE_ME
 
 # Port the MLSS server is listening on (default 5000 for Flask + nginx

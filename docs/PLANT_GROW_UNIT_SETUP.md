@@ -101,7 +101,7 @@ You'll see something like:
 
 ```
 X509v3 Subject Alternative Name:
-    DNS:mlss-monitor, DNS:localhost, IP:127.0.0.1, IP:192.168.1.10
+    DNS:mlss-monitor, DNS:localhost, IP:127.0.0.1, IP:192.0.2.10
 ```
 
 If `mlss.local` is **not** listed (the default cert doesn't include
@@ -112,13 +112,13 @@ poetry run python scripts/generate_certs.py \
     --hostname mlss.local \
     --hostname mlss-monitor \
     --hostname localhost \
-    --ip 192.168.1.10 \
+    --ip 192.0.2.10 \
     --force
 sudo systemctl restart mlss-monitor
 sudo journalctl -u mlss-monitor -n 5  # verify clean startup
 ```
 
-(Replace `192.168.1.10` with your MLSS server's actual LAN IP.
+(Replace `192.0.2.10` with your MLSS server's actual LAN IP.
 `hostname -I` on the server gives it.)
 
 Re-verify the new cert:
@@ -126,7 +126,7 @@ Re-verify the new cert:
 ```bash
 openssl x509 -in certs/cert.pem -text -noout | grep -A1 "Subject Alternative Name"
 # Should now show: DNS:mlss.local, DNS:mlss-monitor, DNS:localhost,
-#                  IP:127.0.0.1, IP:192.168.1.10
+#                  IP:127.0.0.1, IP:192.0.2.10
 ```
 
 If you regenerated the cert AFTER Pis were already enrolled, each
@@ -146,7 +146,7 @@ Robust against any DNS / mDNS / avahi flakiness.
 
 ```bash
 # On the Pi:
-echo "192.168.1.10 mlss.local" | sudo tee -a /etc/hosts
+echo "192.0.2.10 mlss.local" | sudo tee -a /etc/hosts
 ```
 
 (Substitute your MLSS server's LAN IP. `hostname -I` on the server
@@ -155,7 +155,7 @@ gives it; or `ping mlss.local` from a working machine and read the IP.)
 Then update `/boot/mlss-grow.yaml` to use the hostname:
 
 ```yaml
-mlss_host: mlss.local              # not 192.168.1.10 directly
+mlss_host: mlss.local              # not 192.0.2.10 directly
 ```
 
 Why prefer the hostname over the bare IP: the cert SAN almost
@@ -481,7 +481,7 @@ classic foot-gun).
 | `Permission denied: '/tmp/tmp.abcd1234'` (or similar random suffix) during pip install | Old install.sh — TMP dir mode 0700 blocked the unprivileged user | `git pull` on the server, rebuild wheels, retry |
 | `No matching distribution found for Pillow<11.0,>=10.0` | Old install.sh — `--no-index` blocked PyPI for transitive deps | `git pull` on the server, rebuild wheels, retry |
 | `No such file or directory: '/.../contracts'` during pip install | Wheel METADATA had build-host's absolute path baked in | `git pull` on the server, rebuild wheels (the build script now strips this), retry |
-| `IP address mismatch, certificate is not valid for '192.168.1.10'` | Connecting via IP but cert SAN only has DNS names | Use the hostname (`mlss.local`) in `mlss_host`; ensure cert SAN covers it (Step 0.5) |
+| `IP address mismatch, certificate is not valid for '192.0.2.10'` | Connecting via IP but cert SAN only has DNS names | Use the hostname (`mlss.local`) in `mlss_host`; ensure cert SAN covers it (Step 0.5) |
 | `Hostname mismatch, certificate is not valid for 'mlss.local'` | Cert SAN doesn't include `mlss.local` | Regenerate the cert (Step 0.5) and re-pin on each Pi (above) |
 | `NO_CERTIFICATE_OR_CRL_FOUND` | Pi's `/etc/mlss/server.crt` is empty/corrupt | Re-pin on the Pi (above). Common cause: re-pinned BEFORE the server was restarted with the new cert |
 | `ModuleNotFoundError: No module named 'board'` | Adafruit Blinka wasn't installed (old marker missed armv6l) | `git pull` on the server, rebuild wheels, full reinstall on the Pi: `sudo rm -rf /opt/mlss-grow && curl -k <install-url> \| sudo bash` |
