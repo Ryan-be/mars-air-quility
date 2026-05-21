@@ -23,7 +23,14 @@ fi
 CERT_DIR="certs"
 CA_KEY="${CERT_DIR}/ca.key"
 CA_CRT="${CERT_DIR}/ca.crt"
-LEAF_KEY="${CERT_DIR}/cert.key"
+# Filenames MUST match what mlss_monitor/app.py reads from config:
+#   SSL_CERT_FILE default = certs/cert.pem
+#   SSL_KEY_FILE  default = certs/key.pem
+# Using a different leaf-key filename here (e.g. cert.key) silently
+# breaks TLS — Flask loads cert.pem against the OLD key.pem from the
+# previous scripts/generate_certs.py run, the pair doesn't match, and
+# the handshake fails with ERR_SSL_PROTOCOL_ERROR in browsers.
+LEAF_KEY="${CERT_DIR}/key.pem"
 LEAF_CRT="${CERT_DIR}/cert.pem"
 LEAF_CSR="${CERT_DIR}/cert.csr"
 SAN_CONF="${CERT_DIR}/.san.cnf"
@@ -105,6 +112,12 @@ run "openssl x509 -req -in '${LEAF_CSR}' -CA '${CA_CRT}' -CAkey '${CA_KEY}' \
 
 if [[ "${DRY_RUN}" -eq 0 ]]; then
     rm -f "${LEAF_CSR}" "${SAN_CONF}"
+    # Clean up the orphaned cert.key from an earlier broken version of
+    # this script (pre-fix it wrote the leaf key as cert.key, leaving a
+    # stale key.pem in place that didn't pair with the new cert.pem and
+    # broke TLS). Safe to delete unconditionally: if it exists, it's
+    # the wrong filename for the current cert.pem.
+    rm -f "${CERT_DIR}/cert.key"
 fi
 
 cat <<EOF
