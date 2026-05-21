@@ -306,3 +306,64 @@ def test_mdns_step_passes_timeout_to_zeroconf_resolver():
     )
     list(step())
     assert captured["timeout"] == 1.5
+
+
+from mlss_grow.host_resolver import hub_candidates, DEFAULT_STEPS
+
+
+def test_hub_candidates_yields_from_each_step_in_order():
+    def step_a():
+        yield Candidate("192.0.2.10", Source.HOST)
+    def step_b():
+        yield Candidate("192.0.2.11", Source.CACHE)
+    cs = list(hub_candidates(steps=(step_a, step_b)))
+    assert cs == [
+        Candidate("192.0.2.10", Source.HOST),
+        Candidate("192.0.2.11", Source.CACHE),
+    ]
+
+
+def test_hub_candidates_empty_when_no_step_yields():
+    def step_a():
+        return iter([])
+    def step_b():
+        return iter([])
+    assert list(hub_candidates(steps=(step_a, step_b))) == []
+
+
+def test_hub_candidates_never_raises_HostUnreachable():
+    # Standard iterator contract - empty means empty, not raise.
+    def step_a():
+        return iter([])
+    cs = []
+    for c in hub_candidates(steps=(step_a,)):
+        cs.append(c)
+    assert cs == []     # no exception
+
+
+def test_hub_candidates_swallows_step_exceptions_and_continues():
+    def step_a():
+        raise RuntimeError("kaboom")
+    def step_b():
+        yield Candidate("192.0.2.10", Source.MDNS, is_authoritative=True)
+    cs = list(hub_candidates(steps=(step_a, step_b)))
+    assert cs == [Candidate("192.0.2.10", Source.MDNS, is_authoritative=True)]
+
+
+def test_default_steps_has_three_entries():
+    # Adding a 4th step is one line in this tuple - keep the count
+    # honest as a regression guard.
+    assert len(DEFAULT_STEPS) == 3
+
+
+def test_hub_candidates_never_writes_files(tmp_path):
+    # Drive iterator to exhaustion - confirm no files are created.
+    f_host  = tmp_path / "host"        # missing
+    f_cache = tmp_path / "host-cache"  # missing
+    steps = (
+        make_host_step(host_file=f_host, dns_resolver=lambda _: []),
+        make_cache_step(cache_file=f_cache),
+    )
+    list(hub_candidates(steps=steps))
+    assert not f_host.exists()
+    assert not f_cache.exists()

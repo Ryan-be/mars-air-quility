@@ -275,3 +275,34 @@ def make_mdns_step(
             yield Candidate(ip=ip, source=Source.MDNS, is_authoritative=True)
     _step.__name__ = "mdns_step"
     return _step
+
+
+DEFAULT_STEPS: tuple[ResolutionStep, ...] = (
+    make_host_step(),
+    make_cache_step(),
+    make_mdns_step(),
+)
+
+
+def hub_candidates(
+    steps: tuple[ResolutionStep, ...] = DEFAULT_STEPS,
+) -> Iterator[Candidate]:
+    """Thin orchestrator. Yields from each step in order. Each step
+    handles its own internal errors and yields nothing if it can't
+    resolve. An empty iteration means "no candidates" - the iterator
+    NEVER raises HostUnreachable itself (the standard Python iterator
+    contract is preserved; HostUnreachable is raised by the caller
+    when the loop sees no candidates OR when every yielded candidate
+    fails its WSS handshake).
+    """
+    for step in steps:
+        try:
+            yield from step()
+        except Exception as exc:                  # pylint: disable=broad-except
+            # A step's internal failure becomes "no candidates from
+            # this step". Continue to the next. DEBUG so test runs
+            # aren't noisy but production diagnostics work.
+            log.debug(
+                "resolution step %s failed: %s",
+                getattr(step, "__name__", "<step>"), exc,
+            )
