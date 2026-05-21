@@ -323,6 +323,16 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)-8s %(name)s: %(message)s")
 
+    # Resilient host resolution: migrate legacy /boot/mlss-grow.yaml ->
+    # /etc/mlss/host on first run after upgrade. Idempotent - no-op once
+    # the file exists. Must run before bootstrap_unit_state because the
+    # WS reconnect loop reads /etc/mlss/host for the hub address.
+    try:
+        from mlss_grow.host_bootstrap import ensure_host_file
+        ensure_host_file()
+    except Exception as exc:                  # pylint: disable=broad-except
+        log.warning("ensure_host_file() failed (continuing): %s", exc)
+
     try:
         state = bootstrap_unit_state()
     except Exception as exc:
