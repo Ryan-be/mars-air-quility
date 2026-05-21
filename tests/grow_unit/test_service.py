@@ -66,6 +66,59 @@ def test_bootstrap_raises_when_no_token_and_no_firstboot(tmp_path):
         )
 
 
+def test_first_enrol_writes_etc_mlss_host(tmp_path):
+    """Spec section 7 step 4: after successful enrol, /etc/mlss/host
+    contains the yaml's mlss_host value. Mirrors the existing token-
+    write assertion in test_bootstrap_enrolls_when_no_token but
+    targets the canonical host file the resolver reads.
+
+    Uses the same fixture pattern as the surrounding tests: token_path
+    lives in tmp_path and the host file is its sibling, so the firmware
+    writes into the tmp dir rather than /etc/mlss/.
+    """
+    token_path = str(tmp_path / "grow.token")
+    boot_path = str(tmp_path / "mlss-grow.yaml")
+    open(boot_path, "w").write(  # pylint: disable=R1732,unspecified-encoding
+        "mlss_host: 192.0.2.10\nenrollment_key: ek\nplant:\n  name: Test\n"
+    )
+
+    bootstrap_unit_state(
+        firstboot_path=boot_path,
+        token_path=token_path,
+        enroll_fn=MagicMock(return_value=(7, "tok-7")),
+        get_serial_fn=MagicMock(return_value="hw-1"),
+    )
+
+    host_file = tmp_path / "host"
+    assert host_file.is_file(), "enrol should write <etc-mlss>/host"
+    assert host_file.read_text(encoding="utf-8").rstrip("\n") == "192.0.2.10"
+
+
+def test_first_enrol_does_not_overwrite_existing_host_file(tmp_path):
+    """Idempotency: if /etc/mlss/host already exists (operator override,
+    or a previous migration via ensure_host_file), the enrol path must
+    NOT clobber it. Matches the host_bootstrap.ensure_host_file
+    semantics — first writer wins so an operator's manual address is
+    preserved across re-enrolment scenarios."""
+    token_path = str(tmp_path / "grow.token")
+    boot_path = str(tmp_path / "mlss-grow.yaml")
+    open(boot_path, "w").write(  # pylint: disable=R1732,unspecified-encoding
+        "mlss_host: 192.0.2.10\nenrollment_key: ek\nplant:\n  name: Test\n"
+    )
+    # Pre-populate /etc/mlss/host with a different value — operator pin.
+    pre_existing_host = tmp_path / "host"
+    pre_existing_host.write_text("mlss.local\n", encoding="utf-8")
+
+    bootstrap_unit_state(
+        firstboot_path=boot_path,
+        token_path=token_path,
+        enroll_fn=MagicMock(return_value=(7, "tok-7")),
+        get_serial_fn=MagicMock(return_value="hw-1"),
+    )
+
+    assert pre_existing_host.read_text(encoding="utf-8").rstrip("\n") == "mlss.local"
+
+
 # ---------------------------------------------------------------------------
 # _build_reconnect_sync: closure binds pull_unit_config + apply_config so
 # the WSClient can re-sync config on every reconnect without knowing
