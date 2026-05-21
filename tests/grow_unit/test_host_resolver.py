@@ -8,6 +8,7 @@ import pytest
 from mlss_grow.host_resolver import Candidate, HostUnreachable, Source
 from mlss_grow.host_resolver import _read_validated, _write_atomically
 from mlss_grow.host_resolver import make_host_step
+from mlss_grow.host_resolver import make_cache_step
 
 
 def test_source_values_are_lowercase_strings():
@@ -209,4 +210,32 @@ def test_host_step_malformed_file_yields_nothing(tmp_path):
         host_file=f,
         dns_resolver=lambda _: ["should-never-be-called"],
     )
+    assert list(step()) == []
+
+
+def test_cache_step_yields_ip(tmp_path):
+    f = tmp_path / "host-cache"
+    f.write_text("192.0.2.10\n", encoding="utf-8")
+    step = make_cache_step(cache_file=f)
+    assert list(step()) == [Candidate("192.0.2.10", Source.CACHE)]
+
+
+def test_cache_step_missing_file_yields_nothing(tmp_path):
+    step = make_cache_step(cache_file=tmp_path / "absent")
+    assert list(step()) == []
+
+
+def test_cache_step_rejects_hostname_in_cache(tmp_path):
+    # Cache is for last-known-good IPs only - a hostname there means
+    # something is wrong (corrupt write, manual edit). Skip silently.
+    f = tmp_path / "host-cache"
+    f.write_text("mlss.local\n", encoding="utf-8")
+    step = make_cache_step(cache_file=f)
+    assert list(step()) == []
+
+
+def test_cache_step_rejects_garbage(tmp_path):
+    f = tmp_path / "host-cache"
+    f.write_bytes(b"\x00\x01garbage\xff")
+    step = make_cache_step(cache_file=f)
     assert list(step()) == []

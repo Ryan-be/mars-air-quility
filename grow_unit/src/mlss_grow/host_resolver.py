@@ -178,3 +178,27 @@ def make_host_step(
             yield Candidate(ip=ip, source=Source.HOST)
     _step.__name__ = "host_step"
     return _step
+
+
+def make_cache_step(
+    cache_file: Path = Path("/etc/mlss/host-cache"),
+) -> ResolutionStep:
+    """Build the Step-2 resolution step (reads /etc/mlss/host-cache).
+
+    The cache only ever holds IP literals (the recorder writes the
+    resolved IP, never a hostname). If the cache content is anything
+    else, treat as missing and yield empty.
+    """
+    def _step() -> Iterator[Candidate]:
+        value = _read_validated(cache_file)
+        if value is None:
+            return
+        if not _is_ip_literal(value):
+            log.warning(
+                "cache file %s contains non-IP value %r, ignored",
+                cache_file, value[:80],
+            )
+            return
+        yield Candidate(ip=value, source=Source.CACHE)
+    _step.__name__ = "cache_step"
+    return _step
