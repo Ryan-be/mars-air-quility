@@ -219,7 +219,6 @@ def _zeroconf_resolve(mdns_name: str, timeout_s: float) -> list[str]:
         log.debug("zeroconf not installed; mDNS browse path unavailable")
         return []
 
-    import socket as _socket
     zc = Zeroconf()
     try:
         info = zc.get_service_info(
@@ -229,7 +228,7 @@ def _zeroconf_resolve(mdns_name: str, timeout_s: float) -> list[str]:
         )
         if info is None or not info.addresses:
             return []
-        return [_socket.inet_ntoa(addr) for addr in info.addresses if len(addr) == 4]
+        return [socket.inet_ntoa(addr) for addr in info.addresses if len(addr) == 4]
     finally:
         zc.close()
 
