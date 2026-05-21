@@ -202,3 +202,76 @@ def make_cache_step(
         yield Candidate(ip=value, source=Source.CACHE)
     _step.__name__ = "cache_step"
     return _step
+
+
+def _zeroconf_resolve(mdns_name: str, timeout_s: float) -> list[str]:
+    """Resolve ``mdns_name`` to a list of IPs via python-zeroconf.
+
+    Used only when ``socket.getaddrinfo`` (libnss-mdns path) fails -
+    e.g. Avahi's NSS plugin isn't installed or the daemon is wedged.
+    Pure Python, no Avahi daemon required.
+
+    Returns a possibly-empty list. Never raises (errors yield empty).
+    """
+    try:
+        from zeroconf import Zeroconf
+    except ImportError:
+        log.debug("zeroconf not installed; mDNS browse path unavailable")
+        return []
+
+    import socket as _socket
+    zc = Zeroconf()
+    try:
+        info = zc.get_service_info(
+            "_workstation._tcp.local.",
+            mdns_name if mdns_name.endswith(".local.") else mdns_name + ".",
+            timeout=int(timeout_s * 1000),  # zeroconf takes ms
+        )
+        if info is None or not info.addresses:
+            return []
+        return [_socket.inet_ntoa(addr) for addr in info.addresses if len(addr) == 4]
+    finally:
+        zc.close()
+
+
+def make_mdns_step(
+    mdns_name:     str                                = "mlss.local",
+    dns_resolver:  Callable[[str], list[str]]         = _socket_getaddrinfo,
+    mdns_resolver: Callable[[str, float], list[str]]  = _zeroconf_resolve,
+    timeout_s:     float                              = 3.0,
+) -> ResolutionStep:
+    """Build the Step-3 resolution step (mDNS).
+
+    Two sub-paths in priority order:
+      1. ``dns_resolver(mdns_name)`` - uses libnss-mdns when Avahi is
+         healthy. Fast path.
+      2. ``mdns_resolver(mdns_name, timeout_s)`` - pure-Python
+         zeroconf browse fallback. Used when libnss-mdns is absent or
+         Avahi is wedged.
+
+    Both wrapped in try/except so a wedged path doesn't break the
+    other. Yields Candidates marked ``is_authoritative=True`` because
+    mDNS reports the hub's *current* address - the resolver knows this
+    is the truth, not a cached guess.
+    """
+    def _step() -> Iterator[Candidate]:
+        # Sub-path 1: libnss-mdns via socket.getaddrinfo
+        try:
+            ips = dns_resolver(mdns_name)
+            for ip in ips:
+                yield Candidate(ip=ip, source=Source.MDNS, is_authoritative=True)
+            if ips:
+                return
+        except socket.gaierror as exc:
+            log.debug("mdns-step libnss path failed: %s", exc)
+
+        # Sub-path 2: zeroconf browse
+        try:
+            ips = mdns_resolver(mdns_name, timeout_s)
+        except Exception as exc:                  # pylint: disable=broad-except
+            log.debug("mdns-step zeroconf path failed: %s", exc)
+            return
+        for ip in ips:
+            yield Candidate(ip=ip, source=Source.MDNS, is_authoritative=True)
+    _step.__name__ = "mdns_step"
+    return _step

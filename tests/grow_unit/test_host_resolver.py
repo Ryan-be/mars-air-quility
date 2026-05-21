@@ -9,6 +9,7 @@ from mlss_grow.host_resolver import Candidate, HostUnreachable, Source
 from mlss_grow.host_resolver import _read_validated, _write_atomically
 from mlss_grow.host_resolver import make_host_step
 from mlss_grow.host_resolver import make_cache_step
+from mlss_grow.host_resolver import make_mdns_step
 
 
 def test_source_values_are_lowercase_strings():
@@ -239,3 +240,69 @@ def test_cache_step_rejects_garbage(tmp_path):
     f.write_bytes(b"\x00\x01garbage\xff")
     step = make_cache_step(cache_file=f)
     assert list(step()) == []
+
+
+def test_mdns_step_libnss_path_yields_authoritative():
+    def fake_dns(name):
+        assert name == "mlss.local"
+        return ["192.0.2.10"]
+    def fake_mdns(_name, _timeout):
+        raise AssertionError("should not be called when libnss path works")
+    step = make_mdns_step(
+        mdns_name="mlss.local",
+        dns_resolver=fake_dns,
+        mdns_resolver=fake_mdns,
+        timeout_s=3.0,
+    )
+    cs = list(step())
+    assert cs == [Candidate("192.0.2.10", Source.MDNS, is_authoritative=True)]
+
+
+def test_mdns_step_zeroconf_fallback_when_libnss_fails():
+    def fake_dns(_):
+        import socket
+        raise socket.gaierror("no NSS")
+    def fake_mdns(name, timeout):
+        assert name == "mlss.local"
+        return ["192.0.2.11"]
+    step = make_mdns_step(
+        mdns_name="mlss.local",
+        dns_resolver=fake_dns,
+        mdns_resolver=fake_mdns,
+        timeout_s=3.0,
+    )
+    cs = list(step())
+    assert cs == [Candidate("192.0.2.11", Source.MDNS, is_authoritative=True)]
+
+
+def test_mdns_step_both_paths_fail_yields_nothing():
+    def fake_dns(_):
+        import socket
+        raise socket.gaierror("no NSS")
+    def fake_mdns(_name, _timeout):
+        return []
+    step = make_mdns_step(
+        mdns_name="mlss.local",
+        dns_resolver=fake_dns,
+        mdns_resolver=fake_mdns,
+        timeout_s=3.0,
+    )
+    assert list(step()) == []
+
+
+def test_mdns_step_passes_timeout_to_zeroconf_resolver():
+    captured = {}
+    def fake_dns(_):
+        import socket
+        raise socket.gaierror("no NSS")
+    def fake_mdns(name, timeout):
+        captured["timeout"] = timeout
+        return ["192.0.2.10"]
+    step = make_mdns_step(
+        mdns_name="mlss.local",
+        dns_resolver=fake_dns,
+        mdns_resolver=fake_mdns,
+        timeout_s=1.5,
+    )
+    list(step())
+    assert captured["timeout"] == 1.5
