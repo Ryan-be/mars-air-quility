@@ -49,20 +49,30 @@
   }
 
   /* ─── Tab nav: fixed bottom nav, icon-only ──────────────────────── */
+  /*
+   * iPhone safe-area: bottom curved corners + home indicator clip
+   * content if we leave the nav at bottom: 0. Use env(safe-area-inset-*)
+   * (set by iOS Safari + the PWA viewport-fit=cover meta in base.html)
+   * to inset just enough that tab icons stay fully tappable inside the
+   * unclipped rectangle. Left/right insets handle the rounded corners;
+   * bottom-padding handles the home-indicator area on iPhone X+.
+   */
   nav.tab-nav {
     position: fixed;
     bottom: 0;
     left: 0;
     right: 0;
     z-index: 1000;
-    height: 56px;
+    min-height: 56px;
     background: var(--color-bg-secondary, #1a2027);
     border-top: 1px solid var(--color-border, #2a3038);
     display: flex;
     justify-content: space-around;
     align-items: stretch;
     overflow-x: auto;
-    padding: 0;
+    padding-left:   env(safe-area-inset-left, 0);
+    padding-right:  env(safe-area-inset-right, 0);
+    padding-bottom: env(safe-area-inset-bottom, 0);
   }
   nav.tab-nav a {
     flex: 1 1 auto;
@@ -88,7 +98,11 @@
 
   /* ─── Make room for the bottom nav so content isn't hidden ──────── */
   main.page-content {
-    padding-bottom: 72px;
+    /* 72px reserves room for the 56px fixed bottom nav + a 16px gap.
+       calc() adds the iPhone home-indicator safe-area on top so content
+       doesn't slide beneath the indicator. env() falls back to 0 on
+       devices without a safe area, so desktop layouts are unchanged. */
+    padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
   }
   .page-controls-bar {
     padding-bottom: 8px;
