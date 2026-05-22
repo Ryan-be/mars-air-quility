@@ -5,6 +5,7 @@ from .pages import pages_bp
 from .api_data import api_data_bp
 from .api_effectors import api_effectors_bp
 from .api_effectors_v2 import api_effectors_v2_bp
+from .api_topology import api_topology_bp
 from .api_fan import api_fan_bp
 from .api_weather import api_weather_bp
 from .api_settings import api_settings_bp
@@ -41,6 +42,7 @@ def register_routes(app):
     # serves the deprecated POST /api/effector shim — its GET handler
     # has been removed so the v2 blueprint can own that path uniquely.
     app.register_blueprint(api_effectors_v2_bp)
+    app.register_blueprint(api_topology_bp)
     app.register_blueprint(api_effectors_bp)
     app.register_blueprint(api_fan_bp)
     app.register_blueprint(api_weather_bp)
