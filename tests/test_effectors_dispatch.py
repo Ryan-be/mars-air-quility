@@ -488,3 +488,43 @@ class TestLightSupplementary:
         scopes = LightSupplementary.compatible_scopes()
         assert Scope.HUB in scopes
         assert Scope.GROW_UNIT in scopes
+
+
+# ── Task 3.3e: Generic + CO2Injector (manual-only) ────────────────────────
+
+
+class TestGenericController:
+    """Manual-only: should_be_on always returns False so the evaluator
+    never tries to drive it; operator drives it via /api/effectors/<id>/state."""
+
+    def test_always_returns_false(self):
+        from mlss_monitor.effectors.generic import Generic
+        ctrl = Generic()
+        # Even an extreme reading + populated rules shouldn't fire.
+        assert ctrl.should_be_on(
+            {"temperature": 99.0, "humidity": 99.0, "tvoc": 99999},
+            {"target": 0.0, "schedule": [{"start_hr": 0, "end_hr": 24}]},
+        ) is False
+
+    def test_compatible_scopes_includes_hub_and_grow(self):
+        from mlss_monitor.effectors.generic import Generic
+        from mlss_monitor.effectors.base import Scope
+        scopes = Generic.compatible_scopes()
+        assert Scope.HUB in scopes
+        assert Scope.GROW_UNIT in scopes
+
+
+class TestCO2InjectorController:
+    """Manual-only for v1 — operator drives it; evaluator never fires."""
+
+    def test_always_returns_false(self):
+        from mlss_monitor.effectors.generic import CO2Injector
+        ctrl = CO2Injector()
+        assert ctrl.should_be_on(
+            {"eco2": 200, "temperature": 22.0}, {"target": 800},
+        ) is False
+
+    def test_compatible_scopes_is_hub_only(self):
+        from mlss_monitor.effectors.generic import CO2Injector
+        from mlss_monitor.effectors.base import Scope
+        assert CO2Injector.compatible_scopes() == {Scope.HUB}
