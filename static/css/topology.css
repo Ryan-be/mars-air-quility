@@ -140,6 +140,203 @@
     border-color: var(--color-status-normal, #56f000);
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   Add-effector modal (Phase 9)
+   ───────────────────────────────────────────────────────────────────────
+   Two-column-ish modal scaffold mirroring static/js/grow/components/
+   add-unit-modal.mjs but tailored to the larger picker payload (11
+   effector types + scope picker + two text inputs).
+   ═════════════════════════════════════════════════════════════════════ */
+
+.add-effector-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    background: rgba(8, 12, 17, .68);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.add-effector-box {
+    width: min(560px, 92vw);
+    max-height: 88vh;
+    overflow-y: auto;
+    background: var(--color-background-surface-default, #1b2d3e);
+    border: 1px solid var(--color-border-interactive-muted, #2b659b);
+    border-radius: 4px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, .55);
+    color: var(--color-text-primary, #fff);
+    font-family: 'Roboto', system-ui, sans-serif;
+}
+
+.add-effector-head {
+    display: flex;
+    align-items: center;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--color-background-surface-hover, #172635);
+}
+
+.add-effector-head h3 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: .04em;
+}
+
+.add-effector-close {
+    margin-left: auto;
+    background: transparent;
+    border: 0;
+    color: var(--color-text-secondary, #b0bec5);
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 4px;
+}
+
+.add-effector-close:hover {
+    color: var(--color-text-primary, #fff);
+}
+
+.add-effector-body {
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.add-effector-error {
+    background: rgba(255, 56, 56, .15);
+    border: 1px solid var(--color-status-critical, #ff3838);
+    color: var(--color-status-critical, #ff3838);
+    padding: 6px 10px;
+    border-radius: 3px;
+    font-size: 12px;
+}
+
+.add-effector-type,
+.add-effector-scope {
+    border: 1px solid var(--color-background-surface-hover, #172635);
+    border-radius: 3px;
+    padding: 8px 12px;
+    margin: 0;
+}
+
+.add-effector-type legend,
+.add-effector-scope legend {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: .12em;
+    color: var(--color-text-secondary, #b0bec5);
+    padding: 0 4px;
+}
+
+.add-effector-type-row,
+.add-effector-scope-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 0;
+    font-size: 12px;
+}
+
+.add-effector-type {
+    /* The 11-row picker reads more cleanly as a 2-column grid. */
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 16px;
+}
+
+.add-effector-type legend {
+    grid-column: 1 / -1;
+}
+
+.add-effector-grow-row {
+    margin-top: 6px;
+    padding-left: 18px;
+    font-size: 12px;
+    color: var(--color-text-secondary, #b0bec5);
+}
+
+.add-effector-grow-row.hidden {
+    display: none;
+}
+
+.add-effector-grow-row select {
+    margin-left: 6px;
+    background: var(--color-background-base-default, #101923);
+    border: 1px solid var(--color-border-interactive-muted, #2b659b);
+    color: var(--color-text-primary, #fff);
+    padding: 3px 6px;
+    border-radius: 3px;
+}
+
+.add-effector-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: .12em;
+    color: var(--color-text-secondary, #b0bec5);
+}
+
+.add-effector-field input {
+    background: var(--color-background-base-default, #101923);
+    border: 1px solid var(--color-border-interactive-muted, #2b659b);
+    color: var(--color-text-primary, #fff);
+    padding: 6px 8px;
+    border-radius: 3px;
+    font-size: 13px;
+    text-transform: none;
+    letter-spacing: 0;
+    font-family: 'Roboto Mono', monospace;
+}
+
+.add-effector-foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding-top: 4px;
+}
+
+.add-effector-foot button {
+    appearance: none;
+    background: var(--color-background-surface-default, #1b2d3e);
+    border: 1px solid var(--color-border-interactive-muted, #2b659b);
+    color: var(--color-text-primary, #fff);
+    border-radius: 3px;
+    padding: 6px 14px;
+    font-family: 'Roboto Mono', monospace;
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background .12s, border-color .12s;
+}
+
+.add-effector-foot button:hover {
+    background: var(--color-background-surface-hover, #172635);
+    border-color: var(--color-border-interactive-default, #4dacff);
+}
+
+.add-effector-foot button.primary {
+    background: var(--color-status-normal, #56f000);
+    color: #001a00;
+    border-color: var(--color-status-normal, #56f000);
+}
+
+.add-effector-foot button.primary:hover {
+    background: #6cff1a;
+    border-color: #6cff1a;
+}
+
+.add-effector-foot button:disabled {
+    opacity: .6;
+    cursor: not-allowed;
+}
+
 /* ─────────────────────────────────── Graph ──────────────────────────────── */
 
 .tp-graph {
