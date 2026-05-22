@@ -181,17 +181,87 @@ export function openAddUnitModal(opts = {}) {
   keyRow.appendChild(copyBtn);
   reveal.appendChild(keyRow);
 
-  const instructions = doc.createElement("ol");
-  instructions.className = "add-unit-instructions";
-  instructions.dataset.testid = "add-unit-instructions";
-  instructions.innerHTML = `
-    <li>SSH into the new Pi and run:
-      <pre><code>curl -k https://${mlssHost}:5000/api/grow/install.sh | sudo bash</code></pre>
-    </li>
-    <li>When prompted, paste the enrollment key above.</li>
-    <li>The unit will appear in this fleet view once it connects.</li>
+  // ── Pre-filled boot-yaml snippet ───────────────────────────────────
+  // The Pi's first-boot script reads /boot/mlss-grow.yaml, then runs
+  // install.sh. Putting host + port + enrollment_key in one yaml
+  // block is the "set IP, set key, job done" operator flow — no
+  // manual editing required beyond pasting the snippet.
+  const yamlHead = doc.createElement("div");
+  yamlHead.className = "add-unit-yaml-head";
+  yamlHead.textContent =
+    "Step 1 — copy this into /boot/mlss-grow.yaml on the new Pi's SD card:";
+  reveal.appendChild(yamlHead);
+
+  const yamlRow = doc.createElement("div");
+  yamlRow.className = "add-unit-yaml-row";
+
+  const yamlBlock = doc.createElement("pre");
+  yamlBlock.className = "add-unit-yaml";
+  yamlBlock.dataset.testid = "add-unit-yaml";
+  // The keyInput value is filled in by _doReveal() after the peek-once
+  // GET succeeds; until then this <pre> shows REPLACE_ME as a guard.
+  yamlBlock.dataset.host = mlssHost;
+  yamlBlock.textContent =
+      `mlss_host: ${mlssHost}\n`
+    + `mlss_port: 5000\n`
+    + `enrollment_key: REPLACE_ME\n`;
+  yamlRow.appendChild(yamlBlock);
+
+  const yamlCopyBtn = doc.createElement("button");
+  yamlCopyBtn.type = "button";
+  yamlCopyBtn.className = "px-btn add-unit-yaml-copy-btn";
+  yamlCopyBtn.textContent = "Copy YAML";
+  yamlCopyBtn.dataset.testid = "add-unit-yaml-copy-btn";
+  yamlCopyBtn.addEventListener("click", async () => {
+    const text = yamlBlock.textContent;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const range = doc.createRange();
+        range.selectNodeContents(yamlBlock);
+        const sel = (typeof window !== "undefined" && window.getSelection)
+          ? window.getSelection() : null;
+        if (sel) { sel.removeAllRanges(); sel.addRange(range); }
+        doc.execCommand && doc.execCommand("copy");
+      }
+      yamlCopyBtn.textContent = "Copied!";
+      setTimeout(() => { yamlCopyBtn.textContent = "Copy YAML"; }, 1500);
+    } catch (e) {
+      yamlCopyBtn.textContent = "Copy failed";
+    }
+  });
+  yamlRow.appendChild(yamlCopyBtn);
+  reveal.appendChild(yamlRow);
+
+  const bootStep = doc.createElement("p");
+  bootStep.className = "add-unit-boot-step";
+  bootStep.dataset.testid = "add-unit-boot-step";
+  bootStep.innerHTML =
+    "<strong>Step 2 — boot the Pi.</strong> The first-boot script reads "
+    + "the yaml, fetches the installer, enrols the unit and starts the "
+    + "service. Within ~2 minutes the unit appears in this fleet view.";
+  reveal.appendChild(bootStep);
+
+  // ── Collapsible "Already-running Pi?" path ─────────────────────────
+  // Less common but useful if the operator already has the Pi running
+  // (e.g. they're re-provisioning an existing unit). Hidden by default
+  // so the primary YAML+boot flow stays uncluttered.
+  const altDetails = doc.createElement("details");
+  altDetails.className = "add-unit-alt";
+  altDetails.dataset.testid = "add-unit-alt";
+  altDetails.innerHTML = `
+    <summary>Already-running Pi? (alternate flow)</summary>
+    <ol class="add-unit-alt-instructions">
+      <li>SSH into the Pi.</li>
+      <li>Write the YAML above to <code>/boot/mlss-grow.yaml</code>
+        (or <code>/boot/firmware/mlss-grow.yaml</code> on Bookworm).</li>
+      <li>Run:
+        <pre><code>curl -k https://${mlssHost}:5000/api/grow/install.sh | sudo bash</code></pre>
+      </li>
+    </ol>
   `;
-  reveal.appendChild(instructions);
+  reveal.appendChild(altDetails);
 
   body.appendChild(reveal);
 
@@ -234,6 +304,10 @@ export function openAddUnitModal(opts = {}) {
     // Clear any revealed key from the DOM before tearing down — defence
     // in depth against a screen capture taken between close + GC.
     keyInput.value = "";
+    yamlBlock.textContent =
+        `mlss_host: ${mlssHost}\n`
+      + `mlss_port: 5000\n`
+      + `enrollment_key: REPLACE_ME\n`;
     if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
     doc.removeEventListener("keydown", _onKey);
   }
@@ -261,7 +335,16 @@ export function openAddUnitModal(opts = {}) {
       const r = await fetchFn("/api/grow/enrollment-key/peek-once");
       if (r.ok) {
         const data = await r.json().catch(() => ({}));
-        keyInput.value = data.key || "";
+        const key = data.key || "";
+        keyInput.value = key;
+        // Substitute REPLACE_ME in the yaml snippet so the operator can
+        // copy a single block that's complete + ready to paste. The
+        // close() handler clears both this and the keyInput as defence
+        // in depth against post-close screen capture.
+        yamlBlock.textContent =
+            `mlss_host: ${yamlBlock.dataset.host}\n`
+          + `mlss_port: 5000\n`
+          + `enrollment_key: ${key}\n`;
         idleRow.style.display = "none";
         reveal.style.display = "";
         return;

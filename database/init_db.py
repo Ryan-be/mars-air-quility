@@ -306,6 +306,23 @@ def create_db():
     );
     """)
 
+    # MLSS Mobile: per-user notification severity floors. Must run AFTER the
+    # users CREATE TABLE above (the earlier migrations loop runs before
+    # users exists). SQLite ALTER doesn't support CHECK constraints; values
+    # are validated at the API layer (see
+    # mlss_monitor/routes/api_notifications.py). Default 'warning' = noisy
+    # enough to be useful, quiet enough not to annoy.
+    for _users_migration in [
+        "ALTER TABLE users ADD COLUMN notify_air_quality      TEXT NOT NULL DEFAULT 'warning'",
+        "ALTER TABLE users ADD COLUMN notify_grow_units       TEXT NOT NULL DEFAULT 'warning'",
+        "ALTER TABLE users ADD COLUMN notify_system_health    TEXT NOT NULL DEFAULT 'warning'",
+        "ALTER TABLE users ADD COLUMN notify_backup_pipeline  TEXT NOT NULL DEFAULT 'warning'",
+    ]:
+        try:
+            cur.execute(_users_migration)
+        except Exception:  # pylint: disable=broad-except
+            pass  # column already exists
+
     cur.execute("""
     CREATE TABLE IF NOT EXISTS login_log (
         id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -317,6 +334,51 @@ def create_db():
     cur.execute(
         "CREATE INDEX IF NOT EXISTS idx_login_log_user "
         "ON login_log (github_username, logged_in_at DESC)"
+    )
+
+    # MLSS Mobile: Web Push subscriptions (per user, multi-device).
+    # endpoint is the unique push-service URL the browser returns; UNIQUE
+    # prevents duplicate rows when a device re-subscribes.
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        endpoint     TEXT NOT NULL UNIQUE,
+        p256dh       TEXT NOT NULL,
+        auth         TEXT NOT NULL,
+        device_label TEXT,
+        created_at   DATETIME NOT NULL,
+        last_used_at DATETIME
+    );
+    """)
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_push_sub_user "
+        "ON push_subscriptions(user_id)"
+    )
+
+    # MLSS Mobile: persisted history for the /notifications inbox. The
+    # dispatcher writes one row per (user, coalesce-window) and updates
+    # event_count + title when more events arrive in the same 60s window.
+    # Pruned after 30 days by a background task.
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS notification_history (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        category        TEXT NOT NULL,
+        severity        TEXT NOT NULL,
+        title           TEXT NOT NULL,
+        body            TEXT,
+        deep_link       TEXT,
+        event_count     INTEGER NOT NULL DEFAULT 1,
+        delivered_count INTEGER NOT NULL DEFAULT 0,
+        failed_count    INTEGER NOT NULL DEFAULT 0,
+        created_at      DATETIME NOT NULL,
+        read_at         DATETIME
+    );
+    """)
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_notif_hist_user_time "
+        "ON notification_history(user_id, created_at DESC)"
     )
 
     cur.execute(

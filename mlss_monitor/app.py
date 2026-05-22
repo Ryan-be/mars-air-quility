@@ -171,6 +171,11 @@ state.service_start_time   = datetime.utcnow()
 state.backup_db_worker    = None
 state.backup_files_worker = None
 
+# MLSS Mobile: pre-init the notification dispatcher handle so getattr
+# in api routes is predictable even before _start_background_services
+# runs. The real instance is created in _start_background_services().
+state.notification_dispatcher = None
+
 # ── GitHub OAuth ──────────────────────────────────────────────────────────────
 
 _oauth = OAuth(app)
@@ -221,9 +226,19 @@ state.open_meteo = OpenMeteoClient()
 # bearer token issued at enroll time.
 _PUBLIC_ENDPOINTS = {"auth.login", "auth.logout", "auth.github_login",
                      "auth.github_callback", "static",
+                     # Browsers may refetch the service worker without a
+                     # session cookie (background sync, push wake) — keep
+                     # it auth-free so push notifications keep working.
+                     "pages.service_worker",
                      "api_grow_enroll.enroll",
                      "api_grow_dist.install_sh",
                      "api_grow_dist.serve_wheel",
+                     # CA cert is a public trust anchor (not a secret).
+                     # install.sh fetches it BEFORE enrolling, so it
+                     # can't carry a bearer token. Pinning the CA there
+                     # makes future leaf rotations transparent to the
+                     # firmware. See scripts/generate_local_ca.sh.
+                     "api_grow_dist.serve_ca_crt",
                      # Firmware pulls fresh config on `config_changed`; uses
                      # bearer-token auth (not session). See
                      # mlss_monitor/routes/api_grow_config.py:get_unit_config.
@@ -882,6 +897,28 @@ def _start_background_services():
         _start_backup_workers(backup_config.load(), state, log)
     except Exception as exc:  # pylint: disable=broad-except
         log.warning("Backup worker startup failed: %s", exc)
+
+    # MLSS Mobile: notification dispatcher subscribes to the event bus
+    # and fans out Web Push to per-user push_subscriptions. Daemon
+    # thread, same lifecycle as the backup workers above.
+    try:
+        from mlss_monitor.notifications.dispatcher import start_dispatcher
+        state.notification_dispatcher = start_dispatcher(
+            event_bus=state.event_bus,
+            db_file=DB_FILE,
+        )
+        log.info("Notification dispatcher started")
+    except Exception as exc:  # pylint: disable=broad-except
+        log.warning("Notification dispatcher startup failed: %s", exc)
+
+    # MLSS Mobile: prune notification_history rows older than 30 days
+    # once a day. Daemon thread; failures are logged but don't crash.
+    try:
+        from mlss_monitor.notifications.cleanup import start_cleanup_loop
+        start_cleanup_loop()
+        log.info("Notification cleanup loop started")
+    except Exception as exc:  # pylint: disable=broad-except
+        log.warning("Notification cleanup startup failed: %s", exc)
 
 
 def _start_backup_workers(cfg: dict, state_module, logger) -> None:

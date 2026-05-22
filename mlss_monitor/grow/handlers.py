@@ -11,7 +11,30 @@ from datetime import datetime
 from typing import Optional
 
 from database.init_db import DB_FILE
+from mlss_monitor import state
 from mlss_monitor.backup import outbox
+
+
+def _publish_grow_error(unit_id: int, severity: str, title: str,
+                        message: str) -> None:
+    """Publish a grow_error_logged event so NotificationDispatcher can fan it out.
+
+    Best-effort — if the event bus isn't initialised yet (tests, very early
+    startup), silently no-op. The DB insert is the source of truth; the
+    publish is just the wakeup for the push pipeline.
+    """
+    bus = getattr(state, "event_bus", None)
+    if bus is None:
+        return
+    try:
+        bus.publish("grow_error_logged", {
+            "unit_id": unit_id,
+            "severity": severity,
+            "title":    title,
+            "message":  message,
+        })
+    except Exception:  # pylint: disable=broad-except
+        pass  # never let notification publish crash the handler
 
 
 def _compute_moisture_pct(raw: int, dry: Optional[int], wet: Optional[int]) -> Optional[float]:
@@ -334,7 +357,14 @@ def handle_event(unit_id: int, ts: datetime, payload: dict) -> None:
                      json.dumps(details), sensor),
                 )
                 outbox.enqueue_row(conn, table="grow_errors", pk=cur.lastrowid)
+                _publish_grow_error(
+                    unit_id, "warning",
+                    f"Sensor {sensor} degraded",
+                    f"Sensor {sensor} reporting bad reads",
+                )
             elif kind == "sensor_recovered":
+                # No grow_error_logged publish for recoveries — the original
+                # degraded event already notified.
                 sensor = details.get("sensor", "unknown")
                 # SELECT affected ids BEFORE the UPDATE so we know which
                 # grow_errors rows to enqueue. Deletes don't propagate for
@@ -364,6 +394,11 @@ def handle_event(unit_id: int, ts: datetime, payload: dict) -> None:
                      json.dumps(details)),
                 )
                 outbox.enqueue_row(conn, table="grow_errors", pk=cur.lastrowid)
+                _publish_grow_error(
+                    unit_id, "warning",
+                    f"Safety cap hit: {details.get('cap', '')}",
+                    f"Safety cap hit: {details.get('cap', '')}",
+                )
             elif kind == "buffer_eviction":
                 # Pre-Phase-4 audit fix (Flow 6 #1): firmware emits this
                 # when its LocalBuffer hits a row/byte cap and rotates
@@ -381,6 +416,11 @@ def handle_event(unit_id: int, ts: datetime, payload: dict) -> None:
                      json.dumps(details)),
                 )
                 outbox.enqueue_row(conn, table="grow_errors", pk=cur.lastrowid)
+                _publish_grow_error(
+                    unit_id, "warning",
+                    f"Buffer eviction ({reason})",
+                    f"Buffer eviction ({reason}): {evicted} row(s) dropped",
+                )
             elif kind in ("buffer_replay_started", "buffer_replay_complete"):
                 # Info-severity diagnostic event — useful in the connection log
                 # ("unit replayed 200 buffered messages after a 12m outage")
@@ -398,6 +438,11 @@ def handle_event(unit_id: int, ts: datetime, payload: dict) -> None:
                     (unit_id, ts, kind, msg, json.dumps(details)),
                 )
                 outbox.enqueue_row(conn, table="grow_errors", pk=cur.lastrowid)
+                _publish_grow_error(
+                    unit_id, "info",
+                    f"Buffer replay {'started' if kind == 'buffer_replay_started' else 'complete'}",
+                    msg,
+                )
             # Other event kinds (startup, shutdown, identify_complete, etc.) are
             # logged-only — no DB row needed in Phase 1.
             conn.execute(

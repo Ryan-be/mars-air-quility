@@ -2,12 +2,23 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- viewport-fit=cover opts the page into the iPhone safe-area-inset
+       env() values so the fixed bottom nav can pad around the curved
+       corners + home indicator instead of getting visually clipped. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>{% block title %}MLSS{% endblock %}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/mobile.css') }}">
+  <!-- PWA: manifest, theme colour, iOS install -->
+  <link rel="manifest" href="/static/manifest.json">
+  <meta name="theme-color" content="#080c11">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="MLSS">
+  <link rel="apple-touch-icon" href="/static/icons/icon-180.png">
   <!-- AstroUXDS Web Components -->
   <script type="module" src="https://cdn.jsdelivr.net/npm/@astrouxds/astro-web-components/dist/astro-web-components/astro-web-components.esm.js"></script>
   {% block extra_css %}{% endblock %}
@@ -135,6 +146,14 @@
       <span>Incidents</span>
     </a>
 
+    <!-- Notifications -->
+    <a href="{{ url_for('pages.notifications_page') }}"
+       data-tab="notifications"
+       class="{{ 'active' if active == 'pages.notifications_page' else '' }}">
+      <rux-icon icon="notifications-active" size="extra-small"></rux-icon>
+      <span>Notifications</span>
+    </a>
+
     <!-- Grow (also covers Grow Errors + Grow Settings via the sub-nav row
          on those pages — see templates/_grow_subnav.html) -->
     <a href="{{ url_for('pages.grow_fleet') }}"
@@ -228,6 +247,17 @@
         });
       });
     });
+  </script>
+
+  <script>
+    // PWA: register the service worker so push notifications work.
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", function() {
+        navigator.serviceWorker.register("/sw.js").catch(function(err) {
+          console.warn("Service worker registration failed:", err);
+        });
+      });
+    }
   </script>
 
   {% block scripts %}{% endblock %}

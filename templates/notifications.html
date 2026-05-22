@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+
+{% block title %}MLSS – Notifications{% endblock %}
+
+{% block extra_css %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/notifications.css') }}">
+{% endblock %}
+
+{% block content %}
+  <div id="inbox-mount"></div>
+{% endblock %}
+
+{% block scripts %}
+<script type="module">
+  import { renderInbox } from
+    "{{ url_for('static', filename='js/notifications/inbox.mjs') }}";
+  document.getElementById("inbox-mount").appendChild(renderInbox());
+</script>
+{% endblock %}

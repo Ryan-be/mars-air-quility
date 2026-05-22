@@ -49,6 +49,31 @@ def _wheel_sha256(filename: str) -> str:
     return h.hexdigest()
 
 
+@api_grow_dist_bp.route("/api/grow/ca.crt", methods=["GET"])
+def serve_ca_crt():
+    """Public endpoint serving the MLSS root CA (PEM).
+
+    Why public? install.sh fetches this BEFORE enrolling — there's no
+    bearer token yet. The CA cert is a trust anchor, not a secret;
+    publishing it lets new grow units pin the CA at install time
+    instead of pinning the leaf (which would break on every cert
+    rotation — see scripts/generate_local_ca.sh).
+
+    Returns 404 if the operator hasn't run generate_local_ca.sh yet —
+    install.sh falls back to the legacy openssl s_client TOFU pin in
+    that case so older hubs keep working.
+    """
+    ca_path = (
+        Path(__file__).resolve().parent.parent.parent / "certs" / "ca.crt"
+    )
+    if not ca_path.is_file():
+        abort(404)
+    return (
+        ca_path.read_bytes(), 200,
+        {"Content-Type": "application/x-x509-ca-cert"},
+    )
+
+
 @api_grow_dist_bp.route("/api/grow/install.sh", methods=["GET"])
 def install_sh():
     """The Pi Zero install one-liner downloads + executes this."""

@@ -32,6 +32,23 @@ def dashboard():
     return render_template("dashboard.html")
 
 
+@pages_bp.route("/sw.js")
+def service_worker():
+    """Serve the service worker at root scope.
+
+    Must live at the root URL (not /static/sw.js) because a service
+    worker's scope is the directory it's served from — serving from
+    /static/ would limit scope to /static/* and the worker couldn't
+    handle push notifications for the rest of the site.
+    """
+    sw_path = _REPO_ROOT / "static" / "sw.js"
+    return Response(
+        sw_path.read_text(encoding="utf-8"),
+        mimetype="application/javascript",
+        headers={"Service-Worker-Allowed": "/"},
+    )
+
+
 @pages_bp.route("/history")
 def history_page():
     return render_template("history.html")
@@ -40,6 +57,13 @@ def history_page():
 @pages_bp.route("/incidents")
 def incidents_page():
     return render_template("incidents.html")
+
+
+@pages_bp.route("/notifications")
+@require_role("viewer", "controller", "admin")
+def notifications_page():
+    """In-app inbox for recent push notifications (last 30 days)."""
+    return render_template("notifications.html")
 
 
 @pages_bp.route("/grow")

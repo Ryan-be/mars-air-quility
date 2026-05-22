@@ -28,6 +28,7 @@ A list of know issues and feature improvements including recomended fixes can be
 - [Installation](#installation)
 - [Running](#running)
 - [Web interface](#web-interface)
+- [iPhone install (PWA + push notifications)](docs/MOBILE.md)
 - [API reference](#api-reference)
 - [Development](#development)
 - [Project structure](#project-structure)
@@ -1122,8 +1123,18 @@ fine.
 | `/grow/<id>` | Per-unit detail — Live / Configure (+ Diagnostics subtab) / History tabs | viewer (write: controller / admin) |
 | `/grow/errors` | Fleet-wide grow error log — filter + resolve / snooze | viewer (write: admin) |
 | `/grow/settings` | Household-wide grow settings — enrollment key, plant profiles, holiday mode, defaults | admin |
+| `/notifications` | In-app inbox for push events (30-day history) | viewer |
 | `/login` | Sign-in via GitHub OAuth | -- |
 | `/system_health` | JSON system status | viewer |
+
+### iPhone install (PWA + push notifications)
+
+The hub is an installable PWA with iOS lockscreen Web Push for
+air-quality / grow / system-health / backup alerts. One-time iOS
+profile install trusts the hub's local CA; per-user severity floors
+keep the noise tunable. See **[docs/MOBILE.md](docs/MOBILE.md)** for
+the operator walkthrough (prerequisites, CA install, push enablement,
+preference tuning, troubleshooting).
 
 ### Roles
 

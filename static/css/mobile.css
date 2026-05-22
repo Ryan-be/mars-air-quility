@@ -1,0 +1,342 @@
+/*
+ * MLSS Mobile: narrow-viewport overrides (max-width: 768px).
+ *
+ * Loaded AFTER base.css from base.html. Pure CSS — no JS coordination.
+ * Designed for iPhone use (PWA install on iOS); the same rules apply
+ * to any narrow viewport (small laptops in split-screen, etc).
+ *
+ * Strategy:
+ *   - Global status bar: shrink, hide non-essential monitors.
+ *   - Tab nav: bottom-fixed, icon-only, 44px tap targets.
+ *   - Cards & forms: single column, full width, 44px min height.
+ *   - Tables: horizontal scroll, sticky first column.
+ *   - Body padding: leave room for the bottom nav so content isn't covered.
+ */
+
+@media (max-width: 768px) {
+
+  /* ─── Global status bar ─────────────────────────────────────────── */
+  .global-status-bar {
+    padding: 4px 8px;
+    flex-wrap: wrap;
+    height: auto;
+    min-height: 44px;
+  }
+
+  .gsb-app-mark .gsb-app-name {
+    font-size: 0.95rem;
+  }
+
+  /* Hide AIR + SENSORS on narrow; keep ENV + INFERENCE so the user can
+     still see the two most-important subsystem statuses at a glance. */
+  .gsb-monitors {
+    gap: 6px;
+  }
+  .gsb-monitor#gsb-btn-air,
+  .gsb-monitor#gsb-btn-sensors {
+    display: none;
+  }
+  .gsb-monitor-status {
+    display: none;
+  }
+
+  .gsb-clock {
+    display: none;
+  }
+
+  .gsb-user .session-user {
+    font-size: 0.8rem;
+  }
+
+  /* ─── Tab nav: floating pill, inset from screen edges ─────────────── */
+  /*
+   * iPhone gotchas this needs to handle:
+   *   - Portrait curved bottom corners eat the leftmost + rightmost
+   *     icons. safe-area-inset-left/right are 0 in portrait (Apple
+   *     only reports them in landscape), so a padding-based fix is
+   *     a no-op there. We use a literal 8px floating inset on left
+   *     and right instead.
+   *   - The home indicator overlays the bottom-centre 32px. Position
+   *     the pill ABOVE it via bottom: safe-area-inset-bottom (PWA)
+   *     OR a small fixed gap (Safari, where iOS reports URL-bar
+   *     height in the inset which would push the nav way up).
+   *   - In landscape, safe-area-inset-left/right ARE non-zero
+   *     (notch + indicator move to the sides) — max() promotes the
+   *     literal 8px to the device value so we still clear them.
+   *
+   * The pill has rounded corners and a subtle border to look
+   * intentional rather than "clipped rectangle".
+   */
+  nav.tab-nav {
+    position: fixed;
+    bottom: max(8px, env(safe-area-inset-bottom, 0px));
+    left:   max(8px, env(safe-area-inset-left,   0px));
+    right:  max(8px, env(safe-area-inset-right,  0px));
+    z-index: 1000;
+    min-height: 56px;
+    background: var(--color-bg-secondary, #1a2027);
+    border: 1px solid var(--color-border, #2a3038);
+    border-radius: 14px;
+    box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.3);
+    display: flex;
+    justify-content: space-around;
+    align-items: stretch;
+    overflow-x: auto;
+    padding: 0;
+  }
+  /* In Safari (non-standalone), env(safe-area-inset-bottom) is inflated
+     by the URL bar height — clamp to a reasonable max so the pill
+     doesn't float halfway up the screen. Standalone PWA mode reports
+     the home-indicator value (~34px) which clears the clamp. */
+  @media not all and (display-mode: standalone) {
+    nav.tab-nav {
+      bottom: max(8px, min(env(safe-area-inset-bottom, 0px), 34px));
+    }
+  }
+  nav.tab-nav a {
+    flex: 1 1 auto;
+    min-width: 44px;
+    min-height: 44px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 6px;
+    gap: 2px;
+  }
+  nav.tab-nav a rux-icon {
+    --size: 24px;
+    font-size: 22px;
+  }
+  /* Icon-only on mobile to fit 5+ tabs; labels hidden but accessible. */
+  nav.tab-nav a span {
+    font-size: 9px;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  /* ─── Make room for the bottom nav so content isn't hidden ──────── */
+  main.page-content {
+    /* 72px reserves room for the 56px fixed bottom nav + a 16px gap.
+       calc() adds the iPhone home-indicator safe-area on top so content
+       doesn't slide beneath the indicator. env() falls back to 0 on
+       devices without a safe area, so desktop layouts are unchanged. */
+    padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+  }
+  .page-controls-bar {
+    padding-bottom: 8px;
+  }
+
+  /* ─── Cards & grids: single column ──────────────────────────────── */
+  .settings-grid {
+    grid-template-columns: 1fr !important;
+    gap: 12px;
+  }
+  .card {
+    width: 100%;
+    padding: 12px;
+  }
+
+  /* ─── Forms: stack fields, 44px tap targets ─────────────────────── */
+  .field-row {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .field {
+    width: 100%;
+  }
+  .field input,
+  .field select,
+  .field textarea,
+  .notif-select,
+  input[type="text"],
+  input[type="number"],
+  input[type="email"],
+  input[type="password"],
+  select,
+  textarea {
+    min-height: 44px;
+    font-size: 16px; /* prevents iOS zoom-on-focus */
+    padding: 8px 12px;
+  }
+
+  /* ─── Buttons: 44px min, full-width on narrow ───────────────────── */
+  .btn,
+  .btn-save,
+  .btn-secondary,
+  .btn-danger,
+  .btn-modal-cancel,
+  .btn-modal-confirm,
+  .btn-search,
+  .btn-logout,
+  .btn-reset {
+    min-height: 44px;
+    padding: 10px 16px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  /* Inline button groups (e.g. mobile-install card) shouldn't all be
+     100% — let them flex-wrap and share the row. */
+  .mobile-install-actions .btn-save,
+  .mobile-install-actions .btn-secondary,
+  .notif-device-row .btn-danger,
+  .modal-actions .btn-modal-cancel,
+  .modal-actions .btn-modal-confirm {
+    width: auto;
+    min-width: 44%;
+  }
+
+  /* ─── Tables: horizontal scroll ─────────────────────────────────── */
+  .card table,
+  table.log-table,
+  table.insights-table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    white-space: nowrap;
+  }
+  .card table thead,
+  table.log-table thead,
+  table.insights-table thead {
+    position: sticky;
+    top: 0;
+  }
+
+  /* ─── Inbox tweaks ─────────────────────────────────────────────── */
+  .inbox {
+    padding: 12px 8px;
+  }
+
+  /* ─── Topbar controls: stack ───────────────────────────────────── */
+  .page-controls-bar {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  /* ─── Tooltips: don't truncate the popover under the narrow bar ── */
+  .mlss-tip-pop {
+    max-width: 90vw;
+  }
+
+  /* ─── Safe-area: prevent curved-corner clipping everywhere ────────── */
+  /* viewport-fit=cover (set in base.html) lets iOS expose the inset
+     env() values for the notch + curved corners. Bottom nav already
+     pads itself; everything else that touches the viewport edges
+     needs the same treatment so labels/icons aren't half-eaten by
+     the rounded screen edges. */
+  .global-status-bar {
+    padding-top:   calc(4px + env(safe-area-inset-top,    0px));
+    padding-left:  calc(8px + env(safe-area-inset-left,   0px));
+    padding-right: calc(8px + env(safe-area-inset-right,  0px));
+  }
+  main.page-content,
+  .page-controls-bar {
+    padding-left:  max(env(safe-area-inset-left,  0px), 12px);
+    padding-right: max(env(safe-area-inset-right, 0px), 12px);
+  }
+  /* Page-level sub-tab bars also reach the edges — pad them too. */
+  .tab-bar,
+  rux-tabs {
+    padding-left:  max(env(safe-area-inset-left,  0px), 4px);
+    padding-right: max(env(safe-area-inset-right, 0px), 4px);
+  }
+
+  /* ─── Page-level sub-tab bars (admin Settings/Users, /grow, etc.) ── */
+  /* Without overrides these are plain <button class="tab-btn"> elements
+     using browser default styles — they render as "just a list of
+     clickable text" on mobile. Make them a scrollable horizontal strip
+     with 44px tap targets and an active underline. */
+  .tab-bar {
+    display: flex;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    gap: 0;
+    border-bottom: 1px solid var(--color-border, #2a3038);
+    margin-bottom: 12px;
+  }
+  .tab-bar .tab-btn,
+  .tab-bar a.tab-btn {
+    flex: 0 0 auto;
+    min-height: 44px;
+    padding: 10px 14px;
+    background: transparent;
+    color: var(--color-text-secondary, #8a96a3);
+    border: none;
+    border-bottom: 2px solid transparent;
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+    text-decoration: none;
+    /* Override the .btn full-width rule above — sub-tabs share a row. */
+    width: auto;
+  }
+  .tab-bar .tab-btn.tab-active,
+  .tab-bar a.tab-btn.tab-active {
+    color: var(--color-text-primary, #e7eef5);
+    border-bottom-color: var(--color-status-normal, #56f000);
+    background: rgba(86, 240, 0, 0.06);
+  }
+  .tab-bar .tab-btn rux-icon {
+    --size: 18px;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+
+  /* ─── AstroUXDS rux-tabs: replaced by a native <select> on mobile ─── */
+  /* rux-tabs has shadow-DOM internals that don't reliably constrain
+     to <500px viewports — children overlap or wrap awkwardly. On
+     narrow screens we hide rux-tabs and show a sibling <select> that
+     drives the same _switchToTab() handler. Native selects render as
+     iOS's full-screen wheel picker, which is genuinely good UX on a
+     phone — no homemade dropdown to maintain. */
+  rux-tabs {
+    display: none !important;
+  }
+  .mobile-tab-select {
+    display: block;
+    width: 100%;
+    min-height: 44px;
+    margin-bottom: 12px;
+    padding: 10px 12px;
+    background: var(--color-bg-secondary, #1a2027);
+    color: var(--color-text-primary, #e7eef5);
+    border: 1px solid var(--color-border, #2a3038);
+    border-radius: 4px;
+    font-size: 16px; /* prevents iOS zoom-on-focus */
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: linear-gradient(45deg, transparent 50%, #8a96a3 50%),
+                      linear-gradient(135deg, #8a96a3 50%, transparent 50%);
+    background-position: calc(100% - 18px) calc(50% - 3px),
+                         calc(100% - 12px) calc(50% - 3px);
+    background-size: 6px 6px, 6px 6px;
+    background-repeat: no-repeat;
+  }
+  .mobile-tab-label {
+    display: block;
+    font-size: 12px;
+    color: var(--color-text-secondary, #8a96a3);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 4px;
+    margin-top: 4px;
+  }
+
+  /* Page topbar controls (the row with Time-range select etc.) — keep
+     items on a single scrollable row rather than stacking awkwardly. */
+  .page-controls-bar {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    align-items: center;
+    gap: 8px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+  .page-controls-bar > * {
+    flex: 0 0 auto;
+  }
+}

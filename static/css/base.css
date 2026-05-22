@@ -1251,3 +1251,13 @@ label {
   border-top-color: #4dacff;
 }
 .mlss-tip-pop.mlss-tip-pop-shown { display: block; }
+
+/* MLSS Mobile: mobile-only tab dropdown stubs.
+   Hidden on desktop; mobile.css's @media (max-width: 768px) flips
+   display: block and styles the actual chrome. Adding the default
+   hide here (rather than mobile.css) so the elements never flash
+   visible on first paint while CSS is loading. */
+.mobile-tab-select,
+.mobile-tab-label {
+  display: none;
+}
