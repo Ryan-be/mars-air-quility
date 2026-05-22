@@ -57,6 +57,89 @@
     letter-spacing: .12em;
 }
 
+/* ─── Telemetry topbar inner row (Phase 7) ──────────────────────────── */
+/* Lives inside `#tp-topbar-host`. Replaces the brand-only placeholder
+   painted by boot() with a flex row of brand + 6 stat cells + 2-3
+   action buttons. */
+.tp-topbar-inner {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    width: 100%;
+    padding: 0 4px;
+    font-size: 12px;
+    letter-spacing: .04em;
+    /* Inherits .tp-topbar background; no own bg so theme tokens stay
+       single-sourced. */
+}
+
+.tp-topbar-inner .tp-brand {
+    /* Brand cell — small adjustment over .tp-brand so the inner row's
+       gap stays tight without losing the prominence the brand needs. */
+    margin-right: 8px;
+}
+
+.tp-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 2px 8px;
+    border-left: 1px solid var(--color-background-surface-hover, #172635);
+    line-height: 1.1;
+    min-width: 64px;
+}
+
+.tp-stat:first-of-type {
+    border-left: none;
+}
+
+.tp-stat-label {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: .12em;
+    color: var(--color-text-secondary, #b0bec5);
+}
+
+.tp-stat-value {
+    font-family: 'Roboto Mono', monospace;
+    font-size: 13px;
+    color: var(--color-text-primary, #fff);
+    font-variant-numeric: tabular-nums;
+}
+
+.tp-topbar-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.tp-topbar-btn {
+    appearance: none;
+    background: var(--color-background-surface-default, #1b2d3e);
+    border: 1px solid var(--color-border-interactive-muted, #2b659b);
+    color: var(--color-text-secondary, #b0bec5);
+    border-radius: 3px;
+    padding: 4px 10px;
+    font-family: 'Roboto Mono', monospace;
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background .12s, color .12s, border-color .12s;
+}
+
+.tp-topbar-btn:hover {
+    background: var(--color-background-surface-hover, #172635);
+    color: var(--color-text-primary, #fff);
+    border-color: var(--color-border-interactive-default, #4dacff);
+}
+
+.tp-topbar-btn[data-action="add-effector"] {
+    color: var(--color-status-normal, #56f000);
+    border-color: var(--color-status-normal, #56f000);
+}
+
 /* ─────────────────────────────────── Graph ──────────────────────────────── */
 
 .tp-graph {
