@@ -26,6 +26,15 @@ log = logging.getLogger(__name__)
 
 _WINDOW_SECONDS = 60
 
+# After this many consecutive non-stale failures (e.g. 403 BadJwtToken,
+# 500-class errors, network timeouts) for the same endpoint, treat the
+# sub as stale and evict it. A single success resets the counter. This
+# stops the dispatcher hammering — and spamming journalctl — when a
+# subscription is permanently broken but the push service uses 403
+# instead of 410 to tell us. Without this we observed ~10s/forever
+# loops in production when VAPID was mis-configured.
+_FAILURE_EVICT_THRESHOLD = 5
+
 _SEVERITY_ORDER = {"off": -1, "info": 0, "warning": 1, "critical": 2}
 
 _CATEGORY_COLUMNS = {
@@ -49,6 +58,14 @@ class NotificationDispatcher:
         self._db_file = db_file
         self._windows: dict[tuple[int, str, str], dict] = {}
         self._windows_lock = threading.Lock()
+        # Per-endpoint consecutive-failure counter. Keyed by the full
+        # endpoint URL so it survives across windows and across users
+        # (a sub belongs to exactly one user, but the key is the
+        # endpoint URL because it's globally unique by DB constraint).
+        # Reset on any successful delivery; entries are removed when
+        # the sub is evicted.
+        self._failure_counts: dict[str, int] = {}
+        self._failure_counts_lock = threading.Lock()
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
 
@@ -223,15 +240,42 @@ class NotificationDispatcher:
             if result.delivered:
                 delivered += 1
                 window["pushed_endpoints"].add(endpoint)
+                # Healthy push: forget any prior failure history. Without
+                # this, transient errors (network flap, push-service 5xx)
+                # would slowly accrue and eventually evict working subs.
+                self._reset_failure_count(endpoint)
             else:
                 failed += 1
                 if result.stale:
-                    self._delete_subscription(sub_id)
+                    self._delete_subscription(sub_id, endpoint)
+                elif self._record_failure(endpoint) >= _FAILURE_EVICT_THRESHOLD:
+                    # Push service keeps rejecting this sub but isn't
+                    # using the 410 Gone signal — evict it ourselves so
+                    # we stop spamming the log every event.
+                    log.info(
+                        "Evicting push sub after %d consecutive "
+                        "failures: %s",
+                        _FAILURE_EVICT_THRESHOLD,
+                        endpoint[:60],
+                    )
+                    self._delete_subscription(sub_id, endpoint)
         self._update_history_delivery(
             window["history_id"], delivered, failed,
         )
 
-    def _delete_subscription(self, sub_id: int) -> None:
+    def _record_failure(self, endpoint: str) -> int:
+        """Increment the consecutive-failure counter; return new value."""
+        with self._failure_counts_lock:
+            self._failure_counts[endpoint] = (
+                self._failure_counts.get(endpoint, 0) + 1
+            )
+            return self._failure_counts[endpoint]
+
+    def _reset_failure_count(self, endpoint: str) -> None:
+        with self._failure_counts_lock:
+            self._failure_counts.pop(endpoint, None)
+
+    def _delete_subscription(self, sub_id: int, endpoint: str = "") -> None:
         conn = sqlite3.connect(self._db_file)
         try:
             conn.execute("DELETE FROM push_subscriptions WHERE id = ?",
@@ -239,6 +283,8 @@ class NotificationDispatcher:
             conn.commit()
         finally:
             conn.close()
+        if endpoint:
+            self._reset_failure_count(endpoint)
 
 
 def start_dispatcher(event_bus: EventBus, db_file: str) -> NotificationDispatcher:

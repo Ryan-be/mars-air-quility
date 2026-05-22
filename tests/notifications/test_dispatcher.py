@@ -180,3 +180,76 @@ def test_window_expires_after_60s(env, monkeypatch):
     assert len(rows) == 2
     assert rows[0][1] == 1
     assert rows[1][1] == 1
+
+
+def _fail():
+    """Push failed but sub is *not* known-stale (e.g. 403, 500, network)."""
+    return type("R", (), {"delivered": False, "stale": False})()
+
+
+# ── 403 BadJwtToken hammering protection (regression) ──────────────────
+#
+# When APNs returned 403 BadJwtToken (e.g. the operator never set a
+# contact email and the default ``mailto:admin@localhost`` was being
+# rejected), the dispatcher kept retrying the same subscription every
+# few seconds for hours, spamming journalctl. We now track consecutive
+# failures per endpoint and treat the sub as stale after a threshold —
+# but a single success resets the counter so transient errors (network
+# flap, push-service 5xx) don't accidentally evict working devices.
+def test_consecutive_failures_eventually_evict_subscription(env):
+    d = NotificationDispatcher(env["bus"], env["db"])
+    with patch("mlss_monitor.notifications.dispatcher.push_client.send",
+               return_value=_fail()):
+        for _i in range(disp_module._FAILURE_EVICT_THRESHOLD + 1):
+            d._handle_event({"event": "inference_fired", "data": {
+                "severity": "warning",
+                "title": f"spike-{_i}",
+                "description": "...",
+            }})
+    conn = sqlite3.connect(env["db"])
+    subs = conn.execute("SELECT id FROM push_subscriptions").fetchall()
+    conn.close()
+    assert subs == [], (
+        "Sub should have been evicted after "
+        f"{disp_module._FAILURE_EVICT_THRESHOLD} consecutive failures, "
+        "but still present in DB"
+    )
+
+
+def test_single_success_resets_failure_counter(env):
+    d = NotificationDispatcher(env["bus"], env["db"])
+    threshold = disp_module._FAILURE_EVICT_THRESHOLD
+    responses = [_fail()] * (threshold - 1) + [_ok()] + [_fail()] * 3
+    with patch("mlss_monitor.notifications.dispatcher.push_client.send",
+               side_effect=responses):
+        for i in range(len(responses)):
+            d._handle_event({"event": "inference_fired", "data": {
+                "severity": "warning",
+                "title": f"event-{i}",
+                "description": "...",
+            }})
+    # We had (threshold-1) fails, then a success (resets counter), then
+    # 3 fails — we should NOT have crossed the threshold again.
+    conn = sqlite3.connect(env["db"])
+    subs = conn.execute("SELECT id FROM push_subscriptions").fetchall()
+    conn.close()
+    assert len(subs) == 1, (
+        "Successful push must reset the consecutive-failure counter; "
+        "subscription should still be present"
+    )
+
+
+def test_single_failure_does_not_evict(env):
+    d = NotificationDispatcher(env["bus"], env["db"])
+    with patch("mlss_monitor.notifications.dispatcher.push_client.send",
+               return_value=_fail()):
+        d._handle_event({"event": "inference_fired", "data": {
+            "severity": "warning", "title": "spike", "description": "...",
+        }})
+    conn = sqlite3.connect(env["db"])
+    subs = conn.execute("SELECT id FROM push_subscriptions").fetchall()
+    conn.close()
+    assert len(subs) == 1, (
+        "A single failure must NOT evict a sub — transient errors "
+        "(network flap, 5xx) need to be tolerated"
+    )

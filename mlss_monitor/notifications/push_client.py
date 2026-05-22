@@ -13,6 +13,15 @@ from pywebpush import WebPushException, webpush as _webpush
 
 log = logging.getLogger(__name__)
 
+# Apple's APNs Web Push gateway rejects ``mailto:`` ``sub`` claims that
+# point at non-routable domains (``localhost``, ``.local``, ``.test``,
+# ``.invalid``) with HTTP 403 ``BadJwtToken``. ``example.com`` is
+# RFC2606-reserved and accepted by every Web Push service in the wild.
+# Operators are encouraged to set a real contact email via
+# :func:`mlss_monitor.notifications.vapid.set_contact_email` so push
+# service operators can reach them if their server starts misbehaving.
+_DEFAULT_CONTACT_EMAIL = "admin@example.com"
+
 
 @dataclass(frozen=True)
 class SendResult:
@@ -35,8 +44,9 @@ def send(
             "auth":   subscription["auth"],
         },
     }
+    contact = (vapid_contact_email or "").strip() or _DEFAULT_CONTACT_EMAIL
     vapid_claims = {
-        "sub": f"mailto:{vapid_contact_email or 'admin@localhost'}",
+        "sub": f"mailto:{contact}",
     }
     try:
         _webpush(
