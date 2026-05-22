@@ -1,7 +1,7 @@
 """Fan-family controllers (hub-room scope).
 
-Wraps the existing :class:`mlss_monitor.fan_controller.FanController`
-rule machinery (Temperature/TVOC/Humidity/PM2.5) behind the v2
+Wraps the rule machinery (Temperature/TVOC/Humidity/PM2.5) inlined
+into :mod:`mlss_monitor.effectors._fan_rules` behind the v2
 :class:`mlss_monitor.effectors.base.EffectorController` interface so the
 Phase 3 evaluator loop can route per-type rule decisions through a
 single uniform API.
@@ -22,8 +22,7 @@ seeded sensible defaults for the legacy fan row.
 """
 from __future__ import annotations
 
-from mlss_monitor.effectors.base import EffectorController, Scope
-from mlss_monitor.fan_controller import (
+from mlss_monitor.effectors._fan_rules import (
     FanAction,
     HumidityRule,
     PM25Rule,
@@ -31,6 +30,7 @@ from mlss_monitor.fan_controller import (
     TemperatureRule,
     TVOCRule,
 )
+from mlss_monitor.effectors.base import EffectorController, Scope
 
 # Shared rule instances — stateless, so a single instance is reused
 # across every evaluator tick to avoid per-call allocation churn.

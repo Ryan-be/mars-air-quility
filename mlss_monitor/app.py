@@ -40,7 +40,7 @@ from mlss_monitor.data_sources import (
 )
 from mlss_monitor.detection_engine import DetectionEngine
 from mlss_monitor.event_bus import EventBus
-from mlss_monitor.fan_controller import SensorReading, build_default_controller
+from mlss_monitor.effectors._fan_rules import SensorReading, build_default_controller
 from mlss_monitor.feature_extractor import FeatureExtractor
 from mlss_monitor.hot_tier import HotTier
 from mlss_monitor.routes import register_routes

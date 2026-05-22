@@ -1449,7 +1449,7 @@ mars-air-quility/
 │   ├── event_bus.py          #   in-process pub/sub for SSE
 │   ├── inference_engine.py   #   short/hourly/daily detectors
 │   ├── incident_grouper.py   #   sessionises inferences into incidents
-│   └── …                     #   (anomaly_detector, feature_extractor, fan_controller, …)
+│   └── …                     #   (anomaly_detector, feature_extractor, effectors/, …)
 │
 ├── grow_unit/                # mlss_grow firmware package (Pi Zero W only)
 │   ├── pyproject.toml        #   own Poetry env (picamera2 / RPi.GPIO live here, never in the hub)

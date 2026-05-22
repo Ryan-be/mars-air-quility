@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from mlss_monitor.fan_controller import (
+from mlss_monitor.effectors._fan_rules import (
     FanAction,
     FanController,
     HumidityRule,
