@@ -30,6 +30,7 @@ import { renderTopbar } from "./components/topbar.mjs";
 import { openAddEffectorModal } from "./components/add-effector-modal.mjs";
 import { renderSidePanel } from "./components/side-panel.mjs";
 import { computeStats } from "./stats.mjs";
+import { subscribe } from "./sse.mjs";
 // Card renderers — wired in Phase 6 Task 6.7. Until then renderGraph
 // produces empty .tp-node placeholder divs, which is what the Phase 5
 // integration test asserts. The imports below are pulled in via a
@@ -102,6 +103,28 @@ function _startMissionTimeTick(doc, startMs) {
       _missionTimeInterval.unref();
     }
   }
+}
+
+
+/**
+ * Push a value into a rolling history buffer (Phase 10 Task 10.3).
+ *
+ * `historyDict[nodeId][key]` is the buffer. Nullish/NaN values are
+ * skipped so the sparkline polyline doesn't end up with gaps that
+ * collapse to (NaN, NaN) when rendered. The buffer is capped at
+ * `cap` (default 30) entries; once full, oldest values fall off the
+ * front so the visible sparkline scrolls.
+ *
+ * Pure mutation on `historyDict` — exported for unit testing AND for
+ * the boot()-side `onSensorUpdate` callback.
+ */
+export function pushHistory(historyDict, nodeId, key, value, cap = 30) {
+  if (value == null || Number.isNaN(value)) return;
+  if (!historyDict[nodeId]) historyDict[nodeId] = {};
+  const bucket = historyDict[nodeId];
+  if (!Array.isArray(bucket[key])) bucket[key] = [];
+  bucket[key].push(value);
+  while (bucket[key].length > cap) bucket[key].shift();
 }
 
 
@@ -251,6 +274,15 @@ export async function boot({ fetchFn = fetch } = {}) {
 
   // Page-level state. The handler callbacks close over these so a
   // drag updates the right entry and re-renders only what needs it.
+  // `history` is a per-node rolling-buffer dict (Phase 10 Task 10.3):
+  //
+  //   history.hub.temp     // last 30 hub temperatures from sensor_update
+  //   history.hub.rh       // last 30 hub humidities
+  //   history.hub.co2      // last 30 hub eCO₂ values
+  //   history["grow:1"]…   // populated when grow_telemetry SSE lands
+  //
+  // The card renderers read this via `handlers.history` so the boot
+  // doesn't have to manually thread it into every renderXCard call.
   const store = {
     nodes,
     positions,
@@ -258,6 +290,7 @@ export async function boot({ fetchFn = fetch } = {}) {
     effectorById: Object.fromEntries(
       (snapshot.effectors || []).map((e) => [e.id, e]),
     ),
+    history: {},
   };
 
   // Side-panel selection (Phase 8 Task 8.1). Tracks which node the
@@ -473,6 +506,7 @@ export async function boot({ fetchFn = fetch } = {}) {
       handlers: {
         cardRenderers,
         onMode: _onMode,
+        history: store.history,
       },
     });
     graph.replaceChildren(wrap);
@@ -518,6 +552,115 @@ export async function boot({ fetchFn = fetch } = {}) {
       });
     }
   }
+
+  // ── Targeted re-render (Phase 10 Task 10.2) ──────────────────────
+  // Swap the inner content of a single <div class="tp-node"> rather
+  // than re-running renderGraph. Edges are NOT re-drawn — they only
+  // depend on node positions, which an SSE state-flip doesn't touch.
+  // Used by all four SSE handlers below.
+  function reRenderNode(nodeId) {
+    const node = store.nodes.find((n) => n.id === nodeId);
+    if (!node) return;
+    const el = graph.querySelector(`.tp-node[data-node-id="${nodeId}"]`);
+    if (!el) return;
+    const history = store.history[nodeId] || {};
+    let card = null;
+    if (node.kind === "hub" && cardRenderers.hub) {
+      card = cardRenderers.hub(node, history, document);
+    } else if (node.kind === "grow" && cardRenderers.grow) {
+      card = cardRenderers.grow(node, history, document);
+    } else if (node.kind === "effector" && cardRenderers.effector) {
+      card = cardRenderers.effector(node, document, {
+        onMode: _onMode,
+        isAdmin: _isAdmin(document),
+      });
+    }
+    if (card) el.replaceChildren(card);
+  }
+
+  // ── SSE wiring (Phase 10 Task 10.2 + 10.3) ───────────────────────
+  // Subscribes for the duration of the boot lifecycle. The returned
+  // handle gets parked on the document so a hot-reload (e.g. tests
+  // calling boot() twice) tears the previous subscription down before
+  // opening a new one.
+  function _applyEffectorState({ id, state, auto }) {
+    const nodeKey = `effector:${id}`;
+    const eff = store.effectorById[nodeKey];
+    const node = store.nodes.find((n) => n.id === nodeKey);
+    if (!eff || !node) return;
+    let mode;
+    if (auto === true) {
+      mode = "auto";
+    } else if (state === "on" || state === "off") {
+      mode = state;
+    } else {
+      mode = eff.mode;
+    }
+    eff.mode = mode;
+    if (state === "on" || state === "off") eff.current_state = state;
+    node.mode = mode;
+    if (state === "on" || state === "off") node.current_state = state;
+    reRenderNode(nodeKey);
+    // The topbar's Active / Auto-vs-Forced rollup depends on the same
+    // fields so a state flip can change those numbers. Re-mount the
+    // topbar (cheap; pure recompute) but leave the graph alone.
+    mountTopbar();
+  }
+
+  if (document.__topologyActiveSub
+      && typeof document.__topologyActiveSub.close === "function") {
+    try { document.__topologyActiveSub.close(); } catch (_e) { /* ignore */ }
+    document.__topologyActiveSub = null;
+  }
+  document.__topologyActiveSub = subscribe({
+    onEffectorState: (d) => {
+      if (!d || d.id == null) return;
+      _applyEffectorState(d);
+    },
+    onSensorUpdate: (reading) => {
+      if (!reading) return;
+      // Mirror the dashboard.js field names — sensor_update carries
+      // {temperature, humidity, eco2, ...}. The topology hub card
+      // reads node.sensors.{temp, rh, co2}.
+      const hubNode = store.nodes.find((n) => n.id === "hub");
+      if (!hubNode) return;
+      hubNode.sensors = hubNode.sensors || {};
+      if (reading.temperature != null) {
+        hubNode.sensors.temp = reading.temperature;
+        pushHistory(store.history, "hub", "temp", reading.temperature);
+      }
+      if (reading.humidity != null) {
+        hubNode.sensors.rh = reading.humidity;
+        pushHistory(store.history, "hub", "rh", reading.humidity);
+      }
+      if (reading.eco2 != null) {
+        hubNode.sensors.co2 = reading.eco2;
+        pushHistory(store.history, "hub", "co2", reading.eco2);
+      }
+      reRenderNode("hub");
+    },
+    onHealthUpdate: (health) => {
+      if (!health) return;
+      const cell = document.querySelector(
+        ".tp-stat [data-role='hub-status']",
+      );
+      if (!cell) return;
+      const label = String(health.status || "").trim();
+      if (label) {
+        cell.textContent = label.charAt(0).toUpperCase() + label.slice(1);
+      }
+    },
+    onFanStatus: (status) => {
+      // Legacy single-fan broadcast — re-use the effector_state path
+      // for plug id=1 (the seeded fan row). Payload may omit `id`.
+      if (!status) return;
+      _applyEffectorState({
+        id: status.id != null ? status.id : 1,
+        state: status.state,
+        auto: status.auto === true,
+      });
+    },
+  });
 
   mountGraph();
   mountTopbar();

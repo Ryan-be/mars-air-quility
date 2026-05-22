@@ -83,7 +83,7 @@ function _renderMissionTimeCell(doc) {
 }
 
 
-function _renderStatCell(doc, labelText, valueText) {
+function _renderStatCell(doc, labelText, valueText, valueRole) {
   const cell = doc.createElement("div");
   cell.className = "tp-stat";
 
@@ -95,6 +95,10 @@ function _renderStatCell(doc, labelText, valueText) {
   const value = doc.createElement("span");
   value.className = "tp-stat-value";
   value.textContent = valueText;
+  // Optional data-role lets the boot's SSE handlers target a single
+  // cell's text without re-rendering the whole topbar. Phase 10 uses
+  // this for the "Hub Status" cell that follows health_update events.
+  if (valueRole) value.dataset.role = valueRole;
   cell.appendChild(value);
   return cell;
 }
@@ -148,10 +152,12 @@ export function renderTopbar({
   // ── Middle: 6 telemetry cells ───────────────────────────────────────
   root.appendChild(_renderMissionTimeCell(doc));
 
-  // Hub Status — a derived label rather than a numeric. The boot
-  // orchestrator can later plug an SSE-driven status here; for now we
-  // surface a static "Nominal" so the cell renders consistently.
-  root.appendChild(_renderStatCell(doc, "Hub Status", "Nominal"));
+  // Hub Status — derived label rather than a numeric. The boot
+  // orchestrator's `onHealthUpdate` SSE handler targets the
+  // `data-role="hub-status"` value cell so a live health flip lands
+  // here without re-rendering the whole topbar.
+  root.appendChild(_renderStatCell(doc, "Hub Status", "Nominal",
+    "hub-status"));
 
   // Pure node-count rollups from computeStats(nodes).
   root.appendChild(_renderStatCell(doc, "Grows",
