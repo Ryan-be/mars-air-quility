@@ -403,9 +403,46 @@ function _renderBelongsToPicker(node, allNodes, doc, callbacks) {
 
 
 function _renderScheduleGrid(node, doc) {
-  // Placeholder — Task 8.4 fills this in.
+  // Render-only 24-cell grid + a "coming in v2" marker. Per-effector
+  // schedules are out of scope for v1: the visual shape is here so
+  // the panel doesn't visually regress from the prototype, but the
+  // cells themselves carry no state and aren't interactive. Phase 12+
+  // (or a future v2 feature) will wire schedule storage onto the
+  // smart_plugs.rules_json blob.
+  const sect = _section(doc, "Schedule");
+
+  const grid = doc.createElement("div");
+  grid.className = "tp-sched-grid";
+  for (let h = 0; h < 24; h += 1) {
+    const cell = doc.createElement("div");
+    cell.className = "tp-sched-cell";
+    cell.title = `${String(h).padStart(2, "0")}:00`;
+    cell.dataset.hour = String(h);
+    grid.appendChild(cell);
+  }
+  sect.appendChild(grid);
+
+  // Axis labels (00 / 06 / 12 / 18 / 24) so the grid reads as a
+  // 24-hour cycle even without per-cell interaction.
+  const axis = doc.createElement("div");
+  axis.className = "tp-sched-axis";
+  for (const lbl of ["00", "06", "12", "18", "24"]) {
+    const sp = doc.createElement("span");
+    sp.textContent = lbl;
+    axis.appendChild(sp);
+  }
+  sect.appendChild(axis);
+
+  const marker = doc.createElement("small");
+  marker.className = "tp-coming-v2";
+  marker.textContent = "Per-effector schedules — coming in v2";
+  sect.appendChild(marker);
+
+  // Reference node to silence the unused-parameter lint — the cells
+  // themselves don't yet take any per-node state.
   void node;
-  return _section(doc, "Schedule");
+
+  return sect;
 }
 
 

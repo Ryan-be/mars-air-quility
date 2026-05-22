@@ -463,6 +463,34 @@ test("boot: onReparent posts PATCH /api/effectors/<id> with the right body", asy
 });
 
 
+// ─── Task 8.4 — Schedule grid placeholder ───────────────────────────────
+
+
+test("effector panel: schedule renders a 24-cell hour grid", () => {
+  const dom = _newDom();
+  const el = renderSidePanel({
+    node: sampleEffector, allNodes: [sampleHub, sampleEffector],
+    doc: dom.window.document, isAdmin: true, callbacks: {},
+  });
+  const cells = el.querySelectorAll(".tp-sched-cell");
+  assert.equal(cells.length, 24,
+    `expected 24 schedule cells, got ${cells.length}`);
+});
+
+
+test("effector panel: schedule includes a 'coming in v2' marker", () => {
+  const dom = _newDom();
+  const el = renderSidePanel({
+    node: sampleEffector, allNodes: [sampleHub, sampleEffector],
+    doc: dom.window.document, isAdmin: true, callbacks: {},
+  });
+  const marker = el.querySelector(".tp-coming-v2");
+  assert.ok(marker, "v2-coming marker text is present");
+  assert.match(marker.textContent.toLowerCase(), /v2/,
+    "marker mentions v2");
+});
+
+
 test("boot: clicking close × on an open panel re-hides it", async () => {
   const dom = _bootDom();
   await boot({ fetchFn: _mockFetch({
