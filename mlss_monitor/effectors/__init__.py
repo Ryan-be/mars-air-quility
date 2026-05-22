@@ -1,12 +1,24 @@
-"""Effector registry — maps string keys to controllable device handles.
+"""Effector subsystem — legacy single-fan registry + new generalised model.
 
-The registry is intentionally small and additive.  Each entry describes how
-to locate the underlying hardware object on :mod:`mlss_monitor.state`, what
-kind of device it is, and how to read / write its on/off state via the
-shared :data:`mlss_monitor.state.thread_loop` asyncio loop.
+This module presents two APIs:
 
-Only on/off semantics live here; device-specific config (auto-mode
-thresholds, unit rates, etc.) stays on the per-device blueprint.
+* **Legacy** (kept for backwards-compat during the Phase 2 → 3 migration
+  of the MLSS topology feature): a tiny in-memory registry that maps
+  string keys (``"fan1"``) to a :class:`Effector` value-object wrapping
+  the live :data:`mlss_monitor.state.fan_smart_plug` handle. The legacy
+  ``POST /api/effector`` shim in :mod:`mlss_monitor.routes.api_effectors`
+  uses ``get`` / ``set_state`` / ``snapshot`` / ``all_keys``.
+
+* **Generalised** (Phase 2+): :mod:`mlss_monitor.effectors.store` is the
+  pure CRUD layer against the ``smart_plugs`` table;
+  :mod:`mlss_monitor.effectors.base` holds the type/scope enums + the
+  per-type scope-compatibility matrix used by the v2 API validator.
+  Phase 3+ adds per-type ``EffectorController`` classes and the
+  periodic evaluator loop.
+
+Only on/off semantics live in the legacy half; device-specific config
+(auto-mode thresholds, unit rates, etc.) lives on either the per-device
+blueprint (legacy fan) or the ``smart_plugs.rules_json`` blob (v2).
 """
 from __future__ import annotations
 
@@ -19,7 +31,7 @@ from mlss_monitor import state
 
 @dataclass(frozen=True)
 class Effector:
-    """Describe a single controllable device for the effector API."""
+    """Describe a single controllable device for the legacy effector API."""
 
     key: str
     type: str
@@ -76,7 +88,7 @@ def snapshot(effector: Effector) -> dict:
         ).result(timeout=5)
         if isinstance(plug_state, dict) and "state" in plug_state:
             out["state"] = "on" if plug_state["state"] else "off"
-    except Exception:
+    except Exception:  # pylint: disable=broad-except
         pass
     try:
         power = asyncio.run_coroutine_threadsafe(
@@ -84,6 +96,6 @@ def snapshot(effector: Effector) -> dict:
         ).result(timeout=5)
         if isinstance(power, dict):
             out["power_w"] = power.get("power_w")
-    except Exception:
+    except Exception:  # pylint: disable=broad-except
         pass
     return out
