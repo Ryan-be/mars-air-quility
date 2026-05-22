@@ -27,6 +27,7 @@ import {
   setupPan, setupZoom, setupNodeDrag,
 } from "./graph.mjs";
 import { renderTopbar } from "./components/topbar.mjs";
+import { openAddEffectorModal } from "./components/add-effector-modal.mjs";
 import { computeStats } from "./stats.mjs";
 // Card renderers — wired in Phase 6 Task 6.7. Until then renderGraph
 // produces empty .tp-node placeholder divs, which is what the Phase 5
@@ -93,6 +94,44 @@ function _startMissionTimeTick(doc, startMs) {
       _missionTimeInterval.unref();
     }
   }
+}
+
+
+/**
+ * Project a smart_plugs row from POST /api/effectors into the topology
+ * node shape produced by GET /api/topology. The v2 API returns the raw
+ * DB row (id as integer, scope as 'hub'/'grow_unit') while the
+ * topology endpoint returns a UI-shaped node (id as 'effector:<n>',
+ * parent set, mode derived from auto_mode + current_state). Mirroring
+ * the server-side projection in `mlss_monitor.routes.api_topology.
+ * _effector_node()` keeps the wire format internally consistent.
+ *
+ * Exported for tests + the Phase 9 add-effector wiring.
+ */
+export function effectorRowToNode(row) {
+  if (!row) return null;
+  const id = `effector:${row.id}`;
+  const parent = row.scope === "hub"
+    ? "hub"
+    : `grow:${row.grow_unit_id}`;
+  let mode;
+  if (row.auto_mode) {
+    mode = "auto";
+  } else if (row.current_state === "on") {
+    mode = "on";
+  } else {
+    mode = "off";
+  }
+  return {
+    id,
+    kind: "effector",
+    parent,
+    label: row.label,
+    effector_type: row.effector_type,
+    mode,
+    current_state: row.current_state || "unknown",
+    is_enabled: row.is_enabled,
+  };
 }
 
 
@@ -235,11 +274,30 @@ export async function boot({ fetchFn = fetch } = {}) {
         mountGraph();
       },
       onAddEffector: () => {
-        // Phase 9 Task 9.2 replaces this with the modal call. For now
-        // a console.log keeps the click chain wired without coupling
-        // the topbar to a Phase-9 import.
-        // eslint-disable-next-line no-console
-        console.log("[topology] add-effector clicked");
+        // Phase 9 Task 9.2 — open the add-effector modal with
+        // defaultScope="hub" (topbar entry point). On 201 we project
+        // the returned smart_plugs row into the topology node shape,
+        // push it into the store, and re-render so the operator sees
+        // the new card without a page refresh.
+        openAddEffectorModal({
+          defaultScope: "hub",
+          defaultGrowUnitId: null,
+          ownerDocument: document,
+          fetchFn,
+          onCreated: (eff) => {
+            const node = effectorRowToNode(eff);
+            if (!node) return;
+            store.nodes.push(node);
+            store.effectorById[node.id] = node;
+            // Add a layout position so the new card doesn't pile at
+            // (0,0). Re-running autoLayout on the augmented node set
+            // gives it a slot on the radial arc — Phase 11 will
+            // persist any subsequent drag.
+            store.positions = autoLayout(store.nodes);
+            mountGraph();
+            mountTopbar();
+          },
+        });
       },
       doc: document,
     });

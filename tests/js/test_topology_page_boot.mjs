@@ -297,6 +297,98 @@ test("boot: Recenter button resets the viewport (Phase 7 Task 7.3)", async () =>
 });
 
 
+test("boot: + Add effector → modal → 201 → new node appears (Phase 9 Task 9.2)", async () => {
+  // After clicking + Add effector, the topbar calls openAddEffectorModal
+  // which mounts a modal in document.body. Filling the form + clicking
+  // Submit issues POST /api/effectors; on 201 the boot orchestrator
+  // pushes the new effector into the store + re-renders the graph so
+  // the operator sees the new card without a page refresh.
+  const dom = _newDom();
+  global.EventSource = _mockEventSourceCtor();
+
+  let postedBody = null;
+  const fetchFn = async (url, opts) => {
+    if (url === "/api/topology") {
+      return {
+        ok: true, status: 200,
+        async json() {
+          return {
+            hub: { id: "hub", kind: "hub", label: "MLSS Hub", sensors: {} },
+            grows: [],
+            effectors: [],
+            layout: {},
+          };
+        },
+      };
+    }
+    if (url === "/api/grow/units") {
+      return new Response(JSON.stringify({ units: [] }),
+        { status: 200 });
+    }
+    if (url === "/api/effectors" && opts && opts.method === "POST") {
+      postedBody = JSON.parse(opts.body);
+      return new Response(JSON.stringify({
+        id: 5,
+        label: "Cabinet fan",
+        effector_type: "fan",
+        scope: "hub",
+        grow_unit_id: null,
+        kasa_host: "192.0.2.42",
+        is_enabled: 1,
+        auto_mode: 1,
+        current_state: "unknown",
+        rules: {},
+        layout: null,
+      }), { status: 201 });
+    }
+    return new Response(JSON.stringify({}), { status: 200 });
+  };
+
+  await boot({ fetchFn });
+  const doc = dom.window.document;
+  // No effectors before the click — only the hub card is rendered.
+  assert.equal(doc.querySelectorAll(".tp-card-effector").length, 0);
+
+  // Click + Add effector → opens the modal.
+  doc.querySelector(
+    ".tp-topbar-inner button[data-action='add-effector']",
+  ).dispatchEvent(new dom.window.Event("click", { bubbles: true }));
+  const overlay = doc.querySelector("[data-testid='add-effector-overlay']");
+  assert.ok(overlay, "modal opens on + Add effector click");
+
+  // Fill the form. Default scope=hub + default type=fan are correct
+  // for this test, so we only need label + kasa_host.
+  overlay.querySelector("input[name='label']").value = "Cabinet fan";
+  overlay.querySelector("input[name='kasa_host']").value = "192.0.2.42";
+  overlay.querySelector("button[data-action='submit']")
+    .dispatchEvent(new dom.window.Event("click", { bubbles: true }));
+
+  // Allow the POST + onCreated callback + re-render to flush.
+  // Multiple await ticks because the chain is:
+  //   click → fetchFn (1 microtask) → .json() (1) → onCreated (sync) →
+  //   close() (sync). Twenty ticks is well over the worst case.
+  for (let i = 0; i < 20; i++) await Promise.resolve();
+
+  // Modal closed.
+  assert.equal(
+    doc.querySelector("[data-testid='add-effector-overlay']"),
+    null,
+    "modal closes after successful 201",
+  );
+  // POST issued with the expected body.
+  assert.ok(postedBody);
+  assert.equal(postedBody.label, "Cabinet fan");
+  assert.equal(postedBody.kasa_host, "192.0.2.42");
+  assert.equal(postedBody.effector_type, "fan");
+  assert.equal(postedBody.scope, "hub");
+  // New effector card present in the graph.
+  const effectorCards = doc.querySelectorAll(".tp-card-effector");
+  assert.equal(effectorCards.length, 1,
+    `expected 1 effector card after + Add effector → submit, got ` +
+    `${effectorCards.length}`);
+});
+
+
 test("boot: Re-arrange button re-runs auto-layout (Phase 7 Task 7.3)", async () => {
   // Re-arrange clears the persisted positions object + re-runs
   // autoLayout. Same visibility-check assertion as Recenter — the
