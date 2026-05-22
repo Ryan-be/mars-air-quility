@@ -13,11 +13,13 @@ import sys
 import time
 from dataclasses import dataclass
 from importlib.metadata import version, PackageNotFoundError
+from pathlib import Path
 
 from mlss_grow.config import (
     load_firstboot_config, load_token, save_token,
 )
 from mlss_grow.enrol import enroll_unit, get_hardware_serial
+from mlss_grow.host_resolver import _write_atomically
 
 log = logging.getLogger(__name__)
 
@@ -278,8 +280,11 @@ def bootstrap_unit_state(
         unit_id, token = existing
         host = fb.mlss_host if fb else None
         if host is None:
-            # Pull from /etc/mlss/grow.host, written at first save (added below)
-            host_file = os.path.join(os.path.dirname(token_path), "grow.host")
+            # Pull from /etc/mlss/host - the canonical address file the
+            # resolver also reads (spec section 7 step 4). Written at
+            # first enrol below, and kept fresh by record_successful_connect
+            # whenever mDNS catches the hub on a new IP.
+            host_file = os.path.join(os.path.dirname(token_path), "host")
             if os.path.exists(host_file):
                 with open(host_file) as f:
                     host = f.read().strip()
@@ -301,11 +306,19 @@ def bootstrap_unit_state(
     log.info("enrolling unit (hardware_serial=%s)", serial)
     unit_id, token = enroll_fn(fb, serial)
     save_token(token_path, unit_id, token)
-    # Persist mlss_host alongside the token for future boots
-    host_file = os.path.join(os.path.dirname(token_path), "grow.host")
-    os.makedirs(os.path.dirname(host_file), exist_ok=True)
-    with open(host_file, "w") as f:
-        f.write(fb.mlss_host)
+    # Persist mlss_host to the canonical /etc/mlss/host so the resolver
+    # and self-heal path see one source of truth (spec section 7 step 4).
+    # Idempotent: never overwrite an existing file - operator pins or
+    # the host_bootstrap legacy-yaml migration take precedence so a
+    # later re-enrol can't silently downgrade a hostname to whatever
+    # yaml happens to be on the SD card. Atomic write + symlink guard
+    # inherited from _write_atomically (Security Finding 2).
+    host_file = Path(os.path.dirname(token_path)) / "host"
+    os.makedirs(host_file.parent, exist_ok=True)
+    if not host_file.exists():
+        _write_atomically(host_file, fb.mlss_host, mode=0o664)
+        log.info("wrote enrolled hub address %s to %s",
+                 fb.mlss_host, host_file)
     # Delete firstboot YAML so the enrollment key doesn't persist on SD card
     try:
         os.remove(firstboot_path)
@@ -322,6 +335,16 @@ def main() -> None:
     """systemd entrypoint. Bootstrap, then run forever."""
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)-8s %(name)s: %(message)s")
+
+    # Resilient host resolution: migrate legacy /boot/mlss-grow.yaml ->
+    # /etc/mlss/host on first run after upgrade. Idempotent - no-op once
+    # the file exists. Must run before bootstrap_unit_state because the
+    # WS reconnect loop reads /etc/mlss/host for the hub address.
+    try:
+        from mlss_grow.host_bootstrap import ensure_host_file
+        ensure_host_file()
+    except Exception as exc:                  # pylint: disable=broad-except
+        log.warning("ensure_host_file() failed (continuing): %s", exc)
 
     try:
         state = bootstrap_unit_state()

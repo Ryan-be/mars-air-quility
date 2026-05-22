@@ -285,7 +285,7 @@ class TestGetFanStateAsync:
 
         update_future = _make_future(raise_exc=update_exc)
         state_future = _make_future(
-            return_value=state_value or {"ip_address": "192.168.1.63", "state": True},
+            return_value=state_value or {"ip_address": "192.0.2.63", "state": True},
             raise_exc=state_exc,
         )
 
@@ -324,7 +324,7 @@ class TestGetFanStateAsync:
 
     def test_returns_plug_state(self, app_client, monkeypatch):
         client, _ = app_client
-        self._setup_status_mocks(monkeypatch, state_value={"ip_address": "192.168.1.63", "state": True})
+        self._setup_status_mocks(monkeypatch, state_value={"ip_address": "192.0.2.63", "state": True})
         res = client.get("/api/fan/status")
         assert res.status_code == 200
         assert res.get_json()["state"] is True

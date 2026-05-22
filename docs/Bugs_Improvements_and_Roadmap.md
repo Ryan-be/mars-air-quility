@@ -4,115 +4,8 @@
 
 This section tracks known issues, UX limitations, and planned enhancements to the MLSS Monitor system, particularly around inference accuracy, visualisation, and adaptive learning.
 
----
-
-## 🧠 Feature: Event Tagging & Learning System
-
-### Summary
-
-The current attribution system (source fingerprints) is heuristic-based and occasionally misclassifies events. Introduce a **user-driven tagging system** to label events with their true source and enable **incremental learning** over time.
-
----
-
-### Goals
-
-* Allow users to tag:
-
-  * Inference events (primary)
-  * Raw time ranges (future extension)
-* Persist tags in the database
-* Use tagged data to:
-
-  * Improve attribution accuracy
-  * Train lightweight online ML models
-
----
-
-### Proposed Design
-
-#### 1. Data Model
-
-```sql
-CREATE TABLE event_tags (
-    id INTEGER PRIMARY KEY,
-    inference_id INTEGER,
-    tag TEXT,
-    confidence REAL DEFAULT 1.0,
-    created_at DATETIME,
-    FOREIGN KEY (inference_id) REFERENCES inferences(id)
-);
-```
-
-Optional future:
-
-* Add `sensor_data_start_id`, `sensor_data_end_id` for manual window tagging
-
----
-
-#### 2. UI Integration
-
-* Add to inference card:
-
-  * Dropdown: **“What caused this?”**
-  * Options + free text
-* Display:
-
-  * User tag
-  * Model attribution (side-by-side)
-
----
-
-#### 3. Learning Strategy
-
-##### Phase 1 — Assisted Attribution
-
-* Use tags to:
-
-  * Evaluate fingerprint accuracy
-  * Build confusion matrix
-  * Adjust heuristic weights
-
----
-
-##### Phase 2 — Online Supervised Learning
-
-Train a classifier:
-
-* Input: `FeatureVector`
-* Output: `source_tag`
-
-Suggested models:
-
-* `HoeffdingTreeClassifier`
-* `LogisticRegression`
-
----
-
-##### Phase 3 — Hybrid Attribution
-
-Combine heuristic + ML:
-
-```
-final_score = 0.6 * fingerprint + 0.4 * ML
-```
-
----
-
-### Challenges
-
-* Cold start (no labels)
-* Label quality (user input errors)
-* Class imbalance (many “normal” cases)
-
----
-
-### Notes
-
-Online learning is a strong fit:
-
-* No retraining cycles needed
-* Updates per event
-* Works naturally with streaming data
+Shipped feature blocks live at the bottom of the file as historical
+record.
 
 ---
 
@@ -138,7 +31,7 @@ Online learning is a strong fit:
 
 ### Problem
 
-The plot currently shows “sensor activity” but lacks:
+The plot currently shows "sensor activity" but lacks:
 
 * Context
 * Focus
@@ -228,7 +121,7 @@ Raw plotting makes comparison meaningless.
 ### Core Insight
 
 Correlation ≠ absolute values
-It’s about:
+It's about:
 
 * Direction
 * Magnitude of change
@@ -315,7 +208,7 @@ Combine:
 
 To generate explanations like:
 
-> “This event was likely caused by cooking because PM2.5 and TVOC rose together by 2.3× baseline, matching previous tagged cooking events.”
+> "This event was likely caused by cooking because PM2.5 and TVOC rose together by 2.3× baseline, matching previous tagged cooking events."
 
 
 ---
@@ -338,41 +231,21 @@ After fixing the double-poll bug (commit `e8712db`) and the serial-console hosta
 
 ## Plant Grow Unit roadmap
 
-### Phase 2 (next)
-- Filter / sort row on Grow tab fleet view
-- Per-unit Configure tab (light windows editor, plant profile picker, PID tunables, calibration two-step, soak-window override, intentional-friction safety override)
-- Per-unit History tab (long-range moisture chart, photo timelapse scrubber)
-- Settings → Grow page (enrollment key rotation UI, default tunables, holiday mode)
-- Photo lightbox on click
+### Phase 4 (polish) — remaining
 
-### Phase 3
-- Per-unit Diagnostics tab (WS connection log, sensor sanity, firmware version, danger zone)
-- grow_errors UI surfacing (separate from the air-quality Incidents tab)
-- Buffered-message replay UI
-- Storage warning UI
+> Phase 2 (fleet/Configure/History/Settings tabs), Phase 3 (Diagnostics tab, grow_errors UI, buffer-replay UI, storage warnings), and most of Phase 4 (thumbnail endpoint, USB-SSD boot guide, Pi-image builder, local wheel infra, mobile-optimised fleet view, plant journal, time-lapse video) have all shipped. Only one Phase 4 item is still outstanding:
 
-### Phase 4 (polish)
-
-> **Reordered from Phase 5 → Phase 4.** First physical deployment surfaced enough rough edges (SD-card failure mid-deploy, opaque deploy command, no-thumbnail fleet view, "wall wart" terminology, no on-Pi diagnostics) that polish should land before any ML work. Smarts moved to Phase 5.
->
-> **Already landed in this overnight session:** `bin/deploy` script + readme; "wall wart" → "USB power adapter" sweep across `PLANT_GROW_UNIT_HARDWARE.md` and `PLANT_GROW_UNIT_SETUP.md`.
-
-- ~~**Server-side photo thumbnail/resize endpoint**~~ — **shipped:** `GET /api/grow/units/<id>/photo/latest?size=thumb` and `GET /api/grow/units/<id>/photos/<photo_id>?size=thumb`. Pillow downscales to 320px on first request, caches to `data/grow_thumbnails/<unit_id>/<...>_w320.jpg`, reuses on subsequent hits. Fleet view (`grow-card.mjs`) now requests `?size=thumb` instead of the full ~2MB capture. `DELETE /api/grow/units/<id>/photos` invalidates the per-unit thumbnail cache.
-- ~~**USB SSD boot guide for MLSS server and grow units**~~ — **shipped:** [`docs/USB_SSD_BOOT_GUIDE.md`](USB_SSD_BOOT_GUIDE.md). Hardware list, live `rsync` migration recipe with `fstab` / `cmdline.txt` PARTUUID fix-up, validation, rollback, troubleshooting. Notes that Pi Zero W grow units don't need this.
-- ~~Custom Pi SD-card .img for one-step provisioning~~ — **infrastructure shipped:** `scripts/build_pi_image.sh` (wrapper around `pi-gen`), `scripts/stage-mlss-grow/` (apt package list, host-side + chroot run scripts, systemd unit, firstboot.sh, mlss-grow.yaml.template), `docs/PI_IMAGE_BUILD.md`. The image builder calls `scripts/build_local_wheels.sh` to bake locally-built `mlss-grow` + `mlss-contracts` wheels directly into the rootfs (no public package index dependency at provision time for our two packages). **Maintainer to-do** before first image release: run `bash scripts/build_pi_image.sh` on a Linux box (pi-gen needs chroot + binfmt_misc — won't work on macOS/Windows). After build, hand off the resulting `dist/mlss-pi-os-<version>.img.xz` per local distribution policy.
-- ~~Local-only release infrastructure for `mlss-grow` / `mlss-contracts`~~ — **shipped:** classifiers/license/keywords/readme on `grow_unit/pyproject.toml` + `contracts/pyproject.toml`, root MIT `LICENSE`, `scripts/build_local_wheels.sh` (offline wheel builder writing to `dist/wheels/`), `scripts/_strip_pathdep.py` (post-build wheel patcher that fixes the path-baked `Requires-Dist` URL poetry would otherwise produce), `docs/RELEASE_PROCESS.md` (semver, version bump, local build flow). Public PyPI publication was scoped out — wheels stay private / local until that decision is revisited in a separate ticket.
-- ~~Mobile-optimised fleet view~~ — **shipped** in `static/css/grow.css`. New `@media (max-width: 540px)` rules narrow grid padding, single-column cards, stacked page-header (full-width Add Unit button), horizontal-scrolling unit-detail tabs. New `@media (hover: none) and (pointer: coarse)` block enforces 44px minimum touch-target on `.px-btn`, `.gu-btn`, `.du-act-btn`, filter chips, and tabs.
 - **Local read-only status UI on the grow unit itself** — tiny Flask app on a separate port (e.g. `http://<pi-ip>:8080/`) so an operator can SSH-free check the unit's health when MLSS is unreachable. Surfaces: live sensor readings, buffered-message + buffered-photo counts, last successful WS connect time, last 50 log lines, WiFi RSSI. **Read-only — no actuator controls** (those route via MLSS so audit/RBAC stays consistent). No auth (LAN-only by definition; same trust model as MLSS). Particularly useful for diagnosing "is the Pi alive when MLSS is down?" scenarios — the firmware design tolerates MLSS outages (buffer + replay) but currently you need SSH + journalctl to verify. Discovered as a real gap during the first physical deployment when the MLSS server's SD card failed mid-deployment and the operator had no quick way to verify the Pi was still capturing.
-- ~~Plant journal / annotations on the History tab~~ — **shipped:** new `grow_journal_entries` table, `mlss_monitor/routes/api_grow_journal.py` (CRUD + RBAC + author-or-admin gate), `static/js/grow/components/journal-editor.mjs` mounted in `history-panel.mjs`. Composer hidden for viewers, edit/delete only on author's own rows (admin override). 27 backend tests, 15 frontend tests. **Marker overlay on the moisture chart + photo-timelapse scrubber deferred to v2** — the editor's `journal-changed` CustomEvent is in place so the orchestrator can re-fetch when the overlay lands.
-- ~~Time-lapse video generation~~ — **shipped:** new `grow_timelapse_jobs` table + `mlss_monitor/grow/timelapse_jobs.py` (in-process daemon-thread runner, 30s poll), `mlss_monitor/routes/api_grow_timelapse.py` (POST controller+, GET viewer+), `static/js/grow/components/timelapse-generator.mjs` mounted in History tab. ffmpeg shells out via `subprocess.run` with a sequential `frame_%04d.jpg` symlink staging dir; missing-ffmpeg returns 503 with install hint. 18 backend + 8 frontend tests. README prereq updated to mention `apt install ffmpeg`.
 
 ### Phase 5 (smarts)
+
 - Image-based phase classifier
 - Plant-stage-aware PID adjustments
 - Cross-unit anomaly detection
 - Reservoir / water budget tracking
 
 ### Hardware/reliability deferred
+
 - **Hardware watchdog (`/dev/watchdog`)** on Pi Zero — designed in but not wired up due to risk of misconfigured timer rebooting healthy Pi mid-write. Re-evaluate if a unit silently wedges in production despite systemd watchdog.
 
 ### Grow unit hardware additions
@@ -413,74 +286,366 @@ All three share the existing I2C bus on the grow unit (Seesaw soil sensor at 0x3
 
 ---
 
-## Off-Pi backup pipeline (`mlss_monitor/backup/`)
+## 🔌 Feature: Configurable smart-plug effectors (hub-scoped or grow-unit-scoped)
+
+### Problem
+
+Today the hub assumes **exactly one** smart plug, hardcoded as a fan
+via `MLSS_FAN_KASA_SMART_PLUG_IP` in `.env`. Adding a second device —
+say a heater for cold mornings (hub-scoped) or a heat pad for a
+specific chilli plant (grow-unit-scoped) — requires editing config +
+extending `fan_controller.py` to know about the new role. No operator
+UI; no per-device rules; no way to wire a plug to a specific plant's
+sensor.
+
+### Goal
+
+Let an admin add, configure, **reconfigure**, and remove **N smart
+plugs** from the operator UI, each declaring its **effector type**
+AND its **scope**:
+
+- **Hub-scoped** plugs respond to the hub's whole-room sensors
+  (TVOC, eCO₂, PM, temp, humidity). e.g. AC, dehumidifier, fan,
+  whole-room heater.
+- **Grow-unit-scoped** plugs respond to a specific plant's per-unit
+  sensors (soil moisture, soil temp, air-T+RH when present). e.g.
+  heat pad under one plant, top-up grow light for a single shelf,
+  per-pot humidifier.
+
+The plug itself is always on the LAN and brokered by the hub. Only
+the **rule evaluation source** differs.
+
+### Scope examples
+
+| Effector | Typical scope | Why |
+| --- | --- | --- |
+| **Fan** | **Hub** | **Room ventilation — the current default** |
+| AC unit | Hub | Cools the whole room |
+| Whole-room heater | Hub | Heats the whole room |
+| Carbon-filter fan | Hub | Air-quality for the room (longer min-on for the carbon media) |
+| Dehumidifier | Hub | Room humidity |
+| Heat pad | Grow unit | One plant's soil/root warmth |
+| Top-up grow light | Grow unit | One plant's PAR budget |
+| Per-pot mini humidifier | Grow unit | One plant's microclimate |
+| Reservoir refill pump (future) | Grow unit | One unit's water supply |
+
+### Effector types (ENUM)
+
+| Type | Trigger signal(s) | Compatible scopes |
+| --- | --- | --- |
+| `fan` | TVOC · eCO₂ · PM₂.₅ · humidity · temp high | Hub |
+| `fan_carbon_filter` | Same as `fan` + longer min-on time | Hub |
+| `ac` | Temp high + humidity | Hub |
+| `whole_room_heater` | Temp low | Hub |
+| `humidifier` | Humidity low | Hub OR grow unit (per-pot variant) |
+| `dehumidifier` | Humidity high · mould risk | Hub |
+| `light_supplementary` | Schedule + (optional) lux threshold | Hub OR grow unit |
+| `heat_pad` | Soil-temp low OR air-temp low (per-unit) | Grow unit |
+| `generic` | Manual / scripted only | Either |
+
+### Entry points (two add-paths, one wizard)
+
+Admins can add a plug from two places. Both open the **same wizard**;
+only the default value of the scope picker differs:
+
+| Where the admin clicks | Default scope | Editable in wizard? |
+| --- | --- | --- |
+| `+ Add effector` button on `/controls` (admin-only) | **Hub** | Yes — admin can switch to any grow unit during setup |
+| `+ Add effector` button inside Grow Unit settings (admin-only) | **This grow unit** | Yes — admin can switch to Hub or a different grow unit during setup |
+
+Rationale: the admin's *intent* is usually obvious from where they
+clicked. Whoever's looking at the controls page is thinking about
+whole-room stuff; whoever's in a grow unit's settings is thinking
+about that plant. The default reflects that, but the wizard never
+locks them in.
+
+### Reconfigurable scope (post-creation)
+
+A plug's scope is **not fixed at creation time**. Every effector card
+shows a **settings cog (⚙)** to admins; clicking it opens the slide-out
+side panel (see design doc) pre-filled with the current values. Admins
+can:
+
+- Change the effector type (with re-validation of compatibility:
+  e.g. you can't reassign a Hub-only `ac` plug to a grow unit
+  scope — the picker greys those out).
+- Move the plug between Hub ↔ any grow unit, or between grow units.
+- Edit the per-type rule blob.
+- Rename / re-IP / disable / delete.
+
+Scope changes are reflected immediately in the live decision loop —
+the next evaluation tick reads from the new sensor source.
+
+### Visual + interaction design
+
+A hi-fi React-on-Babel design handoff is in the tree:
+[`docs/EFFECTOR_NODE_MAP_DESIGN.md`](EFFECTOR_NODE_MAP_DESIGN.md)
+(wrapper) → [`docs/assets/effector-map-handoff/`](assets/effector-map-handoff/)
+(live prototype — open `index.html` in a browser).
+
+Summary of what the design specifies:
+
+- **Pan/zoom-able node-map canvas** replaces today's single-fan
+  `/controls` page. Hub at the centre with live sparklines (temp /
+  RH / CO₂); N grow units with per-plant readings + phase tag; N
+  effectors connected to either hub (blue edges) or specific grow
+  units (green edges).
+- **Per-effector Auto/ON/OFF segmented control on the card itself** —
+  most common operation needs no modal.
+- **Sticky telemetry topbar** with mission-clock, hub status, totals
+  (grow units / effectors / active / auto vs forced split).
+- **Slide-out side panel** for full configuration (type, scope,
+  rules, manual override, re-parenting) — opens on node click.
+- **Edges** colour-coded by parent type, weighted by live state
+  (solid on, dashed off).
+- **Re-arrange** + **Recenter** buttons in the topbar; node positions
+  persist across sessions.
+- **AstroUX design system** (matches the rest of MLSS). Use the
+  official `@astrouxds/astro-web-components` library; the bundle's
+  CSS is a reference-only hand-rolled approximation.
+- **Tweaks panel** in the bottom-right of the prototype is a
+  design-time tool only — omit from production.
+
+### Data model sketch
+
+```sql
+CREATE TABLE smart_plugs (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    label            TEXT NOT NULL,         -- "Living room AC", "Habanero heat pad"
+    ip_address       TEXT NOT NULL UNIQUE,  -- LAN IP of the Kasa plug
+    protocol         TEXT NOT NULL DEFAULT 'kasa',  -- future: 'shelly', 'tuya', 'matter'
+    effector_type    TEXT NOT NULL CHECK(effector_type IN (
+                         'fan', 'fan_carbon_filter', 'ac',
+                         'whole_room_heater', 'humidifier', 'dehumidifier',
+                         'light_supplementary', 'heat_pad', 'generic'
+                     )),
+    scope            TEXT NOT NULL CHECK(scope IN ('hub', 'grow_unit')),
+    grow_unit_id     INTEGER REFERENCES grow_units(id) ON DELETE SET NULL,
+    is_enabled       INTEGER NOT NULL DEFAULT 1,
+    rules_json       TEXT,                  -- per-type rule blob (thresholds, schedules)
+    layout_json      TEXT,                  -- node-map persisted position (x,y)
+    last_state       TEXT,                  -- 'on' / 'off' / 'unknown' / 'unreachable'
+    last_state_at    DATETIME,
+    created_at       DATETIME NOT NULL,
+    CHECK ((scope = 'hub'       AND grow_unit_id IS NULL) OR
+           (scope = 'grow_unit' AND grow_unit_id IS NOT NULL))
+);
+CREATE INDEX idx_smart_plugs_grow_unit ON smart_plugs(grow_unit_id);
+```
+
+The existing `fan_settings` table content seeds one row in
+`smart_plugs` at first migration (scope=`hub`, type=`fan`, rules from
+the existing fan-controller config). The live single-fan flow keeps
+working unchanged through the migration.
+
+### Rule evaluation — where it runs (v1)
+
+| Option | Where rules evaluate | Pros | Cons |
+| --- | --- | --- | --- |
+| **A — Hub-mediated** (recommended for v1) | All plug decisions happen on the hub. Grow-unit-scoped rules use telemetry that the grow unit already streams via WSS. Hub commands the Kasa plug. | Simple. One control surface. No new firmware deps on Pi Zero W. Matches existing single-fan flow. | Per-unit effectors stop responding during a hub outage. |
+| **B — Edge-local** | Grow unit firmware talks Kasa directly to its associated plug. Hub only configures the rules. | Survives hub outages. Matches the existing "plants survive an MLSS outage" design principle. | Adds python-kasa to Pi Zero W firmware (~10 MB). New per-unit credentials/discovery. Two control paths to keep coherent. |
+
+**Lean A for v1.** Per-unit effectors here are *comfort* (heat pad,
+top-up light) not *safety* (pump, primary grow light — those already
+live on the grow unit's Automation pHAT and are driven by the local
+safety loop). Losing comfort during a brief hub outage is acceptable.
+Move to B later if real-world usage shows hub outages cause plant
+stress.
+
+### Code touchpoints
+
+- **`mlss_monitor/effectors/`** new package — one module per type
+  (the existing top-level `effectors.py` becomes this package's
+  `__init__.py` with the registry). Each module implements a small
+  `EffectorController` ABC:
+  ```python
+  class EffectorController(ABC):
+      def should_be_on(reading: SensorReading, rules: dict) -> bool
+      def label() -> str
+      def rules_schema() -> type[BaseModel]
+      def compatible_scopes() -> set[Scope]  # {Scope.HUB, Scope.GROW_UNIT}
+  ```
+- **`fan_controller.py`** becomes the `fan.py` implementation of the
+  ABC. The current `state.fan_smart_plug` becomes a dict
+  `state.smart_plugs[plug_id] -> KasaSmartPlug`, populated from the
+  new table at startup.
+- **`mlss_monitor/effector_evaluator.py`** — new module: the periodic
+  loop that asks each enabled plug "should you be on?" — sources the
+  reading from `state.hot_tier` (hub) or `state.grow_telemetry` (per
+  grow_unit_id) and applies the type-specific controller.
+- **`mlss_monitor/routes/api_effectors.py`** — new blueprint:
+  - `GET/POST /api/admin/effectors`
+  - `PUT/DELETE /api/admin/effectors/<id>`
+  - `POST /api/admin/effectors/<id>/test` — flick the plug for 2s
+  - `POST /api/admin/effectors/<id>/toggle` — manual override
+  - `GET /api/effectors/state` — live state + node-map layout
+- **`database/init_db.py`** — new `smart_plugs` table + idempotent
+  seed of one row from existing fan config so the migration is
+  invisible to current single-fan users.
+- **`templates/controls.html`** — replaced entirely by the node-map
+  view from the design doc (admin-only `+ Add effector` action lives
+  in the topbar).
+- **`templates/grow_unit_detail.html`** — admin-only `+ Add effector`
+  button in the settings panel + a small "Effectors for this unit"
+  list scoped to this `grow_unit_id`.
+- **`static/js/effectors/`** — full node-map implementation per the
+  design doc (graph, side panel, topbar, per-type rule editors).
+  Reuse `@astrouxds/astro-web-components` rather than the
+  hand-rolled CSS in the handoff bundle.
+- **`mlss_monitor/event_bus`** — `effector_state_changed` event so
+  the node-map updates in real time over SSE.
+- **Backup outbox** — `smart_plugs` becomes a replicated table so
+  rotations / re-installs preserve effector config + node-map layout.
+
+### Notification integration
+
+The `notify_system_health` category in MLSS Mobile already covers
+"sensor offline". Extend it to fire `effector_unreachable` when a
+configured plug stops responding, with the deep_link routing to
+the `/controls` node-map (or `/grow/<id>` for grow-unit-scoped plugs).
+
+### Auth
+
+- All CRUD: `admin` role (every settings cog visible only to admins).
+- Manual toggle (`/toggle` endpoint): `controller` + `admin`. Matches
+  the existing fan-override pattern.
+- Read-only state + map view: any logged-in role.
+
+### Considerations
+
+- **Conflict avoidance:** two `whole_room_heater` plugs with
+  overlapping temp floors → both come on. AC + heater fighting →
+  operator's problem; we'll log a warning when both want to be on
+  simultaneously but won't override. Single-household trust.
+- **Compressor protection:** AC / heat-pump effectors enforce a
+  minimum-off time (default 5 min) to prevent rapid cycling
+  damaging the compressor. Configurable per plug.
+- **Min-on time for carbon filters:** the `fan_carbon_filter` type
+  enforces a longer min-on (default 5 min) so activated-carbon
+  media has time to actually scrub VOCs out of the airflow.
+- **Vendor lock-in:** Kasa-only for v1. The `protocol` column leaves
+  the door open. A Shelly / Tuya / Matter adapter slots in as a new
+  protocol module without UI changes.
+- **YAGNI line:** no per-plug ML, no cross-plug scenes (e.g. "AC on
+  ⇒ disable humidifier"), no calendar-based override schedules
+  beyond the light type. Simple if-this-then-that rules per plug.
+
+### Effort
+
+~5-6 days. Schema migration + 9 controller classes + node-map UI
+(per the handoff design) with two entry points + per-type rule
+editors + side panel + display-only integration in grow-unit detail
+page + tests. The node-map (pan/zoom canvas, SVG edges, drag-to-position
+with persistence, SSE live colouring) is the biggest single chunk;
+the controller registry is mostly a polymorphism refactor of the
+existing fan code.
+
+### Why this matters
+
+- Unlocks the system for non-fan use cases (chilli plant wants a
+  heat pad on cold nights; future hydroponic shelves want
+  supplementary light per row; a room with poor passive ventilation
+  wants AC + dehumidifier).
+- Removes the hardcoding tax on adding any new effector role.
+- Establishes the **per-unit effector** category as a first-class
+  concept — opens the door to deeper grow-unit automation
+  (reservoir pumps, nutrient dosers) without further schema
+  thrashing.
+- The node-map makes the topology legible at a glance — the
+  operator sees the whole environmental-control loop in one view
+  rather than tab-hopping.
+
+---
+
+## ✅ Shipped: Fleet-view "trust anchor" badge — not yet
+
+> Carry-over from the `feature/mdns-resilient-host` branch — flagged here
+> rather than as part of the resilient-host work because it's UI-only
+> and slots more naturally with the upcoming effector node-map work.
+
+**Problem.** After the CA-publish + `install.sh` rotation-safe update,
+existing grow units still pin the LEAF cert (TOFU) and will break on
+the next cert rotation. There's no way to tell at a glance which
+units have which trust anchor.
+
+**Proposal.** Have the grow firmware report its `/etc/mlss/server.crt`
+fingerprint (SHA256 truncated to 8 chars) on every WS handshake or
+capability handshake. The hub compares to its own ca.crt fingerprint
+and its current leaf fingerprint, and stores a flag on `grow_units`
+(`trust_anchor` = `'ca'` / `'leaf'` / `'unknown'`). The fleet card
+shows a tiny `🔒 CA` badge for rotation-safe units and `⚠ leaf`
+otherwise, with a hover tooltip explaining the difference + linking
+to a "re-run install.sh on this unit to upgrade" runbook step in
+PLANT_GROW_UNIT_SETUP.md.
+
+**Effort:** ~1 day. New column on `grow_units`, capability protocol
+extension (`fingerprint` field), fleet-card pill + tooltip, hub-side
+comparison, one new test per side.
+
+---
+
+# Shipped
+
+The blocks below document features that have landed in `main`, kept
+as a historical record of what each feature actually delivered.
+
+---
+
+## ✅ Shipped: Off-Pi backup pipeline (all 9 phases)
+
+**Date shipped:** 2026-05-18 (branch `feature/backup-to-home-server`, merged to main)
 
 Asynchronous replication of canonical ML data from the hub's SQLite to
-a home Postgres + S3 backend, so SD-card failure / fire / theft of the
-hub doesn't lose years of training data. Designed as nine phases; the
-first four landed on this branch.
+a home Postgres + S3-compatible backend, so SD-card failure / fire /
+theft of the hub doesn't lose years of training data.
 
-### Partially shipped — Phases 1-4 of 9
+**What landed:**
+- Outbox storage (`outbox_changes`, `outbox_blobs`,
+  `outbox_delete_scope`, `bootstrap_progress`) with a lint guard
+  preventing direct writes to replicated tables.
+- `@tee_to_outbox` decorator wrapping every replicated-table writer
+  so the outbox pointer commits in the same transaction as the live
+  row.
+- Postgres + S3 clients (S3-compatible — MinIO, AWS, Cloudflare R2
+  all work) with config persisted to `app_settings`.
+- `BackupWorker` daemon thread per pipeline (`db` + `files`), state
+  machine with exponential backoff (1 s → 600 s cap), hot-reload
+  via the event bus.
+- Historical bootstrap scanner (`backup/bootstrap.py`) for one-shot
+  back-fill of a clean Postgres from the live DB.
+- Admin REST API (`/api/admin/backup/{config,status,test,init,maintenance}`)
+  + Settings → Backup admin UI with SSE-driven live status panel.
+- E2E test suite using testcontainers for Postgres + MinIO (six
+  scenarios including overnight-outage simulation + idempotent
+  resend).
 
-- ~~**Phase 1 — outbox storage + lint guard.**~~ Four pointer tables
-  added to the hub's SQLite (`outbox_changes`, `outbox_blobs`,
-  `outbox_delete_scope`, `bootstrap_progress` — see
-  [DATABASE.md](DATABASE.md#backup-outbox-tables)). Outbox storage
-  helpers in `mlss_monitor/backup/outbox.py` (`enqueue_row`,
-  `enqueue_blob`, `enqueue_delete_scope`, `peek_*`, `delete_*`,
-  `pending_count_*`). Lint test
-  `tests/test_no_direct_writes_to_replicated_tables.py` enforces every
-  write to a replicated table goes through an allowlisted helper, so
-  the outbox enqueue can't be bypassed.
-- ~~**Phase 2 — `@tee_to_outbox` decorator + writer refactor.**~~
-  Decorator wraps every replicated-table writer (`db_logger`,
-  `grow/handlers`, `incident_grouper.regroup_all`, grow API route
-  handlers, time-lapse jobs, inference evidence storage, …) so the
-  outbox pointer commits in the same transaction as the live row.
-  Strict-mirror tables (`incidents`, `incident_alerts`,
-  `incident_signature_features`, `grow_light_windows`,
-  `grow_unit_capabilities`) use the `outbox_delete_scope` path so
-  wholesale-rebuild call sites replicate correctly.
-- ~~**Phase 3 — Postgres + S3 clients + config.**~~ `PostgresClient`
-  (`test_connection`, `upsert_rows` with `INSERT…ON CONFLICT`,
-  `delete_scope`, `run_ddl`), `S3Client` (`test_connection`, `head`,
-  `put`, `make_bucket` — boto3 wrapper, S3-compatible: MinIO / AWS /
-  Cloudflare R2 / etc.), and a config module that stores settings in
-  `app_settings` under the `backup.*` prefix with password masking on
-  read and `get_secret` for the worker.
-- ~~**Phase 4 — `BackupWorker` daemon thread.**~~ State machine
-  (`DISABLED / IDLE / DRAINING / BACKOFF / PAUSED`), DB + files drain
-  loops, exponential backoff (1 s → 600 s cap, resets on success),
-  hot-reload via `EventBus` subscription so the admin saving new config
-  wakes the worker without a restart, and status emission via
-  `EventBus.publish` after every meaningful state change for the
-  future admin SSE-driven status panel. Two instances run in parallel
-  (`pipeline='db'` and `pipeline='files'`) with independent state +
-  backoff so a Postgres outage doesn't block S3 shipping.
+**Operator docs:** [docs/BACKUP.md](BACKUP.md)
+**Schema:** [docs/DATABASE.md → Backup outbox tables](DATABASE.md#backup-outbox-tables)
+**Source:** `mlss_monitor/backup/`, `mlss_monitor/routes/api_backup.py`,
+`templates/admin_backup.html`, `static/js/backup/`, `tests/backup_e2e/`.
 
-### Pending — Phases 5-9
+---
 
-- **Phase 5 — historical bootstrap.** One-shot scan that walks every
-  existing row in the replicated tables and enqueues a pointer so a
-  clean Postgres can be back-filled from the live DB. The
-  `bootstrap_progress` table is already in the schema; no producer or
-  consumer yet.
-- **Phase 6 — admin REST API.** `GET/POST /api/admin/backup/config`,
-  `GET /api/admin/backup/status`, `POST /api/admin/backup/test-connections`,
-  `POST /api/admin/backup/pause` / `resume`.
-- **Phase 7 — admin UI.** Settings → Backup page wiring the above
-  endpoints, with the SSE status panel listening for the
-  `backup_status_changed` event the worker already publishes.
-- **Phase 8 — wire `BackupWorker` into `app.py` startup.** The worker
-  is feature-complete but no code path constructs and starts it yet.
-  This phase also ships the operator-facing `docs/BACKUP.md`.
-- **Phase 9 — E2E smoke + operator runbook.** End-to-end test against
-  a containerised Postgres + MinIO; document the bring-up procedure
-  and the disaster-recovery restore path.
+## ✅ Shipped: Event Tagging & Learning System
 
-Until Phase 8 lands, the outbox tables fill up on every write but
-never drain — the disk cost is pointer rows only (~50 bytes each) and
-the lint guard keeps the design coherent in the meantime.
+User-driven tagging plus heuristic + ML attribution for inference
+events.
+
+**What landed:**
+- `event_tags` table — user-supplied tags on inference rows.
+- `mlss_monitor/routes/api_tags.py` — CRUD endpoints.
+- `mlss_monitor/attribution/engine.py` — heuristic source-fingerprint
+  attribution with confidence scoring.
+- `mlss_monitor/anomaly_detector.py` + `multivar_anomaly_detector.py`
+  — River-based online unsupervised detection.
+- Inference engine + classifier admin tabs (Settings → Insights
+  Engine) for rules, fingerprints, anomaly channels, classifier
+  retrain controls.
+- Inference cards on the dashboard display the attributed source +
+  user-tag side-by-side.
+
+**Source:** `mlss_monitor/attribution/`, `mlss_monitor/inference_engine.py`,
+`mlss_monitor/routes/api_tags.py`, `mlss_monitor/routes/api_insights.py`.
 
 ---
 
@@ -514,60 +679,35 @@ the lint guard keeps the design coherent in the meantime.
 **User docs:** [docs/MOBILE.md](MOBILE.md)
 **Schema:** [docs/DATABASE.md → Notifications](DATABASE.md#notifications-mlss-mobile)
 **Config reference:** [docs/CONFIGURATION.md → Notifications](CONFIGURATION.md#notifications-mlss-mobile)
-**Spec + plan:** branch worktree (not tracked in main).
-
-
 
 ---
 
-## 🌱 Grow-unit onboarding — deferred polish
+## ✅ Shipped: Resilient hub host resolution
 
-Follow-ups from the `feature/mlss-mobile` branch (the YAML-wizard +
-CA-pin work shipped; these are nice-to-haves that didn't make the
-cut).
+**Date shipped:** 2026-05-21 (branch `feature/mdns-resilient-host`)
 
-### Auto-discovery via mDNS / Avahi
+Firmware now resolves the hub address through `/etc/mlss/host` →
+`/etc/mlss/host-cache` → mDNS `mlss.local`. Post-power-cut Avahi
+outages no longer wedge units offline — the cache fallback kicks in
+within seconds. The mDNS fallback also self-heals when the hub's
+static IP changes (rare, ~once a year). Hub-side: no changes
+(`mlss.local` is already auto-published by Pi OS's default Avahi
+config).
 
-**Problem.** The "set IP, set key, done" YAML still requires the
-operator to type the hub's LAN IP into `mlss_host`. On a fresh Pi
-that hasn't had its DNS configured to resolve `mlss.local`, the IP
-is the only working option — and IPs change when the router's lease
-table rolls over.
+Key behaviours:
+- Strategy / Chain-of-Responsibility pattern — three independent
+  `ResolutionStep` callables iterated by a 5-line orchestrator.
+  Adding a 4th step is one line in `DEFAULT_STEPS`.
+- `Candidate.is_authoritative` gates whether a successful connect
+  rewrites `/etc/mlss/host` (only mDNS-discovered IPs do).
+- Hostname-downgrade guard: refuses to silently rewrite
+  `mlss.local` → `<IP literal>` in the host file, preserving
+  operator intent.
+- Symlink-safe writes (`_write_atomically` refuses symlinks to
+  prevent a write-where-root-points primitive).
+- Privacy CI (`tests/test_no_private_ips_committed.py`) pins the
+  invariant that no RFC 1918 private IP gets committed.
 
-**Proposal.** Publish `mlss.local` via Avahi on the hub (already
-installed on Raspberry Pi OS by default). Set the hostname via
-`raspi-config nonint do_hostname mlss` in `scripts/setup_pi.sh` so
-new hub installs broadcast it automatically. Then update
-`mlss-grow.yaml.template` to default `mlss_host: mlss.local` and
-fall back to a manual IP only if mDNS resolution fails on the grow
-Pi.
-
-**Catch.** Pi Zero W's mDNS resolver is occasionally flaky on
-boot-time first-look (avahi-daemon races with the wifi link bring-up).
-Worth measuring before deploying — if first-boot enrolments retry
-through a transient mDNS miss the user-visible outcome is "the unit
-takes 90s instead of 30s to appear", which is acceptable.
-
-**Effort:** ~half-day. New rule for setup_pi.sh, yaml template change,
-docs update in `docs/PLANT_GROW_UNIT_SETUP.md`.
-
-### Fleet-view "trust anchor" badge
-
-**Problem.** After the CA-publish + `install.sh` rotation-safe update,
-existing grow units still pin the LEAF cert (TOFU) and will break on
-the next cert rotation. There's no way to tell at a glance which
-units have which trust anchor.
-
-**Proposal.** Have the grow firmware report its `/etc/mlss/server.crt`
-fingerprint (SHA256 truncated to 8 chars) on every WS handshake or
-capability handshake. The hub compares to its own ca.crt fingerprint
-and its current leaf fingerprint, and stores a flag on `grow_units`
-(`trust_anchor` = `'ca'` / `'leaf'` / `'unknown'`). The fleet card
-shows a tiny `🔒 CA` badge for rotation-safe units and `⚠ leaf`
-otherwise, with a hover tooltip explaining the difference + linking
-to a "re-run install.sh on this unit to upgrade" runbook step in
-PLANT_GROW_UNIT_SETUP.md.
-
-**Effort:** ~1 day. New column on `grow_units`, capability protocol
-extension (`fingerprint` field), fleet-card pill + tooltip, hub-side
-comparison, one new test per side.
+**User-facing docs:** [PLANT_GROW_UNIT_SETUP.md → Host resolution](PLANT_GROW_UNIT_SETUP.md#host-resolution-after-first-boot)
+**Source:** `grow_unit/src/mlss_grow/host_resolver.py`,
+`grow_unit/src/mlss_grow/host_bootstrap.py`

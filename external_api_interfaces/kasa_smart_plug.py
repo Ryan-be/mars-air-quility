@@ -147,7 +147,7 @@ class KasaSmartPlug:
         }
 # Example usage:
 # async def main():
-#     smart_plug = KasaSmartPlug("192.168.1.63")
+#     smart_plug = KasaSmartPlug("192.0.2.63")
 #     is_healthy = await smart_plug.health()
 #     print(f"Plug health: {is_healthy}")
 #     await smart_plug.switch(True)  # Turn on the plug

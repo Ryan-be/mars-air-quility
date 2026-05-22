@@ -199,10 +199,33 @@ sudo -u mlss-grow /opt/mlss-grow/.venv/bin/pip install --upgrade pip
 # --no-index here: it would block the transitive resolution and pip
 # fails with "No matching distribution" even though the deps are
 # perfectly fetchable from PyPI.
+# Two-pass install:
+#
+# Pass 1 — normal install: pulls any missing transitive deps. On a fresh
+# install this puts everything down; on a re-install where the wheel has
+# added a new transitive dep (e.g., zeroconf landed with the mDNS feature)
+# pass 2 below picks up the slack because pass 1's "already at 0.1.0,
+# skipping" short-circuit prevented dep re-evaluation here.
+#
+# Pass 2 — force-reinstall by FILE PATH: bypasses pip's "already at this
+# version, skipping" optimisation so the on-disk Python code always
+# matches the wheel we just downloaded + SHA256-verified. Without this
+# pass, same-version re-installs silently kept old code — caught when
+# the mDNS resilient-host-resolution feature shipped but ws_client.py
+# kept running the pre-resolver path because pip saw mlss_grow==0.1.0
+# already installed and no-op'd the entire install line. --no-deps here
+# because pass 1 + the explicit eager-upgrade below already settled the
+# dep tree, and reinstalling Pillow / picamera2 transitive deps on every
+# re-run is needlessly slow on a Pi Zero.
 sudo -u mlss-grow /opt/mlss-grow/.venv/bin/pip install \
     --find-links "$TMP" \
+    --upgrade --upgrade-strategy eager \
     "mlss_grow==${GROW_VER}" \
     "mlss_contracts==${CONTRACTS_VER}"
+sudo -u mlss-grow /opt/mlss-grow/.venv/bin/pip install \
+    --upgrade --force-reinstall --no-deps \
+    "$TMP/${GROW_FILENAME}" \
+    "$TMP/${CONTRACTS_FILENAME}"
 
 # ── 6. Pin MLSS trust anchor at /etc/mlss/server.crt
 # The MLSS server presents a TLS cert on the LAN. Without a pinned

@@ -70,7 +70,7 @@ Then make the server reachable from the Pi:
 2. Edit `/etc/postgresql/<version>/main/pg_hba.conf` and add a line
    for the Pi's subnet, e.g.:
    ```
-   host    mlss    mlss_hub    192.168.1.0/24    scram-sha-256
+   host    mlss    mlss_hub    192.0.2.0/24    scram-sha-256
    ```
 3. `sudo systemctl restart postgresql`.
 4. Open port 5432 on the host firewall to the Pi's IP.

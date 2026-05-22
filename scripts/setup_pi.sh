@@ -156,7 +156,7 @@ ENV_FOR_DYNACONF=production
 MLSS_LOG_INTERVAL=10
 MLSS_LOG_FILE=data/log.csv
 MLSS_DB_FILE=data/sensor_data.db
-MLSS_FAN_KASA_SMART_PLUG_IP=192.168.1.63
+MLSS_FAN_KASA_SMART_PLUG_IP=192.0.2.63
 EOF
     warn "Edit .env and set MLSS_FAN_KASA_SMART_PLUG_IP to your smart plug's IP address"
 else
