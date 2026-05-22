@@ -1,0 +1,145 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   MLSS — Topology view chrome (Phase 4 Task 4.4)
+   ----------------------------------------------------------------------------
+   Page-level layout grid + the three chrome bands (topbar / graph / status-
+   bar) + the slide-out side panel. The node cards, SVG canvas, sparklines,
+   and segmented AUTO/ON/OFF control live in their own modules and get added
+   in Phase 5/6. CSS tokens come from base.css (--color-* family); local
+   fallbacks let the file render usefully if it's loaded out of order.
+
+   Class prefix: tp- (Topology) — keeps every selector outside the
+   AstroUXDS rux-* namespace and outside the legacy gsb-/gu-/bk- prefixes
+   used by the global status bar, grow cards, and backup admin page.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Root grid: three rows stacked under the global status bar (56px) +
+   tab nav. The graph row expands to fill the remaining viewport height
+   so the pan/zoom canvas occupies the entire visible page.
+
+   page-content (in base.html) wraps every page with default padding;
+   we counter that with negative margins so the topology chrome can run
+   full-bleed to the viewport edges — the design treats this view as a
+   "console" rather than a regular padded page. */
+.tp-app {
+    display: grid;
+    grid-template-rows: 44px 1fr 24px;
+    height: calc(100vh - 56px - 60px);     /* viewport - status bar - tab nav */
+    margin: -16px;
+    background: var(--color-background-base-default, #101923);
+    color: var(--color-text-primary, #ffffff);
+    font-family: 'Roboto', system-ui, sans-serif;
+    overflow: hidden;
+}
+
+/* ────────────────────────────────── Topbar ──────────────────────────────── */
+
+.tp-topbar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 0 16px;
+    background: var(--color-background-base-header, #080c11);
+    border-bottom: 1px solid var(--color-border-interactive-muted, #2b659b);
+    font-size: 12px;
+    letter-spacing: .04em;
+}
+
+.tp-brand {
+    color: var(--color-status-normal, #56f000);
+    font-weight: 600;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+}
+
+.tp-topbar-label {
+    color: var(--color-text-secondary, #b0bec5);
+    text-transform: uppercase;
+    letter-spacing: .12em;
+}
+
+/* ─────────────────────────────────── Graph ──────────────────────────────── */
+
+.tp-graph {
+    position: relative;
+    overflow: hidden;
+    background: var(--color-background-base-default, #101923);
+    /* The dotted background is a hand-rendered alternative to the
+       prototype's tweaks-panel pattern picker. Hard-coded — the
+       picker UI itself was dropped per the spec. */
+    background-image:
+        radial-gradient(rgba(77, 172, 255, .08) 1px, transparent 1px);
+    background-size: 24px 24px;
+}
+
+.tp-graph-svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+/* ───────────────────────────────── Statusbar ────────────────────────────── */
+
+.tp-statusbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 16px;
+    background: var(--color-background-base-header, #080c11);
+    border-top: 1px solid var(--color-border-interactive-muted, #2b659b);
+    font-size: 11px;
+    letter-spacing: .04em;
+    color: var(--color-text-secondary, #b0bec5);
+}
+
+/* Pill — used for the SSE connectivity indicator on the statusbar.
+   Background uses the existing chip-bg token so the green dot reads
+   as a positive cue against the dark chrome. */
+.tp-status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--chip-bg, rgba(77, 172, 255, .12));
+    color: var(--color-status-normal, #56f000);
+    font-size: 11px;
+    letter-spacing: .04em;
+}
+
+/* Error variant — shown when /api/topology fails on first paint so
+   the operator gets a non-empty signal rather than a blank statusbar. */
+.tp-status-pill-err {
+    background: rgba(255, 56, 56, .15);
+    color: var(--color-status-critical, #ff3838);
+}
+
+/* ──────────────────────────────── Side panel ────────────────────────────── */
+
+/* The slide-out config panel anchored to the right viewport edge.
+   Phase 8 mounts the per-node configuration form here; today we only
+   own the chrome — open/close mechanics + populated panels arrive
+   later. The .hidden helper class (toggled by topology JS) flips the
+   transform; transition keeps the slide gesture smooth without
+   layout-thrashing the graph next door. */
+.tp-sidepanel {
+    position: fixed;
+    right: 0;
+    /* sits below the 56px global status bar; tab nav lives at the
+       top too so the side panel covers from below it to the
+       statusbar top edge. */
+    top: 56px;
+    bottom: 24px;
+    width: 380px;
+    padding: 16px;
+    background: var(--color-background-surface-default, #1b2d3e);
+    border-left: 1px solid var(--color-border-interactive-muted, #2b659b);
+    box-shadow: -8px 0 32px rgba(0, 0, 0, .35);
+    overflow-y: auto;
+    transform: translateX(100%);
+    transition: transform .2s ease;
+    z-index: 50;
+}
+
+.tp-sidepanel:not(.hidden) {
+    transform: translateX(0);
+}
