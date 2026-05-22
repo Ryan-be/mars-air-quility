@@ -366,6 +366,12 @@ export function setupZoom({ wrapEl, getViewport, onChange }) {
  * `onChange`. `stopPropagation` on the node's mousedown prevents the
  * wrapping pan handler from firing.
  *
+ * After a real drag (≥2px) the mouseup additionally fires
+ * `onDragEnd(nodeId, finalPos)` — used by the page boot's debounced
+ * bulk-save queue (Phase 11 Task 11.1) so the wire-flushing logic
+ * doesn't have to track every onChange tick. Clicks never fire
+ * onDragEnd, only onClick.
+ *
  * @param {object} args
  * @param {HTMLElement} args.nodeEl
  * @param {string} args.nodeId
@@ -373,8 +379,12 @@ export function setupZoom({ wrapEl, getViewport, onChange }) {
  * @param {() => {x, y, k}} args.getViewport
  * @param {(id: string, pos: {x, y}) => void} args.onChange
  * @param {(id: string) => void} args.onClick
+ * @param {(id: string, pos: {x, y}) => void} [args.onDragEnd]
  */
-export function setupNodeDrag({ nodeEl, nodeId, getPos, getViewport, onChange, onClick }) {
+export function setupNodeDrag({
+  nodeEl, nodeId, getPos, getViewport,
+  onChange, onClick, onDragEnd,
+}) {
   let dragState = null;
   nodeEl.addEventListener("mousedown", (ev) => {
     // Don't drag when the mousedown landed on a button inside the
@@ -392,6 +402,7 @@ export function setupNodeDrag({ nodeEl, nodeId, getPos, getViewport, onChange, o
       origX: pos.x,
       origY: pos.y,
       moved: 0,
+      lastPos: { x: pos.x, y: pos.y },
     };
   });
   const doc = nodeEl.ownerDocument;
@@ -403,14 +414,20 @@ export function setupNodeDrag({ nodeEl, nodeId, getPos, getViewport, onChange, o
     dragState.moved = Math.max(dragState.moved, Math.hypot(dx, dy));
     if (dragState.moved < 2) return;
     const vp = getViewport();
-    onChange(nodeId, {
+    const next = {
       x: dragState.origX + dx / vp.k,
       y: dragState.origY + dy / vp.k,
-    });
+    };
+    dragState.lastPos = next;
+    onChange(nodeId, next);
   });
   win.addEventListener("mouseup", () => {
     if (!dragState) return;
-    if (dragState.moved < 2) onClick(nodeId);
+    if (dragState.moved < 2) {
+      onClick(nodeId);
+    } else if (typeof onDragEnd === "function") {
+      onDragEnd(nodeId, dragState.lastPos);
+    }
     dragState = null;
   });
 }

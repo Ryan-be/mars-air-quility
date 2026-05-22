@@ -307,6 +307,81 @@ test("setupNodeDrag: dragging updates position by delta/viewport.k", async () =>
 });
 
 
+test("setupNodeDrag: onDragEnd fires with final position after drag (Phase 11 Task 11.1)", async () => {
+  // After a real drag (≥2px), the mouseup must invoke onDragEnd with
+  // the same final (x, y) the last onChange saw. The page boot uses
+  // this hook to push the drop into the debounced bulk-save queue.
+  const dom = new JSDOM(
+    "<!doctype html><html><body>" +
+    `<div class="tp-node" id="node" data-node-id="grow:1"></div>` +
+    "</body></html>",
+  );
+  global.window = dom.window;
+  global.document = dom.window.document;
+  const { setupNodeDrag } = await import("../../static/js/topology/graph.mjs");
+  const nodeEl = dom.window.document.getElementById("node");
+  let endPayload = null;
+  setupNodeDrag({
+    nodeEl,
+    nodeId: "grow:1",
+    getPos: () => ({ x: 100, y: 200 }),
+    getViewport: () => ({ x: 0, y: 0, k: 1 }),
+    onChange: () => {},
+    onClick: () => {},
+    onDragEnd: (id, pos) => { endPayload = { id, pos }; },
+  });
+  nodeEl.dispatchEvent(new dom.window.MouseEvent("mousedown", {
+    bubbles: true, clientX: 0, clientY: 0, button: 0,
+  }));
+  // Move enough to clear the click threshold.
+  dom.window.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+    bubbles: true, clientX: 30, clientY: 40,
+  }));
+  dom.window.dispatchEvent(new dom.window.MouseEvent("mouseup", {
+    bubbles: true, clientX: 30, clientY: 40,
+  }));
+  assert.ok(endPayload, "onDragEnd should fire after the mouseup");
+  assert.equal(endPayload.id, "grow:1");
+  assert.equal(endPayload.pos.x, 130);
+  assert.equal(endPayload.pos.y, 240);
+});
+
+
+test("setupNodeDrag: onDragEnd does NOT fire on click (<2px move)", async () => {
+  // The plan's debounced bulk-save should only see drag-ends, not
+  // every click on a node. A click delivers onClick, not onDragEnd.
+  const dom = new JSDOM(
+    "<!doctype html><html><body>" +
+    `<div class="tp-node" id="node" data-node-id="grow:1"></div>` +
+    "</body></html>",
+  );
+  global.window = dom.window;
+  global.document = dom.window.document;
+  const { setupNodeDrag } = await import("../../static/js/topology/graph.mjs");
+  const nodeEl = dom.window.document.getElementById("node");
+  let endCalls = 0;
+  setupNodeDrag({
+    nodeEl,
+    nodeId: "grow:1",
+    getPos: () => ({ x: 0, y: 0 }),
+    getViewport: () => ({ x: 0, y: 0, k: 1 }),
+    onChange: () => {},
+    onClick: () => {},
+    onDragEnd: () => { endCalls += 1; },
+  });
+  nodeEl.dispatchEvent(new dom.window.MouseEvent("mousedown", {
+    bubbles: true, clientX: 50, clientY: 50, button: 0,
+  }));
+  dom.window.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+    bubbles: true, clientX: 51, clientY: 50,
+  }));
+  dom.window.dispatchEvent(new dom.window.MouseEvent("mouseup", {
+    bubbles: true, clientX: 51, clientY: 50,
+  }));
+  assert.equal(endCalls, 0, "onDragEnd should not fire on click");
+});
+
+
 test("setupNodeDrag: <2px movement triggers onClick(nodeId) instead of onChange", async () => {
   const dom = new JSDOM(
     "<!doctype html><html><body>" +

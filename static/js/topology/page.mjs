@@ -20,7 +20,9 @@
  * `boot()` is just the cold-start mount.
  */
 
-import { fetchTopology, setEffectorState } from "./api.mjs";
+import {
+  fetchTopology, setEffectorState, patchLayout,
+} from "./api.mjs";
 import { autoLayout } from "./layout.mjs";
 import {
   renderGraph, applyViewport,
@@ -361,8 +363,8 @@ export async function boot({ fetchFn = fetch } = {}) {
       isAdmin: _isAdmin(document),
       onRearrange: () => {
         // Clear persisted positions + re-run autoLayout. The plan
-        // notes a server reset endpoint lands in Phase 11; for now
-        // the click is purely client-side.
+        // notes a server reset endpoint lands in Phase 11 Task 11.2;
+        // for now the click is purely client-side.
         store.positions = autoLayout(store.nodes);
         mountGraph();
       },
@@ -497,6 +499,61 @@ export async function boot({ fetchFn = fetch } = {}) {
     // Cards not yet shipped — graph mounts with empty placeholders.
   }
 
+  // ── Debounced bulk-save (Phase 11 Task 11.1) ─────────────────────
+  // Drag-ends accumulate into `pendingPositions` keyed by node id; the
+  // pendingFlush timer holds the next 200ms flush. Three rapid drags
+  // on a single node still produce one PATCH carrying the final
+  // position. The keyed dict also dedupes across multi-node drags
+  // (which the prototype doesn't support today but the API does).
+  const pendingPositions = new Map();
+  let pendingFlushHandle = null;
+  const PATCH_DEBOUNCE_MS = 200;
+
+  function _idForNodeKind(node) {
+    // PATCH /api/effectors/layout expects:
+    //   * effector → integer (the smart_plugs row id)
+    //   * hub      → literal "hub"
+    //   * grow     → string of the grow_units row id
+    if (!node) return null;
+    if (node.kind === "effector") {
+      const parts = node.id.split(":");
+      return parseInt(parts[1], 10);
+    }
+    if (node.kind === "grow") {
+      return node.id.split(":")[1];
+    }
+    return "hub";
+  }
+
+  function _scheduleFlush() {
+    if (pendingFlushHandle) clearTimeout(pendingFlushHandle);
+    pendingFlushHandle = setTimeout(async () => {
+      pendingFlushHandle = null;
+      const positions = Array.from(pendingPositions.values());
+      pendingPositions.clear();
+      if (positions.length === 0) return;
+      try {
+        await patchLayout(positions, fetchFn);
+      } catch (exc) {
+        console.warn("patchLayout failed:", exc);
+      }
+    }, PATCH_DEBOUNCE_MS);
+  }
+
+  function _queueDragEnd(nodeId, pos) {
+    const node = store.nodes.find((n) => n.id === nodeId);
+    if (!node) return;
+    const id = _idForNodeKind(node);
+    if (id == null) return;
+    pendingPositions.set(nodeId, {
+      kind: node.kind,
+      id,
+      x: pos.x,
+      y: pos.y,
+    });
+    _scheduleFlush();
+  }
+
   function mountGraph() {
     const wrap = renderGraph({
       nodes: store.nodes,
@@ -548,6 +605,11 @@ export async function boot({ fetchFn = fetch } = {}) {
           // distinguished from drag by the < 2px movement heuristic
           // inside setupNodeDrag.
           _selectNode(clickedId);
+        },
+        onDragEnd: (nodeId, pos) => {
+          // Phase 11 Task 11.1 — accumulate the final drop into the
+          // debounced bulk-save queue.
+          _queueDragEnd(nodeId, pos);
         },
       });
     }

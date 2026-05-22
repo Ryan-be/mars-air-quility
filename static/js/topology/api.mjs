@@ -60,3 +60,34 @@ export async function setEffectorState(effectorId, mode, fetchFn = fetch) {
   }
   return r.json();
 }
+
+
+/**
+ * PATCH /api/effectors/layout — bulk-save the supplied node positions.
+ *
+ * The boot orchestrator debounces drag-ends (Phase 11 Task 11.1) and
+ * calls this exactly once per debounce window with the accumulated
+ * positions. Body shape matches the v2 endpoint:
+ *
+ *   { positions: [{ kind: 'hub'|'grow'|'effector', id, x, y }, ...] }
+ *
+ * Returns the parsed response body (`{saved: N}` on success).
+ *
+ * @param {Array<{kind: string, id: string|number, x: number, y: number}>} positions
+ * @param {Function} [fetchFn=fetch]
+ */
+export async function patchLayout(positions, fetchFn = fetch) {
+  const r = await fetchFn("/api/effectors/layout", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ positions }),
+  });
+  if (!r.ok) {
+    throw new Error(`patchLayout HTTP ${r.status}`);
+  }
+  // 204 No Content has no body; guard the json() call in that case.
+  if (r.status === 204) return null;
+  return r.json();
+}
+
+
