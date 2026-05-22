@@ -1,74 +1,33 @@
 {% extends "base.html" %}
 
-{% block title %}MLSS – Controls{% endblock %}
+{% block title %}MLSS · Topology{% endblock %}
 
 {% block extra_css %}
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/controls.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/topology.css') }}">
 {% endblock %}
 
 {% block topbar_controls %}{% endblock %}
 
 {% block content %}
-
-  <div class="section-heading">Devices</div>
-  <div class="devices-grid">
-
-    <div class="device-card" id="fanDeviceCard">
-      <div class="device-header">
-        <svg class="device-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-          <circle cx="12" cy="12" r="2" stroke="currentColor" stroke-width="1.5"/>
-          <path d="M12 10 C12 6 9 3 6 4 C5 7 7 10 10 11" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/>
-          <path d="M14 12 C18 12 21 9 20 6 C17 5 14 7 13 10" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/>
-          <path d="M12 14 C12 18 15 21 18 20 C19 17 17 14 14 13" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/>
-          <path d="M10 12 C6 12 3 15 4 18 C7 19 10 17 11 14" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/>
-        </svg>
-        <div class="device-title">
-          <h3>Fan</h3>
-          <span class="device-subtitle">Kasa smart plug</span>
-        </div>
-        <span class="status-dot" id="fanStatusDot"></span>
-      </div>
-      <div class="device-controls">
-        <button class="btn-on"   onclick="setFanControl('on')">On</button>
-        <button class="btn-off"  onclick="setFanControl('off')">Off</button>
-        <button class="btn-auto" onclick="setFanControl('auto')">Auto</button>
-        <button class="btn-info" id="fanInfoBtn" onclick="toggleAutoInfo()" title="Auto-mode details">i</button>
-      </div>
-      <div class="auto-info-panel hidden" id="autoInfoPanel">
-        <p class="auto-info-summary" id="autoInfoSummary">Loading...</p>
-        <ul class="auto-info-rules" id="autoInfoRules"></ul>
-      </div>
-      <div class="device-meta">
-        <div class="meta-item">
-          <span class="meta-label">Status</span>
-          <strong id="fan-status">--</strong>
-        </div>
-        <div class="meta-item">
-          <span class="meta-label">Mode</span>
-          <strong id="fan-mode">--</strong>
-        </div>
-        <div class="meta-item">
-          <span class="meta-label">Power</span>
-          <strong id="fan-power">--</strong>
-        </div>
-        <div class="meta-item">
-          <span class="meta-label">Today</span>
-          <strong id="fan-today">--</strong>
-        </div>
-        <div class="meta-item">
-          <span class="meta-label">Est. cost</span>
-          <strong id="fan-cost">--</strong>
-        </div>
-      </div>
-    </div>
-
-    <!-- Add new device cards here -->
-
-  </div>
-
+  {# Stamp the session role on body.dataset (matching the grow_fleet/
+     grow_errors pattern) AND on the tp-app section itself. The body
+     stamp is the canonical lookup for client code that needs the role
+     before the topology module boots; the section attribute is a
+     server-rendered duplicate so server-side tests can assert the
+     wiring without booting JS, and so admin-only CSS selectors like
+     `.tp-app[data-role='admin'] .tp-admin-only` can gate without JS
+     ever running. The server still enforces every mutating
+     /api/effectors endpoint with @require_role — this is purely
+     visual reveal. #}
+  <script>document.body.dataset.role = "{{ current_role }}";</script>
+  <section class="tp-app" id="tp-app" data-role="{{ current_role }}">
+    <header class="tp-topbar"    id="tp-topbar-host"></header>
+    <div    class="tp-graph"     id="tp-graph-host"></div>
+    <footer class="tp-statusbar" id="tp-statusbar-host"></footer>
+    <aside  class="tp-sidepanel hidden" id="tp-sidepanel-host"></aside>
+  </section>
 {% endblock %}
 
 {% block scripts %}
-  <script type="module" src="{{ url_for('static', filename='js/controls.js') }}"></script>
+  <script type="module" src="{{ url_for('static', filename='js/topology/page.mjs') }}"></script>
 {% endblock %}

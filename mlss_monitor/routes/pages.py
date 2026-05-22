@@ -168,7 +168,14 @@ def grow_doc(doc_name):
 
 @pages_bp.route("/controls")
 def controls_page():
-    return render_template("controls.html")
+    # Phase 4: pass current_role so the topology template can stamp it
+    # on body.dataset for the client-side admin-only reveal gating
+    # (add-effector wizard, delete cog, re-arrange button). The server
+    # still enforces RBAC on every mutating /api/effectors endpoint.
+    return render_template(
+        "controls.html",
+        current_role=session.get("user_role", "viewer"),
+    )
 
 
 @pages_bp.route("/admin")
