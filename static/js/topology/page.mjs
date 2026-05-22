@@ -28,6 +28,7 @@ import {
 } from "./graph.mjs";
 import { renderTopbar } from "./components/topbar.mjs";
 import { openAddEffectorModal } from "./components/add-effector-modal.mjs";
+import { renderSidePanel } from "./components/side-panel.mjs";
 import { computeStats } from "./stats.mjs";
 // Card renderers — wired in Phase 6 Task 6.7. Until then renderGraph
 // produces empty .tp-node placeholder divs, which is what the Phase 5
@@ -186,7 +187,7 @@ export async function boot({ fetchFn = fetch } = {}) {
   const topbar = document.getElementById("tp-topbar-host");
   const graph = document.getElementById("tp-graph-host");
   const statusbar = document.getElementById("tp-statusbar-host");
-  // sidepanel intentionally left untouched — Phase 8 owns its content.
+  const sidepanelHost = document.getElementById("tp-sidepanel-host");
 
   // Paint the brand row immediately so a slow /api/topology doesn't
   // leave the topbar blank for ~1 second. Placeholder content; Phase 7
@@ -251,6 +252,40 @@ export async function boot({ fetchFn = fetch } = {}) {
       (snapshot.effectors || []).map((e) => [e.id, e]),
     ),
   };
+
+  // Side-panel selection (Phase 8 Task 8.1). Tracks which node the
+  // operator has clicked into; null means the panel is collapsed. The
+  // panel host is part of the page scaffold so a missing host is a
+  // template regression — log + skip so the rest of the page still
+  // boots.
+  let selectedNodeId = null;
+
+  function _findNodeById(id) {
+    return id == null ? null : store.nodes.find((n) => n.id === id) || null;
+  }
+
+  function mountSidePanel() {
+    if (!sidepanelHost) return;
+    const node = _findNodeById(selectedNodeId);
+    const panel = renderSidePanel({
+      node,
+      allNodes: store.nodes,
+      doc: document,
+      isAdmin: _isAdmin(document),
+      callbacks: {
+        onClose: () => {
+          selectedNodeId = null;
+          mountSidePanel();
+        },
+      },
+    });
+    sidepanelHost.replaceChildren(panel);
+  }
+
+  function _selectNode(nodeId) {
+    selectedNodeId = nodeId;
+    mountSidePanel();
+  }
 
   // ── Topbar mount (Phase 7 Task 7.3) ───────────────────────────────
   // The topbar replaces the placeholder brand row painted before the
@@ -389,9 +424,12 @@ export async function boot({ fetchFn = fetch } = {}) {
           // a full re-render covers correctness.
           mountGraph();
         },
-        onClick: (_id) => {
-          // Phase 8 owns the side-panel-on-click behaviour. Stubbed
-          // here so the click vs drag distinction still works.
+        onClick: (clickedId) => {
+          // Phase 8 Task 8.1 — clicking a node opens the side panel
+          // populated with that node's configuration. Click is
+          // distinguished from drag by the < 2px movement heuristic
+          // inside setupNodeDrag.
+          _selectNode(clickedId);
         },
       });
     }
@@ -399,6 +437,9 @@ export async function boot({ fetchFn = fetch } = {}) {
 
   mountGraph();
   mountTopbar();
+  // Initial side-panel paint — the hidden empty shell. The panel
+  // becomes visible once the operator clicks a node.
+  mountSidePanel();
 }
 
 
