@@ -204,10 +204,52 @@ class TestLogDataAsyncDispatch:
 # ---------------------------------------------------------------------------
 
 class TestControlFanAsyncDispatch:
-    """The POST /api/effector endpoint must wait for the plug before responding."""
+    """The POST /api/effector endpoint must wait for the plug before responding.
+
+    Phase 2 of the MLSS topology migration routed the legacy POST shim
+    through ``api_effectors_v2.apply_state`` rather than the legacy
+    in-memory registry. The dispatch still happens via
+    ``asyncio.run_coroutine_threadsafe`` against ``state.thread_loop``
+    — these tests just patch the v2 module's asyncio instead of the
+    legacy ``mlss_monitor.effectors.asyncio``.
+    """
+
+    def _seed_fan_row(self, db_path):
+        """Insert the smart_plugs row the shim resolves ``fan1`` to.
+
+        ``app_client`` doesn't run the production fan-seed migration
+        because no ``MLSS_FAN_KASA_SMART_PLUG_IP`` is set in the test
+        env. We seed the row here directly so the shim has something to
+        look up.
+        """
+        import sqlite3
+        from datetime import datetime
+        now = datetime.utcnow().isoformat()
+        conn = sqlite3.connect(db_path)
+        try:
+            # Idempotent: skip if a fan row already exists from another
+            # test in the same module run.
+            existing = conn.execute(
+                "SELECT id FROM smart_plugs WHERE effector_type='fan' "
+                "AND scope='hub'"
+            ).fetchone()
+            if existing:
+                return
+            conn.execute(
+                "INSERT INTO smart_plugs "
+                "(label, effector_type, scope, kasa_host, protocol, "
+                " is_enabled, auto_mode, current_state, created_at) "
+                "VALUES ('Room fan', 'fan', 'hub', '192.0.2.250', "
+                "        'kasa', 1, 1, 'unknown', ?)",
+                (now,),
+            )
+            conn.commit()
+        finally:
+            conn.close()
 
     def _mock_threadsafe(self, monkeypatch, return_value=None, raise_exc=None):
-        import mlss_monitor.effectors as eff_module
+        import mlss_monitor.routes.api_effectors_v2 as v2_module
+        import database.db_logger as dbl
         mock_future = _make_future(return_value=return_value, raise_exc=raise_exc)
         calls = []
 
@@ -215,7 +257,27 @@ class TestControlFanAsyncDispatch:
             calls.append({"coro": coro, "loop": loop})
             return mock_future
 
-        monkeypatch.setattr(eff_module.asyncio, "run_coroutine_threadsafe", fake)
+        monkeypatch.setattr(
+            v2_module.asyncio, "run_coroutine_threadsafe", fake,
+        )
+        # Redirect the module-level DB_FILE snapshots so the shim's
+        # row lookup + store writes hit the test DB.
+        monkeypatch.setattr(
+            "mlss_monitor.routes.api_effectors.DB_FILE", dbl.DB_FILE,
+        )
+        monkeypatch.setattr(
+            "mlss_monitor.routes.api_effectors_v2.DB_FILE", dbl.DB_FILE,
+        )
+        monkeypatch.setattr(
+            "mlss_monitor.effectors.store.DB_FILE", dbl.DB_FILE,
+        )
+        # state.smart_plugs is the runtime registry the shim uses to
+        # look up the live plug handle.
+        monkeypatch.setattr(
+            app_state, "smart_plugs", {1: app_state.fan_smart_plug},
+            raising=False,
+        )
+        self._seed_fan_row(dbl.DB_FILE)
         return calls, mock_future
 
     def _post_fan(self, client, state):

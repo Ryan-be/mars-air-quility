@@ -198,18 +198,65 @@ class TestFanModeSync:
 
     def test_manual_button_disables_in_db(self, app_client):
         import asyncio
+        import sqlite3
+        from datetime import datetime
+        import database.db_logger as dbl
+        from mlss_monitor import state as app_state
 
         client, _ = app_client
         # First enable auto
         client.post("/api/fan/mode", json={"mode": "auto"})
+
+        # The Phase-2 topology migration routed POST /api/effector
+        # through the v2 ``apply_state`` helper, which resolves
+        # ``fan1`` to the seeded ``smart_plugs`` row. ``app_client``
+        # doesn't run the production fan-seed migration (no
+        # MLSS_FAN_KASA_SMART_PLUG_IP in test env) so seed the row
+        # explicitly here.
+        now = datetime.utcnow().isoformat()
+        conn = sqlite3.connect(dbl.DB_FILE)
+        conn.execute(
+            "INSERT INTO smart_plugs "
+            "(label, effector_type, scope, kasa_host, protocol, "
+            " is_enabled, auto_mode, current_state, created_at) "
+            "VALUES ('Room fan', 'fan', 'hub', '192.0.2.240', 'kasa', "
+            "        1, 1, 'unknown', ?)",
+            (now,),
+        )
+        conn.commit()
+        plug_id_row = conn.execute(
+            "SELECT id FROM smart_plugs WHERE effector_type='fan' "
+            "AND scope='hub' ORDER BY id LIMIT 1"
+        ).fetchone()
+        conn.close()
+        plug_id = plug_id_row[0]
+
         # Then switch to manual + flip the effector
         mock_future = MagicMock()
         mock_future.result.return_value = None
 
         with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(asyncio, "run_coroutine_threadsafe", lambda coro, loop: mock_future)
+            mp.setattr(
+                asyncio, "run_coroutine_threadsafe",
+                lambda coro, loop: mock_future,
+            )
+            # Same module-level DB_FILE snapshots as the v2 fixture.
+            mp.setattr(
+                "mlss_monitor.routes.api_effectors.DB_FILE", dbl.DB_FILE,
+            )
+            mp.setattr(
+                "mlss_monitor.routes.api_effectors_v2.DB_FILE", dbl.DB_FILE,
+            )
+            mp.setattr(
+                "mlss_monitor.effectors.store.DB_FILE", dbl.DB_FILE,
+            )
+            mp.setattr(
+                app_state, "smart_plugs",
+                {plug_id: app_state.fan_smart_plug}, raising=False,
+            )
             mode_res = client.post("/api/fan/mode", json={"mode": "manual"})
-            res = client.post("/api/effector", json={"key": "fan1", "state": "on"})
+            res = client.post("/api/effector",
+                              json={"key": "fan1", "state": "on"})
         assert mode_res.status_code == 200
         assert res.status_code == 200
         settings_res = client.get("/api/fan/settings")

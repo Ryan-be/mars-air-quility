@@ -154,30 +154,75 @@ class TestApiInferencesPatch:
 # ── /api/effector(s) ────────────────────────────────────────────────────────
 
 @pytest.fixture()
-def effector_mock(monkeypatch):
-    """Replace the asyncio dispatch + plug handle used by the effectors
-    module so no real I/O happens during tests."""
-    import mlss_monitor.effectors as eff_module
+def effector_mock(monkeypatch, db):  # pylint: disable=unused-argument
+    """Replace the asyncio dispatch + plug handle used by the effector
+    state shim so no real I/O happens during tests, and seed a row in
+    ``smart_plugs`` so the legacy ``POST /api/effector`` shim has a
+    fan to look up via ``smart_plugs.effector_type='fan' AND scope='hub'``.
+
+    The MLSS topology Phase 2 migration moved the canonical effector
+    surface to ``api_effectors_v2``. The legacy single-fan registry no
+    longer drives state changes; instead the shim resolves ``fan1`` to
+    the seeded row and calls ``apply_state``. The fixture has to seed
+    that row explicitly because the production seed key
+    (``MLSS_FAN_KASA_SMART_PLUG_IP``) is not set in test envs.
+    """
+    import sqlite3
+    from datetime import datetime
+    import mlss_monitor.routes.api_effectors_v2 as v2_module
     from mlss_monitor import state as app_state
+    import database.db_logger as dbl
 
     mock_future = MagicMock()
-    mock_future.result.return_value = {"state": True, "power_w": 12.3}
+    mock_future.result.return_value = None
 
     def _threadsafe(coro, loop):
         return mock_future
 
-    monkeypatch.setattr(eff_module.asyncio, "run_coroutine_threadsafe", _threadsafe)
+    monkeypatch.setattr(
+        v2_module.asyncio, "run_coroutine_threadsafe", _threadsafe,
+    )
+
+    # The effector modules snapshot DB_FILE at import time, so the
+    # ``db`` fixture's update to ``database.init_db.DB_FILE`` doesn't
+    # propagate. Patch each module-level copy explicitly.
+    monkeypatch.setattr(
+        "mlss_monitor.routes.api_effectors.DB_FILE", dbl.DB_FILE,
+    )
+    monkeypatch.setattr(
+        "mlss_monitor.routes.api_effectors_v2.DB_FILE", dbl.DB_FILE,
+    )
+    monkeypatch.setattr(
+        "mlss_monitor.effectors.store.DB_FILE", dbl.DB_FILE,
+    )
 
     mock_plug = MagicMock()
     mock_plug.switch = MagicMock()
-    mock_plug.get_state = MagicMock()
-    mock_plug.get_power = MagicMock()
     monkeypatch.setattr(app_state, "fan_smart_plug", mock_plug)
+    # state.smart_plugs is the runtime registry keyed by row id.
+    monkeypatch.setattr(
+        app_state, "smart_plugs", {1: mock_plug}, raising=False,
+    )
+
+    # Seed the fan row that the legacy shim looks up.
+    now = datetime.utcnow().isoformat()
+    conn = sqlite3.connect(dbl.DB_FILE)
+    conn.execute(
+        "INSERT INTO smart_plugs "
+        "(label, effector_type, scope, kasa_host, protocol, "
+        " is_enabled, auto_mode, current_state, created_at) "
+        "VALUES ('Room fan', 'fan', 'hub', '192.0.2.200', 'kasa', "
+        "        1, 1, 'unknown', ?)",
+        (now,),
+    )
+    conn.commit()
+    conn.close()
+
     return mock_future, mock_plug
 
 
 class TestApiEffectorPost:
-    def test_fan_on(self, app_client, db, effector_mock):
+    def test_fan_on(self, app_client, effector_mock):
         client, _ = app_client
         res = client.post("/api/effector",
                           json={"key": "fan1", "state": "on"})
@@ -185,42 +230,53 @@ class TestApiEffectorPost:
         body = res.get_json()
         assert body["key"] == "fan1"
         assert body["state"] == "on"
+        # Phase 2 added a deprecation marker — assert it surfaces.
+        assert res.headers.get("Deprecation") == "true"
 
-    def test_fan_off(self, app_client, db, effector_mock):
+    def test_fan_off(self, app_client, effector_mock):
         client, _ = app_client
         res = client.post("/api/effector",
                           json={"key": "fan1", "state": "off"})
         assert res.status_code == 200
 
-    def test_unknown_key_returns_404(self, app_client, db, effector_mock):
+    def test_unknown_key_returns_404(self, app_client, effector_mock):
         client, _ = app_client
         res = client.post("/api/effector",
                           json={"key": "mystery", "state": "on"})
         assert res.status_code == 404
 
-    def test_invalid_state_returns_400(self, app_client, db, effector_mock):
+    def test_invalid_state_returns_400(self, app_client, effector_mock):
         client, _ = app_client
         res = client.post("/api/effector",
                           json={"key": "fan1", "state": "sideways"})
         assert res.status_code == 400
 
-    def test_missing_key_returns_400(self, app_client, db, effector_mock):
+    def test_missing_key_returns_400(self, app_client, effector_mock):
         client, _ = app_client
         res = client.post("/api/effector", json={"state": "on"})
         assert res.status_code == 400
 
 
 class TestApiEffectorsGet:
-    def test_returns_list_with_fan1(self, app_client, db, effector_mock):
+    def test_returns_v2_shape_with_seeded_fan(self, app_client, effector_mock):
+        """Phase 2 migration: GET /api/effectors now returns the v2
+        ``{"effectors": [...]}`` shape served by the v2 blueprint.
+
+        The seeded row carries DB columns (id, label, effector_type,
+        scope, kasa_host, ...) rather than the registry's
+        (key, type, state, power_w). Frontends migrate alongside the
+        backend; external consumers calling this endpoint will see the
+        new shape.
+        """
         client, _ = app_client
         res = client.get("/api/effectors")
         assert res.status_code == 200
-        data = res.get_json()
-        assert isinstance(data, list)
-        keys = [e["key"] for e in data]
-        assert "fan1" in keys
-        fan = next(e for e in data if e["key"] == "fan1")
-        assert fan["type"] == "smart_plug"
+        body = res.get_json()
+        assert isinstance(body, dict)
+        assert "effectors" in body
+        fans = [e for e in body["effectors"] if e["effector_type"] == "fan"]
+        assert len(fans) >= 1
+        assert fans[0]["scope"] == "hub"
 
 
 # ── Removed endpoint shapes must 404/405 ────────────────────────────────────
