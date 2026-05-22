@@ -335,3 +335,73 @@ class TestACController:
         from mlss_monitor.effectors.ac import AC
         from mlss_monitor.effectors.base import Scope
         assert AC.compatible_scopes() == {Scope.HUB}
+
+
+# ── Task 3.3c: Humidifier / Dehumidifier ──────────────────────────────────
+
+
+class TestHumidifierController:
+    """Humidifier — ON when humidity < target."""
+
+    def test_on_when_humidity_below_target(self):
+        from mlss_monitor.effectors.humidity import Humidifier
+        ctrl = Humidifier()
+        assert ctrl.should_be_on(
+            {"humidity": 40.0}, {"target": 60.0},
+        ) is True
+
+    def test_off_when_humidity_above_target(self):
+        from mlss_monitor.effectors.humidity import Humidifier
+        ctrl = Humidifier()
+        assert ctrl.should_be_on(
+            {"humidity": 70.0}, {"target": 60.0},
+        ) is False
+
+    def test_off_at_exact_target(self):
+        from mlss_monitor.effectors.humidity import Humidifier
+        ctrl = Humidifier()
+        assert ctrl.should_be_on(
+            {"humidity": 60.0}, {"target": 60.0},
+        ) is False
+
+    def test_off_when_humidity_missing(self):
+        from mlss_monitor.effectors.humidity import Humidifier
+        ctrl = Humidifier()
+        assert ctrl.should_be_on({}, {"target": 60.0}) is False
+
+    def test_compatible_scopes_includes_hub_and_grow(self):
+        from mlss_monitor.effectors.humidity import Humidifier
+        from mlss_monitor.effectors.base import Scope
+        scopes = Humidifier.compatible_scopes()
+        assert Scope.HUB in scopes
+        assert Scope.GROW_UNIT in scopes
+
+
+class TestDehumidifierController:
+    """Dehumidifier — ON when humidity > target."""
+
+    def test_on_when_humidity_above_target(self):
+        from mlss_monitor.effectors.humidity import Dehumidifier
+        ctrl = Dehumidifier()
+        assert ctrl.should_be_on(
+            {"humidity": 80.0}, {"target": 60.0},
+        ) is True
+
+    def test_off_when_humidity_below_target(self):
+        from mlss_monitor.effectors.humidity import Dehumidifier
+        ctrl = Dehumidifier()
+        assert ctrl.should_be_on(
+            {"humidity": 50.0}, {"target": 60.0},
+        ) is False
+
+    def test_off_at_exact_target(self):
+        from mlss_monitor.effectors.humidity import Dehumidifier
+        ctrl = Dehumidifier()
+        assert ctrl.should_be_on(
+            {"humidity": 60.0}, {"target": 60.0},
+        ) is False
+
+    def test_compatible_scopes_is_hub_only(self):
+        from mlss_monitor.effectors.humidity import Dehumidifier
+        from mlss_monitor.effectors.base import Scope
+        assert Dehumidifier.compatible_scopes() == {Scope.HUB}
