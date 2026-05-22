@@ -212,6 +212,17 @@ def _zeroconf_resolve(mdns_name: str, timeout_s: float) -> list[str]:
     Pure Python, no Avahi daemon required.
 
     Returns a possibly-empty list. Never raises (errors yield empty).
+
+    Run in a worker thread to dodge zeroconf 0.131+'s async-context
+    guard: when called directly from inside a running asyncio loop
+    (which the WS reconnect path is), ``get_service_info`` raises
+    "Use AsyncServiceInfo.async_request from the event loop" and we
+    silently lose the entire pure-Python fallback. Caught on a live
+    grow unit where mDNS was broken: libnss path failed (Avahi down),
+    zeroconf path *also* failed because we were sitting in asyncio,
+    so the resolver yielded zero candidates from Step 3. Thread
+    isolation sidesteps the check without forcing the resolver — or
+    every test that imports it — to become async.
     """
     try:
         from zeroconf import Zeroconf
@@ -219,18 +230,34 @@ def _zeroconf_resolve(mdns_name: str, timeout_s: float) -> list[str]:
         log.debug("zeroconf not installed; mDNS browse path unavailable")
         return []
 
-    zc = Zeroconf()
-    try:
-        info = zc.get_service_info(
-            "_workstation._tcp.local.",
-            mdns_name if mdns_name.endswith(".local.") else mdns_name + ".",
-            timeout=int(timeout_s * 1000),  # zeroconf takes ms
-        )
-        if info is None or not info.addresses:
+    import concurrent.futures
+
+    def _blocking_resolve() -> list[str]:
+        zc = Zeroconf()
+        try:
+            info = zc.get_service_info(
+                "_workstation._tcp.local.",
+                mdns_name if mdns_name.endswith(".local.") else mdns_name + ".",
+                timeout=int(timeout_s * 1000),  # zeroconf takes ms
+            )
+            if info is None or not info.addresses:
+                return []
+            return [socket.inet_ntoa(addr) for addr in info.addresses if len(addr) == 4]
+        finally:
+            zc.close()
+
+    # +2s headroom over the inner zeroconf timeout so the future wait
+    # isn't the first to fire — we want zeroconf's own bounded wait to
+    # be the timeout authority, not this outer guard.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        try:
+            return pool.submit(_blocking_resolve).result(timeout=timeout_s + 2.0)
+        except concurrent.futures.TimeoutError:
+            log.debug("zeroconf resolve timed out for %s", mdns_name)
             return []
-        return [socket.inet_ntoa(addr) for addr in info.addresses if len(addr) == 4]
-    finally:
-        zc.close()
+        except Exception as exc:                  # pylint: disable=broad-except
+            log.debug("zeroconf resolve failed: %s", exc)
+            return []
 
 
 def make_mdns_step(

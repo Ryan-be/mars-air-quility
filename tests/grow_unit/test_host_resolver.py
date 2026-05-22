@@ -308,6 +308,31 @@ def test_mdns_step_passes_timeout_to_zeroconf_resolver():
     assert captured["timeout"] == 1.5
 
 
+def test_zeroconf_resolve_safe_inside_running_asyncio_loop():
+    """Regression: zeroconf 0.131+'s sync API raises 'Use AsyncServiceInfo'
+    when called from inside a running asyncio loop. The WS reconnect path
+    IS inside an asyncio loop, so a naive sync call there silently kills
+    the zeroconf fallback (caught on a live grow unit where Avahi was
+    down — both sub-paths of the mDNS step yielded nothing). The fix
+    runs the sync call in a worker thread; this test asserts the symptom
+    is gone by calling _zeroconf_resolve from inside asyncio.run().
+
+    Uses a bogus name so the resolve fails fast (returns []) instead of
+    waiting the full timeout — what matters here is "no raise", not the
+    return value.
+    """
+    import asyncio
+
+    from mlss_grow.host_resolver import _zeroconf_resolve
+
+    async def _from_loop():
+        return _zeroconf_resolve("nonexistent-host-for-test.local", timeout_s=0.5)
+
+    # Must not raise. Returns [] because the name doesn't resolve.
+    result = asyncio.run(_from_loop())
+    assert result == []
+
+
 from mlss_grow.host_resolver import hub_candidates, DEFAULT_STEPS
 
 
