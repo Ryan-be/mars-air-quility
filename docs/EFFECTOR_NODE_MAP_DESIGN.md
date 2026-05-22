@@ -106,7 +106,9 @@ where effector management lives.
 
 ## Status
 
-**Backlog item — not yet implemented.** Tracked in
-[Bugs_Improvements_and_Roadmap.md](Bugs_Improvements_and_Roadmap.md#-feature-configurable-smart-plug-effectors-hub-scoped-or-grow-unit-scoped).
-The design above is the agreed visual target whenever the feature is
-picked up.
+**Shipped on 2026-05-22.** Implemented on branch
+[`feature/mlss-topology`](https://github.com/Ryan-be/mars-air-quility/tree/feature/mlss-topology)
+across 12 phases per the plan at
+[`superpowers/plans/2026-05-22-mlss-topology.md`](superpowers/plans/2026-05-22-mlss-topology.md).
+The shipped capabilities are summarised in the
+[Shipped section of the roadmap](Bugs_Improvements_and_Roadmap.md#-shipped-mlss-topology--panzoom-node-map-at-controls-2026-05-22).

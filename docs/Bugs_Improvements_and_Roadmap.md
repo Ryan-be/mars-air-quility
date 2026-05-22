@@ -286,277 +286,6 @@ All three share the existing I2C bus on the grow unit (Seesaw soil sensor at 0x3
 
 ---
 
-## 🔌 Feature: Configurable smart-plug effectors (hub-scoped or grow-unit-scoped)
-
-### Problem
-
-Today the hub assumes **exactly one** smart plug, hardcoded as a fan
-via `MLSS_FAN_KASA_SMART_PLUG_IP` in `.env`. Adding a second device —
-say a heater for cold mornings (hub-scoped) or a heat pad for a
-specific chilli plant (grow-unit-scoped) — requires editing config +
-extending `fan_controller.py` to know about the new role. No operator
-UI; no per-device rules; no way to wire a plug to a specific plant's
-sensor.
-
-### Goal
-
-Let an admin add, configure, **reconfigure**, and remove **N smart
-plugs** from the operator UI, each declaring its **effector type**
-AND its **scope**:
-
-- **Hub-scoped** plugs respond to the hub's whole-room sensors
-  (TVOC, eCO₂, PM, temp, humidity). e.g. AC, dehumidifier, fan,
-  whole-room heater.
-- **Grow-unit-scoped** plugs respond to a specific plant's per-unit
-  sensors (soil moisture, soil temp, air-T+RH when present). e.g.
-  heat pad under one plant, top-up grow light for a single shelf,
-  per-pot humidifier.
-
-The plug itself is always on the LAN and brokered by the hub. Only
-the **rule evaluation source** differs.
-
-### Scope examples
-
-| Effector | Typical scope | Why |
-| --- | --- | --- |
-| **Fan** | **Hub** | **Room ventilation — the current default** |
-| AC unit | Hub | Cools the whole room |
-| Whole-room heater | Hub | Heats the whole room |
-| Carbon-filter fan | Hub | Air-quality for the room (longer min-on for the carbon media) |
-| Dehumidifier | Hub | Room humidity |
-| Heat pad | Grow unit | One plant's soil/root warmth |
-| Top-up grow light | Grow unit | One plant's PAR budget |
-| Per-pot mini humidifier | Grow unit | One plant's microclimate |
-| Reservoir refill pump (future) | Grow unit | One unit's water supply |
-
-### Effector types (ENUM)
-
-| Type | Trigger signal(s) | Compatible scopes |
-| --- | --- | --- |
-| `fan` | TVOC · eCO₂ · PM₂.₅ · humidity · temp high | Hub |
-| `fan_carbon_filter` | Same as `fan` + longer min-on time | Hub |
-| `ac` | Temp high + humidity | Hub |
-| `whole_room_heater` | Temp low | Hub |
-| `humidifier` | Humidity low | Hub OR grow unit (per-pot variant) |
-| `dehumidifier` | Humidity high · mould risk | Hub |
-| `light_supplementary` | Schedule + (optional) lux threshold | Hub OR grow unit |
-| `heat_pad` | Soil-temp low OR air-temp low (per-unit) | Grow unit |
-| `generic` | Manual / scripted only | Either |
-
-### Entry points (two add-paths, one wizard)
-
-Admins can add a plug from two places. Both open the **same wizard**;
-only the default value of the scope picker differs:
-
-| Where the admin clicks | Default scope | Editable in wizard? |
-| --- | --- | --- |
-| `+ Add effector` button on `/controls` (admin-only) | **Hub** | Yes — admin can switch to any grow unit during setup |
-| `+ Add effector` button inside Grow Unit settings (admin-only) | **This grow unit** | Yes — admin can switch to Hub or a different grow unit during setup |
-
-Rationale: the admin's *intent* is usually obvious from where they
-clicked. Whoever's looking at the controls page is thinking about
-whole-room stuff; whoever's in a grow unit's settings is thinking
-about that plant. The default reflects that, but the wizard never
-locks them in.
-
-### Reconfigurable scope (post-creation)
-
-A plug's scope is **not fixed at creation time**. Every effector card
-shows a **settings cog (⚙)** to admins; clicking it opens the slide-out
-side panel (see design doc) pre-filled with the current values. Admins
-can:
-
-- Change the effector type (with re-validation of compatibility:
-  e.g. you can't reassign a Hub-only `ac` plug to a grow unit
-  scope — the picker greys those out).
-- Move the plug between Hub ↔ any grow unit, or between grow units.
-- Edit the per-type rule blob.
-- Rename / re-IP / disable / delete.
-
-Scope changes are reflected immediately in the live decision loop —
-the next evaluation tick reads from the new sensor source.
-
-### Visual + interaction design
-
-A hi-fi React-on-Babel design handoff is in the tree:
-[`docs/EFFECTOR_NODE_MAP_DESIGN.md`](EFFECTOR_NODE_MAP_DESIGN.md)
-(wrapper) → [`docs/assets/effector-map-handoff/`](assets/effector-map-handoff/)
-(live prototype — open `index.html` in a browser).
-
-Summary of what the design specifies:
-
-- **Pan/zoom-able node-map canvas** replaces today's single-fan
-  `/controls` page. Hub at the centre with live sparklines (temp /
-  RH / CO₂); N grow units with per-plant readings + phase tag; N
-  effectors connected to either hub (blue edges) or specific grow
-  units (green edges).
-- **Per-effector Auto/ON/OFF segmented control on the card itself** —
-  most common operation needs no modal.
-- **Sticky telemetry topbar** with mission-clock, hub status, totals
-  (grow units / effectors / active / auto vs forced split).
-- **Slide-out side panel** for full configuration (type, scope,
-  rules, manual override, re-parenting) — opens on node click.
-- **Edges** colour-coded by parent type, weighted by live state
-  (solid on, dashed off).
-- **Re-arrange** + **Recenter** buttons in the topbar; node positions
-  persist across sessions.
-- **AstroUX design system** (matches the rest of MLSS). Use the
-  official `@astrouxds/astro-web-components` library; the bundle's
-  CSS is a reference-only hand-rolled approximation.
-- **Tweaks panel** in the bottom-right of the prototype is a
-  design-time tool only — omit from production.
-
-### Data model sketch
-
-```sql
-CREATE TABLE smart_plugs (
-    id               INTEGER PRIMARY KEY AUTOINCREMENT,
-    label            TEXT NOT NULL,         -- "Living room AC", "Habanero heat pad"
-    ip_address       TEXT NOT NULL UNIQUE,  -- LAN IP of the Kasa plug
-    protocol         TEXT NOT NULL DEFAULT 'kasa',  -- future: 'shelly', 'tuya', 'matter'
-    effector_type    TEXT NOT NULL CHECK(effector_type IN (
-                         'fan', 'fan_carbon_filter', 'ac',
-                         'whole_room_heater', 'humidifier', 'dehumidifier',
-                         'light_supplementary', 'heat_pad', 'generic'
-                     )),
-    scope            TEXT NOT NULL CHECK(scope IN ('hub', 'grow_unit')),
-    grow_unit_id     INTEGER REFERENCES grow_units(id) ON DELETE SET NULL,
-    is_enabled       INTEGER NOT NULL DEFAULT 1,
-    rules_json       TEXT,                  -- per-type rule blob (thresholds, schedules)
-    layout_json      TEXT,                  -- node-map persisted position (x,y)
-    last_state       TEXT,                  -- 'on' / 'off' / 'unknown' / 'unreachable'
-    last_state_at    DATETIME,
-    created_at       DATETIME NOT NULL,
-    CHECK ((scope = 'hub'       AND grow_unit_id IS NULL) OR
-           (scope = 'grow_unit' AND grow_unit_id IS NOT NULL))
-);
-CREATE INDEX idx_smart_plugs_grow_unit ON smart_plugs(grow_unit_id);
-```
-
-The existing `fan_settings` table content seeds one row in
-`smart_plugs` at first migration (scope=`hub`, type=`fan`, rules from
-the existing fan-controller config). The live single-fan flow keeps
-working unchanged through the migration.
-
-### Rule evaluation — where it runs (v1)
-
-| Option | Where rules evaluate | Pros | Cons |
-| --- | --- | --- | --- |
-| **A — Hub-mediated** (recommended for v1) | All plug decisions happen on the hub. Grow-unit-scoped rules use telemetry that the grow unit already streams via WSS. Hub commands the Kasa plug. | Simple. One control surface. No new firmware deps on Pi Zero W. Matches existing single-fan flow. | Per-unit effectors stop responding during a hub outage. |
-| **B — Edge-local** | Grow unit firmware talks Kasa directly to its associated plug. Hub only configures the rules. | Survives hub outages. Matches the existing "plants survive an MLSS outage" design principle. | Adds python-kasa to Pi Zero W firmware (~10 MB). New per-unit credentials/discovery. Two control paths to keep coherent. |
-
-**Lean A for v1.** Per-unit effectors here are *comfort* (heat pad,
-top-up light) not *safety* (pump, primary grow light — those already
-live on the grow unit's Automation pHAT and are driven by the local
-safety loop). Losing comfort during a brief hub outage is acceptable.
-Move to B later if real-world usage shows hub outages cause plant
-stress.
-
-### Code touchpoints
-
-- **`mlss_monitor/effectors/`** new package — one module per type
-  (the existing top-level `effectors.py` becomes this package's
-  `__init__.py` with the registry). Each module implements a small
-  `EffectorController` ABC:
-  ```python
-  class EffectorController(ABC):
-      def should_be_on(reading: SensorReading, rules: dict) -> bool
-      def label() -> str
-      def rules_schema() -> type[BaseModel]
-      def compatible_scopes() -> set[Scope]  # {Scope.HUB, Scope.GROW_UNIT}
-  ```
-- **`fan_controller.py`** becomes the `fan.py` implementation of the
-  ABC. The current `state.fan_smart_plug` becomes a dict
-  `state.smart_plugs[plug_id] -> KasaSmartPlug`, populated from the
-  new table at startup.
-- **`mlss_monitor/effector_evaluator.py`** — new module: the periodic
-  loop that asks each enabled plug "should you be on?" — sources the
-  reading from `state.hot_tier` (hub) or `state.grow_telemetry` (per
-  grow_unit_id) and applies the type-specific controller.
-- **`mlss_monitor/routes/api_effectors.py`** — new blueprint:
-  - `GET/POST /api/admin/effectors`
-  - `PUT/DELETE /api/admin/effectors/<id>`
-  - `POST /api/admin/effectors/<id>/test` — flick the plug for 2s
-  - `POST /api/admin/effectors/<id>/toggle` — manual override
-  - `GET /api/effectors/state` — live state + node-map layout
-- **`database/init_db.py`** — new `smart_plugs` table + idempotent
-  seed of one row from existing fan config so the migration is
-  invisible to current single-fan users.
-- **`templates/controls.html`** — replaced entirely by the node-map
-  view from the design doc (admin-only `+ Add effector` action lives
-  in the topbar).
-- **`templates/grow_unit_detail.html`** — admin-only `+ Add effector`
-  button in the settings panel + a small "Effectors for this unit"
-  list scoped to this `grow_unit_id`.
-- **`static/js/effectors/`** — full node-map implementation per the
-  design doc (graph, side panel, topbar, per-type rule editors).
-  Reuse `@astrouxds/astro-web-components` rather than the
-  hand-rolled CSS in the handoff bundle.
-- **`mlss_monitor/event_bus`** — `effector_state_changed` event so
-  the node-map updates in real time over SSE.
-- **Backup outbox** — `smart_plugs` becomes a replicated table so
-  rotations / re-installs preserve effector config + node-map layout.
-
-### Notification integration
-
-The `notify_system_health` category in MLSS Mobile already covers
-"sensor offline". Extend it to fire `effector_unreachable` when a
-configured plug stops responding, with the deep_link routing to
-the `/controls` node-map (or `/grow/<id>` for grow-unit-scoped plugs).
-
-### Auth
-
-- All CRUD: `admin` role (every settings cog visible only to admins).
-- Manual toggle (`/toggle` endpoint): `controller` + `admin`. Matches
-  the existing fan-override pattern.
-- Read-only state + map view: any logged-in role.
-
-### Considerations
-
-- **Conflict avoidance:** two `whole_room_heater` plugs with
-  overlapping temp floors → both come on. AC + heater fighting →
-  operator's problem; we'll log a warning when both want to be on
-  simultaneously but won't override. Single-household trust.
-- **Compressor protection:** AC / heat-pump effectors enforce a
-  minimum-off time (default 5 min) to prevent rapid cycling
-  damaging the compressor. Configurable per plug.
-- **Min-on time for carbon filters:** the `fan_carbon_filter` type
-  enforces a longer min-on (default 5 min) so activated-carbon
-  media has time to actually scrub VOCs out of the airflow.
-- **Vendor lock-in:** Kasa-only for v1. The `protocol` column leaves
-  the door open. A Shelly / Tuya / Matter adapter slots in as a new
-  protocol module without UI changes.
-- **YAGNI line:** no per-plug ML, no cross-plug scenes (e.g. "AC on
-  ⇒ disable humidifier"), no calendar-based override schedules
-  beyond the light type. Simple if-this-then-that rules per plug.
-
-### Effort
-
-~5-6 days. Schema migration + 9 controller classes + node-map UI
-(per the handoff design) with two entry points + per-type rule
-editors + side panel + display-only integration in grow-unit detail
-page + tests. The node-map (pan/zoom canvas, SVG edges, drag-to-position
-with persistence, SSE live colouring) is the biggest single chunk;
-the controller registry is mostly a polymorphism refactor of the
-existing fan code.
-
-### Why this matters
-
-- Unlocks the system for non-fan use cases (chilli plant wants a
-  heat pad on cold nights; future hydroponic shelves want
-  supplementary light per row; a room with poor passive ventilation
-  wants AC + dehumidifier).
-- Removes the hardcoding tax on adding any new effector role.
-- Establishes the **per-unit effector** category as a first-class
-  concept — opens the door to deeper grow-unit automation
-  (reservoir pumps, nutrient dosers) without further schema
-  thrashing.
-- The node-map makes the topology legible at a glance — the
-  operator sees the whole environmental-control loop in one view
-  rather than tab-hopping.
-
----
-
 ## ✅ Shipped: Fleet-view "trust anchor" badge — not yet
 
 > Carry-over from the `feature/mdns-resilient-host` branch — flagged here
@@ -588,6 +317,49 @@ comparison, one new test per side.
 
 The blocks below document features that have landed in `main`, kept
 as a historical record of what each feature actually delivered.
+
+---
+
+## ✅ Shipped: MLSS Topology — pan/zoom node-map at /controls (2026-05-22)
+
+**Branch:** `feature/mlss-topology` (PR pending).
+
+Replaced the hardcoded single-fan `/controls` page with a generalised
+smart-plug effector model and a pan/zoom topology view. Admins can
+add, configure, reconfigure, and remove **N** smart plugs from the
+operator UI without ever editing config or code.
+
+**What landed:**
+- **11 effector types** (`fan`, `fan_carbon_filter`, `circulation_fan`,
+  `ac`, `whole_room_heater`, `humidifier`, `dehumidifier`,
+  `light_supplementary`, `heat_pad`, `generic`, `co2_injector`) with
+  per-type rule controllers behind a shared `EffectorController` ABC
+  in `mlss_monitor/effectors/`.
+- **Hub-scoped or grow-unit-scoped** plugs, **reconfigurable** post-
+  creation via the slide-out side panel (re-parent picker, type
+  re-validation, per-type rule editor, manual override).
+- **Two add-effector entry points** wired to one wizard — the
+  `+ Add effector` button on the `/controls` topbar and the equivalent
+  button inside each grow unit's Configure tab.
+- **Live SSE updates** (`effector_state_changed`) with rolling
+  sparklines, debounced server-persisted node positions
+  (`PATCH /api/effectors/layout`), Re-arrange + Recenter buttons.
+- **Backwards compatibility:** legacy `state.fan_smart_plug` handle,
+  `POST /api/effector`, and the entire `/api/fan/*` surface keep
+  working (the latter now tag every response with RFC 8594
+  `Deprecation: true` + a `Link` header pointing at the v2 API).
+
+**Code touchpoints:** new `database/effectors_schema.py` +
+`mlss_monitor/effectors/` package + `routes/api_effectors_v2.py` +
+`routes/api_topology.py` + `static/js/topology/` + `static/css/topology.css`.
+Legacy `mlss_monitor/fan_controller.py` was inlined into the effectors
+package and deleted; legacy `static/js/{controls,fan}.js` and
+`static/css/controls.css` were deleted.
+
+**Design references:** [`docs/EFFECTOR_NODE_MAP_DESIGN.md`](EFFECTOR_NODE_MAP_DESIGN.md)
+(wrapper) → [`docs/assets/effector-map-handoff/`](assets/effector-map-handoff/)
+(live prototype). Implementation plan:
+[`docs/superpowers/plans/2026-05-22-mlss-topology.md`](superpowers/plans/2026-05-22-mlss-topology.md).
 
 ---
 
