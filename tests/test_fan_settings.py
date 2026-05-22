@@ -2,6 +2,8 @@
 import sqlite3
 from unittest.mock import MagicMock
 
+import pytest
+
 import database.db_logger as dbl
 from database.db_logger import get_fan_settings, update_fan_settings
 from conftest import fake_sensors
@@ -88,8 +90,23 @@ class TestFanSettingsAPI:
 
 # ---------------------------------------------------------------------------
 # Auto fan trigger logic
+#
+# Phase 3 of the MLSS topology feature
+# (docs/superpowers/plans/2026-05-22-mlss-topology.md) moved the inline
+# fan switch out of log_data() into the per-type evaluator daemon
+# (mlss_monitor.effectors.evaluator). log_data() still runs the rule
+# evaluation so the legacy /api/fan/auto-status endpoint keeps
+# returning evidence, but no longer dispatches a switch() coroutine.
+# The asserts below count switch() dispatches, so the whole class is
+# skipped — equivalent coverage now lives in
+# tests/test_effector_evaluator.py::TestEvaluateOnceHubFan.
 # ---------------------------------------------------------------------------
 
+# inline fan loop removed; covered by evaluator tests now
+@pytest.mark.skip(
+    reason="inline fan loop removed; covered by "
+           "tests/test_effector_evaluator.py::TestEvaluateOnceHubFan",
+)
 class TestLogDataAutoFan:
     def _run_log_data(self, monkeypatch, temp, tvoc):
         import mlss_monitor.app as app_module

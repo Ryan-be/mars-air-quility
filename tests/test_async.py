@@ -84,6 +84,12 @@ class TestThreadLoop:
 # 2 & 3. log_data() dispatch behaviour
 # ---------------------------------------------------------------------------
 
+# inline fan loop removed; covered by evaluator tests now
+@pytest.mark.skip(
+    reason="inline fan loop removed in Phase 3 of the MLSS topology "
+           "feature; switch dispatch covered by "
+           "tests/test_effector_evaluator.py::TestEvaluateOnceHubFan",
+)
 class TestLogDataAsyncDispatch:
     """log_data() must use run_coroutine_threadsafe, target thread_loop,
     and must NOT block the logging thread by calling .result()."""

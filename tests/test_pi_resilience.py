@@ -114,6 +114,14 @@ class TestSensorFailures:
 # Fan must not false-trigger when sensor reads return 0
 # ---------------------------------------------------------------------------
 
+# inline fan loop removed; covered by evaluator tests now
+@pytest.mark.skip(
+    reason="inline fan loop removed in Phase 3 of the MLSS topology "
+           "feature; zero-value behaviour now exercised by "
+           "tests/test_effector_evaluator.py::TestEvaluateOnceHubFan and "
+           "the rule-level zero handling in "
+           "tests/test_fan_controller.py::TestTemperatureRule.",
+)
 class TestFanZeroValueEdgeCase:
     def test_fan_turns_off_when_sensors_return_zero(self, db, monkeypatch):
         """

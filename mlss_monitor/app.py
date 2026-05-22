@@ -607,6 +607,16 @@ def log_data():
     # Read fan_mode via the snapshot helper so this site stays consistent
     # with the H3 locking protocol; composite-write+read now both go through
     # the same lock, which keeps the audit honest.
+    #
+    # Phase 3 of the MLSS topology feature (see
+    # docs/superpowers/plans/2026-05-22-mlss-topology.md) moved the
+    # actual smart-plug switch + fan_status SSE publish into the
+    # per-type evaluator daemon
+    # (mlss_monitor.effectors.evaluator.evaluate_once). What stays here
+    # is the rule-evaluation snapshot so the legacy
+    # /api/fan/auto-status endpoint keeps returning useful evidence
+    # for the current dashboard UI; the topology UI consumes the
+    # effector_state_changed event from the evaluator instead.
     if settings["enabled"] and state.get_fan_snapshot()["fan_mode"] == "auto":
         reading = SensorReading(
             temperature=temp, humidity=hum, eco2=eco2, tvoc=tvoc,
@@ -620,23 +630,8 @@ def log_data():
             ]
             # Single lock-guarded write so HTTP readers never see torn state (H3).
             state.update_auto_snapshot(action, evaluation, action)
-            # Wait for the plug-switch coroutine with a hard timeout so a dead
-            # event loop or unreachable plug never silently drops the error (H4).
-            switch_future = asyncio.run_coroutine_threadsafe(
-                state.fan_smart_plug.switch(action == "on"), thread_loop
-            )
-            try:
-                switch_future.result(timeout=5)
-            except Exception as switch_exc:
-                log.error("[log_data] smart-plug switch failed: %s", switch_exc)
-            # Broadcast fan status change
-            if state.event_bus:
-                state.event_bus.publish("fan_status", {
-                    "state": action, "mode": "auto",
-                    "power_w": fan_power_w,
-                })
         except Exception as e:
-            log.error("Error controlling smart plug fan: %s", e)
+            log.error("Error evaluating fan rules: %s", e)
 
 
 _log_cycle = 0
@@ -866,6 +861,16 @@ def _start_background_services():
         ssl_context=_ws_ssl_ctx,
     )
 
+    # MLSS Topology Phase 3: populate state.smart_plugs from every
+    # enabled row in the smart_plugs table and start the per-type
+    # evaluator daemon thread. Extracted into _start_smart_plug_evaluator
+    # so unit tests can drive the wiring without standing up the entire
+    # background-services bootstrap.
+    try:
+        _start_smart_plug_evaluator(state)
+    except Exception as exc:  # pylint: disable=broad-except
+        log.warning("Smart-plug evaluator startup failed: %s", exc)
+
     from mlss_monitor.incident_grouper import start_grouper
     state.incident_grouper = start_grouper(DB_FILE, event_bus=state.event_bus)
 
@@ -919,6 +924,54 @@ def _start_background_services():
         log.info("Notification cleanup loop started")
     except Exception as exc:  # pylint: disable=broad-except
         log.warning("Notification cleanup startup failed: %s", exc)
+
+
+def _start_smart_plug_evaluator(state_module) -> None:
+    """Populate ``state.smart_plugs`` + start the Phase 3 evaluator thread.
+
+    Walks every is_enabled row in ``smart_plugs`` and constructs a live
+    :class:`KasaSmartPlug` handle for each, keyed by the row id. The
+    Phase 3 evaluator (:mod:`mlss_monitor.effectors.evaluator`) and the
+    v2 API (:mod:`mlss_monitor.routes.api_effectors_v2`) both look up
+    handles via ``state.smart_plugs[id]``.
+
+    Backwards-compat: when row id 1 exists (the seeded legacy fan), its
+    handle is ALSO mirrored into the legacy ``state.fan_smart_plug``
+    pointer so the long tail of callers + test fixtures importing
+    ``state.fan_smart_plug`` keep working. When no id=1 row exists
+    (fresh install with no ``MLSS_FAN_KASA_SMART_PLUG_IP`` env var),
+    we DON'T overwrite ``fan_smart_plug`` — module-load already wired
+    it to a ``KasaSmartPlug(None)`` placeholder that's safe to use.
+
+    Extracted from ``_start_background_services`` (mirroring
+    ``_start_backup_workers``) so unit tests can drive this block
+    directly against a tempfile DB without standing up the rest of
+    the bootstrap. ``state_module`` is dependency-injected so a fake
+    state module can be passed in tests.
+    """
+    from mlss_monitor.effectors import store as _eff_store
+    from mlss_monitor.effectors.evaluator import start_evaluator
+
+    plugs: dict = {}
+    for row in _eff_store.list_smart_plugs():
+        if not row["is_enabled"]:
+            continue
+        plugs[row["id"]] = KasaSmartPlug(row["kasa_host"])
+    state_module.smart_plugs = plugs
+
+    # Mirror id=1 (the seeded fan) into the legacy alias so existing
+    # callers + tests keep working. Only overwrite if the new handle
+    # exists; otherwise leave any prior fan_smart_plug pointer alone
+    # (the module-load wiring at line ~431 sets it to a safe
+    # KasaSmartPlug(None) when no env var is set).
+    if 1 in plugs:
+        state_module.fan_smart_plug = plugs[1]
+
+    state_module.smart_plug_evaluator = start_evaluator()
+    log.info(
+        "Smart-plug evaluator started — %d enabled plug(s) in registry",
+        len(plugs),
+    )
 
 
 def _start_backup_workers(cfg: dict, state_module, logger) -> None:
