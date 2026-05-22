@@ -292,6 +292,177 @@ test("effector panel: Hardware section surfaces effector_type, kasa_host, protoc
 });
 
 
+// ─── Task 8.3 — Effector panel: Belongs-to (re-parent) picker ──────────
+
+
+test("effector panel: Belongs-to picker lists hub + every grow as candidates", () => {
+  const dom = _newDom();
+  const grow1 = { ...sampleGrow };
+  const grow2 = { ...sampleGrow, id: "grow:2", label: "Grow #2" };
+  const el = renderSidePanel({
+    node: sampleEffector, allNodes: [sampleHub, grow1, grow2, sampleEffector],
+    doc: dom.window.document, isAdmin: true, callbacks: {},
+  });
+  // Buttons inside the .tp-target-pick section.
+  const pick = el.querySelector(".tp-target-pick");
+  assert.ok(pick, "panel contains a .tp-target-pick block");
+  const targets = pick.querySelectorAll("[data-parent-id]");
+  // Hub + 2 grows = 3 candidates.
+  assert.equal(targets.length, 3,
+    `expected 3 candidate parents (hub + 2 grows), got ${targets.length}`);
+  const ids = Array.from(targets).map((t) => t.dataset.parentId);
+  assert.ok(ids.includes("hub"));
+  assert.ok(ids.includes("grow:1"));
+  assert.ok(ids.includes("grow:2"));
+});
+
+
+test("effector panel: current parent is marked as the selected target", () => {
+  const dom = _newDom();
+  const grow1 = { ...sampleGrow };
+  const el = renderSidePanel({
+    node: sampleEffector,  // parent=hub
+    allNodes: [sampleHub, grow1, sampleEffector],
+    doc: dom.window.document, isAdmin: true, callbacks: {},
+  });
+  const hubBtn = el.querySelector(".tp-target-pick [data-parent-id='hub']");
+  assert.ok(hubBtn.classList.contains("selected") ||
+            hubBtn.getAttribute("aria-pressed") === "true",
+    "current parent (hub) is marked as selected");
+});
+
+
+test("effector panel: clicking a candidate fires onReparent(id, newParentId)", () => {
+  const dom = _newDom();
+  const grow1 = { ...sampleGrow };
+  const calls = [];
+  const el = renderSidePanel({
+    node: sampleEffector,
+    allNodes: [sampleHub, grow1, sampleEffector],
+    doc: dom.window.document, isAdmin: true,
+    callbacks: { onReparent: (id, p) => calls.push([id, p]) },
+  });
+  const growBtn = el.querySelector(".tp-target-pick [data-parent-id='grow:1']");
+  growBtn.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+  assert.deepEqual(calls, [["effector:7", "grow:1"]]);
+});
+
+
+test("effector panel: clicking the current parent does NOT fire onReparent", () => {
+  const dom = _newDom();
+  const grow1 = { ...sampleGrow };
+  const calls = [];
+  const el = renderSidePanel({
+    node: sampleEffector,
+    allNodes: [sampleHub, grow1, sampleEffector],
+    doc: dom.window.document, isAdmin: true,
+    callbacks: { onReparent: (id, p) => calls.push([id, p]) },
+  });
+  el.querySelector(".tp-target-pick [data-parent-id='hub']")
+    .dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+  assert.equal(calls.length, 0,
+    "no-op when the operator clicks the already-selected parent");
+});
+
+
+test("effector panel: incompatible candidates rendered with [disabled]", () => {
+  const dom = _newDom();
+  // heat_pad is grow-unit-only per COMPATIBLE_SCOPES; the Hub candidate
+  // must be greyed out.
+  const heatPad = {
+    ...sampleEffector,
+    id: "effector:11",
+    label: "Heating mat",
+    effector_type: "heat_pad",
+    parent: "grow:1",
+  };
+  const grow1 = { ...sampleGrow };
+  const el = renderSidePanel({
+    node: heatPad, allNodes: [sampleHub, grow1, heatPad],
+    doc: dom.window.document, isAdmin: true, callbacks: {},
+  });
+  const hubBtn = el.querySelector(".tp-target-pick [data-parent-id='hub']");
+  assert.ok(hubBtn.disabled,
+    "Hub candidate should be disabled for a heat_pad effector");
+});
+
+
+test("effector panel: Belongs-to inline error surface exists, hidden by default", () => {
+  const dom = _newDom();
+  const grow1 = { ...sampleGrow };
+  const el = renderSidePanel({
+    node: sampleEffector, allNodes: [sampleHub, grow1, sampleEffector],
+    doc: dom.window.document, isAdmin: true, callbacks: {},
+  });
+  const err = el.querySelector(".tp-target-pick [data-testid='tp-reparent-error']");
+  assert.ok(err, "Belongs-to error surface present in the DOM");
+  // Hidden initially — the picker exposes a .show()/.hide() pattern
+  // surfaced via the .hidden helper class.
+  assert.ok(err.classList.contains("hidden") || err.style.display === "none",
+    "error surface starts hidden until a server 400 lands");
+});
+
+
+test("boot: onReparent posts PATCH /api/effectors/<id> with the right body", async () => {
+  const dom = _bootDom();
+  const calls = [];
+  const fetchFn = async (url, opts) => {
+    calls.push({ url, opts });
+    if (url === "/api/topology") {
+      return {
+        ok: true, status: 200,
+        async json() {
+          return {
+            hub: { id: "hub", kind: "hub", label: "MLSS Hub", sensors: {} },
+            grows: [
+              { id: "grow:3", kind: "grow", label: "Grow #3",
+                plant_type: "basil", phase: "veg", medium: "soil",
+                sensors: {} },
+            ],
+            effectors: [
+              { id: "effector:4", kind: "effector", parent: "hub",
+                label: "Humidifier", effector_type: "humidifier",
+                mode: "auto", current_state: "off", is_enabled: 1,
+                kasa_host: "192.0.2.4", protocol: "kasa" },
+            ],
+            layout: {},
+          };
+        },
+      };
+    }
+    if (url === "/api/effectors/4" && opts && opts.method === "PATCH") {
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }
+    return new Response(JSON.stringify({}), { status: 200 });
+  };
+  await boot({ fetchFn });
+  const doc = dom.window.document;
+  // Open the panel for effector:4 by clicking the node.
+  const nodeEl = doc.querySelector(".tp-node[data-node-id='effector:4']");
+  nodeEl.dispatchEvent(new dom.window.MouseEvent("mousedown", {
+    bubbles: true, button: 0, clientX: 0, clientY: 0,
+  }));
+  dom.window.dispatchEvent(new dom.window.MouseEvent("mouseup", {
+    bubbles: true, button: 0, clientX: 0, clientY: 0,
+  }));
+  // Click the grow:3 candidate to re-parent.
+  const grow3Btn = doc.querySelector(
+    "#tp-sidepanel-host .tp-target-pick [data-parent-id='grow:3']",
+  );
+  assert.ok(grow3Btn, "grow:3 candidate present");
+  grow3Btn.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+  for (let i = 0; i < 20; i++) await Promise.resolve();
+  // PATCH /api/effectors/4 should have fired with the grow-unit body.
+  const patch = calls.find(
+    (c) => c.url === "/api/effectors/4" && c.opts && c.opts.method === "PATCH",
+  );
+  assert.ok(patch, "PATCH /api/effectors/4 was issued");
+  const body = JSON.parse(patch.opts.body);
+  assert.equal(body.scope, "grow_unit");
+  assert.equal(body.grow_unit_id, 3);
+});
+
+
 test("boot: clicking close × on an open panel re-hides it", async () => {
   const dom = _bootDom();
   await boot({ fetchFn: _mockFetch({

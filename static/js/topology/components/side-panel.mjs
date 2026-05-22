@@ -37,6 +37,29 @@
 import { renderModeBar } from "./mode-bar.mjs";
 
 
+/**
+ * Per-effector-type scope whitelist. MIRRORS
+ * mlss_monitor.effectors.base.COMPATIBLE_SCOPES (and the parallel copy
+ * in add-effector-modal.mjs). Keeping a third copy here vs reaching
+ * across the boundary into add-effector-modal feels duplicative, but
+ * importing it would couple the panel to the modal — and the matrix
+ * is a 12-line constant that very rarely changes. The server-side v2
+ * API still validates on PATCH, so a drift fails loudly via a 400. */
+const COMPATIBLE_SCOPES = {
+  fan:                 ["hub"],
+  fan_carbon_filter:   ["hub"],
+  circulation_fan:     ["hub"],
+  ac:                  ["hub"],
+  whole_room_heater:   ["hub"],
+  dehumidifier:        ["hub"],
+  humidifier:          ["hub", "grow_unit"],
+  light_supplementary: ["hub", "grow_unit"],
+  heat_pad:            ["grow_unit"],
+  generic:             ["hub", "grow_unit"],
+  co2_injector:        ["hub"],
+};
+
+
 /** Build a labelled section wrapper: <section class="tp-sect">
  * <div class="tp-sect-h">…</div> …content… </section>.
  *
@@ -265,10 +288,117 @@ function _renderEffectorBody(body, node, allNodes, doc, isAdmin, callbacks) {
 
 
 function _renderBelongsToPicker(node, allNodes, doc, callbacks) {
-  // Placeholder — Task 8.3 fills this in. Returning an empty section
-  // keeps the body layout consistent during the TDD progression.
-  void node; void allNodes; void callbacks;
-  return _section(doc, "Belongs to");
+  const sect = _section(doc, "Belongs to");
+
+  const pick = doc.createElement("div");
+  pick.className = "tp-target-pick";
+  sect.appendChild(pick);
+
+  // Inline error surface — populated on a server 400 (scope mismatch).
+  // Starts hidden; the picker exposes show/hide via the .hidden class
+  // so the page-level onReparent handler can flip it after the PATCH
+  // response lands.
+  const err = doc.createElement("div");
+  err.className = "tp-reparent-error hidden";
+  err.dataset.testid = "tp-reparent-error";
+  err.style.display = "none";
+  pick.appendChild(err);
+
+  function showError(msg) {
+    err.textContent = msg;
+    err.classList.remove("hidden");
+    err.style.display = "";
+  }
+  function clearError() {
+    err.textContent = "";
+    err.classList.add("hidden");
+    err.style.display = "none";
+  }
+
+  // Per-type scope compatibility: a heat_pad effector can't move to
+  // the Hub, a fan can't move to a grow unit. Greyed-out candidates
+  // surface visibly (disabled) rather than being hidden — admins
+  // expect to see why a target isn't available.
+  const compat = COMPATIBLE_SCOPES[node.effector_type] || ["hub", "grow_unit"];
+  const hubAllowed = compat.includes("hub");
+  const growAllowed = compat.includes("grow_unit");
+
+  // Candidate list: hub plus every grow node. Each renders as a button
+  // exposing `data-parent-id` ("hub" or "grow:<n>").
+  const candidates = [];
+  candidates.push({
+    id: "hub",
+    label: "Hub",
+    kind: "hub",
+    allowed: hubAllowed,
+  });
+  for (const n of allNodes) {
+    if (n.kind === "grow") {
+      candidates.push({
+        id: n.id,
+        label: n.label || n.id,
+        kind: "grow",
+        allowed: growAllowed,
+      });
+    }
+  }
+
+  for (const cand of candidates) {
+    const btn = doc.createElement("button");
+    btn.type = "button";
+    btn.className = "tp-target-pick-btn";
+    btn.dataset.parentId = cand.id;
+    btn.dataset.kind = cand.kind;
+    if (cand.id === node.parent) {
+      btn.classList.add("selected");
+      btn.setAttribute("aria-pressed", "true");
+    } else {
+      btn.setAttribute("aria-pressed", "false");
+    }
+    if (!cand.allowed) {
+      btn.disabled = true;
+      btn.title = `${node.effector_type} is not compatible with this scope`;
+    }
+
+    const swatch = doc.createElement("span");
+    swatch.className = `tp-target-swatch tp-target-swatch-${cand.kind}`;
+    btn.appendChild(swatch);
+
+    const lbl = doc.createElement("span");
+    lbl.className = "tp-target-lbl";
+    lbl.textContent = cand.label;
+    btn.appendChild(lbl);
+
+    const sub = doc.createElement("span");
+    sub.className = "tp-target-sub";
+    sub.textContent = cand.kind;
+    btn.appendChild(sub);
+
+    btn.addEventListener("click", async () => {
+      if (cand.id === node.parent) {
+        // No-op — already the selected parent. Don't fire the network
+        // call, don't bother the user with a spurious server round trip.
+        return;
+      }
+      clearError();
+      if (typeof callbacks.onReparent === "function") {
+        try {
+          const result = await callbacks.onReparent(node.id, cand.id);
+          if (result && result.error) {
+            showError(result.error);
+          }
+        } catch (exc) {
+          // The callback may throw on a 4xx; surface the message
+          // inline so the operator can correct + retry without
+          // closing the panel.
+          showError(exc.message || String(exc));
+        }
+      }
+    });
+    pick.appendChild(btn);
+  }
+
+  return sect;
 }
 
 

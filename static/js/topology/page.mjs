@@ -277,6 +277,8 @@ export async function boot({ fetchFn = fetch } = {}) {
           selectedNodeId = null;
           mountSidePanel();
         },
+        onModeChange: _onMode,
+        onReparent: _onReparent,
       },
     });
     sidepanelHost.replaceChildren(panel);
@@ -354,13 +356,68 @@ export async function boot({ fetchFn = fetch } = {}) {
         eff.mode = mode;
         if (mode === "on" || mode === "off") eff.current_state = mode;
       }
+      const storeNode = store.nodes.find((n) => n.id === effectorId);
+      if (storeNode) {
+        storeNode.mode = mode;
+        if (mode === "on" || mode === "off") storeNode.current_state = mode;
+      }
       mountGraph();
+      // Re-render the side panel so the active-mode button updates
+      // immediately. The panel's Mode bar shares the same callback so
+      // this also covers the in-panel click path.
+      mountSidePanel();
     } catch (exc) {
       // On failure, refetch the snapshot so the UI re-syncs with the
       // server's actual state. Keep this quiet in the console rather
       // than throwing — the topbar will reflect the canonical state.
       console.warn("setEffectorState failed:", exc);
     }
+  };
+
+  /**
+   * Re-parent an effector — Phase 8 Task 8.3. Maps the panel's
+   * `(effectorId, newParentId)` callback into a PATCH on
+   * /api/effectors/<id>. Returns `{error}` on a server 400 so the
+   * panel can inline-surface it (e.g. scope incompatibility).
+   *
+   * The optimistic local update mirrors _onMode's pattern: flip the
+   * store node's `parent`, re-mount graph + topbar + panel so the
+   * edges + the Belongs-to selection both reflect the new state.
+   */
+  const _onReparent = async (effectorId, newParentId) => {
+    const numericId = parseInt(effectorId.split(":")[1], 10);
+    const body = newParentId === "hub"
+      ? { scope: "hub", grow_unit_id: null }
+      : {
+        scope: "grow_unit",
+        grow_unit_id: parseInt(newParentId.split(":")[1], 10),
+      };
+    const resp = await fetchFn(`/api/effectors/${numericId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (resp.status === 400) {
+      let serverMsg;
+      try {
+        const j = await resp.json();
+        serverMsg = j.error || j.detail;
+      } catch (_e) { /* ignore */ }
+      return { error: serverMsg
+        || "That effector type can't be assigned to this scope." };
+    }
+    if (!resp.ok) {
+      return { error: `Server returned HTTP ${resp.status}.` };
+    }
+    // Optimistic local update.
+    const eff = store.effectorById[effectorId];
+    if (eff) eff.parent = newParentId;
+    const storeNode = store.nodes.find((n) => n.id === effectorId);
+    if (storeNode) storeNode.parent = newParentId;
+    mountGraph();
+    mountTopbar();
+    mountSidePanel();
+    return { ok: true };
   };
 
   // Card renderers — loaded lazily so the boot still works if Phase 5
