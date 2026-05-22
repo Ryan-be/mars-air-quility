@@ -180,3 +180,97 @@ class TestCirculationFanController:
         from mlss_monitor.effectors.fan import CirculationFan
         from mlss_monitor.effectors.base import Scope
         assert CirculationFan.compatible_scopes() == {Scope.HUB}
+
+
+# ── Task 3.3a: WholeRoomHeater + HeatPad ──────────────────────────────────
+
+
+class TestWholeRoomHeater:
+    """Hub-scope: ON when ``temperature`` < target.
+
+    Grow-scope: would read ``air_temp_c`` but WholeRoomHeater is
+    hub-only by the COMPATIBLE_SCOPES matrix, so we only exercise
+    the hub path here (``temperature``).
+    """
+
+    def test_on_when_temp_below_target(self):
+        from mlss_monitor.effectors.heater import WholeRoomHeater
+        ctrl = WholeRoomHeater()
+        assert ctrl.should_be_on(
+            {"temperature": 15.0}, {"target": 20.0},
+        ) is True
+
+    def test_off_when_temp_above_target(self):
+        from mlss_monitor.effectors.heater import WholeRoomHeater
+        ctrl = WholeRoomHeater()
+        assert ctrl.should_be_on(
+            {"temperature": 22.0}, {"target": 20.0},
+        ) is False
+
+    def test_off_at_exact_target(self):
+        from mlss_monitor.effectors.heater import WholeRoomHeater
+        ctrl = WholeRoomHeater()
+        assert ctrl.should_be_on(
+            {"temperature": 20.0}, {"target": 20.0},
+        ) is False
+
+    def test_grow_scope_reads_air_temp_c_field(self):
+        """Defensive: if a hub heater ever sees a grow-shape reading it
+        should still degrade gracefully by reading air_temp_c."""
+        from mlss_monitor.effectors.heater import WholeRoomHeater
+        ctrl = WholeRoomHeater()
+        assert ctrl.should_be_on(
+            {"air_temp_c": 15.0}, {"target": 20.0},
+        ) is True
+
+    def test_compatible_scopes_is_hub_only(self):
+        from mlss_monitor.effectors.heater import WholeRoomHeater
+        from mlss_monitor.effectors.base import Scope
+        assert WholeRoomHeater.compatible_scopes() == {Scope.HUB}
+
+
+class TestHeatPad:
+    """Grow-only: ON when ``soil_temp_c`` < target; falls back to
+    ``air_temp_c`` when no soil probe is present."""
+
+    def test_on_when_soil_temp_below_target(self):
+        from mlss_monitor.effectors.heater import HeatPad
+        ctrl = HeatPad()
+        assert ctrl.should_be_on(
+            {"soil_temp_c": 12.0, "air_temp_c": 22.0},
+            {"target": 18.0},
+        ) is True
+
+    def test_off_when_soil_temp_above_target(self):
+        from mlss_monitor.effectors.heater import HeatPad
+        ctrl = HeatPad()
+        assert ctrl.should_be_on(
+            {"soil_temp_c": 22.0, "air_temp_c": 15.0},
+            {"target": 18.0},
+        ) is False
+
+    def test_falls_back_to_air_temp_when_no_soil_probe(self):
+        """Graceful degradation: missing soil_temp_c → use air_temp_c."""
+        from mlss_monitor.effectors.heater import HeatPad
+        ctrl = HeatPad()
+        # soil_temp_c missing → fall back to air_temp_c=15 < target=18 → ON
+        assert ctrl.should_be_on(
+            {"air_temp_c": 15.0},
+            {"target": 18.0},
+        ) is True
+        # air_temp_c above target → OFF
+        assert ctrl.should_be_on(
+            {"air_temp_c": 22.0},
+            {"target": 18.0},
+        ) is False
+
+    def test_off_when_no_temperature_at_all(self):
+        """No readings at all → cannot decide → safe default OFF."""
+        from mlss_monitor.effectors.heater import HeatPad
+        ctrl = HeatPad()
+        assert ctrl.should_be_on({}, {"target": 18.0}) is False
+
+    def test_compatible_scopes_is_grow_only(self):
+        from mlss_monitor.effectors.heater import HeatPad
+        from mlss_monitor.effectors.base import Scope
+        assert HeatPad.compatible_scopes() == {Scope.GROW_UNIT}
