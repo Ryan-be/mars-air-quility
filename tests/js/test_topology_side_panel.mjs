@@ -652,6 +652,68 @@ test("hub panel: Subsystems block counts grows / effectors / active", () => {
 });
 
 
+// ─── Task 8.6 — Admin cog opens panel for that effector ────────────────
+
+
+test("boot: clicking the admin cog on an effector card opens the side panel", async () => {
+  const dom = _bootDom("admin");
+  await boot({ fetchFn: _mockFetch({
+    hub: { id: "hub", kind: "hub", label: "MLSS Hub", sensors: {} },
+    grows: [],
+    effectors: [{
+      id: "effector:42", kind: "effector", parent: "hub",
+      label: "Cabinet fan", effector_type: "fan",
+      mode: "auto", current_state: "off", is_enabled: 1,
+    }],
+    layout: {},
+  }) });
+  const doc = dom.window.document;
+  const cog = doc.querySelector(
+    ".tp-node[data-node-id='effector:42'] [data-action='open-config']",
+  );
+  assert.ok(cog, "admin cog button is present on the effector card");
+  cog.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+  // Panel host now holds a visible panel for effector:42.
+  const aside = doc.querySelector("#tp-sidepanel-host aside.tp-sidepanel");
+  assert.ok(aside);
+  assert.ok(!aside.classList.contains("hidden"),
+    "panel is visible after cog click");
+  assert.equal(aside.dataset.nodeId, "effector:42",
+    "panel tracks the cog's effector id");
+});
+
+
+test("boot: admin cog click does NOT trigger a node drag", async () => {
+  // The card-level handler stopPropagation()'s the cog click; this
+  // boot-level test confirms the wrapping setupNodeDrag handler
+  // doesn't fire either — i.e. the mousedown propagation guard is
+  // honoured all the way up to the .tp-node element.
+  const dom = _bootDom("admin");
+  await boot({ fetchFn: _mockFetch({
+    hub: { id: "hub", kind: "hub", label: "MLSS Hub", sensors: {} },
+    grows: [],
+    effectors: [{
+      id: "effector:99", kind: "effector", parent: "hub",
+      label: "X", effector_type: "fan",
+      mode: "auto", current_state: "off", is_enabled: 1,
+    }],
+    layout: {},
+  }) });
+  const doc = dom.window.document;
+  const nodeEl = doc.querySelector(".tp-node[data-node-id='effector:99']");
+  let nodeDragFired = false;
+  // Spy: wrap the existing mousedown listener invocation by adding a
+  // capture-phase listener BEFORE the node-drag handler. If the cog
+  // button propagates, our spy fires — but the cog handler should
+  // stopPropagation so nothing reaches the spy.
+  nodeEl.addEventListener("mousedown", () => { nodeDragFired = true; });
+  const cog = nodeEl.querySelector("[data-action='open-config']");
+  cog.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true }));
+  assert.equal(nodeDragFired, false,
+    "node-level mousedown handler must NOT fire when the cog is pressed");
+});
+
+
 test("boot: clicking close × on an open panel re-hides it", async () => {
   const dom = _bootDom();
   await boot({ fetchFn: _mockFetch({

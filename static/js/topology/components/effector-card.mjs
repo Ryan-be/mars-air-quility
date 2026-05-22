@@ -114,7 +114,20 @@ export function renderEffectorCard(node, doc = document, options = {}) {
     // Same propagation guards as the mode-bar buttons — the cog
     // shouldn't trigger the node drag.
     cog.addEventListener("mousedown", (ev) => { ev.stopPropagation(); });
-    cog.addEventListener("click", (ev) => { ev.stopPropagation(); });
+    cog.addEventListener("click", (ev) => {
+      // stopPropagation prevents the wrapping .tp-node click handler
+      // from firing AND being interpreted as a "click vs drag" → the
+      // page boot's onClick(nodeId) would otherwise also open the
+      // panel via the regular node-select path. We fire a typed
+      // custom event so the page-level listener can resolve the
+      // effector id without leaking a callback into the card module.
+      ev.stopPropagation();
+      const evt = new (doc.defaultView || window).CustomEvent(
+        "topology-open-config",
+        { bubbles: true, detail: { nodeId: node.id } },
+      );
+      cog.dispatchEvent(evt);
+    });
     head.appendChild(cog);
   }
 

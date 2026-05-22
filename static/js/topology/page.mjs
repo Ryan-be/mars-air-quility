@@ -43,6 +43,13 @@ import { computeStats } from "./stats.mjs";
 // firing handlers against a detached host.
 let _missionTimeInterval = null;
 
+// Module-scoped pointer to the current boot's "select node by id"
+// callback. The cog event listener (attached once per document, see
+// below) reads through this so a fresh boot() re-binds the latest
+// closure rather than firing into the previous one's store. Stays
+// null until the first boot completes.
+let _currentSelectNode = null;
+
 
 function _isAdmin(doc) {
   // The /controls template stamps body.dataset.role from session["user_role"].
@@ -287,6 +294,26 @@ export async function boot({ fetchFn = fetch } = {}) {
   function _selectNode(nodeId) {
     selectedNodeId = nodeId;
     mountSidePanel();
+  }
+  // Point the module-scoped pointer at the current boot's selector so
+  // the cog event listener (below) hits THIS boot's store rather than
+  // a stale closure from a previous boot() invocation.
+  _currentSelectNode = _selectNode;
+
+  // Phase 8 Task 8.6 — listen for the admin cog's custom event. The
+  // event bubbles from inside the effector card up through the graph
+  // host; capturing on `document` keeps the listener resilient to
+  // re-renders that swap the card subtree out. The handler reads
+  // through the module-scoped `_currentSelectNode` pointer so a fresh
+  // boot() rebinds without stacking listeners or stale closures.
+  if (!document.__topologyOpenConfigBound) {
+    document.addEventListener("topology-open-config", (ev) => {
+      const id = ev.detail && ev.detail.nodeId;
+      if (id && typeof _currentSelectNode === "function") {
+        _currentSelectNode(id);
+      }
+    });
+    document.__topologyOpenConfigBound = true;
   }
 
   // ── Topbar mount (Phase 7 Task 7.3) ───────────────────────────────
