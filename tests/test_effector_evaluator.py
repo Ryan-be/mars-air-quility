@@ -331,6 +331,32 @@ class TestEvaluateOnceGrowScope:
 # ── start_evaluator: daemon thread machinery ───────────────────────────────
 
 
+class TestStateModuleSmartPlugsRegistry:
+    """``state.smart_plugs`` is the runtime registry the evaluator + the
+    v2 API both look up. The bare-import default must be a usable empty
+    dict so test fixtures that don't explicitly initialise it (and the
+    real app before app.py's startup hook fires) can ``state.smart_plugs.get(id)``
+    without an AttributeError."""
+
+    def test_smart_plugs_attribute_exists_as_dict(self):
+        from mlss_monitor import state
+        # NB: we can't reload here — other tests may have populated it.
+        # Just assert the attribute is present + dict-like.
+        assert hasattr(state, "smart_plugs")
+        assert isinstance(state.smart_plugs, dict)
+
+    def test_smart_plug_evaluator_handle_attribute_exists(self):
+        from mlss_monitor import state
+        assert hasattr(state, "smart_plug_evaluator")
+
+    def test_legacy_fan_smart_plug_alias_still_present(self):
+        """The legacy import path ``state.fan_smart_plug`` must remain
+        until Phase 12 removes it (so every existing test fixture that
+        monkeypatches it keeps working)."""
+        from mlss_monitor import state
+        assert hasattr(state, "fan_smart_plug")
+
+
 class TestStartEvaluator:
     def test_returns_running_daemon_thread(self, eval_env, monkeypatch):
         """start_evaluator() spawns a daemon thread named 'effector-evaluator'."""

@@ -67,6 +67,19 @@ def set_fan_state(value: str) -> None:
         fan_state = value
 
 # Hardware references (set by app.py after init)
+#
+# fan_smart_plug: kept for backwards-compat with everything that still
+# imports ``state.fan_smart_plug`` directly — the legacy
+# :mod:`mlss_monitor.effectors` Effector registry, the
+# :mod:`mlss_monitor.routes.api_fan` legacy endpoints, the
+# :func:`mlss_monitor.app.log_data` inline fan block (removed in Phase
+# 3), plus a long tail of test fixtures that do
+# ``monkeypatch.setattr(app_state, 'fan_smart_plug', mock_plug)``. In
+# the topology v2 model the same handle ALSO lives at
+# ``state.smart_plugs[1]`` (id 1 is the seeded fan row from the
+# migration in :mod:`database.effectors_schema`). app.py wires both
+# pointers so the legacy import path keeps working while the new
+# evaluator + v2 API drive ``smart_plugs[id]`` exclusively.
 fan_smart_plug = None
 thread_loop = None
 aht20 = None
@@ -75,6 +88,22 @@ pm_sensor = None
 mics6814 = None
 hot_tier = None
 feature_vector = None
+
+# MLSS Topology v2 smart-plug registry. Keyed by ``smart_plugs.id``
+# from the DB schema. app.py populates this on boot from every
+# is_enabled row; the Phase 3 evaluator loop + the v2 API both look
+# up live handles via ``state.smart_plugs[id]``. Legacy callers that
+# reach for ``state.fan_smart_plug`` above continue to work because
+# the migration seeds the fan as id=1 and app.py mirrors that handle
+# into ``fan_smart_plug``.
+smart_plugs: dict = {}
+
+# Handle to the Phase 3 evaluator daemon thread (set by app.py at
+# startup). Kept on state so future graceful-shutdown code can call
+# ``smart_plug_evaluator.join(timeout=...)`` symmetrically with the
+# other background workers (backup_db_worker, notification_dispatcher,
+# grow_ws_handle).
+smart_plug_evaluator = None
 
 # Plant Grow Unit WS registry (set by app.py at startup)
 grow_ws_registry = None
