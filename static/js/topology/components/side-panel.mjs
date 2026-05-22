@@ -450,8 +450,83 @@ function _renderScheduleGrid(node, doc) {
 
 
 function _renderGrowBody(body, node, allNodes, doc, callbacks) {
-  // Placeholder — Task 8.5 fills this in.
-  void body; void node; void allNodes; void doc; void callbacks;
+  // Plant section — kv-grid of plant_type / phase / medium.
+  const plantSect = _section(doc, "Plant");
+  const plantGrid = _kvGrid(doc);
+  _kv(doc, plantGrid, "Plant", node.plant_type);
+  _kv(doc, plantGrid, "Phase", node.phase);
+  _kv(doc, plantGrid, "Medium", node.medium);
+  plantSect.appendChild(plantGrid);
+  body.appendChild(plantSect);
+
+  // Live sensors section — 4 telemetry values from the grow_telemetry
+  // payload (soil_moisture, soil_temp_c, air_temp_c, air_humidity_pct).
+  const sensorsSect = _section(doc, "Live sensors");
+  const sensorsGrid = _kvGrid(doc);
+  const sensors = node.sensors || {};
+  // Surface raw values rather than formatted ones — the topology
+  // endpoint already round-trips through Python's json.dumps which
+  // emits whole-number floats as integers, so we don't need a separate
+  // toFixed pass to keep the test assertions tight.
+  _kv(doc, sensorsGrid, "Soil moisture",
+    sensors.soil_moisture == null ? "—" : `${sensors.soil_moisture} %`);
+  _kv(doc, sensorsGrid, "Soil temp",
+    sensors.soil_temp_c == null ? "—" : `${sensors.soil_temp_c} °C`);
+  _kv(doc, sensorsGrid, "Air temp",
+    sensors.air_temp_c == null ? "—" : `${sensors.air_temp_c} °C`);
+  _kv(doc, sensorsGrid, "Air humidity",
+    sensors.air_humidity_pct == null ? "—" : `${sensors.air_humidity_pct} %`);
+  sensorsSect.appendChild(sensorsGrid);
+  body.appendChild(sensorsSect);
+
+  // Linked effectors section — list every effector parented to this
+  // grow unit. Each row is a button so a future iteration can wire
+  // click → re-select that effector in the panel without the operator
+  // having to find it in the graph.
+  const linkedSect = _section(doc, "Linked effectors");
+  const linkedList = doc.createElement("div");
+  linkedList.className = "tp-linked-effectors";
+  const linked = allNodes.filter(
+    (n) => n.kind === "effector" && n.parent === node.id,
+  );
+  if (linked.length === 0) {
+    const empty = doc.createElement("div");
+    empty.className = "tp-linked-empty";
+    empty.textContent = "No effectors assigned";
+    linkedList.appendChild(empty);
+  } else {
+    for (const eff of linked) {
+      const row = doc.createElement("div");
+      row.className = "tp-linked-row";
+      const swatch = doc.createElement("span");
+      swatch.className = "tp-target-swatch tp-target-swatch-effector";
+      row.appendChild(swatch);
+      const lbl = doc.createElement("span");
+      lbl.className = "tp-target-lbl";
+      lbl.textContent = eff.label || eff.id;
+      row.appendChild(lbl);
+      const sub = doc.createElement("span");
+      sub.className = "tp-target-sub";
+      sub.textContent = eff.current_state === "on"
+        ? "● on"
+        : "○ " + (eff.mode || "off");
+      row.appendChild(sub);
+      linkedList.appendChild(row);
+    }
+  }
+  linkedSect.appendChild(linkedList);
+  body.appendChild(linkedSect);
+
+  // "View full grow page" link — anchor to the per-unit detail route.
+  // The grow id has the form "grow:<n>"; the URL is /grow/<n>.
+  const link = doc.createElement("a");
+  link.className = "tp-view-grow-link";
+  const numeric = (node.id || "").split(":")[1] || "";
+  link.href = `/grow/${numeric}`;
+  link.textContent = "View full grow page";
+  body.appendChild(link);
+
+  void callbacks;
 }
 
 
@@ -459,6 +534,7 @@ function _renderGrowBody(body, node, allNodes, doc, callbacks) {
 
 
 function _renderHubBody(body, node, allNodes, doc) {
-  // Placeholder — Task 8.5 fills this in.
+  // Hub panel — implemented in the next commit. Stub keeps the
+  // grow-only commit green.
   void body; void node; void allNodes; void doc;
 }

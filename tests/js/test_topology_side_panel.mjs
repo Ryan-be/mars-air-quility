@@ -491,6 +491,99 @@ test("effector panel: schedule includes a 'coming in v2' marker", () => {
 });
 
 
+// ─── Task 8.5 — Grow panel ──────────────────────────────────────────────
+
+
+test("grow panel: renders Plant / Live sensors / Linked effectors sections", () => {
+  const dom = _newDom();
+  const eff = {
+    ...sampleEffector, id: "effector:7", parent: "grow:1",
+    label: "Heat pad", effector_type: "heat_pad",
+  };
+  const el = renderSidePanel({
+    node: sampleGrow, allNodes: [sampleHub, sampleGrow, eff],
+    doc: dom.window.document, isAdmin: true, callbacks: {},
+  });
+  const headings = Array.from(el.querySelectorAll(".tp-sect-h"))
+    .map((h) => h.textContent.trim().toLowerCase());
+  assert.ok(headings.includes("plant"), "Plant section heading");
+  assert.ok(headings.includes("live sensors"), "Live sensors section heading");
+  assert.ok(headings.includes("linked effectors"), "Linked effectors section heading");
+});
+
+
+test("grow panel: Plant block surfaces plant_type / phase / medium", () => {
+  const dom = _newDom();
+  const el = renderSidePanel({
+    node: sampleGrow, allNodes: [sampleHub, sampleGrow],
+    doc: dom.window.document, isAdmin: true, callbacks: {},
+  });
+  const txt = el.textContent;
+  assert.match(txt, /tomato/i, "shows plant_type");
+  assert.match(txt, /vegetative/i, "shows phase");
+  assert.match(txt, /soil/i, "shows medium");
+});
+
+
+test("grow panel: Live sensors block shows the 4 telemetry tiles", () => {
+  const dom = _newDom();
+  const el = renderSidePanel({
+    node: sampleGrow, allNodes: [sampleHub, sampleGrow],
+    doc: dom.window.document, isAdmin: true, callbacks: {},
+  });
+  const txt = el.textContent;
+  // The Live sensors kv-grid lists every field from sensors:
+  //   soil_moisture, soil_temp_c, air_temp_c, air_humidity_pct
+  assert.match(txt, /60/, "shows soil_moisture value");
+  assert.match(txt, /21/, "shows soil_temp_c value");
+  assert.match(txt, /22/, "shows air_temp_c value");
+  assert.match(txt, /55/, "shows air_humidity_pct value");
+});
+
+
+test("grow panel: Linked effectors lists effectors with parent === grow:<id>", () => {
+  const dom = _newDom();
+  const eff1 = {
+    ...sampleEffector, id: "effector:7", parent: "grow:1",
+    label: "Heat pad", effector_type: "heat_pad",
+  };
+  const eff2 = {
+    ...sampleEffector, id: "effector:8", parent: "grow:1",
+    label: "Light A", effector_type: "light_supplementary",
+  };
+  const eff3 = {
+    // Different parent — should NOT appear.
+    ...sampleEffector, id: "effector:9", parent: "hub",
+    label: "Room fan", effector_type: "fan",
+  };
+  const el = renderSidePanel({
+    node: sampleGrow, allNodes: [sampleHub, sampleGrow, eff1, eff2, eff3],
+    doc: dom.window.document, isAdmin: true, callbacks: {},
+  });
+  const linked = el.querySelector(".tp-linked-effectors");
+  assert.ok(linked, "linked effectors block present");
+  const txt = linked.textContent;
+  assert.match(txt, /Heat pad/);
+  assert.match(txt, /Light A/);
+  assert.ok(!/Room fan/.test(txt),
+    "effectors parented to hub should NOT appear in this grow's list");
+});
+
+
+test("grow panel: includes 'View full grow page' button linking to /grow/<id>", () => {
+  const dom = _newDom();
+  const el = renderSidePanel({
+    node: sampleGrow, allNodes: [sampleHub, sampleGrow],
+    doc: dom.window.document, isAdmin: true, callbacks: {},
+  });
+  const link = el.querySelector("a[href='/grow/1'], a.tp-view-grow-link");
+  assert.ok(link, "panel includes a link to the per-unit grow page");
+  assert.equal(link.getAttribute("href"), "/grow/1");
+  assert.match(link.textContent.toLowerCase(), /grow|view/,
+    "link wording references the grow page");
+});
+
+
 test("boot: clicking close × on an open panel re-hides it", async () => {
   const dom = _bootDom();
   await boot({ fetchFn: _mockFetch({
