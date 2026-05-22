@@ -219,3 +219,272 @@
     cursor: grabbing;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   Node cards (Phase 6)
+   ───────────────────────────────────────────────────────────────────────
+   Shared card chrome + per-type left stripe colour. Hub / grow /
+   effector variants share most styling and only differ in the colour
+   driven by the local --node-color custom property set by each card
+   module. Cards sit absolutely inside .tp-nodes-layer (positioned by
+   .tp-node) and the transform: translate(-50%, -50%) on the parent
+   centres the card on its world position.
+   ═════════════════════════════════════════════════════════════════════ */
+
+.tp-card {
+    position: relative;
+    background: var(--color-background-base-header, #080c11);
+    border: 1px solid var(--color-border-interactive-muted, #2b659b);
+    border-radius: 3px;
+    padding: 10px 12px;
+    min-width: 180px;
+    color: var(--color-text-primary, #ffffff);
+    font-family: 'Roboto', system-ui, sans-serif;
+    font-size: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, .4);
+    transition: border-color .15s, box-shadow .15s;
+}
+
+.tp-card:hover {
+    border-color: var(--color-border-interactive-default, #4dacff);
+}
+
+/* Hub gets a wider min-width so the bigger telemetry tiles breathe. */
+.tp-card-hub {
+    min-width: 220px;
+}
+
+/* Left-edge type stripe — driven by each card's --node-color. */
+.tp-card-stripe {
+    position: absolute;
+    left: -1px;
+    top: -1px;
+    bottom: -1px;
+    width: 3px;
+    background: var(--node-color, var(--color-text-secondary));
+    border-top-left-radius: 3px;
+    border-bottom-left-radius: 3px;
+}
+
+/* Card header — title + sub-label + optional chip / cog. Flex row so
+   the chip / cog can sit on the right via margin-left:auto. */
+.tp-card-head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 6px;
+}
+
+.tp-card-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-text-primary, #fff);
+    letter-spacing: .01em;
+}
+
+.tp-card-sub {
+    font-size: 11px;
+    color: var(--color-text-secondary, #b0bec5);
+    flex: 1 1 100%;
+}
+
+/* Phase chip on grow cards (vegetative / flowering / etc). */
+.tp-chip-phase {
+    margin-left: auto;
+    font-family: 'Roboto Mono', monospace;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: .12em;
+    color: var(--color-text-secondary, #b0bec5);
+    background: var(--color-background-surface-default, #1b2d3e);
+    padding: 2px 6px;
+    border-radius: 2px;
+    border: 1px solid var(--color-border-interactive-muted, #2b659b);
+}
+
+/* Admin cog on effector cards — small ghost button. */
+.tp-card-cog {
+    margin-left: auto;
+    background: transparent;
+    border: 1px solid var(--color-border-interactive-muted, #2b659b);
+    color: var(--color-text-secondary, #b0bec5);
+    width: 22px;
+    height: 22px;
+    border-radius: 2px;
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1;
+    padding: 0;
+    transition: background .12s, color .12s, border-color .12s;
+}
+
+.tp-card-cog:hover {
+    background: var(--color-background-surface-hover, #172635);
+    color: var(--color-text-primary, #fff);
+    border-color: var(--color-border-interactive-default, #4dacff);
+}
+
+/* ─── Telemetry tiles (hub + grow) ──────────────────────────────────── */
+
+.tp-tiles {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 6px 12px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--color-background-surface-hover, #172635);
+}
+
+.tp-tile-k {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: .1em;
+    color: var(--color-text-secondary, #b0bec5);
+}
+
+.tp-tile-v {
+    font-family: 'Roboto Mono', monospace;
+    font-size: 14px;
+    color: var(--color-text-primary, #fff);
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+}
+
+.tp-tile-v small {
+    font-size: 9px;
+    color: var(--color-text-secondary, #b0bec5);
+    margin-left: 2px;
+    font-weight: 400;
+}
+
+/* ─── Sparkline (hub + grow) ────────────────────────────────────────── */
+
+.tp-spark {
+    width: 100%;
+    height: 24px;
+    display: block;
+    margin-top: 6px;
+}
+
+.tp-spark-line {
+    stroke: var(--node-color, var(--color-status-standby, #2dccff));
+    stroke-width: 1.2;
+    fill: none;
+}
+
+/* ─── Status pill (effector) ────────────────────────────────────────── */
+
+.tp-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-family: 'Roboto Mono', monospace;
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    padding: 1px 6px 1px 5px;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, .05);
+    border: 1px solid currentColor;
+    white-space: nowrap;
+}
+
+.tp-pill-ball {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    box-shadow: 0 0 6px currentColor;
+    display: inline-block;
+}
+
+.tp-pill-on    { color: var(--color-status-normal, #56f000); }
+.tp-pill-off   { color: var(--color-status-off, #a4abb6); }
+.tp-pill-auto  { color: var(--color-status-standby, #2dccff); }
+.tp-pill-fault { color: var(--color-status-critical, #ff3838); }
+
+/* Solid variant — used for the active ON state. Background fills with
+   the state colour, text flips to dark for contrast. */
+.tp-pill-solid {
+    background: currentColor;
+}
+
+.tp-pill-solid .tp-pill-label {
+    color: #001a00;
+}
+
+.tp-pill-solid .tp-pill-ball {
+    background: rgba(0, 0, 0, .7);
+    box-shadow: none;
+}
+
+/* ─── Effector status row ─────────────────────────────────────────── */
+
+.tp-status-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 6px;
+}
+
+.tp-effector-role {
+    font-family: 'Roboto Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--color-text-secondary, #b0bec5);
+}
+
+/* ─── AUTO / ON / OFF segmented control ───────────────────────────── */
+
+.tp-modebar {
+    display: flex;
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid var(--color-background-surface-hover, #172635);
+    gap: 4px;
+}
+
+.tp-modebtn {
+    flex: 1;
+    appearance: none;
+    background: var(--color-background-surface-default, #1b2d3e);
+    border: 1px solid var(--color-border-interactive-muted, #2b659b);
+    border-radius: 2px;
+    color: var(--color-text-secondary, #b0bec5);
+    font-family: 'Roboto Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    padding: 5px 0;
+    cursor: pointer;
+    transition: background .08s, color .08s, border-color .08s;
+}
+
+.tp-modebtn:hover {
+    background: var(--color-background-surface-selected, #253f55);
+    color: var(--color-text-primary, #fff);
+}
+
+/* Active states — the button matching the current mode lights up in
+   that mode's status colour. Dark text for contrast on the bright fill. */
+.tp-modebtn.active[data-mode="auto"] {
+    background: var(--color-status-standby, #2dccff);
+    border-color: var(--color-status-standby, #2dccff);
+    color: #001528;
+}
+
+.tp-modebtn.active[data-mode="on"] {
+    background: var(--color-status-normal, #56f000);
+    border-color: var(--color-status-normal, #56f000);
+    color: #001a00;
+}
+
+.tp-modebtn.active[data-mode="off"] {
+    background: var(--color-status-off, #a4abb6);
+    border-color: var(--color-status-off, #a4abb6);
+    color: #1a1a1a;
+}
+

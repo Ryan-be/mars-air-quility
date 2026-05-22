@@ -159,3 +159,42 @@ test("boot: with hub + grow + effector, renders 2 edges and 3 nodes", async () =
   assert.equal(edges.length, 2, `expected 2 edges, got ${edges.length}`);
   assert.equal(nodes.length, 3, `expected 3 node divs, got ${nodes.length}`);
 });
+
+
+test("boot: card components are mounted inside each node div (Phase 6 Task 6.7)", async () => {
+  // Each .tp-node div hosts a card; the renderer switches on
+  // node.kind and delegates to the appropriate card module. With a
+  // hub + grow + effector we expect one of each card class present
+  // in the document.
+  const dom = _newDom();
+  global.EventSource = _mockEventSourceCtor();
+  const payload = {
+    hub: {
+      id: "hub", kind: "hub", label: "MLSS Hub",
+      sensors: { temp: 22.5, rh: 55, co2: 700 },
+    },
+    grows: [
+      {
+        id: "grow:1", kind: "grow", label: "Grow #1",
+        plant_type: "tomato", phase: "vegetative",
+        sensors: { soil_moisture: 60, soil_temp_c: 21, air_temp_c: 22 },
+      },
+    ],
+    effectors: [
+      {
+        id: "effector:1", kind: "effector", parent: "hub",
+        label: "Room fan", effector_type: "fan",
+        mode: "auto", current_state: "off", is_enabled: 1,
+      },
+    ],
+    layout: {},
+  };
+  await boot({ fetchFn: _mockFetch(payload) });
+  const doc = dom.window.document;
+  assert.ok(doc.querySelector(".tp-card-hub"),
+    "hub card should mount inside its .tp-node");
+  assert.ok(doc.querySelector(".tp-card-grow"),
+    "grow card should mount inside its .tp-node");
+  assert.ok(doc.querySelector(".tp-card-effector"),
+    "effector card should mount inside its .tp-node");
+});
