@@ -534,7 +534,44 @@ function _renderGrowBody(body, node, allNodes, doc, callbacks) {
 
 
 function _renderHubBody(body, node, allNodes, doc) {
-  // Hub panel — implemented in the next commit. Stub keeps the
-  // grow-only commit green.
-  void body; void node; void allNodes; void doc;
+  // Room sensors section — temp / RH / CO2 from the hot-tier snapshot.
+  const sensSect = _section(doc, "Room sensors");
+  const sensGrid = _kvGrid(doc);
+  const sensors = node.sensors || {};
+  _kv(doc, sensGrid, "Temperature",
+    sensors.temp == null ? "—" : `${sensors.temp} °C`);
+  _kv(doc, sensGrid, "Humidity",
+    sensors.rh == null ? "—" : `${sensors.rh} %`);
+  _kv(doc, sensGrid, "CO₂",
+    sensors.co2 == null ? "—" : `${sensors.co2} ppm`);
+  sensSect.appendChild(sensGrid);
+  body.appendChild(sensSect);
+
+  // Coordination section — static narrative blurb from node.notes.
+  // The topology endpoint sets a default string; admin-edited notes
+  // would land here in a future iteration.
+  const coordSect = _section(doc, "Coordination notes");
+  if (node.notes) {
+    const p = doc.createElement("p");
+    p.className = "tp-coord-notes";
+    p.textContent = node.notes;
+    coordSect.appendChild(p);
+  }
+  body.appendChild(coordSect);
+
+  // Subsystems section — count rollups so the operator can scan the
+  // hub's role at a glance.
+  const subSect = _section(doc, "Subsystems");
+  const subGrid = doc.createElement("div");
+  subGrid.className = "tp-kv-grid tp-subsystems-grid";
+  const grows = allNodes.filter((n) => n.kind === "grow").length;
+  const effectors = allNodes.filter((n) => n.kind === "effector").length;
+  const active = allNodes.filter(
+    (n) => n.kind === "effector" && n.current_state === "on",
+  ).length;
+  _kv(doc, subGrid, "Grow units", String(grows));
+  _kv(doc, subGrid, "Effectors", String(effectors));
+  _kv(doc, subGrid, "Active now", String(active));
+  subSect.appendChild(subGrid);
+  body.appendChild(subSect);
 }

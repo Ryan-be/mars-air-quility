@@ -584,6 +584,74 @@ test("grow panel: includes 'View full grow page' button linking to /grow/<id>", 
 });
 
 
+// ─── Task 8.5 — Hub panel ───────────────────────────────────────────────
+
+
+test("hub panel: renders Room sensors / Coordination / Subsystems sections", () => {
+  const dom = _newDom();
+  const el = renderSidePanel({
+    node: sampleHub, allNodes: [sampleHub, sampleGrow, sampleEffector],
+    doc: dom.window.document, isAdmin: true, callbacks: {},
+  });
+  const headings = Array.from(el.querySelectorAll(".tp-sect-h"))
+    .map((h) => h.textContent.trim().toLowerCase());
+  assert.ok(headings.includes("room sensors"));
+  assert.ok(headings.some((h) => h.startsWith("coordination")),
+    "Coordination section heading present");
+  assert.ok(headings.includes("subsystems"));
+});
+
+
+test("hub panel: Room sensors block shows temp / RH / CO2", () => {
+  const dom = _newDom();
+  const el = renderSidePanel({
+    node: sampleHub, allNodes: [sampleHub, sampleGrow, sampleEffector],
+    doc: dom.window.document, isAdmin: true, callbacks: {},
+  });
+  const txt = el.textContent;
+  assert.match(txt, /22\.5/, "shows temp value");
+  assert.match(txt, /55/, "shows rh value");
+  assert.match(txt, /700/, "shows co2 value");
+});
+
+
+test("hub panel: Coordination block shows node.notes copy", () => {
+  const dom = _newDom();
+  const el = renderSidePanel({
+    node: sampleHub, allNodes: [sampleHub, sampleGrow, sampleEffector],
+    doc: dom.window.document, isAdmin: true, callbacks: {},
+  });
+  assert.match(el.textContent, /Whole-room sensors/,
+    "Coordination block surfaces the node.notes string");
+});
+
+
+test("hub panel: Subsystems block counts grows / effectors / active", () => {
+  const dom = _newDom();
+  const onEff = {
+    ...sampleEffector, id: "effector:1", current_state: "on", mode: "on",
+  };
+  const offEff = {
+    ...sampleEffector, id: "effector:2", current_state: "off", mode: "off",
+  };
+  const grow2 = { ...sampleGrow, id: "grow:2" };
+  const el = renderSidePanel({
+    node: sampleHub,
+    allNodes: [sampleHub, sampleGrow, grow2, onEff, offEff],
+    doc: dom.window.document, isAdmin: true, callbacks: {},
+  });
+  // Subsystems counts: 2 grows, 2 effectors, 1 active. The block
+  // renders each as its own .tp-kv-v cell so we inspect the values
+  // directly rather than relying on whitespace word boundaries.
+  const sub = el.querySelector(".tp-subsystems-grid");
+  assert.ok(sub, "Subsystems block present (.tp-subsystems-grid)");
+  const values = Array.from(sub.querySelectorAll(".tp-kv-v"))
+    .map((v) => v.textContent.trim());
+  assert.deepEqual(values, ["2", "2", "1"],
+    `expected counts [grows=2, effectors=2, active=1], got ${JSON.stringify(values)}`);
+});
+
+
 test("boot: clicking close × on an open panel re-hides it", async () => {
   const dom = _bootDom();
   await boot({ fetchFn: _mockFetch({
