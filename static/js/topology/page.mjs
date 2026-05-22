@@ -26,11 +26,74 @@ import {
   renderGraph, applyViewport,
   setupPan, setupZoom, setupNodeDrag,
 } from "./graph.mjs";
+import { renderTopbar } from "./components/topbar.mjs";
+import { computeStats } from "./stats.mjs";
 // Card renderers — wired in Phase 6 Task 6.7. Until then renderGraph
 // produces empty .tp-node placeholder divs, which is what the Phase 5
 // integration test asserts. The imports below are pulled in via a
 // dynamic import inside boot() so a partial Phase-5-only deploy can
 // still mount the graph chrome without the card modules present.
+
+
+// Mission-time tick interval. Stored at module scope so a fresh boot()
+// call (in tests) tears the previous interval down before mounting a
+// new one — without the cancel, JSDOM's fake timers would never stop
+// firing handlers against a detached host.
+let _missionTimeInterval = null;
+
+
+function _isAdmin(doc) {
+  // The /controls template stamps body.dataset.role from session["user_role"].
+  // Missing role (e.g. logged-out test fixture) → not admin, button hidden.
+  const body = doc && doc.body;
+  return !!body && body.dataset && body.dataset.role === "admin";
+}
+
+
+function _formatMissionTime(startMs, nowMs) {
+  // "T+HH:MM:SS" relative to session start. Wraps cleanly past 24 h —
+  // the operator on a long-running shift wants to see "T+27:14:02"
+  // rather than "T+03:14:02" silently rolling over.
+  const elapsed = Math.max(0, Math.floor((nowMs - startMs) / 1000));
+  const hh = String(Math.floor(elapsed / 3600)).padStart(2, "0");
+  const mm = String(Math.floor((elapsed % 3600) / 60)).padStart(2, "0");
+  const ss = String(elapsed % 60).padStart(2, "0");
+  return `T+${hh}:${mm}:${ss}`;
+}
+
+
+function _startMissionTimeTick(doc, startMs) {
+  // Update every second. Cancel any pre-existing interval so a re-boot
+  // (test path) doesn't leak handlers.
+  if (_missionTimeInterval) {
+    clearInterval(_missionTimeInterval);
+    _missionTimeInterval = null;
+  }
+  const tick = () => {
+    const cell = doc.querySelector(
+      ".tp-topbar-inner [data-role='mission-time']",
+    );
+    if (!cell) return;
+    // If a <rux-clock> has slotted in, leave it alone — the web
+    // component self-updates and we'd just trample its rendered DOM.
+    if (cell.querySelector("rux-clock")) return;
+    cell.textContent = _formatMissionTime(startMs, Date.now());
+  };
+  // Fire once immediately so the first paint matches a slightly-later
+  // server clock without waiting a full second.
+  tick();
+  if (typeof setInterval === "function") {
+    _missionTimeInterval = setInterval(tick, 1000);
+    // Don't pin the Node event loop alive on this interval — JSDOM
+    // tests would otherwise hang waiting for the timer to clear. The
+    // unref() call is a no-op on browser timers but lets `node --test`
+    // exit cleanly between test files.
+    if (_missionTimeInterval
+        && typeof _missionTimeInterval.unref === "function") {
+      _missionTimeInterval.unref();
+    }
+  }
+}
 
 
 /**
@@ -130,11 +193,14 @@ export async function boot({ fetchFn = fetch } = {}) {
   // (0,0) in world coords; placing translate at (w/2, h/2 - 40)
   // pushes it just below the centre — gives the lower grow arc room
   // to breathe without clipping above-hub effectors.
-  const initialViewport = {
-    x: (graph.clientWidth || 800) / 2,
-    y: (graph.clientHeight || 600) / 2 - 40,
-    k: 0.9,
-  };
+  function _computeInitialViewport() {
+    return {
+      x: (graph.clientWidth || 800) / 2,
+      y: (graph.clientHeight || 600) / 2 - 40,
+      k: 0.9,
+    };
+  }
+  const initialViewport = _computeInitialViewport();
 
   // Page-level state. The handler callbacks close over these so a
   // drag updates the right entry and re-renders only what needs it.
@@ -146,6 +212,40 @@ export async function boot({ fetchFn = fetch } = {}) {
       (snapshot.effectors || []).map((e) => [e.id, e]),
     ),
   };
+
+  // ── Topbar mount (Phase 7 Task 7.3) ───────────────────────────────
+  // The topbar replaces the placeholder brand row painted before the
+  // fetch resolved. Re-rendered after every state change so its
+  // numeric cells stay in sync with the graph.
+  function mountTopbar() {
+    if (!topbar) return;
+    const stats = computeStats(store.nodes);
+    const inner = renderTopbar({
+      stats,
+      isAdmin: _isAdmin(document),
+      onRearrange: () => {
+        // Clear persisted positions + re-run autoLayout. The plan
+        // notes a server reset endpoint lands in Phase 11; for now
+        // the click is purely client-side.
+        store.positions = autoLayout(store.nodes);
+        mountGraph();
+      },
+      onRecenter: () => {
+        store.viewport = _computeInitialViewport();
+        mountGraph();
+      },
+      onAddEffector: () => {
+        // Phase 9 Task 9.2 replaces this with the modal call. For now
+        // a console.log keeps the click chain wired without coupling
+        // the topbar to a Phase-9 import.
+        // eslint-disable-next-line no-console
+        console.log("[topology] add-effector clicked");
+      },
+      doc: document,
+    });
+    topbar.replaceChildren(inner);
+    _startMissionTimeTick(document, Date.now());
+  }
 
   // Re-render the whole graph (cheap — < 50 nodes for any realistic
   // tent setup). Phase 10 will swap this for granular updates when
@@ -240,6 +340,7 @@ export async function boot({ fetchFn = fetch } = {}) {
   }
 
   mountGraph();
+  mountTopbar();
 }
 
 

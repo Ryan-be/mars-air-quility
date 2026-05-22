@@ -198,3 +198,131 @@ test("boot: card components are mounted inside each node div (Phase 6 Task 6.7)"
   assert.ok(doc.querySelector(".tp-card-effector"),
     "effector card should mount inside its .tp-node");
 });
+
+
+test("boot: topbar contains at least 6 stat cells after mount (Phase 7 Task 7.3)", async () => {
+  // After boot the topbar host should contain the renderTopbar()
+  // output: a `tp-topbar-inner` header with at minimum the 6 telemetry
+  // cells (Mission Time / Hub Status / Grows / Effectors / Active /
+  // Auto vs Forced). The Recenter / Re-arrange buttons are also
+  // expected but tested separately below.
+  const dom = _newDom();
+  global.EventSource = _mockEventSourceCtor();
+  const payload = {
+    hub: { id: "hub", kind: "hub", label: "MLSS Hub", sensors: {} },
+    grows: [],
+    effectors: [],
+    layout: {},
+  };
+  await boot({ fetchFn: _mockFetch(payload) });
+  const doc = dom.window.document;
+  const topbar = doc.getElementById("tp-topbar-host");
+  const inner = topbar.querySelector(".tp-topbar-inner");
+  assert.ok(inner, "topbar host contains a .tp-topbar-inner header");
+  const cells = inner.querySelectorAll(".tp-stat");
+  assert.ok(cells.length >= 6,
+    `expected at least 6 .tp-stat cells, got ${cells.length}`);
+});
+
+
+test("boot: topbar shows + Add effector button only for admin role", async () => {
+  // body.dataset.role = "admin" — admin sees the button.
+  const dom = _newDom();
+  global.EventSource = _mockEventSourceCtor();
+  await boot({ fetchFn: _mockFetch({
+    hub: { id: "hub", kind: "hub", label: "MLSS Hub", sensors: {} },
+    grows: [], effectors: [], layout: {},
+  }) });
+  let doc = dom.window.document;
+  assert.ok(
+    doc.querySelector(".tp-topbar-inner button[data-action='add-effector']"),
+    "admin sees the + Add effector button",
+  );
+
+  // Re-mount with role="viewer" — button must not render.
+  const dom2 = new JSDOM(
+    `<!doctype html><html><body data-role="viewer">
+      <section class="tp-app" id="tp-app" data-role="viewer">
+        <header id="tp-topbar-host"></header>
+        <div    id="tp-graph-host"></div>
+        <footer id="tp-statusbar-host"></footer>
+        <aside  id="tp-sidepanel-host" class="hidden"></aside>
+      </section>
+    </body></html>`,
+  );
+  global.document = dom2.window.document;
+  global.window = dom2.window;
+  await boot({ fetchFn: _mockFetch({
+    hub: { id: "hub", kind: "hub", label: "MLSS Hub", sensors: {} },
+    grows: [], effectors: [], layout: {},
+  }) });
+  doc = dom2.window.document;
+  assert.equal(
+    doc.querySelector(".tp-topbar-inner button[data-action='add-effector']"),
+    null,
+    "viewer does not see the + Add effector button",
+  );
+});
+
+
+test("boot: Recenter button resets the viewport (Phase 7 Task 7.3)", async () => {
+  // Clicking Recenter must restore the viewport to the initial
+  // {x: w/2, y: h/2 - 40, k: 0.9}. We can't easily inspect the
+  // computed transform from JSDOM, but the boot exposes the click
+  // wiring by re-rendering the graph after a viewport reset, so the
+  // test asserts the graph re-mounts cleanly (no thrown error +
+  // nodes still present).
+  const dom = _newDom();
+  global.EventSource = _mockEventSourceCtor();
+  await boot({ fetchFn: _mockFetch({
+    hub: { id: "hub", kind: "hub", label: "MLSS Hub", sensors: {} },
+    grows: [{
+      id: "grow:1", kind: "grow", label: "Grow #1",
+      sensors: { soil_moisture: 60 },
+    }],
+    effectors: [],
+    layout: {},
+  }) });
+  const doc = dom.window.document;
+  const recenter = doc.querySelector(
+    ".tp-topbar-inner button[data-action='recenter']",
+  );
+  assert.ok(recenter);
+  recenter.dispatchEvent(new dom.window.Event("click", { bubbles: true }));
+  // After the click the graph host still contains rendered nodes
+  // (i.e. the boot's onRecenter callback didn't throw).
+  const nodes = doc.querySelectorAll("#tp-graph-host .tp-node");
+  assert.equal(nodes.length, 2,
+    `expected 2 nodes (hub + grow) after recenter click, got ${nodes.length}`);
+});
+
+
+test("boot: Re-arrange button re-runs auto-layout (Phase 7 Task 7.3)", async () => {
+  // Re-arrange clears the persisted positions object + re-runs
+  // autoLayout. Same visibility-check assertion as Recenter — the
+  // post-click graph host stays populated (i.e. no throw).
+  const dom = _newDom();
+  global.EventSource = _mockEventSourceCtor();
+  await boot({ fetchFn: _mockFetch({
+    hub: { id: "hub", kind: "hub", label: "MLSS Hub", sensors: {} },
+    grows: [
+      { id: "grow:1", kind: "grow", label: "Grow #1", sensors: {} },
+      { id: "grow:2", kind: "grow", label: "Grow #2", sensors: {} },
+    ],
+    effectors: [],
+    // Pre-seed a custom position for grow:1 so we can confirm the
+    // click effectively wipes it. (We don't inspect positions
+    // directly — the assertion is that nodes are still rendered
+    // afterwards, mirroring the Recenter check.)
+    layout: { "grow:1": { x: 999, y: 999 } },
+  }) });
+  const doc = dom.window.document;
+  const btn = doc.querySelector(
+    ".tp-topbar-inner button[data-action='rearrange']",
+  );
+  assert.ok(btn);
+  btn.dispatchEvent(new dom.window.Event("click", { bubbles: true }));
+  const nodes = doc.querySelectorAll("#tp-graph-host .tp-node");
+  assert.equal(nodes.length, 3,
+    `expected 3 nodes (hub + 2 grows) after rearrange, got ${nodes.length}`);
+});
