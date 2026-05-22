@@ -34,6 +34,48 @@
  * Plant/Live sensors blocks, Hub sub-systems).
  */
 
+import { renderModeBar } from "./mode-bar.mjs";
+
+
+/** Build a labelled section wrapper: <section class="tp-sect">
+ * <div class="tp-sect-h">…</div> …content… </section>.
+ *
+ * Sections are the primary visual unit of the panel — every block of
+ * controls (Mode, Power, Hardware, Belongs to, Schedule on the effector
+ * variant; Plant, Live sensors, Linked effectors on the grow variant;
+ * Room sensors, Coordination, Subsystems on the hub variant) lives in
+ * its own section with a consistent heading style. */
+function _section(doc, heading) {
+  const sect = doc.createElement("section");
+  sect.className = "tp-sect";
+  const h = doc.createElement("div");
+  h.className = "tp-sect-h";
+  h.textContent = heading;
+  sect.appendChild(h);
+  return sect;
+}
+
+
+/** Build a key-value grid row inside an existing .tp-kv-grid wrapper. */
+function _kv(doc, gridEl, key, value) {
+  const k = doc.createElement("span");
+  k.className = "tp-kv-k";
+  k.textContent = key;
+  gridEl.appendChild(k);
+  const v = doc.createElement("span");
+  v.className = "tp-kv-v";
+  v.textContent = value == null || value === "" ? "—" : String(value);
+  gridEl.appendChild(v);
+}
+
+
+/** Build a key-value grid wrapper. */
+function _kvGrid(doc) {
+  const g = doc.createElement("div");
+  g.className = "tp-kv-grid";
+  return g;
+}
+
 
 /**
  * Build the side-panel chrome (header with title/sub/close button).
@@ -134,11 +176,122 @@ export function renderSidePanel({
   body.className = "tp-sidepanel-body";
   aside.appendChild(body);
 
-  // Per-node-kind sections land in Tasks 8.2-8.5. Task 8.1 ships the
-  // open/close shell.
-  // Suppress unused parameter linting — these will be wired in
-  // subsequent tasks.
-  void allNodes; void isAdmin;
+  if (node.kind === "effector") {
+    _renderEffectorBody(body, node, allNodes, doc, isAdmin, callbacks);
+  } else if (node.kind === "grow") {
+    _renderGrowBody(body, node, allNodes, doc, callbacks);
+  } else if (node.kind === "hub") {
+    _renderHubBody(body, node, allNodes, doc);
+  }
 
   return aside;
+}
+
+
+// ─── Effector variant (Tasks 8.2 + 8.3 + 8.4) ───────────────────────────
+
+
+function _renderEffectorBody(body, node, allNodes, doc, isAdmin, callbacks) {
+  // Mode section — segmented AUTO/ON/OFF mirroring the on-card bar.
+  const modeSect = _section(doc, "Mode");
+  const bar = renderModeBar({
+    nodeId: node.id,
+    mode: node.mode,
+    onMode: (id, mode) => {
+      if (typeof callbacks.onModeChange === "function") {
+        callbacks.onModeChange(id, mode);
+      }
+    },
+    doc,
+  });
+  modeSect.appendChild(bar);
+  body.appendChild(modeSect);
+
+  // Power section — slider input for the desired output level (0-100%).
+  // Per the spec the slider is visual-only in v1: the smart_plugs
+  // backend is on/off-only today; the slider sets a "target_power"
+  // value that gets stored but doesn't yet drive hardware. Disabled
+  // when the effector is forced OFF or currently OFF.
+  const powerSect = _section(doc, "Power");
+  const row = doc.createElement("div");
+  row.className = "tp-slider-row";
+  const slider = doc.createElement("input");
+  slider.type = "range";
+  slider.min = "0";
+  slider.max = "100";
+  slider.step = "1";
+  // Default power: 100% when on / auto, last-known target otherwise.
+  const initialPower = (node.target_power != null)
+    ? Number(node.target_power)
+    : (node.current_state === "on" ? 100 : 0);
+  slider.value = String(initialPower);
+  slider.className = "tp-power-slider";
+  if (!isAdmin || node.mode === "off" || node.current_state === "off") {
+    // Viewers can see the position but not move it. The CSS dims the
+    // thumb to communicate disabled state.
+    slider.disabled = true;
+  }
+  row.appendChild(slider);
+  const readout = doc.createElement("span");
+  readout.className = "tp-slider-value";
+  readout.textContent = `${slider.value}%`;
+  slider.addEventListener("input", () => {
+    readout.textContent = `${slider.value}%`;
+  });
+  row.appendChild(readout);
+  powerSect.appendChild(row);
+  body.appendChild(powerSect);
+
+  // Belongs-to picker — Task 8.3 (re-parent control). Stays after
+  // Power so the most-common interactions (Mode, Power) live at the
+  // top of the panel.
+  body.appendChild(_renderBelongsToPicker(node, allNodes, doc, callbacks));
+
+  // Schedule grid — Task 8.4 (render-only with v2 marker).
+  body.appendChild(_renderScheduleGrid(node, doc));
+
+  // Hardware section — read-only kv grid of the wire-level details.
+  const hwSect = _section(doc, "Hardware");
+  const hwGrid = _kvGrid(doc);
+  _kv(doc, hwGrid, "Type", node.effector_type);
+  _kv(doc, hwGrid, "Kasa host", node.kasa_host);
+  _kv(doc, hwGrid, "Protocol", node.protocol || "kasa");
+  hwSect.appendChild(hwGrid);
+  body.appendChild(hwSect);
+}
+
+
+// Task 8.3 + 8.4 stubs — replaced by full implementations in those tasks.
+
+
+function _renderBelongsToPicker(node, allNodes, doc, callbacks) {
+  // Placeholder — Task 8.3 fills this in. Returning an empty section
+  // keeps the body layout consistent during the TDD progression.
+  void node; void allNodes; void callbacks;
+  return _section(doc, "Belongs to");
+}
+
+
+function _renderScheduleGrid(node, doc) {
+  // Placeholder — Task 8.4 fills this in.
+  void node;
+  return _section(doc, "Schedule");
+}
+
+
+// ─── Grow variant (Task 8.5) ────────────────────────────────────────────
+
+
+function _renderGrowBody(body, node, allNodes, doc, callbacks) {
+  // Placeholder — Task 8.5 fills this in.
+  void body; void node; void allNodes; void doc; void callbacks;
+}
+
+
+// ─── Hub variant (Task 8.5) ─────────────────────────────────────────────
+
+
+function _renderHubBody(body, node, allNodes, doc) {
+  // Placeholder — Task 8.5 fills this in.
+  void body; void node; void allNodes; void doc;
 }

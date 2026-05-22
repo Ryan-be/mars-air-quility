@@ -204,6 +204,94 @@ test("boot: clicking a node opens the side panel populated with that node", asyn
 });
 
 
+// ─── Task 8.2 — Effector panel: Mode + Power + Hardware ─────────────────
+
+
+test("effector panel: renders the Mode / Power / Hardware sections", () => {
+  const dom = _newDom();
+  const el = renderSidePanel({
+    node: sampleEffector, allNodes: [sampleHub, sampleEffector],
+    doc: dom.window.document, isAdmin: true, callbacks: {},
+  });
+  // Each section has a heading; we assert presence rather than exact
+  // copy so the test is robust to wording polish.
+  const headings = Array.from(el.querySelectorAll(".tp-sect-h"))
+    .map((h) => h.textContent.trim().toLowerCase());
+  assert.ok(headings.some((h) => h === "mode"),
+    `expected a "Mode" section heading, got ${JSON.stringify(headings)}`);
+  assert.ok(headings.some((h) => h === "power"),
+    `expected a "Power" section heading, got ${JSON.stringify(headings)}`);
+  assert.ok(headings.some((h) => h === "hardware"),
+    `expected a "Hardware" section heading, got ${JSON.stringify(headings)}`);
+});
+
+
+test("effector panel: Mode bar has AUTO/ON/OFF buttons matching current mode", () => {
+  const dom = _newDom();
+  const el = renderSidePanel({
+    node: sampleEffector, allNodes: [sampleHub, sampleEffector],
+    doc: dom.window.document, isAdmin: true, callbacks: {},
+  });
+  // Reuses the same .tp-modebar from the on-card mode-bar so styling
+  // stays in lockstep across the card + the panel.
+  const bar = el.querySelector(".tp-modebar");
+  assert.ok(bar, "panel contains a .tp-modebar");
+  const auto = bar.querySelector("[data-mode='auto']");
+  const on   = bar.querySelector("[data-mode='on']");
+  const off  = bar.querySelector("[data-mode='off']");
+  assert.ok(auto && on && off, "all three mode buttons present");
+  // sampleEffector.mode === "auto"
+  assert.equal(auto.getAttribute("aria-pressed"), "true");
+  assert.equal(on.getAttribute("aria-pressed"), "false");
+});
+
+
+test("effector panel: clicking a Mode button fires onModeChange(id, mode)", () => {
+  const dom = _newDom();
+  const calls = [];
+  const el = renderSidePanel({
+    node: sampleEffector, allNodes: [sampleHub, sampleEffector],
+    doc: dom.window.document, isAdmin: true,
+    callbacks: { onModeChange: (id, m) => calls.push([id, m]) },
+  });
+  el.querySelector(".tp-modebar [data-mode='on']")
+    .dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+  assert.deepEqual(calls, [["effector:7", "on"]]);
+});
+
+
+test("effector panel: Power section contains a slider input (range)", () => {
+  const dom = _newDom();
+  const el = renderSidePanel({
+    node: sampleEffector, allNodes: [sampleHub, sampleEffector],
+    doc: dom.window.document, isAdmin: true, callbacks: {},
+  });
+  // The slider lives inside the Power section. AstroUX <rux-slider>
+  // upgrades from a vanilla <input type=range> for JSDOM compatibility.
+  const slider = el.querySelector(".tp-sidepanel-body input[type='range'], rux-slider");
+  assert.ok(slider, "Power section contains a range slider element");
+});
+
+
+test("effector panel: Hardware section surfaces effector_type, kasa_host, protocol", () => {
+  const dom = _newDom();
+  const node = {
+    ...sampleEffector,
+    kasa_host: "192.0.2.10",
+    protocol: "kasa",
+  };
+  const el = renderSidePanel({
+    node, allNodes: [sampleHub, node],
+    doc: dom.window.document, isAdmin: true, callbacks: {},
+  });
+  // The Hardware kv-grid surfaces type / host / protocol.
+  const txt = el.textContent;
+  assert.match(txt, /fan/i, "shows effector_type");
+  assert.match(txt, /192\.0\.2\.10/, "shows kasa_host");
+  assert.match(txt, /kasa/i, "shows protocol");
+});
+
+
 test("boot: clicking close × on an open panel re-hides it", async () => {
   const dom = _bootDom();
   await boot({ fetchFn: _mockFetch({

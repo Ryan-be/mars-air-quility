@@ -38,6 +38,7 @@
  */
 
 import { renderEffectorStatusPill } from "./effector-status-pill.mjs";
+import { renderModeBar } from "./mode-bar.mjs";
 
 
 const EFFECTOR_COLOUR = "var(--color-status-serious, #ffb302)";
@@ -58,26 +59,6 @@ function _statusLabel(node) {
   if (node.current_state === "on") return "ON";
   if (node.mode === "auto") return "AUTO";
   return "OFF";
-}
-
-
-function _modeButton(doc, label, value, isCurrent, onMode, nodeId) {
-  const btn = doc.createElement("button");
-  btn.type = "button";
-  btn.className = isCurrent ? "tp-modebtn active" : "tp-modebtn";
-  btn.dataset.mode = value;
-  btn.setAttribute("aria-pressed", isCurrent ? "true" : "false");
-  btn.textContent = label;
-  // stopPropagation on BOTH mousedown and click — the wrapping .tp-node
-  // drag handler listens on mousedown, and downstream click handlers
-  // (Phase 8 side panel open-on-card-click) listen on click. Without
-  // both guards either one would fire when the operator changes mode.
-  btn.addEventListener("mousedown", (ev) => { ev.stopPropagation(); });
-  btn.addEventListener("click", (ev) => {
-    ev.stopPropagation();
-    onMode(nodeId, value);
-  });
-  return btn;
 }
 
 
@@ -158,12 +139,15 @@ export function renderEffectorCard(node, doc = document, options = {}) {
 
   card.appendChild(statusRow);
 
-  // AUTO / ON / OFF segmented control.
-  const bar = doc.createElement("div");
-  bar.className = "tp-modebar";
-  bar.appendChild(_modeButton(doc, "AUTO", "auto", node.mode === "auto", onMode, node.id));
-  bar.appendChild(_modeButton(doc, "ON",   "on",   node.mode === "on",   onMode, node.id));
-  bar.appendChild(_modeButton(doc, "OFF",  "off",  node.mode === "off",  onMode, node.id));
+  // AUTO / ON / OFF segmented control — shared with the side panel
+  // (Phase 8 Task 8.2) so the on-card and in-panel mode toggles stay
+  // pixel-and-behaviour identical.
+  const bar = renderModeBar({
+    nodeId: node.id,
+    mode: node.mode,
+    onMode,
+    doc,
+  });
   card.appendChild(bar);
 
   return card;
