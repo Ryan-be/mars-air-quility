@@ -416,6 +416,27 @@ class TestPostState:
         assert payload["id"] == 1
         assert payload["state"] == "on"
 
+    @pytest.mark.parametrize("desired", ["on", "off"])
+    def test_publishes_for_both_on_and_off(
+        self, v2_client, state_mock, monkeypatch, desired,
+    ):
+        """Regression guard: Phase 3 wired apply_state to publish for
+        every state change, including ``off`` (the original Phase 2
+        test only checked ``on``)."""
+        from mlss_monitor import state as app_state
+        bus = MagicMock()
+        monkeypatch.setattr(app_state, "event_bus", bus)
+        self._seed_one(v2_client)
+        _login(v2_client, "controller")
+        v2_client.post("/api/effectors/1/state", json={"state": desired})
+        bus.publish.assert_called_once()
+        evt_name, payload = bus.publish.call_args[0]
+        assert evt_name == "effector_state_changed"
+        assert payload["id"] == 1
+        assert payload["state"] == desired
+        # ``auto`` is False when an explicit on/off is forced.
+        assert payload["auto"] is False
+
 
 # ── PATCH /api/effectors/layout ────────────────────────────────────────────
 
