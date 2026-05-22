@@ -296,6 +296,38 @@ def post_state(plug_id: int):
 _VALID_KINDS = ("hub", "grow", "effector")
 
 
+@api_effectors_v2_bp.route("/api/effectors/layout/reset", methods=["POST"])
+@require_role("admin")
+def reset_layout():
+    """Wipe every persisted node position so the topology client can
+    re-run its auto-layout from defaults (Phase 11 Task 11.2).
+
+    Truncates the ``node_layout`` table (hub + grow positions) and
+    NULLs ``smart_plugs.layout_json`` for every effector row. Both
+    writes happen inside one transaction so a mid-flight failure
+    can't leave the UI half-reset.
+
+    Admin-only — the topology page hides the Re-arrange button for
+    non-admins, but we still gate server-side. Returns 204 No Content
+    on success since the caller already drives the post-reset re-layout
+    client-side.
+    """
+    conn = sqlite3.connect(DB_FILE, timeout=5)
+    try:
+        cur = conn.cursor()
+        cur.execute("BEGIN")
+        cur.execute("DELETE FROM node_layout")
+        cur.execute("UPDATE smart_plugs SET layout_json = NULL")
+        conn.commit()
+    except sqlite3.Error as exc:
+        conn.rollback()
+        log.error("reset_layout: %s", exc)
+        return jsonify({"error": "db_error", "detail": str(exc)}), 500
+    finally:
+        conn.close()
+    return "", 204
+
+
 @api_effectors_v2_bp.route("/api/effectors/layout", methods=["PATCH"])
 @require_role("controller", "admin")
 def patch_layout():

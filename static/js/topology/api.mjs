@@ -63,6 +63,27 @@ export async function setEffectorState(effectorId, mode, fetchFn = fetch) {
 
 
 /**
+ * POST /api/effectors/layout/reset — admin-only nuke of all persisted
+ * node positions (Phase 11 Task 11.2). The server truncates the
+ * `node_layout` table and NULLs every `smart_plugs.layout_json`; the
+ * client follows up with `autoLayout(nodes)` to repopulate defaults.
+ *
+ * @param {Function} [fetchFn=fetch]
+ */
+export async function resetLayout(fetchFn = fetch) {
+  const r = await fetchFn("/api/effectors/layout/reset", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+  if (!r.ok) {
+    throw new Error(`resetLayout HTTP ${r.status}`);
+  }
+  if (r.status === 204) return null;
+  return r.json();
+}
+
+
+/**
  * PATCH /api/effectors/layout — bulk-save the supplied node positions.
  *
  * The boot orchestrator debounces drag-ends (Phase 11 Task 11.1) and

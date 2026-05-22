@@ -500,6 +500,74 @@ class TestPatchLayout:
         assert ("grow", "1",   1.0,  2.0) in as_set
 
 
+# ── POST /api/effectors/layout/reset ───────────────────────────────────────
+
+
+class TestResetLayout:
+    """Phase 11 Task 11.2 — bulk wipe of all persisted node positions.
+
+    The endpoint truncates ``node_layout`` (the hub/grow positions
+    table) and nulls every ``smart_plugs.layout_json`` so an admin's
+    "Re-arrange" click on the topology page restores the radial
+    auto-layout defaults across the whole graph.
+    """
+
+    def _seed_layouts(self, client):
+        """Seed an effector with a layout + a couple of node_layout rows."""
+        _login(client, "admin")
+        client.post("/api/effectors", json={
+            "label": "X", "effector_type": "fan", "scope": "hub",
+            "kasa_host": "192.0.2.200",
+        })
+        client.patch("/api/effectors/layout", json={
+            "positions": [
+                {"kind": "effector", "id": 1,     "x": 10.0, "y": 20.0},
+                {"kind": "hub",      "id": "hub", "x": 1.0,  "y": 2.0},
+                {"kind": "grow",     "id": "1",   "x": 3.0,  "y": 4.0},
+            ],
+        })
+
+    def test_admin_can_reset_layout(self, v2_client):
+        self._seed_layouts(v2_client)
+        # Confirm the seed actually landed before we wipe it.
+        row = v2_client.get("/api/effectors/1").get_json()
+        assert row["layout"] == {"x": 10.0, "y": 20.0}
+        # POST the reset.
+        r = v2_client.post("/api/effectors/layout/reset")
+        assert r.status_code == 204
+        # smart_plugs.layout_json nulled out.
+        row_after = v2_client.get("/api/effectors/1").get_json()
+        assert row_after["layout"] in (None, {})
+        # node_layout truncated.
+        import database.init_db as _dbi
+        conn = sqlite3.connect(_dbi.DB_FILE)
+        try:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM node_layout"
+            ).fetchone()[0]
+        finally:
+            conn.close()
+        assert count == 0, (
+            f"node_layout should be empty after reset, got {count} rows"
+        )
+
+    def test_viewer_cannot_reset(self, v2_client):
+        _login(v2_client, "viewer")
+        r = v2_client.post("/api/effectors/layout/reset")
+        assert r.status_code == 403
+
+    def test_controller_cannot_reset(self, v2_client):
+        _login(v2_client, "controller")
+        r = v2_client.post("/api/effectors/layout/reset")
+        assert r.status_code == 403
+
+    def test_reset_on_empty_db_returns_204(self, v2_client):
+        """Pre-existing rows are not required — fresh-install reset is a no-op."""
+        _login(v2_client, "admin")
+        r = v2_client.post("/api/effectors/layout/reset")
+        assert r.status_code == 204
+
+
 # ── Legacy POST /api/effector shim ─────────────────────────────────────────
 
 class TestLegacyEffectorShim:

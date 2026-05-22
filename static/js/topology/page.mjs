@@ -21,7 +21,7 @@
  */
 
 import {
-  fetchTopology, setEffectorState, patchLayout,
+  fetchTopology, setEffectorState, patchLayout, resetLayout,
 } from "./api.mjs";
 import { autoLayout } from "./layout.mjs";
 import {
@@ -361,10 +361,20 @@ export async function boot({ fetchFn = fetch } = {}) {
     const inner = renderTopbar({
       stats,
       isAdmin: _isAdmin(document),
-      onRearrange: () => {
-        // Clear persisted positions + re-run autoLayout. The plan
-        // notes a server reset endpoint lands in Phase 11 Task 11.2;
-        // for now the click is purely client-side.
+      onRearrange: async () => {
+        // Phase 11 Task 11.2 — wipe the server-side persisted positions
+        // AND re-run autoLayout client-side. Admin-only gated locally
+        // (the server also gates via @require_role("admin") on the
+        // reset endpoint). The fetch is fire-and-await: even if the
+        // server rejects, we still rerun autoLayout so the operator
+        // gets the visual feedback they clicked for.
+        if (_isAdmin(document)) {
+          try {
+            await resetLayout(fetchFn);
+          } catch (exc) {
+            console.warn("resetLayout failed:", exc);
+          }
+        }
         store.positions = autoLayout(store.nodes);
         mountGraph();
       },
