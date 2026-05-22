@@ -4,6 +4,17 @@ The on/off write has moved to the generic effector API
 (:mod:`mlss_monitor.routes.api_effectors`); the remaining endpoints expose
 fan-specific reads (live plug telemetry, last auto-evaluation) and the
 auto-mode threshold config that is unique to this effector.
+
+DEPRECATED
+----------
+Phase 12 of the MLSS topology feature shipped the v2 effector model
+(see :mod:`mlss_monitor.routes.api_effectors_v2`) which supersedes all
+of the ``/api/fan/*`` endpoints below. They are kept for one release
+cycle for any external integration that may still call them
+(dashboards, scripts) and every response now carries a
+``Deprecation: true`` header per RFC 8594 (see
+``_add_deprecation_header`` below). Migration target: the v2 endpoints
+under ``/api/effectors`` + the topology UI at ``/controls``.
 """
 
 import asyncio
@@ -20,6 +31,23 @@ from mlss_monitor.rbac import require_role
 log = logging.getLogger(__name__)
 
 api_fan_bp = Blueprint("api_fan", __name__)
+
+
+@api_fan_bp.after_request
+def _add_deprecation_header(response):
+    """Tag every /api/fan/* response with RFC 8594 deprecation hints.
+
+    Adds:
+      * ``Deprecation: true`` — the bare RFC 8594 marker so HTTP clients
+        with deprecation-aware tooling (e.g. browser devtools, the
+        ``warning`` middleware in newer SDKs) flag the call.
+      * ``Link: <…>; rel="successor-version"`` pointing at the v2
+        effector API root so the migration path is discoverable from a
+        single response inspection without a docs hunt.
+    """
+    response.headers["Deprecation"] = "true"
+    response.headers["Link"] = '</api/effectors>; rel="successor-version"'
+    return response
 
 
 @api_fan_bp.route("/api/fan/mode", methods=["POST"])

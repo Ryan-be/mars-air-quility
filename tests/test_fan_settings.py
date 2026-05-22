@@ -88,6 +88,30 @@ class TestFanSettingsAPI:
         assert b"Settings" in res.data
 
 
+class TestFanApiDeprecationHeader:
+    """Phase 12 of the MLSS topology feature retains /api/fan/* for one
+    release cycle but every response must carry RFC 8594 deprecation
+    hints so downstream clients can spot the migration target without a
+    docs trawl. Pins the wire-format so a future header refactor can't
+    silently drop the signal.
+    """
+
+    def test_get_settings_carries_deprecation_header(self, app_client):
+        client, _ = app_client
+        res = client.get("/api/fan/settings")
+        assert res.status_code == 200
+        assert res.headers.get("Deprecation") == "true"
+        link = res.headers.get("Link", "")
+        assert "/api/effectors" in link
+        assert 'rel="successor-version"' in link
+
+    def test_get_auto_status_carries_deprecation_header(self, app_client):
+        client, _ = app_client
+        res = client.get("/api/fan/auto-status")
+        assert res.status_code == 200
+        assert res.headers.get("Deprecation") == "true"
+
+
 # ---------------------------------------------------------------------------
 # Auto fan trigger logic
 #
