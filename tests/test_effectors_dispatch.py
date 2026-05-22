@@ -274,3 +274,64 @@ class TestHeatPad:
         from mlss_monitor.effectors.heater import HeatPad
         from mlss_monitor.effectors.base import Scope
         assert HeatPad.compatible_scopes() == {Scope.GROW_UNIT}
+
+
+# ── Task 3.3b: AC controller ───────────────────────────────────────────────
+
+
+class TestACController:
+    """AC — ON when temp > target.
+
+    v1 explicitly skips the 5-minute min-off compressor protection
+    that real AC units need: that needs runtime state the evaluator
+    doesn't expose. The min-off enforcement is a v2 TODO; this test
+    suite documents the v1 behaviour so a future regression doesn't
+    silently re-introduce the gap.
+    """
+
+    def test_on_when_temp_above_target(self):
+        from mlss_monitor.effectors.ac import AC
+        ctrl = AC()
+        assert ctrl.should_be_on(
+            {"temperature": 28.0}, {"target": 22.0},
+        ) is True
+
+    def test_off_when_temp_below_target(self):
+        from mlss_monitor.effectors.ac import AC
+        ctrl = AC()
+        assert ctrl.should_be_on(
+            {"temperature": 18.0}, {"target": 22.0},
+        ) is False
+
+    def test_off_at_exact_target(self):
+        from mlss_monitor.effectors.ac import AC
+        ctrl = AC()
+        assert ctrl.should_be_on(
+            {"temperature": 22.0}, {"target": 22.0},
+        ) is False
+
+    def test_off_when_no_target_set(self):
+        from mlss_monitor.effectors.ac import AC
+        ctrl = AC()
+        assert ctrl.should_be_on({"temperature": 28.0}, {}) is False
+
+    def test_min_off_compressor_protection_not_enforced_in_v1(self):
+        """Regression guard for the documented v1 limitation.
+
+        Calling should_be_on twice in quick succession with the same
+        hot reading must return True both times — v1 has no runtime
+        memory of "we just switched off, give the compressor 5 min".
+        That memory belongs to the evaluator scheduler in v2.
+        """
+        from mlss_monitor.effectors.ac import AC
+        ctrl = AC()
+        reading = {"temperature": 28.0}
+        rules = {"target": 22.0}
+        # Two back-to-back calls; v1 has no min-off state so both vote ON.
+        assert ctrl.should_be_on(reading, rules) is True
+        assert ctrl.should_be_on(reading, rules) is True
+
+    def test_compatible_scopes_is_hub_only(self):
+        from mlss_monitor.effectors.ac import AC
+        from mlss_monitor.effectors.base import Scope
+        assert AC.compatible_scopes() == {Scope.HUB}
