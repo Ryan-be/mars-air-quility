@@ -31,3 +31,32 @@ export async function fetchTopology(fetchFn = fetch) {
   }
   return r.json();
 }
+
+
+/**
+ * POST /api/effectors/<id>/state — set an effector's mode.
+ *
+ * Body is `{state: "auto"|"on"|"off"}`. `on` + `off` also flip
+ * `auto_mode=0` server-side (forced override); `auto` re-enables
+ * rule-driven control. Returns the parsed response body.
+ *
+ * Surfaced errors:
+ *   * 400 — invalid state value (validated server-side).
+ *   * 403 — viewer role (controller + admin only).
+ *   * 404 — effector id not found.
+ *
+ * @param {number} effectorId Numeric smart_plugs.id (e.g. 1).
+ * @param {"auto"|"on"|"off"} mode
+ * @param {Function} [fetchFn=fetch] Stubbed in tests.
+ */
+export async function setEffectorState(effectorId, mode, fetchFn = fetch) {
+  const r = await fetchFn(`/api/effectors/${effectorId}/state`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ state: mode }),
+  });
+  if (!r.ok) {
+    throw new Error(`setEffectorState HTTP ${r.status}`);
+  }
+  return r.json();
+}

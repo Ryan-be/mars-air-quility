@@ -143,3 +143,79 @@
 .tp-sidepanel:not(.hidden) {
     transform: translateX(0);
 }
+
+/* ─────────────────────── Graph inner / pan-zoom wrapper ─────────────────── */
+
+/* The world wrapper — `transform: translate(x,y) scale(k)` is applied
+   inline by applyViewport(). This element sits inside .tp-graph (the
+   host) and contains both the SVG edge layer and the HTML node layer.
+   transform-origin is top-left (0 0) so the viewport coords map to
+   pixels directly. */
+.tp-graph-inner {
+    position: absolute;
+    left: 0;
+    top: 0;
+    transform-origin: 0 0;
+    will-change: transform;
+}
+
+/* SVG edge layer — sits ABOVE the host's dotted background, BELOW
+   the HTML nodes layer. overflow:visible lets edges that exit the
+   nominal SVG viewport still render (they're absolutely positioned
+   in world coords anyway). */
+.tp-graph-svg {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 1px;          /* edges paint via overflow:visible */
+    height: 1px;
+    overflow: visible;
+    pointer-events: none;
+}
+
+.tp-edges {
+    pointer-events: none;
+}
+
+.tp-edge {
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    opacity: 0.65;
+}
+
+/* HTML node layer — sits on top of the SVG. Each node card is
+   absolutely positioned via inline left/top set by renderGraph().
+   The translate(-50%, -50%) centres the card on its world position
+   so the auto-layout maths can pretend cards are point-like. */
+.tp-nodes-layer {
+    position: absolute;
+    left: 0;
+    top: 0;
+    pointer-events: auto;
+}
+
+.tp-node {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    user-select: none;
+    cursor: grab;
+    will-change: transform;
+}
+
+.tp-node:active,
+.tp-node.dragging {
+    cursor: grabbing;
+    z-index: 10;
+}
+
+/* Cursor on the panning canvas itself. The SVG layer above is
+   pointer-events:none so the cursor falls through to the host. */
+.tp-graph {
+    cursor: grab;
+}
+
+.tp-graph.panning {
+    cursor: grabbing;
+}
+

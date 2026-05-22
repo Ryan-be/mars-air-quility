@@ -118,3 +118,44 @@ test("boot: tolerates missing hosts without throwing", async () => {
   // body looks like afterwards.
   await boot({ fetchFn: _mockFetch({hub:{},grows:[],effectors:[],layout:{}}) });
 });
+
+
+test("boot: with hub + grow + effector, renders 2 edges and 3 nodes", async () => {
+  // Phase 5 Task 5.7: after a successful /api/topology fetch the
+  // graph host should contain a fully-rendered topology — one edge
+  // per parent-child pair, one node div per node. This is the
+  // integration test that proves boot wires renderGraph into the
+  // host correctly.
+  const dom = _newDom();
+  global.EventSource = _mockEventSourceCtor();
+  const payload = {
+    hub: {
+      id: "hub", kind: "hub", label: "MLSS Hub",
+      sensors: { temp: 22.5, rh: 55, co2: 700 },
+    },
+    grows: [
+      {
+        id: "grow:1", kind: "grow", label: "Grow #1",
+        plant_type: "tomato", phase: "vegetative",
+        sensors: { soil_moisture: 60, soil_temp_c: 21, air_temp_c: 22 },
+      },
+    ],
+    effectors: [
+      {
+        id: "effector:1", kind: "effector", parent: "hub",
+        label: "Room fan", effector_type: "fan",
+        mode: "auto", current_state: "off", is_enabled: 1,
+      },
+    ],
+    layout: {},
+  };
+  // Note: boot wires up edges parent→child. With 1 hub-effector
+  // (parent=hub) we get one edge; the grow has parent=hub implicitly
+  // via the topology endpoint (the boot adds it). Total = 2 edges.
+  await boot({ fetchFn: _mockFetch(payload) });
+  const graph = dom.window.document.getElementById("tp-graph-host");
+  const edges = graph.querySelectorAll("path.tp-edge");
+  const nodes = graph.querySelectorAll(".tp-node");
+  assert.equal(edges.length, 2, `expected 2 edges, got ${edges.length}`);
+  assert.equal(nodes.length, 3, `expected 3 node divs, got ${nodes.length}`);
+});
