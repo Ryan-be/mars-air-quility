@@ -1,6 +1,7 @@
 import sqlite3
 
 from config import config
+from database.effectors_schema import create_effectors_schema
 from database.grow_schema import create_grow_schema
 
 DB_FILE = config.get("DB_FILE", "data/sensor_data.db")
@@ -478,6 +479,12 @@ def create_db():
 
     # Plant Grow Unit tables (Phase 1)
     create_grow_schema(cur)
+
+    # MLSS topology — smart_plugs + node_layout. Must run AFTER
+    # create_grow_schema so the FK to grow_units(id) is satisfied. Idempotent
+    # via CREATE TABLE IF NOT EXISTS; the fan-seed step is INSERT OR IGNORE
+    # on the unique kasa_host so re-running is a no-op.
+    create_effectors_schema(cur)
 
     # Backup outbox tables (Pi-side queue for the dual-write backup feature)
     from database import backup_schema
