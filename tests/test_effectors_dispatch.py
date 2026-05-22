@@ -528,3 +528,42 @@ class TestCO2InjectorController:
         from mlss_monitor.effectors.generic import CO2Injector
         from mlss_monitor.effectors.base import Scope
         assert CO2Injector.compatible_scopes() == {Scope.HUB}
+
+
+# ── Task 3.4: Registry ─────────────────────────────────────────────────────
+
+
+def _all_known_effector_types():
+    from database.effectors_schema import _EFFECTOR_TYPES
+    return _EFFECTOR_TYPES
+
+
+class TestControllerRegistry:
+    """The registry must resolve every type from the canonical list."""
+
+    def test_unknown_type_returns_none(self):
+        from mlss_monitor.effectors.registry import controller_for
+        assert controller_for("spaceship") is None
+
+    def test_returns_class_not_instance(self):
+        """controller_for returns the class so the evaluator instantiates
+        per tick — keeps any future per-instance state local to the tick."""
+        from mlss_monitor.effectors.registry import controller_for
+        from mlss_monitor.effectors.fan import Fan
+        cls = controller_for("fan")
+        assert cls is Fan
+        # Quick sanity check: instantiation works.
+        assert isinstance(cls(), Fan)
+
+    @pytest.mark.parametrize("etype", _all_known_effector_types())
+    def test_every_known_type_resolves(self, etype):
+        """Parity guard: any addition to _EFFECTOR_TYPES must come with a
+        registry entry, or the evaluator will silently skip it."""
+        from mlss_monitor.effectors.registry import controller_for
+        cls = controller_for(etype)
+        assert cls is not None, (
+            f"No registry entry for effector_type {etype!r} — add one to "
+            "mlss_monitor/effectors/registry.py::_REGISTRY"
+        )
+        # Class's own effector_type string should match the registry key.
+        assert cls.effector_type == etype
