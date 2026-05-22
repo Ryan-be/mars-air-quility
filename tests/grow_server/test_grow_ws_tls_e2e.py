@@ -242,7 +242,7 @@ async def test_ws_client_handshakes_with_pinned_cert_against_self_signed_listene
     SSLContext logic in isolation; this is the cross-package proof.
     """
     pytest.importorskip("mlss_grow")
-    from mlss_grow.ws_client import WSClient
+    from mlss_grow.ws_client import WSClient, _default_connect
 
     port, token, registry, cert_path = tls_server_with_cert_path
     _seed_resolver_with_loopback(monkeypatch)
@@ -250,6 +250,15 @@ async def test_ws_client_handshakes_with_pinned_cert_against_self_signed_listene
     # The listener cert was issued for CN=127.0.0.1 + SAN dnsName=127.0.0.1.
     # Connect to 127.0.0.1 so hostname verification (kept ON for the pinned
     # cert path) can succeed.
+    #
+    # Bypass the host_resolver chain by injecting _default_connect as the
+    # explicit connect_fn. The resolver path (hub_candidates) reads from
+    # /etc/mlss/host and /etc/mlss/host-cache, which aren't seeded in CI,
+    # so it would either yield no candidates or yield ones that don't
+    # point at the test listener on 127.0.0.1. The connect_fn injection
+    # is the documented test-only escape hatch (see _try_connect_once
+    # docstring) — the URL is then used as-is, which is exactly what
+    # this stack-level test needs.
     received_commands = []
     client = WSClient(
         url=f"wss://127.0.0.1:{port}/api/grow/1/ws",
@@ -257,6 +266,7 @@ async def test_ws_client_handshakes_with_pinned_cert_against_self_signed_listene
         buffer_db_path=":memory:",  # not used for this test
         on_command=received_commands.append,
         server_cert_path=cert_path,
+        connect_fn=_default_connect,
     )
 
     ok = await client._connect_once()
@@ -285,7 +295,7 @@ async def test_ws_client_fails_when_pinned_cert_is_for_a_different_host(
     from cryptography.hazmat.primitives import hashes, serialization
     from cryptography.hazmat.primitives.asymmetric import rsa
     from cryptography.x509.oid import NameOID
-    from mlss_grow.ws_client import WSClient
+    from mlss_grow.ws_client import WSClient, _default_connect
     _dt = datetime
     _td = timedelta
 
@@ -309,12 +319,17 @@ async def test_ws_client_fails_when_pinned_cert_is_for_a_different_host(
     bogus_path = tmp_path / "wrong.crt"
     bogus_path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
 
+    # Inject connect_fn to bypass host_resolver — same reason as the
+    # positive-case test above. Without this, the assertion would pass
+    # spuriously via HostUnreachable from an unseeded resolver chain,
+    # never actually exercising the TLS mismatch we're testing.
     client = WSClient(
         url=f"wss://127.0.0.1:{port}/api/grow/1/ws",
         token=token,
         buffer_db_path=":memory:",
         on_command=lambda cmd: None,
         server_cert_path=str(bogus_path),
+        connect_fn=_default_connect,
     )
     ok = await client._connect_once()
     assert ok is False, "pinning the wrong cert must cause handshake failure"
