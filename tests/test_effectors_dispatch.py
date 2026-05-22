@@ -405,3 +405,86 @@ class TestDehumidifierController:
         from mlss_monitor.effectors.humidity import Dehumidifier
         from mlss_monitor.effectors.base import Scope
         assert Dehumidifier.compatible_scopes() == {Scope.HUB}
+
+
+# ── Task 3.3d: LightSupplementary controller ──────────────────────────────
+
+
+class TestLightSupplementary:
+    """Schedule-driven: ON when current UTC hour falls in any range.
+
+    Rule shape: ``{"schedule": [{"start_hr": 6, "end_hr": 18}, ...]}``.
+    Multiple ranges allow split photoperiods (rare but cheap to support).
+    Sensor reading isn't consulted — schedule is the only input.
+    """
+
+    def test_on_when_hour_inside_range(self, monkeypatch):
+        import mlss_monitor.effectors.light as lm
+        from mlss_monitor.effectors.light import LightSupplementary
+
+        class _FakeDT:
+            @classmethod
+            def utcnow(cls):
+                # Anchor at 10:00 UTC for deterministic test.
+                from datetime import datetime
+                return datetime(2026, 5, 22, 10, 0, 0)
+
+        monkeypatch.setattr(lm, "datetime", _FakeDT)
+        ctrl = LightSupplementary()
+        assert ctrl.should_be_on(
+            {}, {"schedule": [{"start_hr": 6, "end_hr": 18}]},
+        ) is True
+
+    def test_off_when_hour_outside_range(self, monkeypatch):
+        import mlss_monitor.effectors.light as lm
+        from mlss_monitor.effectors.light import LightSupplementary
+
+        class _FakeDT:
+            @classmethod
+            def utcnow(cls):
+                from datetime import datetime
+                return datetime(2026, 5, 22, 22, 0, 0)
+
+        monkeypatch.setattr(lm, "datetime", _FakeDT)
+        ctrl = LightSupplementary()
+        assert ctrl.should_be_on(
+            {}, {"schedule": [{"start_hr": 6, "end_hr": 18}]},
+        ) is False
+
+    def test_on_when_in_any_of_multiple_ranges(self, monkeypatch):
+        import mlss_monitor.effectors.light as lm
+        from mlss_monitor.effectors.light import LightSupplementary
+
+        class _FakeDT:
+            @classmethod
+            def utcnow(cls):
+                from datetime import datetime
+                return datetime(2026, 5, 22, 23, 0, 0)
+
+        monkeypatch.setattr(lm, "datetime", _FakeDT)
+        ctrl = LightSupplementary()
+        # 23:00 falls in the late evening boost range
+        assert ctrl.should_be_on(
+            {},
+            {"schedule": [
+                {"start_hr": 6,  "end_hr": 10},
+                {"start_hr": 22, "end_hr": 24},
+            ]},
+        ) is True
+
+    def test_off_when_no_schedule_set(self):
+        from mlss_monitor.effectors.light import LightSupplementary
+        ctrl = LightSupplementary()
+        assert ctrl.should_be_on({}, {}) is False
+
+    def test_off_when_schedule_is_empty_list(self):
+        from mlss_monitor.effectors.light import LightSupplementary
+        ctrl = LightSupplementary()
+        assert ctrl.should_be_on({}, {"schedule": []}) is False
+
+    def test_compatible_scopes_includes_hub_and_grow(self):
+        from mlss_monitor.effectors.light import LightSupplementary
+        from mlss_monitor.effectors.base import Scope
+        scopes = LightSupplementary.compatible_scopes()
+        assert Scope.HUB in scopes
+        assert Scope.GROW_UNIT in scopes
