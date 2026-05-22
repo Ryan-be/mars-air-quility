@@ -148,6 +148,22 @@ class TestSSEAllEventTypes:
         assert "event: daily_forecast_update" in raw
         assert '"date": "2026-03-28"' in raw
 
+    def test_stream_receives_effector_state_changed(self, sse_app):
+        """Phase 3 added the effector_state_changed event published by
+        both the evaluator loop and the v2 API's apply_state helper.
+        The SSE bus is event-name-agnostic so this should already pass;
+        kept as a regression guard so a future stream filter that adds
+        an allowlist doesn't silently drop the new event."""
+        client, bus = sse_app
+        bus.publish("effector_state_changed", {
+            "id": 1, "state": "on", "auto": True,
+        })
+        resp = client.get("/api/stream")
+        raw = resp.get_data(as_text=True)
+        assert "event: effector_state_changed" in raw
+        assert '"state": "on"' in raw
+        assert '"auto": true' in raw
+
     def test_all_event_types_delivered_to_single_stream(self, sse_app):
         """All 6 event types arrive on a single SSE connection."""
         client, bus = sse_app
