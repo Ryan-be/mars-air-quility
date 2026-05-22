@@ -541,3 +541,97 @@ def test_get_unit_light_windows_preserves_sort_order(client, tmp_path):
         {"start": "10:00", "end": "12:00"},
         {"start": "20:00", "end": "22:00"},
     ]
+
+
+# ---------------------------------------------------------------------------
+# Phase 9 Task 9.3 — GET unit response includes an `effectors` array
+# ---------------------------------------------------------------------------
+#
+# The grow-unit Configure tab renders a "+ Add effector" button + lists
+# the smart_plugs currently scoped to this unit. To keep the cold start
+# a single fetch (matching the rest of the unit detail page), the GET
+# /api/grow/units/<id> response is augmented with an `effectors` array.
+#
+# Each entry surfaces just enough for the section header to render:
+# id, label, effector_type, current_state, auto_mode. The fleet-card
+# code path remains untouched — the new key is purely additive on the
+# detail response.
+
+
+def _seed_smart_plug(db_path, *, label, etype, grow_unit_id, kasa_host,
+                     current_state="off", auto_mode=1):
+    """Helper: INSERT one smart_plugs row pinned to a grow_unit."""
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "INSERT INTO smart_plugs "
+        "(label, effector_type, scope, grow_unit_id, kasa_host, "
+        " protocol, is_enabled, auto_mode, rules_json, current_state, "
+        " created_at) "
+        "VALUES (?, ?, 'grow_unit', ?, ?, 'kasa', 1, ?, ?, ?, ?)",
+        (label, etype, grow_unit_id, kasa_host, int(auto_mode),
+         json.dumps({}), current_state, datetime.utcnow().isoformat()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def test_get_unit_includes_effectors_array(client, tmp_path):
+    """GET /api/grow/units/<id> must include the effectors scoped to
+    that unit. The frontend's Configure tab uses this to render the
+    "Effectors for this unit" section without a second fetch.
+    """
+    db_path = str(tmp_path / "test.db")
+    uid = _unit_id(client)  # Tomato 1
+    # Seed two effectors on this unit + one on a different unit so we
+    # can also assert the filter (different-unit plugs must not bleed
+    # into the response).
+    _seed_smart_plug(
+        db_path, label="Tent heater", etype="heat_pad",
+        grow_unit_id=uid, kasa_host="192.0.2.50",
+        current_state="on", auto_mode=1,
+    )
+    _seed_smart_plug(
+        db_path, label="Tent humidifier", etype="humidifier",
+        grow_unit_id=uid, kasa_host="192.0.2.51",
+        current_state="off", auto_mode=0,
+    )
+    # Different unit (id=2 in fixture) — must NOT appear in unit 1's
+    # response.
+    other_uid = _unit_id(client, label="Basil 1")
+    _seed_smart_plug(
+        db_path, label="Other tent heater", etype="heat_pad",
+        grow_unit_id=other_uid, kasa_host="192.0.2.52",
+    )
+
+    body = client.get(f"/api/grow/units/{uid}").get_json()
+    assert "effectors" in body, \
+        f"expected 'effectors' in response, got keys {list(body.keys())}"
+    effs = body["effectors"]
+    assert isinstance(effs, list)
+    labels = {e["label"] for e in effs}
+    assert labels == {"Tent heater", "Tent humidifier"}, \
+        f"expected only this unit's effectors, got {labels}"
+    by_label = {e["label"]: e for e in effs}
+    # The lean per-effector payload: id, label, effector_type,
+    # current_state, auto_mode.
+    heater = by_label["Tent heater"]
+    assert heater["effector_type"] == "heat_pad"
+    assert heater["current_state"] == "on"
+    assert heater["auto_mode"] in (1, True)
+    assert isinstance(heater["id"], int)
+    humid = by_label["Tent humidifier"]
+    assert humid["effector_type"] == "humidifier"
+    assert humid["current_state"] == "off"
+    # auto_mode=0 was set above — assert it surfaces (0 or False both ok).
+    assert humid["auto_mode"] in (0, False)
+
+
+def test_get_unit_effectors_is_empty_list_when_unit_has_none(client):
+    """A unit with no scoped effectors must surface an empty list — the
+    frontend renders the "+ Add effector" button against the empty list
+    case so the response shape must match across populated and empty
+    states."""
+    uid = _unit_id(client)
+    body = client.get(f"/api/grow/units/{uid}").get_json()
+    assert body.get("effectors") == [], \
+        "effectors key must be present as [] even when no plugs scoped"

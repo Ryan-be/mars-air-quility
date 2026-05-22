@@ -1828,3 +1828,88 @@
   }
 }
 
+
+/* ─── Effectors-for-this-unit section (Configure tab, Phase 9 Task 9.3) ─── */
+/* Lists smart_plugs scoped to a grow unit, with a + Add effector
+   button that opens the topology add-effector modal. Sits at the foot
+   of the Configure tab below the existing editors. */
+
+.du-effectors-body {
+  padding: 8px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.du-effectors-empty {
+  color: #c2d2e3;
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.du-effectors-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.du-effectors-row {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 70px 70px;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 10px;
+  background: rgba(16, 25, 35, .35);
+  border: 1px solid rgba(77, 172, 255, .12);
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+.du-effectors-label {
+  color: #fff;
+  font-weight: 500;
+}
+
+.du-effectors-type {
+  font-family: 'Roboto Mono', monospace;
+  font-size: 11px;
+  color: #b0bec5;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+.du-effectors-state,
+.du-effectors-mode {
+  font-family: 'Roboto Mono', monospace;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  text-align: center;
+  padding: 2px 6px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, .05);
+}
+
+.du-effectors-state-on    { color: #56f000; }
+.du-effectors-state-off   { color: #a4abb6; }
+.du-effectors-state-unknown { color: #a4abb6; }
+.du-effectors-mode-auto   { color: #2dccff; }
+.du-effectors-mode-forced { color: #ffb302; }
+
+.du-effectors-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 6px;
+  border-top: 1px solid rgba(77, 172, 255, .08);
+}
+
+.du-effectors-add {
+  font-size: 12px;
+  padding: 6px 14px;
+}
+

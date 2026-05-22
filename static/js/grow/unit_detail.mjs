@@ -458,13 +458,141 @@ async function renderLiveContent(body, unit, doc = document) {
 }
 
 
-/** Render the Configure tab body — five panels (Profile, PID, Light
- *  windows, Calibration, Safety override). Phase 3 Task 4 moved the
- *  per-unit token rotator to the Diagnostics tab Danger Zone where
- *  the rest of the operational/admin actions live. Token rotation is
- *  not "configuration" — it's an operations action with operational
- *  side-effects (the unit goes offline) — so co-locating it with
- *  decommission + clear-buffer makes the mental model cleaner.
+/** Render the "Effectors for this unit" section — surfaced in the
+ *  Configure tab below the existing editors (Phase 9 Task 9.3). Lists
+ *  the smart_plugs scoped to this unit (from the augmented
+ *  unit.effectors field on the GET /api/grow/units/<id> response) and
+ *  shows an admin-only "+ Add effector" button.
+ *
+ *  The button dynamic-imports the topology add-effector-modal so the
+ *  grow tree doesn't pull in the topology module at page load. On
+ *  successful create the section re-renders against a freshly-fetched
+ *  unit so the new row appears without a full page refresh.
+ */
+export function renderUnitEffectorsSection(unit, doc = document) {
+  const panel = doc.createElement("div");
+  panel.className = "du-panel";
+  panel.dataset.testid = "unit-effectors-section";
+
+  const head = doc.createElement("div");
+  head.className = "du-panel-head";
+  head.innerHTML = "<span>⚡ Effectors for this unit</span>";
+  panel.appendChild(head);
+
+  const body = doc.createElement("div");
+  body.className = "du-effectors-body";
+  panel.appendChild(body);
+
+  // Render the row list. Empty list still renders the section + button
+  // — the operator needs the "+ Add effector" affordance even when
+  // they're about to create the first one for this unit.
+  const effectors = unit.effectors || [];
+  if (effectors.length === 0) {
+    const empty = doc.createElement("p");
+    empty.className = "du-effectors-empty";
+    empty.textContent =
+      "No effectors scoped to this unit yet. Add a heat pad, "
+      + "humidifier, or supplementary light to control this canopy.";
+    body.appendChild(empty);
+  } else {
+    const list = doc.createElement("ul");
+    list.className = "du-effectors-list";
+    for (const eff of effectors) {
+      const row = doc.createElement("li");
+      row.className = "du-effectors-row";
+      row.dataset.testid = "unit-effector-row";
+      // Three columns: label, type pill, state pill, mode pill.
+      // Plain text content for now — the Phase 8 side panel will own
+      // any further configuration interactions per effector.
+      const stateText = (eff.current_state || "unknown").toLowerCase();
+      const modeText = eff.auto_mode ? "auto" : "forced";
+      const typeLabel = (eff.effector_type || "")
+        .replace(/_/g, " ");
+      row.innerHTML = `
+        <span class="du-effectors-label">${eff.label}</span>
+        <span class="du-effectors-type">${typeLabel}</span>
+        <span class="du-effectors-state du-effectors-state-${stateText}">
+          ${stateText}
+        </span>
+        <span class="du-effectors-mode du-effectors-mode-${modeText}">
+          ${modeText}
+        </span>
+      `;
+      list.appendChild(row);
+    }
+    body.appendChild(list);
+  }
+
+  // Admin-only + Add effector button.
+  if (doc.body && doc.body.dataset.role === "admin") {
+    const btnRow = doc.createElement("div");
+    btnRow.className = "du-effectors-actions";
+    const btn = doc.createElement("button");
+    btn.type = "button";
+    btn.className = "px-btn primary du-effectors-add";
+    btn.dataset.testid = "unit-add-effector-btn";
+    btn.textContent = "+ Add effector";
+    btn.addEventListener("click", async () => {
+      // Lazy-load the topology modal so non-admins on this tab don't
+      // pay the import cost. Failures here are logged + surfaced via
+      // the modal's own error pane (if it mounts) — we can't show a
+      // useful error inside the section without duplicating chrome.
+      try {
+        const mod = await import(
+          "../topology/components/add-effector-modal.mjs"
+        );
+        mod.openAddEffectorModal({
+          ownerDocument: doc,
+          defaultScope: "grow_unit",
+          defaultGrowUnitId: unit.id,
+          onCreated: async () => {
+            // Re-fetch the unit + re-render the section so the new
+            // effector appears. We dispatch a custom event so the
+            // page-level orchestrator can decide whether to do a full
+            // re-render or just patch this section.
+            try {
+              const r = await fetch(`/api/grow/units/${unit.id}`);
+              if (r.ok) {
+                const fresh = await r.json();
+                const section = doc.querySelector(
+                  "[data-testid='unit-effectors-section']",
+                );
+                if (section && section.parentNode) {
+                  const fresher = renderUnitEffectorsSection(fresh, doc);
+                  section.parentNode.replaceChild(fresher, section);
+                }
+              }
+            } catch (_exc) {
+              // Refetch failed — the operator can hit Reload manually.
+              // The new effector is already persisted server-side.
+            }
+          },
+        });
+      } catch (exc) {
+        // eslint-disable-next-line no-console
+        console.error("Failed to open add-effector modal:", exc);
+      }
+    });
+    btnRow.appendChild(btn);
+    body.appendChild(btnRow);
+  }
+
+  return panel;
+}
+
+
+/** Render the Configure tab body — six panels (Profile, PID, Light
+ *  windows, Calibration, Safety override, Effectors for this unit).
+ *  Phase 3 Task 4 moved the per-unit token rotator to the Diagnostics
+ *  tab Danger Zone where the rest of the operational/admin actions
+ *  live. Token rotation is not "configuration" — it's an operations
+ *  action with operational side-effects (the unit goes offline) — so
+ *  co-locating it with decommission + clear-buffer makes the mental
+ *  model cleaner.
+ *
+ *  Phase 9 Task 9.3 added the Effectors section so admins can scope a
+ *  heat pad / humidifier / supplementary light to this unit without
+ *  navigating away to /controls.
  */
 function renderConfigureContent(body, unit, doc = document) {
   body.appendChild(renderProfileEditor(unit, { ownerDocument: doc }));
@@ -473,6 +601,7 @@ function renderConfigureContent(body, unit, doc = document) {
   body.appendChild(renderCalibrationWizard(unit, { ownerDocument: doc }));
   body.appendChild(renderPhotoScheduleEditor(unit, { ownerDocument: doc }));
   body.appendChild(renderSafetyOverride(unit, { ownerDocument: doc }));
+  body.appendChild(renderUnitEffectorsSection(unit, doc));
 }
 
 

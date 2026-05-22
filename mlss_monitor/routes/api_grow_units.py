@@ -423,7 +423,55 @@ def get_unit(unit_id):
             {"start": r["start_hh_mm"], "end": r["end_hh_mm"]}
         )
     body["light_windows"] = light_windows
+    # Phase 9 Task 9.3 — surface the smart_plugs scoped to this unit so
+    # the Configure tab's "Effectors for this unit" section can render
+    # without a second fetch. Lean payload (id, label, effector_type,
+    # current_state, auto_mode) matches the plan's per-row brief — the
+    # full plug data is still available via GET /api/effectors/<id>
+    # when the operator opens the Phase 8 side panel.
+    body["effectors"] = _list_effectors_for_unit(unit_id)
     return jsonify(body)
+
+
+def _list_effectors_for_unit(unit_id: int) -> list[dict]:
+    """Return the lean per-effector payload for one grow unit.
+
+    Wraps a short-lived sqlite3.Row read so the Configure tab gets one
+    fetch instead of two. Returns ``[]`` when the unit has no scoped
+    plugs — the frontend's "+ Add effector" button renders against the
+    empty list, so the shape must be present even with zero rows.
+    """
+    conn = sqlite3.connect(DB_FILE, timeout=5)
+    conn.row_factory = sqlite3.Row
+    try:
+        # ``smart_plugs`` was created by Phase 1 schema migration; on a
+        # very old DB that pre-dates the topology feature the table may
+        # not exist. Tolerate that by returning [] so the rest of the
+        # response still renders.
+        try:
+            rows = conn.execute(
+                "SELECT id, label, effector_type, current_state, auto_mode "
+                "FROM smart_plugs WHERE grow_unit_id=? "
+                "ORDER BY id",
+                (unit_id,),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return []
+    finally:
+        conn.close()
+    return [
+        {
+            "id":            r["id"],
+            "label":         r["label"],
+            "effector_type": r["effector_type"],
+            "current_state": r["current_state"],
+            # Boolean-ify the SQLite INTEGER so JSON callers can do
+            # `if (eff.auto_mode)` without a parseInt — matches the
+            # treatment for other 0/1 columns on this endpoint.
+            "auto_mode":     bool(r["auto_mode"]),
+        }
+        for r in rows
+    ]
 
 
 def _push_command_blocking(unit_id: int, command: dict) -> tuple[int, dict]:
