@@ -17,6 +17,8 @@ slow-response thermal mass of a heated room or pad.
 """
 from __future__ import annotations
 
+from datetime import datetime
+
 from mlss_monitor.effectors.base import EffectorController, Scope
 
 
@@ -37,6 +39,28 @@ def _hub_temperature(reading: dict) -> float | None:
     return None
 
 
+def _below_target_reason(rule_name: str, temp: float | None,
+                         target: float | None, units: str,
+                         missing_label: str) -> dict:
+    """One-rule reason row for the heater family (ON when temp < target)."""
+    if temp is None:
+        return {
+            "rule":   rule_name,
+            "fired":  False,
+            "detail": f"No {missing_label} reading available",
+        }
+    if target is None:
+        return {
+            "rule":   rule_name,
+            "fired":  False,
+            "detail": "No target temperature configured",
+        }
+    fired = temp < target
+    detail = (f"{temp:.1f}{units} < {target}{units} target" if fired
+              else f"{temp:.1f}{units} ≥ {target}{units} target")
+    return {"rule": rule_name, "fired": fired, "detail": detail}
+
+
 class WholeRoomHeater(EffectorController):
     """Hub-scope room heater. ON when air temp < target."""
 
@@ -48,6 +72,19 @@ class WholeRoomHeater(EffectorController):
         if temp is None or target is None:
             return False
         return temp < float(target)
+
+    def evaluate(self, reading: dict, rules: dict) -> dict:
+        temp = _hub_temperature(reading)
+        target_raw = rules.get("target")
+        target = float(target_raw) if target_raw is not None else None
+        reason = _below_target_reason(
+            "RoomTempRule", temp, target, "°C", "temperature",
+        )
+        return {
+            "decision":     "on" if reason["fired"] else "off",
+            "evaluated_at": datetime.utcnow().isoformat(),
+            "reasons":      [reason],
+        }
 
     @classmethod
     def compatible_scopes(cls) -> set[Scope]:
@@ -78,6 +115,27 @@ class HeatPad(EffectorController):
         if air is not None:
             return float(air) < target_f
         return False
+
+    def evaluate(self, reading: dict, rules: dict) -> dict:
+        target_raw = rules.get("target")
+        target = float(target_raw) if target_raw is not None else None
+        soil = reading.get("soil_temp_c")
+        if soil is not None:
+            reason = _below_target_reason(
+                "SoilTempRule", float(soil), target, "°C", "soil temperature",
+            )
+        else:
+            air = reading.get("air_temp_c")
+            reason = _below_target_reason(
+                "AirTempFallbackRule",
+                float(air) if air is not None else None,
+                target, "°C", "soil or air temperature",
+            )
+        return {
+            "decision":     "on" if reason["fired"] else "off",
+            "evaluated_at": datetime.utcnow().isoformat(),
+            "reasons":      [reason],
+        }
 
     @classmethod
     def compatible_scopes(cls) -> set[Scope]:

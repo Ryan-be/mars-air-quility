@@ -20,6 +20,8 @@ loop alongside the carbon-filter min-on guard so both classes of
 """
 from __future__ import annotations
 
+from datetime import datetime
+
 from mlss_monitor.effectors.base import EffectorController, Scope
 
 
@@ -34,6 +36,43 @@ class AC(EffectorController):
         if temp is None or target is None:
             return False
         return float(temp) > float(target)
+
+    def evaluate(self, reading: dict, rules: dict) -> dict:
+        """Rich decision shape for the side-panel "Why?" surface."""
+        temp = reading.get("temperature")
+        target = rules.get("target")
+        reasons: list[dict] = []
+        if temp is None:
+            reasons.append({
+                "rule":   "TargetTempRule",
+                "fired":  False,
+                "detail": "No temperature reading available",
+            })
+        elif target is None:
+            reasons.append({
+                "rule":   "TargetTempRule",
+                "fired":  False,
+                "detail": "No target temperature configured",
+            })
+        else:
+            temp_f = float(temp)
+            target_f = float(target)
+            fired = temp_f > target_f
+            if fired:
+                detail = f"{temp_f:.1f}°C > {target_f}°C target"
+            else:
+                detail = f"{temp_f:.1f}°C ≤ {target_f}°C target"
+            reasons.append({
+                "rule":   "TargetTempRule",
+                "fired":  fired,
+                "detail": detail,
+            })
+        decision_on = any(r["fired"] for r in reasons)
+        return {
+            "decision":     "on" if decision_on else "off",
+            "evaluated_at": datetime.utcnow().isoformat(),
+            "reasons":      reasons,
+        }
 
     @classmethod
     def compatible_scopes(cls) -> set[Scope]:

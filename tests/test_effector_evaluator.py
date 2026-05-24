@@ -197,6 +197,53 @@ class TestEvaluateOnceHubFan:
         assert payload["state"] == "on"
         assert payload["auto"] is True
 
+    def test_persists_last_evaluation_on_every_pass(self, eval_env):
+        """Side-panel "Why?" surface depends on a fresh evaluation blob
+        every tick (not just on state changes) so operators see the
+        latest rule-by-rule reasoning even when the fan stays ON."""
+        import mlss_monitor.effectors.store as store_module
+        db_path, state_module = eval_env
+        plug_id = _seed_hub_fan(db_path, current_state="off")
+        state_module.smart_plugs = {plug_id: MagicMock()}
+        _stub_hub_reading(state_module, temperature=25.0)  # > 20.0 max
+
+        from mlss_monitor.effectors.evaluator import evaluate_once
+        evaluate_once()
+
+        row = store_module.get_smart_plug(plug_id)
+        assert row["last_evaluation"] is not None, (
+            "evaluator must persist last_evaluation on every pass"
+        )
+        ev = row["last_evaluation"]
+        assert ev["decision"] == "on"
+        assert "evaluated_at" in ev
+        assert isinstance(ev["reasons"], list)
+        assert ev["reasons"], "fan controller produces at least one reason"
+        # Temperature rule should have fired with a human-readable detail.
+        temp_reasons = [r for r in ev["reasons"] if r["rule"] == "TemperatureRule"]
+        assert temp_reasons and temp_reasons[0]["fired"] is True
+        assert "25" in temp_reasons[0]["detail"]
+        assert "20" in temp_reasons[0]["detail"]
+
+    def test_persists_evaluation_even_when_decision_unchanged(self, eval_env):
+        """Idempotence note: store.update_last_state and SSE publish are
+        skipped when current_state matches the desired state — but the
+        evaluation blob still gets refreshed so the side-panel timestamp
+        keeps ticking."""
+        import mlss_monitor.effectors.store as store_module
+        db_path, state_module = eval_env
+        # current_state already "on", and the reading keeps it ON.
+        plug_id = _seed_hub_fan(db_path, current_state="on")
+        state_module.smart_plugs = {plug_id: MagicMock()}
+        _stub_hub_reading(state_module, temperature=25.0)
+
+        from mlss_monitor.effectors.evaluator import evaluate_once
+        evaluate_once()
+
+        row = store_module.get_smart_plug(plug_id)
+        assert row["last_evaluation"] is not None
+        assert row["last_evaluation"]["decision"] == "on"
+
 
 # ── evaluate_once: skip conditions ─────────────────────────────────────────
 

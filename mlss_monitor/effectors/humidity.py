@@ -17,6 +17,8 @@ case to calibrate against.
 """
 from __future__ import annotations
 
+from datetime import datetime
+
 from mlss_monitor.effectors.base import EffectorController, Scope
 
 
@@ -26,6 +28,36 @@ def _humidity(reading: dict) -> float | None:
     if val is None:
         return None
     return float(val)
+
+
+def _humidity_reason(rule_name: str, humidity: float | None,
+                     target: float | None, *, direction: str) -> dict:
+    """One-rule reason for the symmetric humidifier/dehumidifier pair.
+
+    ``direction='below'`` fires when humidity < target (Humidifier);
+    ``direction='above'`` fires when humidity > target (Dehumidifier).
+    """
+    if humidity is None:
+        return {
+            "rule":   rule_name,
+            "fired":  False,
+            "detail": "No humidity reading available",
+        }
+    if target is None:
+        return {
+            "rule":   rule_name,
+            "fired":  False,
+            "detail": "No target humidity configured",
+        }
+    if direction == "below":
+        fired = humidity < target
+        detail = (f"{humidity:.0f}% < {target}% target" if fired
+                  else f"{humidity:.0f}% ≥ {target}% target")
+    else:
+        fired = humidity > target
+        detail = (f"{humidity:.0f}% > {target}% target" if fired
+                  else f"{humidity:.0f}% ≤ {target}% target")
+    return {"rule": rule_name, "fired": fired, "detail": detail}
 
 
 class Humidifier(EffectorController):
@@ -39,6 +71,19 @@ class Humidifier(EffectorController):
         if humidity is None or target is None:
             return False
         return humidity < float(target)
+
+    def evaluate(self, reading: dict, rules: dict) -> dict:
+        humidity = _humidity(reading)
+        target_raw = rules.get("target")
+        target = float(target_raw) if target_raw is not None else None
+        reason = _humidity_reason(
+            "HumidityBelowTarget", humidity, target, direction="below",
+        )
+        return {
+            "decision":     "on" if reason["fired"] else "off",
+            "evaluated_at": datetime.utcnow().isoformat(),
+            "reasons":      [reason],
+        }
 
     @classmethod
     def compatible_scopes(cls) -> set[Scope]:
@@ -59,6 +104,19 @@ class Dehumidifier(EffectorController):
         if humidity is None or target is None:
             return False
         return humidity > float(target)
+
+    def evaluate(self, reading: dict, rules: dict) -> dict:
+        humidity = _humidity(reading)
+        target_raw = rules.get("target")
+        target = float(target_raw) if target_raw is not None else None
+        reason = _humidity_reason(
+            "HumidityAboveTarget", humidity, target, direction="above",
+        )
+        return {
+            "decision":     "on" if reason["fired"] else "off",
+            "evaluated_at": datetime.utcnow().isoformat(),
+            "reasons":      [reason],
+        }
 
     @classmethod
     def compatible_scopes(cls) -> set[Scope]:

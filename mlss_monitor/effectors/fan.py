@@ -22,6 +22,8 @@ seeded sensible defaults for the legacy fan row.
 """
 from __future__ import annotations
 
+from datetime import datetime
+
 from mlss_monitor.effectors._fan_rules import (
     FanAction,
     HumidityRule,
@@ -66,6 +68,36 @@ def _any_rule_says_on(reading: dict, rules: dict) -> bool:
     return False
 
 
+def _fan_family_evaluate(reading: dict, rules: dict) -> dict:
+    """Shared evaluate() implementation for the three fan controllers.
+
+    Walks every rule in :data:`_RULES` once, collecting one entry per
+    rule for the side-panel's "Why?" surface. Each entry surfaces the
+    rule class name (for colour-coding), whether that rule's vote is ON
+    (``fired``), and the human-readable detail string the legacy
+    ``/api/fan/auto-status`` endpoint already produced — so the
+    operator sees the same explanation copy they did before this branch.
+    """
+    sensor_reading = _reading_from_dict(reading)
+    reasons: list[dict] = []
+    decision_on = False
+    for rule in _RULES:
+        result = rule.evaluate(sensor_reading, rules)
+        fired = result.action == FanAction.ON
+        if fired:
+            decision_on = True
+        reasons.append({
+            "rule":   type(rule).__name__,
+            "fired":  fired,
+            "detail": result.reason,
+        })
+    return {
+        "decision":     "on" if decision_on else "off",
+        "evaluated_at": datetime.utcnow().isoformat(),
+        "reasons":      reasons,
+    }
+
+
 class Fan(EffectorController):
     """Whole-room exhaust fan — the legacy single Kasa plug."""
 
@@ -73,6 +105,9 @@ class Fan(EffectorController):
 
     def should_be_on(self, reading: dict, rules: dict) -> bool:
         return _any_rule_says_on(reading, rules)
+
+    def evaluate(self, reading: dict, rules: dict) -> dict:
+        return _fan_family_evaluate(reading, rules)
 
     @classmethod
     def compatible_scopes(cls) -> set[Scope]:
@@ -94,6 +129,9 @@ class FanCarbonFilter(EffectorController):
     def should_be_on(self, reading: dict, rules: dict) -> bool:
         return _any_rule_says_on(reading, rules)
 
+    def evaluate(self, reading: dict, rules: dict) -> dict:
+        return _fan_family_evaluate(reading, rules)
+
     @classmethod
     def compatible_scopes(cls) -> set[Scope]:
         return {Scope.HUB}
@@ -106,6 +144,9 @@ class CirculationFan(EffectorController):
 
     def should_be_on(self, reading: dict, rules: dict) -> bool:
         return _any_rule_says_on(reading, rules)
+
+    def evaluate(self, reading: dict, rules: dict) -> dict:
+        return _fan_family_evaluate(reading, rules)
 
     @classmethod
     def compatible_scopes(cls) -> set[Scope]:

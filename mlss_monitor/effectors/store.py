@@ -45,7 +45,8 @@ _COLUMNS = (
     "id", "label", "effector_type", "scope", "grow_unit_id",
     "kasa_host", "protocol", "is_enabled", "auto_mode",
     "rules_json", "layout_json", "current_state",
-    "current_state_at", "created_at", "updated_at",
+    "current_state_at", "last_evaluation_json",
+    "created_at", "updated_at",
 )
 
 
@@ -56,10 +57,17 @@ def _connect() -> sqlite3.Connection:
 
 
 def _row_to_dict(row: sqlite3.Row) -> dict:
-    """Convert a sqlite3.Row to a dict + parse rules_json / layout_json."""
+    """Convert a sqlite3.Row to a dict + parse JSON-blob columns.
+
+    Three columns are JSON-serialised on write and parsed on read:
+    * ``rules_json``           → ``rules``           (operator-configured thresholds)
+    * ``layout_json``          → ``layout``          (saved node position)
+    * ``last_evaluation_json`` → ``last_evaluation`` (per-tick reasoning)
+    """
     out = {k: row[k] for k in _COLUMNS}
     out["rules"] = _parse_json(out.pop("rules_json"))
     out["layout"] = _parse_json(out.pop("layout_json"))
+    out["last_evaluation"] = _parse_json(out.pop("last_evaluation_json"))
     return out
 
 
@@ -238,6 +246,38 @@ def update_last_state(plug_id: int, current_state: str) -> bool:
             "SET current_state = ?, current_state_at = ?, updated_at = ? "
             "WHERE id = ?",
             (current_state, now, now, plug_id),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def update_last_evaluation(plug_id: int, evaluation: dict) -> bool:
+    """Persist the per-tick rule-evaluation reasoning blob.
+
+    Called from the evaluator loop on every pass (regardless of whether
+    the desired state changed) so the side panel can answer "why is
+    this effector on/off right now?" without operators having to scrape
+    SSE history. The shape::
+
+        {
+          "decision": "on" | "off",
+          "evaluated_at": "<ISO>",
+          "reasons": [{"rule": "<Cls>", "fired": bool, "detail": "..."}, ...],
+        }
+
+    Returns ``False`` when the row id doesn't exist (e.g. the row was
+    deleted between the controller resolving and the write landing).
+    """
+    now = datetime.utcnow().isoformat()
+    conn = _connect()
+    try:
+        cur = conn.execute(
+            "UPDATE smart_plugs "
+            "SET last_evaluation_json = ?, updated_at = ? "
+            "WHERE id = ?",
+            (json.dumps(evaluation), now, plug_id),
         )
         conn.commit()
         return cur.rowcount > 0

@@ -38,6 +38,22 @@ _EFFECTOR_TYPES = (
 _SCOPES = ("hub", "grow_unit")
 
 
+def _add_column_if_missing(cur, table: str, col_def: str) -> None:
+    """ALTER TABLE … ADD COLUMN, skipped if the column already exists.
+
+    Mirrors :func:`database.grow_schema._add_column_if_missing`. ``col_def``
+    is the full column DDL (e.g. ``"last_evaluation_json TEXT"``); the
+    column name is the first whitespace-delimited token. PRAGMA-guarded
+    so a re-run on a DB that already has the column is a clean no-op
+    rather than a swallowed ALTER failure.
+    """
+    col_name = col_def.split()[0]
+    cur.execute(f"PRAGMA table_info({table})")
+    existing = {row[1] for row in cur.fetchall()}
+    if col_name not in existing:
+        cur.execute(f"ALTER TABLE {table} ADD COLUMN {col_def}")
+
+
 def create_effectors_schema(cur):
     """Create the ``smart_plugs`` + ``node_layout`` tables and seed the fan.
 
@@ -69,12 +85,19 @@ def create_effectors_schema(cur):
       layout_json      TEXT,
       current_state    TEXT,
       current_state_at DATETIME,
+      last_evaluation_json TEXT,
       created_at       DATETIME NOT NULL,
       updated_at       DATETIME,
       CHECK ((scope = 'hub'       AND grow_unit_id IS NULL) OR
              (scope = 'grow_unit' AND grow_unit_id IS NOT NULL))
     );
     """)
+    # Migrate older DBs to add the per-effector reasoning blob. The
+    # evaluator persists JSON of the form
+    # ``{"decision": "on"|"off", "evaluated_at": "...", "reasons": [...]}``
+    # on each pass so the side-panel can render "Why is the fan on/off?"
+    # without the operator having to scrape SSE history.
+    _add_column_if_missing(cur, "smart_plugs", "last_evaluation_json TEXT")
     cur.execute(
         "CREATE INDEX IF NOT EXISTS idx_smart_plugs_grow_unit "
         "ON smart_plugs(grow_unit_id)"

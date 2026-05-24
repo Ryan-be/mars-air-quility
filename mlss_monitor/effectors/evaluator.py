@@ -89,6 +89,13 @@ def _read_for_plug(plug: dict) -> dict | None:
 def evaluate_once() -> None:
     """One full pass over every smart_plug row. Idempotent + safe to
     call from a test (no side effects beyond DB writes + SSE publish).
+
+    For every enabled auto-mode row the controller's full
+    :meth:`EffectorController.evaluate` is called (not just
+    ``should_be_on``) so the per-rule reasoning dict can be persisted
+    via :func:`store.update_last_evaluation`. The side-panel "Why?"
+    surface reads that blob on every render — operators expect to see
+    the *latest* reasoning every tick, not only on state flips.
     """
     for plug in store.list_smart_plugs():
         if not plug["is_enabled"] or not plug["auto_mode"]:
@@ -104,8 +111,14 @@ def evaluate_once() -> None:
         reading = _read_for_plug(plug)
         if reading is None:
             continue
-        want_on = ctrl_cls().should_be_on(reading, plug["rules"] or {})
-        desired = "on" if want_on else "off"
+
+        evaluation = ctrl_cls().evaluate(reading, plug["rules"] or {})
+        # Persist the reasoning on every pass — even when the decision
+        # hasn't changed — so the side panel always shows the latest
+        # rule-by-rule explanation.
+        store.update_last_evaluation(plug["id"], evaluation)
+
+        desired = evaluation["decision"]
         if plug["current_state"] == desired:
             continue
         loop = getattr(state, "thread_loop", None)
@@ -116,7 +129,7 @@ def evaluate_once() -> None:
             continue
         try:
             future = asyncio.run_coroutine_threadsafe(
-                handle.switch(want_on), loop,
+                handle.switch(desired == "on"), loop,
             )
             future.result(timeout=5)
         except Exception as exc:  # pylint: disable=broad-except

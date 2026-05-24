@@ -15,10 +15,15 @@ controller subclasses. The evaluator loop
 controller per tick via :func:`mlss_monitor.effectors.registry.controller_for`
 and calls :meth:`EffectorController.should_be_on` to decide whether to
 flip the matching live plug handle on or off.
+
+For the side-panel "Why is the fan on/off?" surface, controllers also
+expose :meth:`EffectorController.evaluate` returning the rich
+``{decision, evaluated_at, reasons}`` shape — see method docstring.
 """
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from datetime import datetime
 from enum import Enum
 from typing import FrozenSet
 
@@ -94,6 +99,40 @@ class EffectorController(ABC):
     @abstractmethod
     def should_be_on(self, reading: dict, rules: dict) -> bool:
         """Return True iff the plug should be ON for this reading + rules."""
+
+    def evaluate(self, reading: dict, rules: dict) -> dict:
+        """Return a rich decision dict for the side-panel "Why?" surface.
+
+        Default implementation wraps :meth:`should_be_on` with an empty
+        reason list — fine for manual-only controllers (``generic``,
+        ``co2_injector``) where there's nothing to explain. Sensor-driven
+        controllers (Fan, AC, Heater, Humidifier, Dehumidifier, HeatPad,
+        LightSupplementary) override to populate one row per rule
+        iteration so the panel can render a vote-by-vote breakdown.
+
+        Shape::
+
+            {
+              "decision": "on" | "off",
+              "evaluated_at": "<ISO UTC>",
+              "reasons": [
+                {"rule": "TemperatureRule", "fired": True,
+                 "detail": "21.3 > 20.0 max"},
+                ...
+              ],
+            }
+
+        The ``rule`` value is the rule class name (or any short
+        machine-readable token) so the UI can colour-code each row;
+        ``fired`` is the per-rule ON vote; ``detail`` is the
+        human-readable threshold comparison.
+        """
+        want_on = self.should_be_on(reading, rules)
+        return {
+            "decision":     "on" if want_on else "off",
+            "evaluated_at": datetime.utcnow().isoformat(),
+            "reasons":      [],
+        }
 
     @classmethod
     @abstractmethod

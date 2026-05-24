@@ -53,6 +53,43 @@ class LightSupplementary(EffectorController):
                 return True
         return False
 
+    def evaluate(self, reading: dict, rules: dict) -> dict:
+        schedule = rules.get("schedule") or []
+        now = datetime.utcnow()
+        now_hour = now.hour
+        reasons: list[dict] = []
+        decision_on = False
+        if not schedule:
+            reasons.append({
+                "rule":   "ScheduleRule",
+                "fired":  False,
+                "detail": "No schedule windows configured",
+            })
+        else:
+            for window in schedule:
+                start = window.get("start_hr")
+                end = window.get("end_hr")
+                if start is None or end is None:
+                    continue
+                fired = int(start) <= now_hour < int(end)
+                if fired:
+                    decision_on = True
+                    detail = (f"Hour {now_hour:02d} is inside "
+                              f"{int(start):02d}-{int(end):02d}")
+                else:
+                    detail = (f"Hour {now_hour:02d} outside "
+                              f"{int(start):02d}-{int(end):02d}")
+                reasons.append({
+                    "rule":   "ScheduleRule",
+                    "fired":  fired,
+                    "detail": detail,
+                })
+        return {
+            "decision":     "on" if decision_on else "off",
+            "evaluated_at": now.isoformat(),
+            "reasons":      reasons,
+        }
+
     @classmethod
     def compatible_scopes(cls) -> set[Scope]:
         return {Scope.HUB, Scope.GROW_UNIT}
