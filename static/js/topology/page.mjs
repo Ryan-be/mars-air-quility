@@ -321,6 +321,7 @@ export async function boot({ fetchFn = fetch } = {}) {
         },
         onModeChange: _onMode,
         onReparent: _onReparent,
+        onDelete: _onDelete,
       },
     });
     sidepanelHost.replaceChildren(panel);
@@ -444,6 +445,40 @@ export async function boot({ fetchFn = fetch } = {}) {
       // than throwing — the topbar will reflect the canonical state.
       console.warn("setEffectorState failed:", exc);
     }
+  };
+
+  /**
+   * Delete an effector — admin-only DELETE /api/effectors/<id>.
+   *
+   * The side panel's "Delete effector" button already gated the call
+   * with window.confirm() so by the time this fires the operator has
+   * confirmed. Optimistic local update: remove the node from the store
+   * + drop the selection so the panel hides; if the server returns
+   * non-204 we log + refetch the topology so the UI re-syncs.
+   */
+  const _onDelete = async (effectorId) => {
+    const numericId = parseInt(effectorId.split(":")[1], 10);
+    try {
+      const resp = await fetchFn(`/api/effectors/${numericId}`, {
+        method: "DELETE",
+      });
+      if (!resp.ok) {
+        console.warn("DELETE /api/effectors/", numericId, "→", resp.status);
+        return;
+      }
+    } catch (exc) {
+      console.warn("onDelete failed:", exc);
+      return;
+    }
+    // Optimistic local removal — drop the node from the store + clear
+    // selection. mountGraph re-renders so the now-orphaned edges go.
+    store.nodes = store.nodes.filter((n) => n.id !== effectorId);
+    delete store.effectorById[effectorId];
+    delete store.positions[effectorId];
+    selectedNodeId = null;
+    mountGraph();
+    mountTopbar();
+    mountSidePanel();
   };
 
   /**

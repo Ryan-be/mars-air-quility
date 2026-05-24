@@ -35,6 +35,27 @@
  */
 
 import { renderModeBar } from "./mode-bar.mjs";
+import { renderSparkline } from "./sparkline.mjs";
+
+
+/** Humanise an ISO timestamp into "Xs ago" / "Xm ago" / "Xh ago" copy.
+ *
+ * The Why? section + Recent activity block both need a compact "how
+ * long ago did the evaluator last fire" string. Falls back to the raw
+ * ISO when parsing fails so the operator still sees *something*
+ * instead of "Invalid date".
+ */
+function _timeAgo(iso) {
+  if (!iso) return null;
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return iso;
+  const seconds = Math.max(0, Math.floor((Date.now() - then) / 1000));
+  if (seconds < 5)   return "just now";
+  if (seconds < 60)  return `${seconds}s ago`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  return `${Math.floor(seconds / 86400)}d ago`;
+}
 
 
 /**
@@ -168,6 +189,9 @@ function _renderHeader(doc, node, onClose) {
  *   `(effectorId, mode) => void` — Task 8.2 (delegates to setEffectorState).
  * @param {Function} [opts.callbacks.onRename]
  *   `(effectorId, newLabel) => void` — reserved for a later task.
+ * @param {Function} [opts.callbacks.onDelete]
+ *   `(effectorId) => void` — admin-only. Gated by ``window.confirm()``
+ *   inside the panel so the page boot just has to issue the DELETE.
  * @returns {HTMLElement} An <aside class="tp-sidepanel">.
  */
 export function renderSidePanel({
@@ -215,8 +239,13 @@ export function renderSidePanel({
 
 
 function _renderEffectorBody(body, node, allNodes, doc, isAdmin, callbacks) {
-  // Mode section — segmented AUTO/ON/OFF mirroring the on-card bar.
+  // Mode section — segmented AUTO/ON/OFF mirroring the on-card bar, but
+  // sized larger per the prototype's "bigseg" (38px tall in the design).
+  // The `.tp-sect-mode` class on the section + the bar's existing
+  // `.tp-modebar` class let topology.css apply the panel-only sizing
+  // without touching the on-card variant.
   const modeSect = _section(doc, "Mode");
+  modeSect.classList.add("tp-sect-mode");
   const bar = renderModeBar({
     nodeId: node.id,
     mode: node.mode,
@@ -227,8 +256,13 @@ function _renderEffectorBody(body, node, allNodes, doc, isAdmin, callbacks) {
     },
     doc,
   });
+  bar.classList.add("tp-panel-modebar");
   modeSect.appendChild(bar);
   body.appendChild(modeSect);
+
+  // Why? section — under the Mode bar so the operator sees the
+  // current decision + reasoning right next to the override controls.
+  body.appendChild(_renderWhySection(node, doc));
 
   // Power section — slider input for the desired output level (0-100%).
   // Per the spec the slider is visual-only in v1: the smart_plugs
@@ -263,17 +297,21 @@ function _renderEffectorBody(body, node, allNodes, doc, isAdmin, callbacks) {
   });
   row.appendChild(readout);
   powerSect.appendChild(row);
+
+  // Last-known reading — shows what the plug is actually doing today
+  // (vs the slider's staged change). For binary on/off plugs that's
+  // 100/0 derived from current_state; once we track real per-plug
+  // power readings the field will move to node.power_w.
+  const lastKnown = doc.createElement("div");
+  lastKnown.className = "tp-power-last-known";
+  const reading = node.current_state === "on" ? "100%" : "0%";
+  lastKnown.textContent = `Last reading: ${reading}`;
+  powerSect.appendChild(lastKnown);
   body.appendChild(powerSect);
 
-  // Belongs-to picker — Task 8.3 (re-parent control). Stays after
-  // Power so the most-common interactions (Mode, Power) live at the
-  // top of the panel.
-  body.appendChild(_renderBelongsToPicker(node, allNodes, doc, callbacks));
-
-  // Schedule grid — Task 8.4 (render-only with v2 marker).
-  body.appendChild(_renderScheduleGrid(node, doc));
-
   // Hardware section — read-only kv grid of the wire-level details.
+  // Kept above Belongs-to/Schedule so operators looking at the panel
+  // to identify which plug they've selected don't have to scroll.
   const hwSect = _section(doc, "Hardware");
   const hwGrid = _kvGrid(doc);
   _kv(doc, hwGrid, "Type", node.effector_type);
@@ -281,6 +319,153 @@ function _renderEffectorBody(body, node, allNodes, doc, isAdmin, callbacks) {
   _kv(doc, hwGrid, "Protocol", node.protocol || "kasa");
   hwSect.appendChild(hwGrid);
   body.appendChild(hwSect);
+
+  // Belongs-to picker — Task 8.3 (re-parent control). Stays after
+  // the wire-level Hardware block so the picker doesn't push every
+  // other section off-screen on small viewports.
+  body.appendChild(_renderBelongsToPicker(node, allNodes, doc, callbacks));
+
+  // Schedule grid — Task 8.4 (render-only with v2 marker).
+  body.appendChild(_renderScheduleGrid(node, doc));
+
+  // Danger zone — admin-only Delete effector button at the bottom.
+  // Confirmation dialog gates the destructive call so a stray click
+  // doesn't drop a configured plug.
+  if (isAdmin) {
+    body.appendChild(_renderDeleteAdmin(node, doc, callbacks));
+  }
+}
+
+
+/**
+ * Render the "Why?" reasoning section under the Mode bar. Three cases:
+ *
+ * 1. Manual override (``mode === 'on'`` / ``mode === 'off'``) →
+ *    "Forced ON|OFF by operator".
+ * 2. Manual-only types (``generic`` / ``co2_injector``) → "Manual
+ *    control — no auto rules" regardless of last_evaluation contents.
+ * 3. Auto with a last_evaluation blob → decision pill ("ON because…")
+ *    + one row per reason + an "evaluated Xs ago" timestamp.
+ *
+ * Backwards-compatible: a node without ``last_evaluation`` shows a
+ * "Not yet evaluated" placeholder so operators see *something* on a
+ * fresh-from-migration row.
+ */
+function _renderWhySection(node, doc) {
+  const sect = _section(doc, "Why?");
+  sect.classList.add("tp-why-section");
+
+  const decision = doc.createElement("div");
+  decision.className = "tp-why-decision";
+  sect.appendChild(decision);
+
+  // Case 1: operator override.
+  if (node.mode === "on") {
+    decision.textContent = "Forced ON by operator";
+    decision.dataset.state = "on";
+    return sect;
+  }
+  if (node.mode === "off") {
+    decision.textContent = "Forced OFF by operator";
+    decision.dataset.state = "off";
+    return sect;
+  }
+
+  // Case 2: manual-only effector type.
+  const manualTypes = new Set(["generic", "co2_injector"]);
+  if (manualTypes.has(node.effector_type)) {
+    decision.textContent = "Manual control — no auto rules";
+    decision.dataset.state = "manual";
+    return sect;
+  }
+
+  // Case 3: auto + last_evaluation. Render decision pill + reason rows.
+  const evaluation = node.last_evaluation;
+  if (!evaluation) {
+    decision.textContent = "Not yet evaluated — waiting for the next tick";
+    decision.dataset.state = "pending";
+    return sect;
+  }
+
+  const verdict = evaluation.decision === "on" ? "ON" : "OFF";
+  decision.dataset.state = evaluation.decision;
+  decision.textContent = `${verdict} because`;
+
+  const reasonsList = doc.createElement("ul");
+  reasonsList.className = "tp-why-reasons";
+  for (const r of (evaluation.reasons || [])) {
+    const li = doc.createElement("li");
+    li.className = "tp-why-reason";
+    if (r.fired) li.classList.add("tp-why-reason-fired");
+    const mark = doc.createElement("span");
+    mark.className = "tp-why-mark";
+    // U+2713 check mark (fired) / U+2715 multiplication (no vote) — the
+    // CSS colours them green / dim grey respectively.
+    mark.textContent = r.fired ? "✓" : "✕";
+    li.appendChild(mark);
+    const rule = doc.createElement("span");
+    rule.className = "tp-why-rule";
+    rule.textContent = r.rule;
+    li.appendChild(rule);
+    const detail = doc.createElement("span");
+    detail.className = "tp-why-detail";
+    detail.textContent = r.detail || "";
+    li.appendChild(detail);
+    reasonsList.appendChild(li);
+  }
+  if (!reasonsList.childNodes.length) {
+    // Empty reasons list (e.g. a typed controller with no rules
+    // configured yet) — fall back to the manual-only placeholder so the
+    // operator gets useful copy instead of a blank section.
+    decision.textContent = "Manual control — no auto rules";
+    decision.dataset.state = "manual";
+  } else {
+    sect.appendChild(reasonsList);
+  }
+
+  const ago = _timeAgo(evaluation.evaluated_at);
+  if (ago) {
+    const ts = doc.createElement("div");
+    ts.className = "tp-why-evaluated-at";
+    ts.textContent = `Evaluated ${ago}`;
+    sect.appendChild(ts);
+  }
+  return sect;
+}
+
+
+/**
+ * Render the admin-only Delete-effector button block.
+ *
+ * The destructive call is gated by ``window.confirm()`` so a stray
+ * click on the bottom-of-panel button doesn't drop the plug. The
+ * page-level ``onDelete`` callback (passed in via callbacks) handles
+ * the network call + the post-delete store mutation.
+ */
+function _renderDeleteAdmin(node, doc, callbacks) {
+  const sect = _section(doc, "Danger zone");
+  sect.classList.add("tp-danger-zone");
+  const btn = doc.createElement("button");
+  btn.type = "button";
+  btn.className = "tp-delete-effector-btn";
+  btn.dataset.testid = "tp-delete-effector";
+  btn.textContent = "Delete effector";
+  btn.addEventListener("click", () => {
+    const win = doc.defaultView || globalThis;
+    const confirmFn = (win && typeof win.confirm === "function")
+      ? win.confirm
+      : globalThis.confirm;
+    const msg = `Delete "${node.label || node.id}"?\n\n` +
+      "This removes the smart_plugs row + clears its persisted layout. " +
+      "The physical plug isn't touched.";
+    const ok = typeof confirmFn === "function" ? confirmFn(msg) : false;
+    if (!ok) return;
+    if (typeof callbacks.onDelete === "function") {
+      callbacks.onDelete(node.id);
+    }
+  });
+  sect.appendChild(btn);
+  return sect;
 }
 
 
@@ -450,10 +635,17 @@ function _renderScheduleGrid(node, doc) {
 
 
 function _renderGrowBody(body, node, allNodes, doc, callbacks) {
-  // Plant section — kv-grid of plant_type / phase / medium.
+  // Plant section — plant_type chip + medium/phase kv-grid. The chip
+  // matches the on-card chip styling so the panel and the graph card
+  // visually agree on which species this is.
   const plantSect = _section(doc, "Plant");
+  if (node.plant_type) {
+    const chip = doc.createElement("span");
+    chip.className = "tp-plant-chip";
+    chip.textContent = node.plant_type;
+    plantSect.appendChild(chip);
+  }
   const plantGrid = _kvGrid(doc);
-  _kv(doc, plantGrid, "Plant", node.plant_type);
   _kv(doc, plantGrid, "Phase", node.phase);
   _kv(doc, plantGrid, "Medium", node.medium);
   plantSect.appendChild(plantGrid);
@@ -477,6 +669,22 @@ function _renderGrowBody(body, node, allNodes, doc, callbacks) {
   _kv(doc, sensorsGrid, "Air humidity",
     sensors.air_humidity_pct == null ? "—" : `${sensors.air_humidity_pct} %`);
   sensorsSect.appendChild(sensorsGrid);
+
+  // Soil moisture sparkline — the prototype renders a trend chart in
+  // the grow panel so operators can see whether the plant is drying
+  // out. The history buffer lives on the page boot's per-node history
+  // dict; until SSE wires it through, the sparkline is an empty SVG
+  // shell so the layout doesn't shift when the first values land.
+  const sparkWrap = doc.createElement("div");
+  sparkWrap.className = "tp-grow-soil-spark";
+  const history = (node.history && node.history.soil_moisture) || [];
+  sparkWrap.appendChild(renderSparkline({
+    values: history,
+    color: "var(--color-status-normal, #56f000)",
+    height: 28,
+    ownerDocument: doc,
+  }));
+  sensorsSect.appendChild(sparkWrap);
   body.appendChild(sensorsSect);
 
   // Linked effectors section — list every effector parented to this
@@ -560,7 +768,10 @@ function _renderHubBody(body, node, allNodes, doc) {
   body.appendChild(coordSect);
 
   // Subsystems section — count rollups so the operator can scan the
-  // hub's role at a glance.
+  // hub's role at a glance. Rendered as pills (vs the plain kv-grid
+  // used elsewhere) so the numeric values jump out — the operator's
+  // first scan of the panel is "how many things am I managing right
+  // now?".
   const subSect = _section(doc, "Subsystems");
   const subGrid = doc.createElement("div");
   subGrid.className = "tp-kv-grid tp-subsystems-grid";
@@ -569,9 +780,48 @@ function _renderHubBody(body, node, allNodes, doc) {
   const active = allNodes.filter(
     (n) => n.kind === "effector" && n.current_state === "on",
   ).length;
-  _kv(doc, subGrid, "Grow units", String(grows));
-  _kv(doc, subGrid, "Effectors", String(effectors));
-  _kv(doc, subGrid, "Active now", String(active));
+  for (const [label, value, kind] of [
+    ["Grows", grows, "grow"],
+    ["Effectors", effectors, "effector"],
+    ["Active", active, "active"],
+  ]) {
+    const k = doc.createElement("span");
+    k.className = "tp-kv-k";
+    k.textContent = label;
+    subGrid.appendChild(k);
+    const v = doc.createElement("span");
+    v.className = "tp-kv-v tp-subsystems-pill";
+    v.dataset.pill = kind;
+    v.textContent = String(value);
+    subGrid.appendChild(v);
+  }
   subSect.appendChild(subGrid);
   body.appendChild(subSect);
+
+  // Recent activity section — surfaces the freshest evaluator pass
+  // across all effectors as a single "evaluator last ran Xs ago"
+  // breadcrumb, plus how many effectors are currently in auto-mode.
+  // Helps the operator notice if the evaluator has stalled.
+  const recentSect = _section(doc, "Recent activity");
+  const evaluations = allNodes
+    .filter((n) => n.kind === "effector" && n.last_evaluation
+      && n.last_evaluation.evaluated_at)
+    .map((n) => n.last_evaluation.evaluated_at)
+    .sort()
+    .reverse();
+  const recent = doc.createElement("div");
+  recent.className = "tp-recent-activity";
+  if (evaluations.length === 0) {
+    recent.textContent = "No auto-mode evaluations recorded yet";
+  } else {
+    const latest = _timeAgo(evaluations[0]);
+    const autoCount = allNodes.filter(
+      (n) => n.kind === "effector" && n.mode === "auto",
+    ).length;
+    recent.textContent =
+      `Evaluator last ran ${latest} · ${autoCount} effector` +
+      `${autoCount === 1 ? "" : "s"} in auto-mode`;
+  }
+  recentSect.appendChild(recent);
+  body.appendChild(recentSect);
 }

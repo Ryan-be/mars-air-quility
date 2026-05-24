@@ -714,6 +714,283 @@ test("boot: admin cog click does NOT trigger a node drag", async () => {
 });
 
 
+// ─── Side-panel density polish (operator-feedback fixes) ───────────────
+
+
+test("effector panel: Mode bar is sized for the panel (not the on-card 18px)", () => {
+  // The panel's Mode bar is the prototype's "bigseg" — larger than the
+  // on-card mode bar so the operator can tap a segment confidently.
+  // We assert the wrapper class is present so the CSS can theme it.
+  const dom = _newDom();
+  const el = renderSidePanel({
+    node: sampleEffector, allNodes: [sampleHub, sampleEffector],
+    doc: dom.window.document, isAdmin: true, callbacks: {},
+  });
+  const panelModeWrap = el.querySelector(".tp-sect-mode .tp-modebar, .tp-panel-modebar");
+  assert.ok(panelModeWrap,
+    "panel Mode section wrapper carries .tp-sect-mode (or .tp-panel-modebar) for sizing");
+});
+
+
+test("effector panel: Power section shows last-known power reading next to slider", () => {
+  // The slider shows the operator's target; alongside it the panel
+  // surfaces "Last known: 100%" so the operator can see what the plug
+  // is actually doing today vs the staged change.
+  const dom = _newDom();
+  const node = {
+    ...sampleEffector,
+    target_power: 75,
+    current_state: "on",
+  };
+  const el = renderSidePanel({
+    node, allNodes: [sampleHub, node],
+    doc: dom.window.document, isAdmin: true, callbacks: {},
+  });
+  const lastKnown = el.querySelector(".tp-power-last-known");
+  assert.ok(lastKnown,
+    "Power section includes a .tp-power-last-known display");
+});
+
+
+test("effector panel: admin sees a Delete effector button at the bottom", () => {
+  const dom = _newDom();
+  const el = renderSidePanel({
+    node: sampleEffector, allNodes: [sampleHub, sampleEffector],
+    doc: dom.window.document, isAdmin: true, callbacks: {},
+  });
+  const del = el.querySelector("[data-testid='tp-delete-effector']");
+  assert.ok(del, "admin sees a Delete effector button");
+  assert.match(del.textContent.toLowerCase(), /delete/);
+});
+
+
+test("effector panel: non-admin does NOT see the Delete button", () => {
+  const dom = _newDom();
+  const el = renderSidePanel({
+    node: sampleEffector, allNodes: [sampleHub, sampleEffector],
+    doc: dom.window.document, isAdmin: false, callbacks: {},
+  });
+  const del = el.querySelector("[data-testid='tp-delete-effector']");
+  assert.equal(del, null,
+    "viewers don't see the Delete effector button");
+});
+
+
+test("effector panel: Delete button click without confirm does NOT fire onDelete", () => {
+  // The Delete handler uses window.confirm() to gate the destructive
+  // call. JSDOM's default confirm() returns true; we stub it to false
+  // here to assert the gate.
+  const dom = _newDom();
+  dom.window.confirm = () => false;
+  let deleteCalls = 0;
+  const el = renderSidePanel({
+    node: sampleEffector, allNodes: [sampleHub, sampleEffector],
+    doc: dom.window.document, isAdmin: true,
+    callbacks: { onDelete: () => { deleteCalls += 1; } },
+  });
+  el.querySelector("[data-testid='tp-delete-effector']")
+    .dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+  assert.equal(deleteCalls, 0,
+    "Delete must wait for window.confirm() approval");
+});
+
+
+test("effector panel: Delete with confirm fires onDelete(effectorId)", () => {
+  const dom = _newDom();
+  dom.window.confirm = () => true;
+  const calls = [];
+  const el = renderSidePanel({
+    node: sampleEffector, allNodes: [sampleHub, sampleEffector],
+    doc: dom.window.document, isAdmin: true,
+    callbacks: { onDelete: (id) => calls.push(id) },
+  });
+  el.querySelector("[data-testid='tp-delete-effector']")
+    .dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+  assert.deepEqual(calls, ["effector:7"]);
+});
+
+
+test("grow panel: includes a soil moisture sparkline placeholder", () => {
+  // The prototype renders a sparkline of soil moisture history in the
+  // grow panel. Even without history yet, the SVG container is in the
+  // DOM so a future sensor_update can populate it.
+  const dom = _newDom();
+  const el = renderSidePanel({
+    node: sampleGrow, allNodes: [sampleHub, sampleGrow],
+    doc: dom.window.document, isAdmin: true, callbacks: {},
+  });
+  const spark = el.querySelector(".tp-grow-soil-spark");
+  assert.ok(spark, "grow panel has a soil moisture sparkline container");
+});
+
+
+test("grow panel: plant_type renders as a chip element", () => {
+  const dom = _newDom();
+  const el = renderSidePanel({
+    node: sampleGrow, allNodes: [sampleHub, sampleGrow],
+    doc: dom.window.document, isAdmin: true, callbacks: {},
+  });
+  const chip = el.querySelector(".tp-plant-chip");
+  assert.ok(chip, "plant_type renders as a chip");
+  assert.match(chip.textContent, /tomato/i);
+});
+
+
+test("hub panel: Subsystems block uses pill-styled count cells", () => {
+  const dom = _newDom();
+  const el = renderSidePanel({
+    node: sampleHub, allNodes: [sampleHub, sampleGrow, sampleEffector],
+    doc: dom.window.document, isAdmin: true, callbacks: {},
+  });
+  // Pills carry a data-pill attribute so the CSS targets them
+  // independently from the kv-grid styling.
+  const pills = el.querySelectorAll(".tp-subsystems-grid [data-pill]");
+  assert.ok(pills.length >= 3,
+    `expected 3+ subsystems pills, got ${pills.length}`);
+});
+
+
+test("hub panel: includes a Recent activity section", () => {
+  const dom = _newDom();
+  const el = renderSidePanel({
+    node: sampleHub, allNodes: [sampleHub, sampleGrow, sampleEffector],
+    doc: dom.window.document, isAdmin: true, callbacks: {},
+  });
+  const headings = Array.from(el.querySelectorAll(".tp-sect-h"))
+    .map((h) => h.textContent.trim().toLowerCase());
+  assert.ok(headings.some((h) => h.includes("recent activity")),
+    `expected a Recent activity section, got ${JSON.stringify(headings)}`);
+});
+
+
+// ─── Task 6 follow-up: Why? section on the effector panel ───────────────
+
+
+test("effector panel (auto): includes a 'Why?' section under the Mode bar", () => {
+  const dom = _newDom();
+  const node = {
+    ...sampleEffector,
+    mode: "auto",
+    last_evaluation: {
+      decision: "on",
+      evaluated_at: new Date(Date.now() - 3000).toISOString(),
+      reasons: [
+        {rule: "TemperatureRule", fired: true,  detail: "21.3°C > 20.0°C max"},
+        {rule: "TVOCRule",        fired: false, detail: "120 < 500 max"},
+      ],
+    },
+  };
+  const el = renderSidePanel({
+    node, allNodes: [sampleHub, node],
+    doc: dom.window.document, isAdmin: true, callbacks: {},
+  });
+  const why = el.querySelector(".tp-why-section");
+  assert.ok(why, "panel has a Why? section");
+  // Decision pill is present
+  assert.ok(why.querySelector(".tp-why-decision"),
+    "decision pill present");
+  // One reason row per rule (2 rules → 2 rows)
+  const rows = why.querySelectorAll(".tp-why-reason");
+  assert.equal(rows.length, 2, `expected 2 reason rows, got ${rows.length}`);
+  // The detail strings come through
+  assert.match(why.textContent, /21\.3/);
+  assert.match(why.textContent, /TVOC/i);
+});
+
+
+test("effector panel (auto): Why? section shows 'ON because' on decision=on", () => {
+  const dom = _newDom();
+  const node = {
+    ...sampleEffector,
+    mode: "auto",
+    last_evaluation: {
+      decision: "on",
+      evaluated_at: new Date().toISOString(),
+      reasons: [{rule: "TemperatureRule", fired: true, detail: "hot"}],
+    },
+  };
+  const el = renderSidePanel({
+    node, allNodes: [sampleHub, node],
+    doc: dom.window.document, isAdmin: true, callbacks: {},
+  });
+  const decision = el.querySelector(".tp-why-decision");
+  assert.match(decision.textContent.toLowerCase(), /on/,
+    "decision pill reads 'ON'");
+});
+
+
+test("effector panel (manual on): Why? section says 'Forced ON by operator'", () => {
+  const dom = _newDom();
+  const node = {
+    ...sampleEffector,
+    mode: "on",
+    current_state: "on",
+    last_evaluation: null,
+  };
+  const el = renderSidePanel({
+    node, allNodes: [sampleHub, node],
+    doc: dom.window.document, isAdmin: true, callbacks: {},
+  });
+  const why = el.querySelector(".tp-why-section");
+  assert.ok(why, "panel still shows a Why? section in manual mode");
+  assert.match(why.textContent.toLowerCase(), /forced on/,
+    "manual on → 'Forced ON by operator'");
+});
+
+
+test("effector panel (manual off): Why? section says 'Forced OFF by operator'", () => {
+  const dom = _newDom();
+  const node = {
+    ...sampleEffector,
+    mode: "off",
+    current_state: "off",
+  };
+  const el = renderSidePanel({
+    node, allNodes: [sampleHub, node],
+    doc: dom.window.document, isAdmin: true, callbacks: {},
+  });
+  const why = el.querySelector(".tp-why-section");
+  assert.match(why.textContent.toLowerCase(), /forced off/);
+});
+
+
+test("effector panel (generic, no rules): Why? section says 'Manual control'", () => {
+  const dom = _newDom();
+  const node = {
+    ...sampleEffector,
+    effector_type: "generic",
+    mode: "auto",
+    last_evaluation: {
+      decision: "off",
+      evaluated_at: new Date().toISOString(),
+      reasons: [],
+    },
+  };
+  const el = renderSidePanel({
+    node, allNodes: [sampleHub, node],
+    doc: dom.window.document, isAdmin: true, callbacks: {},
+  });
+  const why = el.querySelector(".tp-why-section");
+  assert.match(why.textContent.toLowerCase(), /manual control|no auto rules/);
+});
+
+
+test("effector panel (auto, never evaluated): Why? section says 'Not yet evaluated'", () => {
+  const dom = _newDom();
+  const node = {
+    ...sampleEffector,
+    mode: "auto",
+    last_evaluation: null,
+  };
+  const el = renderSidePanel({
+    node, allNodes: [sampleHub, node],
+    doc: dom.window.document, isAdmin: true, callbacks: {},
+  });
+  const why = el.querySelector(".tp-why-section");
+  assert.match(why.textContent.toLowerCase(), /not yet evaluated|waiting/);
+});
+
+
 test("boot: clicking close × on an open panel re-hides it", async () => {
   const dom = _bootDom();
   await boot({ fetchFn: _mockFetch({

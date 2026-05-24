@@ -1041,3 +1041,173 @@
     line-height: 1.5;
     color: var(--color-text-secondary, #b0bec5);
 }
+
+/* ─── Side-panel density polish ──────────────────────────────────────── */
+/* Operator-feedback fixes — bring panel content closer to the prototype
+   density. The selectors below all carry .tp- prefixes so they don't
+   collide with any of the shared component CSS. */
+
+/* Bigger Mode bar on the panel (vs the compact on-card variant). The
+   on-card bar uses .tp-modebar at ~18px button height; the panel's
+   version doubles that so the operator can tap the segments cleanly. */
+.tp-sect-mode .tp-modebar.tp-panel-modebar {
+    gap: 4px;
+}
+
+.tp-sect-mode .tp-modebar.tp-panel-modebar button {
+    padding: 10px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+}
+
+/* "Last reading: 100%" copy under the Power slider. */
+.tp-power-last-known {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: var(--color-text-tertiary, #6b7d8d);
+    margin-top: 2px;
+}
+
+/* Why? section — decision pill + reason list + timestamp. */
+.tp-why-section .tp-why-decision {
+    font-size: 13px;
+    font-weight: 600;
+    padding: 6px 10px;
+    border-radius: 4px;
+    background: var(--color-background-surface-hover, #172635);
+}
+
+.tp-why-section .tp-why-decision[data-state="on"] {
+    color: var(--color-status-normal, #56f000);
+    border-left: 3px solid var(--color-status-normal, #56f000);
+}
+
+.tp-why-section .tp-why-decision[data-state="off"] {
+    color: var(--color-text-secondary, #b0bec5);
+    border-left: 3px solid var(--color-status-off, #9ea7ad);
+}
+
+.tp-why-section .tp-why-decision[data-state="manual"],
+.tp-why-section .tp-why-decision[data-state="pending"] {
+    color: var(--color-text-secondary, #b0bec5);
+    border-left: 3px solid var(--color-border-interactive-muted, #2b659b);
+}
+
+.tp-why-reasons {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.tp-why-reason {
+    display: grid;
+    grid-template-columns: 16px auto 1fr;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--color-text-secondary, #b0bec5);
+}
+
+.tp-why-mark {
+    color: var(--color-text-tertiary, #6b7d8d);
+    text-align: center;
+}
+
+.tp-why-reason-fired .tp-why-mark {
+    color: var(--color-status-normal, #56f000);
+}
+
+.tp-why-rule {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    color: var(--color-text-primary, #ffffff);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+}
+
+.tp-why-detail {
+    color: var(--color-text-secondary, #b0bec5);
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tp-why-evaluated-at {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: var(--color-text-tertiary, #6b7d8d);
+}
+
+/* Plant chip on the grow panel (mirrors the on-card species chip). */
+.tp-plant-chip {
+    display: inline-block;
+    padding: 3px 8px;
+    background: var(--color-background-surface-hover, #172635);
+    color: var(--color-status-normal, #56f000);
+    border: 1px solid var(--color-status-normal, #56f000);
+    border-radius: 12px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+}
+
+/* Soil moisture sparkline container on the grow panel. */
+.tp-grow-soil-spark {
+    margin-top: 6px;
+    width: 100%;
+}
+
+/* Pill-styled subsystems values on the hub panel. */
+.tp-subsystems-pill {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: var(--color-background-surface-hover, #172635);
+    text-align: center;
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-weight: 600;
+}
+
+.tp-subsystems-pill[data-pill="active"] {
+    color: var(--color-status-normal, #56f000);
+}
+
+/* Recent activity breadcrumb on the hub panel. */
+.tp-recent-activity {
+    font-size: 11px;
+    color: var(--color-text-secondary, #b0bec5);
+    line-height: 1.5;
+}
+
+/* Danger zone — Delete effector button on the bottom of the effector
+   panel. The button uses a critical-red colour so the operator visually
+   distinguishes it from the other buttons in the panel. */
+.tp-danger-zone {
+    border-top: 1px solid var(--color-background-surface-hover, #172635);
+    padding-top: 14px;
+    margin-top: 10px;
+}
+
+.tp-delete-effector-btn {
+    width: 100%;
+    padding: 10px 14px;
+    background: transparent;
+    color: var(--color-status-critical, #ff3b3b);
+    border: 1px solid var(--color-status-critical, #ff3b3b);
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.tp-delete-effector-btn:hover {
+    background: rgba(255, 59, 59, 0.1);
+}
