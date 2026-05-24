@@ -193,6 +193,16 @@ def test_topology_returns_full_snapshot(topo_client):
     assert ac["parent"] == "hub"
     assert ac["effector_type"] == "ac"
 
+    # Wire-level details surfaced so the side panel can read them on
+    # first paint without a follow-up GET /api/effectors/<id>.
+    for eff in effs:
+        assert "kasa_host" in eff
+        assert "protocol" in eff
+        assert "auto_mode" in eff
+        # Per-tick reasoning blob — None until the evaluator runs.
+        assert "last_evaluation" in eff
+        assert eff["last_evaluation"] is None
+
     # ── Layout ─────────────────────────────────────────────────────
     assert body["layout"]["hub"] == {"x": 100.0, "y": 50.0}
 

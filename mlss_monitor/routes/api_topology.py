@@ -147,16 +147,25 @@ def _effector_node(plug: dict) -> dict:
     off either the hub or a specific grow. ``mode`` collapses
     ``auto_mode`` + ``current_state`` into the three-state label the
     AUTO/ON/OFF segmented control uses.
+
+    ``last_evaluation`` carries the per-tick rule-reasoning dict so the
+    side-panel "Why?" surface can render on the very first paint
+    without a follow-up GET /api/effectors/<id> call. ``None`` until
+    the evaluator's first pass.
     """
     return {
-        "id":            f"effector:{plug['id']}",
-        "kind":          "effector",
-        "parent":        _effector_parent(plug),
-        "label":         plug["label"],
-        "effector_type": plug["effector_type"],
-        "mode":          _derive_mode(plug),
-        "current_state": plug["current_state"],
-        "is_enabled":    plug["is_enabled"],
+        "id":              f"effector:{plug['id']}",
+        "kind":            "effector",
+        "parent":          _effector_parent(plug),
+        "label":           plug["label"],
+        "effector_type":   plug["effector_type"],
+        "mode":            _derive_mode(plug),
+        "current_state":   plug["current_state"],
+        "is_enabled":      plug["is_enabled"],
+        "auto_mode":       plug["auto_mode"],
+        "last_evaluation": plug.get("last_evaluation"),
+        "kasa_host":       plug["kasa_host"],
+        "protocol":        plug["protocol"],
     }
 
 

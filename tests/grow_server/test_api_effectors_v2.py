@@ -130,6 +130,53 @@ class TestGetEffector:
         r = v2_client.get("/api/effectors/99999")
         assert r.status_code == 404
 
+    def test_response_includes_last_evaluation_field(self, v2_client):
+        """The side-panel "Why?" surface reads response['last_evaluation'].
+
+        Brand-new rows have ``None`` (the evaluator hasn't yet run);
+        after the evaluator's first pass the store writes the rich dict.
+        Either way the field must be present so the frontend can render
+        a "Not evaluated yet" placeholder without a key-existence check.
+        """
+        _login(v2_client, "admin")
+        post_body = v2_client.post("/api/effectors", json={
+            "label": "Filter fan", "effector_type": "fan",
+            "scope": "hub", "kasa_host": "192.0.2.111",
+        }).get_json()
+        new_id = post_body["id"]
+        r = v2_client.get(f"/api/effectors/{new_id}")
+        assert r.status_code == 200
+        body = r.get_json()
+        assert "last_evaluation" in body, (
+            "GET /api/effectors/<id> must include 'last_evaluation' field"
+        )
+        # Fresh row, no evaluator pass yet → None.
+        assert body["last_evaluation"] is None
+
+    def test_response_surfaces_persisted_evaluation(self, v2_client):
+        """Once store.update_last_evaluation() runs, GET returns the
+        parsed dict (not the raw JSON string)."""
+        import mlss_monitor.effectors.store as store_module
+        _login(v2_client, "admin")
+        post_body = v2_client.post("/api/effectors", json={
+            "label": "Filter fan", "effector_type": "fan",
+            "scope": "hub", "kasa_host": "192.0.2.112",
+        }).get_json()
+        new_id = post_body["id"]
+        evaluation = {
+            "decision": "on",
+            "evaluated_at": "2026-05-22T12:00:00",
+            "reasons": [
+                {"rule": "TemperatureRule", "fired": True,
+                 "detail": "21.3°C > 20.0°C max"},
+            ],
+        }
+        assert store_module.update_last_evaluation(new_id, evaluation)
+        r = v2_client.get(f"/api/effectors/{new_id}")
+        assert r.status_code == 200
+        body = r.get_json()
+        assert body["last_evaluation"] == evaluation
+
 
 # ── POST /api/effectors ────────────────────────────────────────────────────
 
