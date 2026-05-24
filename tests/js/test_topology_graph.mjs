@@ -206,7 +206,84 @@ test("setupPan: <2px movement is treated as a click (no onChange)", async () => 
 // ─── Task 5.5 — setupZoom ──────────────────────────────────────────────
 
 
-test("setupZoom: 10 wheel-down events clamp k at 0.3", async () => {
+test("setupZoom: a single wheel notch changes k by exactly 5%", async () => {
+  // Operator-feedback fix: the previous exp(-deltaY * 0.001) step
+  // could change k by 2-3x per single wheel notch on Windows because
+  // deltaY scales with the OS's "lines per scroll" setting. The new
+  // constant ratio means one notch is always exactly ±5% regardless
+  // of how aggressive the input device is.
+  const dom = new JSDOM(
+    "<!doctype html><html><body>" +
+    `<div id="wrap" style="width: 800px; height: 600px;">` +
+    `<svg class="tp-graph-svg"></svg></div>` +
+    "</body></html>",
+  );
+  global.window = dom.window;
+  global.document = dom.window.document;
+  const { setupZoom } = await import("../../static/js/topology/graph.mjs");
+  const wrapEl = dom.window.document.getElementById("wrap");
+  let viewport = { x: 0, y: 0, k: 1 };
+  setupZoom({
+    wrapEl,
+    getViewport: () => viewport,
+    onChange: (vp) => { viewport = vp; },
+  });
+  // One zoom-OUT notch (positive deltaY, any magnitude — the new
+  // step ignores magnitude entirely): k = 1.0 * 0.95 = 0.95.
+  wrapEl.dispatchEvent(new dom.window.WheelEvent("wheel", {
+    bubbles: true, cancelable: true,
+    deltaY: 100, clientX: 0, clientY: 0,
+  }));
+  assert.ok(
+    Math.abs(viewport.k - 0.95) < 1e-9,
+    `single zoom-out notch should produce k=0.95, got ${viewport.k}`,
+  );
+  // Reset, then one zoom-IN notch: k = 1.0 * 1.05 = 1.05.
+  viewport = { x: 0, y: 0, k: 1 };
+  wrapEl.dispatchEvent(new dom.window.WheelEvent("wheel", {
+    bubbles: true, cancelable: true,
+    deltaY: -100, clientX: 0, clientY: 0,
+  }));
+  assert.ok(
+    Math.abs(viewport.k - 1.05) < 1e-9,
+    `single zoom-in notch should produce k=1.05, got ${viewport.k}`,
+  );
+});
+
+
+test("setupZoom: magnitude of deltaY doesn't change the step size", async () => {
+  // A deltaY of 1000 should produce the SAME 0.95× factor as a
+  // deltaY of 100 — the old exp() implementation made deltaY=1000
+  // produce a way bigger step.
+  const dom = new JSDOM(
+    "<!doctype html><html><body>" +
+    `<div id="wrap" style="width: 800px; height: 600px;">` +
+    `<svg class="tp-graph-svg"></svg></div>` +
+    "</body></html>",
+  );
+  global.window = dom.window;
+  global.document = dom.window.document;
+  const { setupZoom } = await import("../../static/js/topology/graph.mjs");
+  const wrapEl = dom.window.document.getElementById("wrap");
+  let viewport = { x: 0, y: 0, k: 1 };
+  setupZoom({
+    wrapEl, getViewport: () => viewport,
+    onChange: (vp) => { viewport = vp; },
+  });
+  wrapEl.dispatchEvent(new dom.window.WheelEvent("wheel", {
+    bubbles: true, cancelable: true,
+    deltaY: 5000, clientX: 0, clientY: 0,
+  }));
+  assert.ok(
+    Math.abs(viewport.k - 0.95) < 1e-9,
+    `deltaY magnitude must not affect step (got k=${viewport.k})`,
+  );
+});
+
+
+test("setupZoom: many wheel-down events clamp k at 0.3", async () => {
+  // 24 notches at 0.95× each = ~0.292 which would clamp to 0.3; the
+  // test fires 30 to make sure we're well past the clamp threshold.
   const dom = new JSDOM(
     "<!doctype html><html><body>" +
     `<div id="wrap" style="width: 800px; height: 600px;">` +
@@ -223,11 +300,10 @@ test("setupZoom: 10 wheel-down events clamp k at 0.3", async () => {
     getViewport: () => viewport,
     onChange: (vp) => { viewport = vp; },
   });
-  // 10 successive zoom-OUT events (positive deltaY) should clamp at 0.3.
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 30; i++) {
     wrapEl.dispatchEvent(new dom.window.WheelEvent("wheel", {
       bubbles: true, cancelable: true,
-      deltaY: 1000, clientX: 400, clientY: 300,
+      deltaY: 100, clientX: 400, clientY: 300,
     }));
   }
   assert.ok(
@@ -237,7 +313,9 @@ test("setupZoom: 10 wheel-down events clamp k at 0.3", async () => {
 });
 
 
-test("setupZoom: 10 wheel-up events clamp k at 2.5", async () => {
+test("setupZoom: many wheel-up events clamp k at 2.5", async () => {
+  // 19 notches at 1.05× each = ~2.527 which would clamp to 2.5; the
+  // test fires 25 to make sure we're well past the clamp threshold.
   const dom = new JSDOM(
     "<!doctype html><html><body>" +
     `<div id="wrap" style="width: 800px; height: 600px;">` +
@@ -254,10 +332,10 @@ test("setupZoom: 10 wheel-up events clamp k at 2.5", async () => {
     getViewport: () => viewport,
     onChange: (vp) => { viewport = vp; },
   });
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 25; i++) {
     wrapEl.dispatchEvent(new dom.window.WheelEvent("wheel", {
       bubbles: true, cancelable: true,
-      deltaY: -1000, clientX: 400, clientY: 300,
+      deltaY: -100, clientX: 400, clientY: 300,
     }));
   }
   assert.ok(

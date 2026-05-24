@@ -328,10 +328,28 @@ export function setupPan({ wrapEl, getViewport, onChange }) {
 }
 
 
+// Constant-step wheel zoom: one notch = ±5% multiplicative change.
+// The previous Math.exp(-deltaY * 0.001) implementation gave the
+// browser's deltaY value (often 100+ pixels per notch on modern OSes)
+// far too much influence — a single wheel notch could blow up the
+// scale 2-3x, which operators called out as unusable. The new
+// constant ratio is independent of deltaY magnitude so the same notch
+// produces the same step on Windows, macOS, and Linux trackpads.
+const WHEEL_ZOOM_FACTOR_OUT = 0.95;
+const WHEEL_ZOOM_FACTOR_IN  = 1.05;
+const ZOOM_MIN = 0.3;
+const ZOOM_MAX = 2.5;
+
+
 /**
  * Wire wheel-zoom onto the wrapper. Zoom is centred on the cursor's
  * position so the point under the mouse stays put (the "natural" map
- * zoom UX). Clamped to [0.3, 2.5] per the design spec.
+ * zoom UX). Clamped to ``[ZOOM_MIN, ZOOM_MAX]`` per the design spec.
+ *
+ * The step is constant (5% per notch) rather than exponential in
+ * ``deltaY`` so a single wheel notch produces the same change on
+ * every input device — operators complained the old exp-based step
+ * jumped 2-3x per notch on Windows scroll wheels.
  */
 export function setupZoom({ wrapEl, getViewport, onChange }) {
   wrapEl.addEventListener("wheel", (ev) => {
@@ -343,10 +361,14 @@ export function setupZoom({ wrapEl, getViewport, onChange }) {
     // World coords under cursor before zoom.
     const worldX = (cx - vp.x) / vp.k;
     const worldY = (cy - vp.y) / vp.k;
-    // Scale factor — wheel-up (negative deltaY) zooms IN.
-    const factor = Math.exp(-ev.deltaY * 0.001);
+    // Constant 5% step per wheel notch — sign of deltaY picks
+    // direction. Multiple very-fine-grained notches (trackpad scroll)
+    // still compound smoothly because each event is one multiplier.
+    const factor = ev.deltaY > 0
+      ? WHEEL_ZOOM_FACTOR_OUT
+      : WHEEL_ZOOM_FACTOR_IN;
     let newK = vp.k * factor;
-    newK = Math.max(0.3, Math.min(2.5, newK));
+    newK = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, newK));
     // New viewport keeps the point under the cursor stationary.
     onChange({
       x: cx - worldX * newK,
