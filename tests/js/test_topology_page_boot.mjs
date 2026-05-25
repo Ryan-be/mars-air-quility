@@ -418,3 +418,48 @@ test("boot: Re-arrange button re-runs auto-layout (Phase 7 Task 7.3)", async () 
   assert.equal(nodes.length, 3,
     `expected 3 nodes (hub + 2 grows) after rearrange, got ${nodes.length}`);
 });
+
+
+test("boot: clicking a node un-hides the side-panel host (regression — production bug)", async () => {
+  // The template ships the host as `<aside id="tp-sidepanel-host"
+  // class="tp-sidepanel hidden">`. CSS rule `.tp-sidepanel:not(.hidden)`
+  // is what makes it visible. renderSidePanel() returns a CHILD aside
+  // that lives inside the host, so if mountSidePanel() never strips
+  // the host's `hidden` class the operator sees nothing on the live
+  // page even when their click is firing. Caught in a deploy-time
+  // smoke after Phase 8 shipped — the unit tests only inspected the
+  // returned element, never the host's CSS state.
+  const dom = _newDom();
+  global.EventSource = _mockEventSourceCtor();
+  const payload = {
+    hub:   { id: "hub", kind: "hub", label: "MLSS Hub", sensors: {} },
+    grows: [{ id: "grow:1", kind: "grow", parent: "hub", label: "G1",
+              plant_type: "chili", phase: "vegetative", sensors: {} }],
+    effectors: [],
+    layout: {},
+  };
+  await boot({ fetchFn: _mockFetch(payload) });
+  const doc = dom.window.document;
+  const host = doc.getElementById("tp-sidepanel-host");
+  assert.ok(host.classList.contains("hidden"),
+    "host starts hidden (matches template default)");
+  // Synthesise a mouseup-without-move on a node — setupNodeDrag's
+  // <2px-movement heuristic treats this as a click and fires onClick.
+  const nodeEl = doc.querySelector("#tp-graph-host .tp-node[data-node-id='grow:1']");
+  assert.ok(nodeEl, "grow:1 node mounted after boot");
+  const rect = nodeEl.getBoundingClientRect();
+  nodeEl.dispatchEvent(new dom.window.MouseEvent("mousedown", {
+    bubbles: true, clientX: rect.left, clientY: rect.top, button: 0,
+  }));
+  dom.window.dispatchEvent(new dom.window.MouseEvent("mouseup", {
+    bubbles: true, clientX: rect.left, clientY: rect.top, button: 0,
+  }));
+  assert.ok(!host.classList.contains("hidden"),
+    "host loses 'hidden' class after node click — panel becomes visible");
+  // Closing via the × button re-hides
+  const closeBtn = host.querySelector(".tp-sidepanel-close");
+  assert.ok(closeBtn, "close button rendered in panel header");
+  closeBtn.dispatchEvent(new dom.window.Event("click", { bubbles: true }));
+  assert.ok(host.classList.contains("hidden"),
+    "host regains 'hidden' class after close — panel slides back off");
+});

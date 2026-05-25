@@ -257,6 +257,18 @@ export async function boot({ fetchFn = fetch } = {}) {
   function mountSidePanel() {
     if (!sidepanelHost) return;
     const node = _findNodeById(selectedNodeId);
+    // The template ships the host with class="tp-sidepanel hidden" so the
+    // page paints with the panel off-screen on first load. Toggle the
+    // host's own `hidden` class here so the CSS visibility rule fires —
+    // renderSidePanel() builds a CHILD aside that lives inside the host,
+    // and if we leave the host hidden the child renders into a hidden
+    // parent and the operator never sees it.
+    if (!node) {
+      sidepanelHost.classList.add("hidden");
+      sidepanelHost.replaceChildren();
+      return;
+    }
+    sidepanelHost.classList.remove("hidden");
     const panel = renderSidePanel({
       node,
       allNodes: store.nodes,
