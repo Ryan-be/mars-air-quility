@@ -6,10 +6,6 @@
  *   <header class="tp-topbar-inner">
  *     <div class="tp-brand">MLSS · NODE MAP</div>
  *
- *     <div class="tp-stat">
- *       <span class="tp-stat-label">Mission Time</span>
- *       <span class="tp-stat-value" data-role="mission-time">T+00:00:00</span>
- *     </div>
  *     <div class="tp-stat">…Hub Status pill / nominal…</div>
  *     <div class="tp-stat">…Grows: 2…</div>
  *     <div class="tp-stat">…Effectors: 4…</div>
@@ -22,65 +18,16 @@
  *   </header>
  *
  * Pure renderer — never opens an SSE channel, never starts a setInterval.
- * Mission Time updates live in `page.mjs::boot()` via setInterval
- * targeting the cell value's `data-role="mission-time"` attribute.
+ *
+ * Mission Time was originally the leftmost cell (T+HH:MM:SS relative
+ * to service start) but operator feedback flagged it as decorative
+ * noise. Removed entirely — the topbar shows 5 stat cells now.
  *
  * The `+ Add effector` button is admin-gated client-side (the gate
  * mirrors the server-side `@require_role("admin")` on POST
  * /api/effectors). Hiding the button keeps non-admins from getting a
  * 403 on click; defence in depth.
  */
-
-// rux-clock substitution: when the AstroUXDS web component is registered
-// (production browser path), we render a `<rux-clock>` element inside
-// the mission-time cell so the operator gets the real UTC display the
-// /grow page uses. Otherwise (JSDOM tests + initial load before AstroUXDS
-// kicks in) the cell starts with a static T+00:00:00 string and the
-// page-level setInterval ticks it. Either way the cell value carries
-// `data-role="mission-time"` so the interval handler can find it.
-
-function _hasRuxClock(doc) {
-  // window.customElements is the registry; some test envs (JSDOM) don't
-  // ship it. Guard against both missing customElements AND a present
-  // registry that just hasn't registered rux-clock yet.
-  const win = doc && doc.defaultView;
-  return !!(
-    win
-    && win.customElements
-    && typeof win.customElements.get === "function"
-    && win.customElements.get("rux-clock")
-  );
-}
-
-
-function _renderMissionTimeCell(doc) {
-  const cell = doc.createElement("div");
-  cell.className = "tp-stat";
-
-  const label = doc.createElement("span");
-  label.className = "tp-stat-label";
-  label.textContent = "Mission Time";
-  cell.appendChild(label);
-
-  const value = doc.createElement("span");
-  value.className = "tp-stat-value";
-  // The data-role attribute is the page-level setInterval target.
-  // Whether the value contains a <rux-clock> child or a plain text
-  // string, the interval handler just sets value.textContent (when
-  // there's no rux-clock) and lets the rux-clock self-tick otherwise.
-  value.dataset.role = "mission-time";
-
-  if (_hasRuxClock(doc)) {
-    const clock = doc.createElement("rux-clock");
-    clock.setAttribute("hide-date", "");
-    clock.setAttribute("hide-labels", "");
-    value.appendChild(clock);
-  } else {
-    value.textContent = "T+00:00:00";
-  }
-  cell.appendChild(value);
-  return cell;
-}
 
 
 function _renderStatCell(doc, labelText, valueText, valueRole) {
@@ -149,8 +96,8 @@ export function renderTopbar({
   brand.textContent = "MLSS · NODE MAP";
   root.appendChild(brand);
 
-  // ── Middle: 6 telemetry cells ───────────────────────────────────────
-  root.appendChild(_renderMissionTimeCell(doc));
+  // ── Middle: 5 telemetry cells ───────────────────────────────────────
+  // (Mission Time cell removed per operator feedback — decorative noise.)
 
   // Hub Status — derived label rather than a numeric. The boot
   // orchestrator's `onHealthUpdate` SSE handler targets the

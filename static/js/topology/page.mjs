@@ -40,12 +40,6 @@ import { subscribe } from "./sse.mjs";
 // still mount the graph chrome without the card modules present.
 
 
-// Mission-time tick interval. Stored at module scope so a fresh boot()
-// call (in tests) tears the previous interval down before mounting a
-// new one — without the cancel, JSDOM's fake timers would never stop
-// firing handlers against a detached host.
-let _missionTimeInterval = null;
-
 // Module-scoped pointer to the current boot's "select node by id"
 // callback. The cog event listener (attached once per document, see
 // below) reads through this so a fresh boot() re-binds the latest
@@ -59,52 +53,6 @@ function _isAdmin(doc) {
   // Missing role (e.g. logged-out test fixture) → not admin, button hidden.
   const body = doc && doc.body;
   return !!body && body.dataset && body.dataset.role === "admin";
-}
-
-
-function _formatMissionTime(startMs, nowMs) {
-  // "T+HH:MM:SS" relative to session start. Wraps cleanly past 24 h —
-  // the operator on a long-running shift wants to see "T+27:14:02"
-  // rather than "T+03:14:02" silently rolling over.
-  const elapsed = Math.max(0, Math.floor((nowMs - startMs) / 1000));
-  const hh = String(Math.floor(elapsed / 3600)).padStart(2, "0");
-  const mm = String(Math.floor((elapsed % 3600) / 60)).padStart(2, "0");
-  const ss = String(elapsed % 60).padStart(2, "0");
-  return `T+${hh}:${mm}:${ss}`;
-}
-
-
-function _startMissionTimeTick(doc, startMs) {
-  // Update every second. Cancel any pre-existing interval so a re-boot
-  // (test path) doesn't leak handlers.
-  if (_missionTimeInterval) {
-    clearInterval(_missionTimeInterval);
-    _missionTimeInterval = null;
-  }
-  const tick = () => {
-    const cell = doc.querySelector(
-      ".tp-topbar-inner [data-role='mission-time']",
-    );
-    if (!cell) return;
-    // If a <rux-clock> has slotted in, leave it alone — the web
-    // component self-updates and we'd just trample its rendered DOM.
-    if (cell.querySelector("rux-clock")) return;
-    cell.textContent = _formatMissionTime(startMs, Date.now());
-  };
-  // Fire once immediately so the first paint matches a slightly-later
-  // server clock without waiting a full second.
-  tick();
-  if (typeof setInterval === "function") {
-    _missionTimeInterval = setInterval(tick, 1000);
-    // Don't pin the Node event loop alive on this interval — JSDOM
-    // tests would otherwise hang waiting for the timer to clear. The
-    // unref() call is a no-op on browser timers but lets `node --test`
-    // exit cleanly between test files.
-    if (_missionTimeInterval
-        && typeof _missionTimeInterval.unref === "function") {
-      _missionTimeInterval.unref();
-    }
-  }
 }
 
 
@@ -412,7 +360,6 @@ export async function boot({ fetchFn = fetch } = {}) {
       doc: document,
     });
     topbar.replaceChildren(inner);
-    _startMissionTimeTick(document, Date.now());
   }
 
   // Re-render the whole graph (cheap — < 50 nodes for any realistic

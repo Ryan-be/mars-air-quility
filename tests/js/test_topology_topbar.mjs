@@ -5,7 +5,7 @@
  * It carries three regions:
  *
  *   1. Left: a `tp-brand` cell — "MLSS · NODE MAP".
- *   2. Middle: 6 telemetry cells (Mission Time / Hub Status / Grows /
+ *   2. Middle: 5 telemetry cells (Hub Status / Grows /
  *      Effectors / Active / Auto vs Forced) rendered as
  *      `<div class="tp-stat"><span class="tp-stat-label">…</span>
  *      <span class="tp-stat-value">…</span></div>`.
@@ -85,7 +85,7 @@ test("renderTopbar: brand cell reads 'MLSS · NODE MAP'", () => {
 });
 
 
-test("renderTopbar: renders six tp-stat cells with both label + value spans", () => {
+test("renderTopbar: renders five tp-stat cells with both label + value spans", () => {
   const dom = _newDom();
   const el = renderTopbar({
     stats: _stats(),
@@ -96,8 +96,11 @@ test("renderTopbar: renders six tp-stat cells with both label + value spans", ()
     doc: dom.window.document,
   });
   const cells = el.querySelectorAll(".tp-stat");
-  assert.equal(cells.length, 6,
-    `expected 6 telemetry cells, got ${cells.length}`);
+  // Mission Time was removed per operator review (decorative noise).
+  // The five remaining cells: Hub Status / Grows / Effectors / Active /
+  // Auto vs Forced.
+  assert.equal(cells.length, 5,
+    `expected 5 telemetry cells, got ${cells.length}`);
   for (const cell of cells) {
     assert.ok(cell.querySelector(".tp-stat-label"),
       "each cell carries a tp-stat-label span");
@@ -107,7 +110,7 @@ test("renderTopbar: renders six tp-stat cells with both label + value spans", ()
 });
 
 
-test("renderTopbar: telemetry cells carry the 6 canonical labels", () => {
+test("renderTopbar: telemetry cells carry the 5 canonical labels", () => {
   const dom = _newDom();
   const el = renderTopbar({
     stats: _stats(),
@@ -120,14 +123,13 @@ test("renderTopbar: telemetry cells carry the 6 canonical labels", () => {
   const labels = Array.from(
     el.querySelectorAll(".tp-stat .tp-stat-label"),
   ).map((l) => l.textContent.trim().toLowerCase());
-  // The cells appear in the order Mission Time / Hub Status / Grows /
-  // Effectors / Active / Auto vs Forced.
-  assert.match(labels[0], /mission|time/);
-  assert.match(labels[1], /hub/);
-  assert.match(labels[2], /grow/);
-  assert.match(labels[3], /effector/);
-  assert.match(labels[4], /active/);
-  assert.match(labels[5], /auto/);
+  // The cells appear in the order Hub Status / Grows / Effectors /
+  // Active / Auto vs Forced. (Mission Time removed.)
+  assert.match(labels[0], /hub/);
+  assert.match(labels[1], /grow/);
+  assert.match(labels[2], /effector/);
+  assert.match(labels[3], /active/);
+  assert.match(labels[4], /auto/);
 });
 
 
@@ -150,15 +152,15 @@ test("renderTopbar: stat values are taken from the stats prop", () => {
   const values = Array.from(
     el.querySelectorAll(".tp-stat .tp-stat-value"),
   ).map((v) => v.textContent.trim());
-  // Mission time + hub status are non-numeric and live at index 0/1.
-  // The remaining four cells (Grows / Effectors / Active / Auto vs Forced)
-  // surface the stats prop verbatim. The "Auto vs Forced" cell renders
-  // both numbers; the assertion is "contains 6 AND 3".
-  assert.equal(values[2], "5",     `Grows cell, got ${values[2]}`);
-  assert.equal(values[3], "9",     `Effectors cell, got ${values[3]}`);
-  assert.equal(values[4], "3",     `Active cell, got ${values[4]}`);
-  assert.match(values[5], /6/,     "Auto vs Forced cell shows auto count");
-  assert.match(values[5], /3/,     "Auto vs Forced cell shows forced count");
+  // Hub status is non-numeric and lives at index 0. The remaining four
+  // cells (Grows / Effectors / Active / Auto vs Forced) surface the
+  // stats prop verbatim. The "Auto vs Forced" cell renders both
+  // numbers; the assertion is "contains 6 AND 3".
+  assert.equal(values[1], "5",     `Grows cell, got ${values[1]}`);
+  assert.equal(values[2], "9",     `Effectors cell, got ${values[2]}`);
+  assert.equal(values[3], "3",     `Active cell, got ${values[3]}`);
+  assert.match(values[4], /6/,     "Auto vs Forced cell shows auto count");
+  assert.match(values[4], /3/,     "Auto vs Forced cell shows forced count");
 });
 
 
@@ -237,23 +239,6 @@ test("renderTopbar: button clicks fire the supplied callbacks", () => {
 });
 
 
-test("renderTopbar: mission time cell carries an updatable target", () => {
-  // The Mission Time cell's value span must have data-role="mission-time"
-  // so the page-level setInterval can target it without re-querying
-  // a fragile path. Whether the cell currently shows a rux-clock or a
-  // static T+00:00:00 string is an implementation detail; the
-  // setInterval contract is the data-role attribute.
-  const dom = _newDom();
-  const el = renderTopbar({
-    stats: _stats(),
-    isAdmin: false,
-    onRearrange: () => {},
-    onRecenter: () => {},
-    onAddEffector: () => {},
-    doc: dom.window.document,
-  });
-  const cells = el.querySelectorAll(".tp-stat");
-  const missionValue = cells[0].querySelector(".tp-stat-value");
-  assert.equal(missionValue.dataset.role, "mission-time",
-    "mission-time cell value carries data-role='mission-time'");
-});
+// (Mission Time cell removed per operator feedback — no longer rendered
+// in the topbar, so the data-role="mission-time" target assertion is
+// no longer applicable.)

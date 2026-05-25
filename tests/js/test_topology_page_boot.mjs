@@ -200,12 +200,12 @@ test("boot: card components are mounted inside each node div (Phase 6 Task 6.7)"
 });
 
 
-test("boot: topbar contains at least 6 stat cells after mount (Phase 7 Task 7.3)", async () => {
+test("boot: topbar contains at least 5 stat cells after mount (Phase 7 Task 7.3)", async () => {
   // After boot the topbar host should contain the renderTopbar()
-  // output: a `tp-topbar-inner` header with at minimum the 6 telemetry
-  // cells (Mission Time / Hub Status / Grows / Effectors / Active /
-  // Auto vs Forced). The Recenter / Re-arrange buttons are also
-  // expected but tested separately below.
+  // output: a `tp-topbar-inner` header with at minimum the 5 telemetry
+  // cells (Hub Status / Grows / Effectors / Active / Auto vs Forced).
+  // (Mission Time was removed per operator feedback.) The Recenter /
+  // Re-arrange buttons are also expected but tested separately below.
   const dom = _newDom();
   global.EventSource = _mockEventSourceCtor();
   const payload = {
@@ -220,8 +220,8 @@ test("boot: topbar contains at least 6 stat cells after mount (Phase 7 Task 7.3)
   const inner = topbar.querySelector(".tp-topbar-inner");
   assert.ok(inner, "topbar host contains a .tp-topbar-inner header");
   const cells = inner.querySelectorAll(".tp-stat");
-  assert.ok(cells.length >= 6,
-    `expected at least 6 .tp-stat cells, got ${cells.length}`);
+  assert.ok(cells.length >= 5,
+    `expected at least 5 .tp-stat cells, got ${cells.length}`);
 });
 
 
