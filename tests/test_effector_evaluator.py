@@ -430,3 +430,83 @@ class TestStartEvaluator:
             # ends; the daemon thread dies with the process. No
             # graceful shutdown hook needed (loop only sleeps).
             pass
+
+
+# ── Regression: deployed-test bugs ──────────────────────────────────────
+
+
+class TestEvaluatorDeployedRegressions:
+    """Bugs caught by the deployed test on the live hub. Each test is the
+    minimum reproduction of an issue the unit tests above missed because
+    they were mocking the shape too loosely.
+    """
+
+    def test_read_for_plug_coerces_NormalisedReading_to_dict(self, eval_env):
+        """Bug: production hot_tier.snapshot() returns NormalisedReading
+        dataclass instances, not dicts. The controllers call
+        reading.get(...) which raised AttributeError, the whole tick
+        aborted, and no plug ever got update_last_evaluation called —
+        operators saw "Not yet evaluated" forever on the live page.
+        """
+        from dataclasses import dataclass
+
+        @dataclass
+        class FakeReading:
+            temperature: float = 25.0
+            humidity: float = 50.0
+            eco2: int = 400
+            tvoc: int = 100
+
+        db_path, state_module = eval_env
+        plug_id = _seed_hub_fan(db_path, current_state="off")
+        state_module.smart_plugs = {plug_id: MagicMock()}
+        hot_tier = MagicMock()
+        hot_tier.snapshot.return_value = [FakeReading()]
+        state_module.hot_tier = hot_tier
+
+        from mlss_monitor.effectors.evaluator import evaluate_once
+        evaluate_once()
+
+        # The Why? surface relies on this row being non-NULL after every
+        # tick. Pre-fix the AttributeError prevented the persistence call.
+        conn = sqlite3.connect(db_path)
+        try:
+            row = conn.execute(
+                "SELECT last_evaluation_json FROM smart_plugs WHERE id = ?",
+                (plug_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+        assert row[0] is not None, \
+            "last_evaluation_json must populate when snapshot returns a dataclass"
+        import json
+        evaluation = json.loads(row[0])
+        assert "decision" in evaluation
+        assert "reasons" in evaluation
+        assert len(evaluation["reasons"]) >= 1, \
+            "Fan controller must populate per-rule reasons"
+
+    def test_evaluate_once_does_not_raise_when_one_plug_evaluation_explodes(
+        self, eval_env, monkeypatch,
+    ):
+        """Bug: a single raising plug bubbled up to the _loop()'s broad
+        except and the whole tick aborted. The per-plug try/except inside
+        evaluate_once is the belt-and-braces fix — log the bad row and
+        continue iterating so the next tick's persistence still happens
+        for healthy plugs.
+        """
+        db_path, state_module = eval_env
+        plug_id = _seed_hub_fan(db_path, current_state="off")
+        state_module.smart_plugs = {plug_id: MagicMock()}
+        _stub_hub_reading(state_module, temperature=25.0)
+
+        import mlss_monitor.effectors.evaluator as ev
+        # Force _evaluate_one to raise — proves evaluate_once's outer
+        # try/except eats the exception rather than propagating.
+        def _blow_up(plug):
+            raise RuntimeError("simulated controller crash")
+        monkeypatch.setattr(ev, "_evaluate_one", _blow_up)
+
+        # Must NOT raise — pre-fix the RuntimeError propagated out and
+        # _loop()'s broad except swallowed the whole tick.
+        ev.evaluate_once()

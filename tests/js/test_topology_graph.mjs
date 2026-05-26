@@ -172,6 +172,104 @@ test("setupPan: mousedown→move→up on the SVG fires onChange with delta", asy
 });
 
 
+test("setupPan: regression — pan works on empty canvas even though SVG is pointer-events:none", async () => {
+  // Production CSS sets `.tp-graph-svg { pointer-events: none }` so
+  // edges don't block clicks on the cards underneath. That means the
+  // SVG never becomes the mousedown target — events land on the inner
+  // wrapper or the host instead. The original setupPan gate was
+  // `if (target IS svg) only` and was therefore always false on the
+  // live page; the operator saw zoom work fine but pan silently
+  // refused. The fix: skip ONLY when the click is on a `.tp-node`;
+  // every other empty-canvas target initiates a pan.
+  const dom = new JSDOM(
+    "<!doctype html><html><body>" +
+    `<div id="wrap">
+       <div class="tp-graph-inner">
+         <svg class="tp-graph-svg"></svg>
+         <div class="tp-nodes-layer">
+           <div class="tp-node" data-node-id="hub"></div>
+         </div>
+       </div>
+     </div>` +
+    "</body></html>",
+  );
+  global.window = dom.window;
+  global.document = dom.window.document;
+  const { setupPan } = await import("../../static/js/topology/graph.mjs");
+  const wrapEl = dom.window.document.getElementById("wrap");
+  let viewport = { x: 0, y: 0, k: 1 };
+  const calls = [];
+  setupPan({
+    wrapEl,
+    getViewport: () => viewport,
+    onChange: (vp) => { viewport = vp; calls.push(vp); },
+  });
+  // Production scenario: mousedown lands on .tp-graph-inner (NOT the
+  // SVG) because the SVG is pointer-events:none. Pre-fix this was
+  // ignored; post-fix the pan fires because the target isn't a node.
+  const inner = wrapEl.querySelector(".tp-graph-inner");
+  inner.dispatchEvent(new dom.window.MouseEvent("mousedown", {
+    bubbles: true, clientX: 50, clientY: 50, button: 0,
+  }));
+  dom.window.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+    bubbles: true, clientX: 110, clientY: 90,
+  }));
+  dom.window.dispatchEvent(new dom.window.MouseEvent("mouseup", {
+    bubbles: true, clientX: 110, clientY: 90,
+  }));
+  assert.ok(calls.length >= 1,
+    "pan must fire on empty-canvas mousedown even when SVG is pointer-events:none");
+  assert.equal(calls[calls.length - 1].x, 60);
+  assert.equal(calls[calls.length - 1].y, 40);
+});
+
+
+test("setupPan: regression — mousedown on a .tp-node does NOT trigger pan", async () => {
+  // The flip side of the fix above: the new gate excludes clicks
+  // inside a .tp-node so node-drag owns those events without the pan
+  // handler also engaging. Tests both that node-drag stays the
+  // exclusive owner of node interaction AND that pan won't fire
+  // when the operator means to drag a card.
+  const dom = new JSDOM(
+    "<!doctype html><html><body>" +
+    `<div id="wrap">
+       <div class="tp-graph-inner">
+         <svg class="tp-graph-svg"></svg>
+         <div class="tp-nodes-layer">
+           <div class="tp-node" data-node-id="hub">
+             <div class="tp-card tp-card-hub">hub content</div>
+           </div>
+         </div>
+       </div>
+     </div>` +
+    "</body></html>",
+  );
+  global.window = dom.window;
+  global.document = dom.window.document;
+  const { setupPan } = await import("../../static/js/topology/graph.mjs");
+  const wrapEl = dom.window.document.getElementById("wrap");
+  const calls = [];
+  setupPan({
+    wrapEl,
+    getViewport: () => ({ x: 0, y: 0, k: 1 }),
+    onChange: (vp) => calls.push(vp),
+  });
+  // Click inside a node (the card content) — pan must NOT fire.
+  const cardContent = wrapEl.querySelector(".tp-card-hub");
+  cardContent.dispatchEvent(new dom.window.MouseEvent("mousedown", {
+    bubbles: true, clientX: 50, clientY: 50, button: 0,
+  }));
+  dom.window.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+    bubbles: true, clientX: 120, clientY: 100,
+  }));
+  dom.window.dispatchEvent(new dom.window.MouseEvent("mouseup", {
+    bubbles: true, clientX: 120, clientY: 100,
+  }));
+  assert.equal(calls.length, 0,
+    "pan must NOT fire when mousedown is inside a .tp-node — node-drag owns it");
+});
+
+
 test("setupPan: <2px movement is treated as a click (no onChange)", async () => {
   const dom = new JSDOM(
     "<!doctype html><html><body>" +

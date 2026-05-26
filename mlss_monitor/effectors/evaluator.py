@@ -64,13 +64,33 @@ def _read_for_plug(plug: dict) -> dict | None:
     * Grow-scope plugs read the latest ``grow_telemetry`` row for the
       bound ``grow_unit_id`` — one short-lived SQLite connection per
       call, 5s timeout to match the rest of the hub-room writers.
+
+    The return is ALWAYS a plain dict so the per-type controllers can
+    use ``reading.get("temperature")`` uniformly — ``hot_tier.snapshot()``
+    returns ``NormalisedReading`` dataclass instances which don't have
+    a ``.get()``, so we coerce via :func:`dataclasses.asdict` here.
+    Without this coercion every fan-family ``evaluate()`` raised
+    ``AttributeError`` and the side-panel "Why?" never populated.
     """
     if plug["scope"] == "hub":
         hot = state.hot_tier
         if hot is None:
             return None
         snap = hot.snapshot()
-        return snap[-1] if snap else None
+        if not snap:
+            return None
+        last = snap[-1]
+        if isinstance(last, dict):
+            return last
+        # NormalisedReading dataclass → dict so reading.get(...) works.
+        try:
+            import dataclasses
+            if dataclasses.is_dataclass(last):
+                return dataclasses.asdict(last)
+        except Exception:  # pylint: disable=broad-except
+            pass
+        # Last-resort coercion via __dict__ for any other shape.
+        return getattr(last, "__dict__", None) or {}
 
     # grow_unit-scope: pull the freshest telemetry row for the unit.
     conn = sqlite3.connect(DB_FILE, timeout=5)
@@ -98,52 +118,66 @@ def evaluate_once() -> None:
     the *latest* reasoning every tick, not only on state flips.
     """
     for plug in store.list_smart_plugs():
-        if not plug["is_enabled"] or not plug["auto_mode"]:
-            continue
-        handle = state.smart_plugs.get(plug["id"]) if getattr(
-            state, "smart_plugs", None,
-        ) else None
-        if handle is None:
-            continue
-        ctrl_cls = controller_for(plug["effector_type"])
-        if ctrl_cls is None:
-            continue
-        reading = _read_for_plug(plug)
-        if reading is None:
-            continue
-
-        evaluation = ctrl_cls().evaluate(reading, plug["rules"] or {})
-        # Persist the reasoning on every pass — even when the decision
-        # hasn't changed — so the side panel always shows the latest
-        # rule-by-rule explanation.
-        store.update_last_evaluation(plug["id"], evaluation)
-
-        desired = evaluation["decision"]
-        if plug["current_state"] == desired:
-            continue
-        loop = getattr(state, "thread_loop", None)
-        if loop is None:
-            # The shared async loop hasn't been initialised yet (e.g.
-            # tests that imported the evaluator before app.py wired
-            # state.thread_loop) — skip rather than blow up.
-            continue
         try:
-            future = asyncio.run_coroutine_threadsafe(
-                handle.switch(desired == "on"), loop,
-            )
-            future.result(timeout=5)
+            _evaluate_one(plug)
         except Exception as exc:  # pylint: disable=broad-except
-            log.error("evaluator: switch failed for plug %s: %s",
-                      plug["id"], exc)
-            continue
-        store.update_last_state(plug["id"], desired)
-        bus = getattr(state, "event_bus", None)
-        if bus is not None:
-            bus.publish("effector_state_changed", {
-                "id":    plug["id"],
-                "state": desired,
-                "auto":  True,
-            })
+            # One bad row must NOT swallow the whole tick — the side-panel
+            # "Why?" surface depends on every other plug getting a fresh
+            # update_last_evaluation() call before _loop() sleeps again.
+            log.error("evaluator: plug %s evaluation aborted: %s",
+                      plug.get("id"), exc)
+
+
+def _evaluate_one(plug: dict) -> None:
+    """Decision + persistence for one plug. Extracted so the outer
+    iteration can isolate exceptions (each tick must persist evaluations
+    for every plug it can, even if one mid-list plug raises)."""
+    if not plug["is_enabled"] or not plug["auto_mode"]:
+        return
+    handle = state.smart_plugs.get(plug["id"]) if getattr(
+        state, "smart_plugs", None,
+    ) else None
+    if handle is None:
+        return
+    ctrl_cls = controller_for(plug["effector_type"])
+    if ctrl_cls is None:
+        return
+    reading = _read_for_plug(plug)
+    if reading is None:
+        return
+
+    evaluation = ctrl_cls().evaluate(reading, plug["rules"] or {})
+    # Persist the reasoning on every pass — even when the decision
+    # hasn't changed — so the side panel always shows the latest
+    # rule-by-rule explanation.
+    store.update_last_evaluation(plug["id"], evaluation)
+
+    desired = evaluation["decision"]
+    if plug["current_state"] == desired:
+        return
+    loop = getattr(state, "thread_loop", None)
+    if loop is None:
+        # The shared async loop hasn't been initialised yet (e.g.
+        # tests that imported the evaluator before app.py wired
+        # state.thread_loop) — skip rather than blow up.
+        return
+    try:
+        future = asyncio.run_coroutine_threadsafe(
+            handle.switch(desired == "on"), loop,
+        )
+        future.result(timeout=5)
+    except Exception as exc:  # pylint: disable=broad-except
+        log.error("evaluator: switch failed for plug %s: %s",
+                  plug["id"], exc)
+        return
+    store.update_last_state(plug["id"], desired)
+    bus = getattr(state, "event_bus", None)
+    if bus is not None:
+        bus.publish("effector_state_changed", {
+            "id":    plug["id"],
+            "state": desired,
+            "auto":  True,
+        })
 
 
 def _loop() -> None:

@@ -293,11 +293,15 @@ export function applyViewport(wrapInner, viewport) {
 export function setupPan({ wrapEl, getViewport, onChange }) {
   let dragState = null;
   wrapEl.addEventListener("mousedown", (ev) => {
-    // Only the SVG itself initiates a pan — node clicks and panel
-    // controls handle their own events.
-    const onSvg = ev.target.closest("svg.tp-graph-svg") === ev.target ||
-      (ev.target.tagName === "svg" && ev.target.classList.contains("tp-graph-svg"));
-    if (!onSvg) return;
+    // Pan fires on empty-canvas clicks. Nodes own their own drag (via
+    // setupNodeDrag) and stop propagation — but the *SVG* sits between
+    // the host and the node layer with `pointer-events:none` (so edges
+    // don't block clicks), which means SVG never becomes `ev.target`
+    // and the previous "target IS the SVG" gate was always false.
+    // Correct exclusion: skip when the click landed inside a node card
+    // (or inside any interactive element with its own handler); fall
+    // through to pan for everything else.
+    if (ev.target.closest && ev.target.closest(".tp-node")) return;
     if (ev.button !== 0) return;
     const vp = getViewport();
     dragState = {

@@ -156,17 +156,22 @@ function _mockFetch(payload) {
 }
 
 
-test("boot: initial mount paints the panel host as hidden shell", async () => {
+test("boot: initial mount leaves the panel host hidden (no node selected)", async () => {
+  // Visibility contract: the HOST itself carries the `hidden` class
+  // (CSS rule `.tp-sidepanel:not(.hidden)` on the host is what makes
+  // the panel visible — not a class on a child). When no node is
+  // selected, mountSidePanel() empties the host and re-adds `hidden`.
+  // Pre-fix the host stayed hidden FOREVER because no code path ever
+  // stripped the class — broken in production even though the inner
+  // aside (which the old test inspected) had the right classes.
   const dom = _bootDom();
   await boot({ fetchFn: _mockFetch({
     hub: { id: "hub", kind: "hub", label: "MLSS Hub", sensors: {} },
     grows: [], effectors: [], layout: {},
   }) });
   const host = dom.window.document.getElementById("tp-sidepanel-host");
-  const aside = host.querySelector("aside.tp-sidepanel");
-  assert.ok(aside, "panel <aside> is mounted into the host");
-  assert.ok(aside.classList.contains("hidden"),
-    "panel is hidden when nothing is selected");
+  assert.ok(host.classList.contains("hidden"),
+    "host carries 'hidden' class when nothing is selected");
 });
 
 
@@ -1004,6 +1009,7 @@ test("boot: clicking close × on an open panel re-hides it", async () => {
     layout: {},
   }) });
   const doc = dom.window.document;
+  const host = doc.getElementById("tp-sidepanel-host");
   const nodeEl = doc.querySelector(".tp-node[data-node-id='effector:9']");
   nodeEl.dispatchEvent(new dom.window.MouseEvent("mousedown", {
     bubbles: true, button: 0, clientX: 0, clientY: 0,
@@ -1011,13 +1017,18 @@ test("boot: clicking close × on an open panel re-hides it", async () => {
   dom.window.dispatchEvent(new dom.window.MouseEvent("mouseup", {
     bubbles: true, button: 0, clientX: 0, clientY: 0,
   }));
-  let aside = doc.querySelector("#tp-sidepanel-host aside.tp-sidepanel");
-  assert.ok(aside && !aside.classList.contains("hidden"),
-    "panel is visible after click");
+  // Visibility is carried by the HOST's `hidden` class (the CSS rule
+  // `.tp-sidepanel:not(.hidden)` fires on the host, not the inner
+  // child). After click, host should have lost `hidden`.
+  assert.ok(!host.classList.contains("hidden"),
+    "host loses 'hidden' class after node click — panel becomes visible");
+  const aside = host.querySelector("aside.tp-sidepanel");
+  assert.ok(aside, "child aside rendered inside the host");
   // Click the close × button.
   aside.querySelector("[data-testid='tp-sidepanel-close']")
     .dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
-  aside = doc.querySelector("#tp-sidepanel-host aside.tp-sidepanel");
-  assert.ok(aside.classList.contains("hidden"),
-    "panel hides after close × click");
+  // Post-close the host regains `hidden` AND its children are emptied —
+  // see mountSidePanel() in page.mjs.
+  assert.ok(host.classList.contains("hidden"),
+    "host regains 'hidden' class after close — panel slides back off");
 });
