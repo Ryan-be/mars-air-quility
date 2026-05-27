@@ -52,7 +52,10 @@ from typing import Any
 
 GITEA_URL    = os.environ.get("GITEA_URL",    "http://192.168.0.28:3000")
 GITEA_OWNER  = os.environ.get("GITEA_OWNER",  "ryan_be")
-GITEA_REPO   = os.environ.get("GITEA_REPO",   "mars-air-quility")
+# Repo name on the Gitea side is `MLSS` (the user pre-created it).
+# Different from the GitHub side (`mars-air-quility`) on purpose —
+# Gitea is the planning + CI side, GitHub stays the public mirror.
+GITEA_REPO   = os.environ.get("GITEA_REPO",   "MLSS")
 GITHUB_URL   = os.environ.get(
     "GITHUB_REMOTE", "https://github.com/Ryan-be/mars-air-quility.git",
 )
