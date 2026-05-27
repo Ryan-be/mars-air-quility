@@ -22,18 +22,26 @@ Prerequisites
 
 What it does
 ------------
-1. Creates the Gitea repo (skips if it already exists).
-2. Adds `gitea` as a git remote pointing at the new repo + configures
-   the existing `origin` to push to BOTH GitHub AND Gitea
-   (`git remote set-url --add --push origin ...`). Future
-   `git push origin <branch>` then lands on both forges.
-3. Pushes every local branch + every tag to Gitea.
-4. Creates a canonical set of labels (bug / enhancement / hardware /
+1. Creates the Gitea repo as a PULL MIRROR from GitHub (if missing).
+   Gitea then polls GitHub every ``MIRROR_INTERVAL`` and keeps refs
+   in sync automatically — devs only push to GitHub, no per-clone
+   dual-push wiring needed.
+2. If the repo already exists as a *non-mirror* (e.g. created by an
+   earlier version of this script), the git-remote dual-push wiring
+   is preserved as a fallback so the script still does something
+   useful. Pull-mirror repos skip the git-side wiring entirely
+   because pushing to a mirror is rejected by Gitea.
+3. Creates a canonical set of labels (bug / enhancement / hardware /
    grow-unit / ml / frontend / security / tech-debt / deferred / docs).
-5. Creates a "MLSS roadmap" project board with five Kanban columns.
-6. Creates one Gitea issue per open backlog entry in
+4. Creates a "MLSS roadmap" project board with five Kanban columns.
+5. Creates one Gitea issue per open backlog entry in
    `docs/Bugs_Improvements_and_Roadmap.md` + four topology follow-ups
    captured here, labels them, and pins them to the Backlog column.
+
+Issues / labels / project board live on the Gitea side only — the
+pull mirror only syncs git refs, not Gitea-native metadata. That's
+intentional: GitHub stays the canonical code source, Gitea owns the
+planning + CI surface.
 
 Re-runs are safe: the script looks up each resource by name first and
 only creates what's missing.
@@ -59,10 +67,16 @@ GITEA_REPO   = os.environ.get("GITEA_REPO",   "MLSS")
 GITHUB_URL   = os.environ.get(
     "GITHUB_REMOTE", "https://github.com/Ryan-be/mars-air-quility.git",
 )
+# How often Gitea re-polls GitHub for new refs. Go duration string.
+# 10m is a sensible default — short enough that local dev feedback
+# (push to GH, see refs on Gitea) stays under one tea break, long
+# enough that we're not hammering GitHub's clone endpoint.
+MIRROR_INTERVAL = os.environ.get("GITEA_MIRROR_INTERVAL", "10m0s")
 TOKEN        = os.environ.get("GITEA_TOKEN")
 
 
 # ─── Labels ────────────────────────────────────────────────────────────────
+# Topic labels: what KIND of work the issue covers.
 LABELS = [
     ("bug",            "ee0701", "Something is broken in production"),
     ("enhancement",    "84b6eb", "New feature or improvement to existing feature"),
@@ -77,17 +91,36 @@ LABELS = [
     ("documentation",  "0075ca", "Docs / README / runbook"),
 ]
 
+# Status labels: where the issue is in the workflow. Gitea 1.22's REST
+# API does not expose per-repo project boards (only the web UI does),
+# so we use label-based status instead. Same Kanban columns, just
+# rendered by filtering on "Labels" in the issue list. The user can
+# additionally create a UI project board pointed at these labels if
+# they want a drag-and-drop view — that's a one-time click-through,
+# not script work.
+STATUS_LABELS = [
+    ("status:backlog",      "ededed", "Captured, not yet prioritised"),
+    ("status:ready",        "c2e0c6", "Prioritised, ready to pick up"),
+    ("status:in-progress",  "fbca04", "Actively being worked on"),
+    ("status:in-review",    "5319e7", "Open PR / awaiting review"),
+    ("status:done",         "0e8a16", "Closed + verified"),
+]
+DEFAULT_STATUS = "status:backlog"
 
-# ─── Project + columns ─────────────────────────────────────────────────────
-PROJECT_TITLE       = "MLSS roadmap"
-PROJECT_DESCRIPTION = (
-    "Active development board for mars-air-quility. New work starts in "
-    "Backlog → moves through Ready / In progress / In review → Done. "
-    "Imported from docs/Bugs_Improvements_and_Roadmap.md on the initial "
-    "Gitea mirror bootstrap."
-)
-PROJECT_COLUMNS = ["Backlog", "Ready", "In progress", "In review", "Done"]
-DEFAULT_COLUMN  = "Backlog"
+
+# ─── Project board notes ───────────────────────────────────────────────────
+# Gitea 1.22's per-repo project board feature exists in the web UI but
+# has no REST API. We can't automate creating the board or its
+# columns. Instead, every issue is tagged with a STATUS_LABELS entry
+# (default: status:backlog) — the same Kanban workflow rendered via
+# label filtering instead of drag-and-drop.
+#
+# If you want a UI Kanban view too, do this once manually after the
+# script finishes:
+#   Repo → Projects → New Project → Board Type: Kanban →
+#   Columns: Backlog / Ready / In progress / In review / Done
+# Then drag issues from the label-filtered views into the board.
+PROJECT_TITLE = "MLSS roadmap"  # Human-readable hint only — not used by the API.
 
 
 # ─── Issues to import ──────────────────────────────────────────────────────
@@ -515,34 +548,51 @@ def _check_env() -> None:
 
 
 def ensure_repo() -> dict:
-    """Create the repo if missing; return its dict. The Gitea API uses
-    different endpoints for personal-user repos vs org repos — we try
-    the user-repo path first and fall back to the org path.
+    """Create the repo as a PULL MIRROR from GitHub if missing; return its dict.
+
+    Gitea's pull-mirror config can only be set at repo-creation time
+    (via the ``/repos/migrate`` endpoint with ``mirror: true``) — there
+    is no API to convert an existing non-mirror repo into a mirror.
+    So this function always creates new repos as mirrors; if one
+    already exists in either flavour we return it as-is and leave
+    the caller to detect the flavour via ``existing["mirror"]``.
+
+    The migrate endpoint clones the GitHub URL server-side, so no
+    git push from the dev machine is needed for refs to land on
+    Gitea. From then on Gitea re-polls GitHub every MIRROR_INTERVAL.
     """
     try:
         existing = _api("GET", f"/repos/{GITEA_OWNER}/{GITEA_REPO}")
-        print(f"✓ Repo exists: {existing['full_name']}")
+        kind = "pull mirror" if existing.get("mirror") else "regular repo"
+        print(f"✓ Repo exists ({kind}): {existing['full_name']}")
         return existing
     except GiteaError as exc:
         if "404" not in str(exc):
             raise
 
+    # The migrate endpoint creates the repo and triggers the first
+    # clone in one call. ``service: github`` tells Gitea to use the
+    # GitHub-flavour migrator (handles LFS, releases, etc., though
+    # we only care about refs here).
     payload = {
-        "name":         GITEA_REPO,
-        "description":  "MLSS — Mars Life Support Sensor monitoring + grow units",
-        "private":      False,
-        "auto_init":    False,  # we'll push the real history below
-        "default_branch": "main",
+        "clone_addr":      GITHUB_URL,
+        "repo_name":       GITEA_REPO,
+        "repo_owner":      GITEA_OWNER,
+        "mirror":          True,
+        "mirror_interval": MIRROR_INTERVAL,
+        "private":         False,
+        "service":         "github",
+        "description":     "MLSS — Mars Life Support Sensor (pull mirror of GitHub)",
+        # Pull mirrors disable issues by default. We re-enable so the
+        # backlog we're about to import has somewhere to live.
+        "issues":          True,
+        "wiki":            False,
     }
-    # Try as user-owned first.
-    try:
-        created = _api("POST", "/user/repos", payload)
-    except GiteaError:
-        # Fall back to org-owned. /orgs/<org>/repos works regardless
-        # of whether the caller owns the org as long as they have
-        # create-repo permission inside it.
-        created = _api("POST", f"/orgs/{GITEA_OWNER}/repos", payload)
-    print(f"✓ Created repo: {created['full_name']}")
+    created = _api("POST", "/repos/migrate", payload)
+    print(
+        f"✓ Created pull mirror: {created['full_name']} ← {GITHUB_URL} "
+        f"(interval {MIRROR_INTERVAL})",
+    )
     return created
 
 
@@ -584,12 +634,17 @@ def push_everything() -> None:
 
 def ensure_labels(repo_full_name: str) -> dict[str, int]:
     """Create the canonical label set; return {name: id}. Existing
-    labels are matched by name (case-insensitive) and reused."""
+    labels are matched by name (case-insensitive) and reused.
+
+    Iterates both topic labels (LABELS) and status labels
+    (STATUS_LABELS) — they're defined separately for readability but
+    Gitea sees them as one flat set on the repo.
+    """
     existing = {l["name"].lower(): l for l in _api(
         "GET", f"/repos/{repo_full_name}/labels?limit=50",
     )}
     out: dict[str, int] = {}
-    for name, color, desc in LABELS:
+    for name, color, desc in (*LABELS, *STATUS_LABELS):
         if name.lower() in existing:
             out[name] = existing[name.lower()]["id"]
             continue
@@ -603,48 +658,14 @@ def ensure_labels(repo_full_name: str) -> dict[str, int]:
     return out
 
 
-def ensure_project(repo_full_name: str) -> tuple[int, dict[str, int]]:
-    """Create the Kanban project + columns; return (project_id, columns).
-    columns is {name: id} keyed by column title."""
-    projects = _api("GET", f"/repos/{repo_full_name}/projects?type=2")
-    project = next(
-        (p for p in (projects or []) if p["title"] == PROJECT_TITLE), None,
-    )
-    if project is None:
-        project = _api(
-            "POST", f"/repos/{repo_full_name}/projects",
-            {
-                "title":        PROJECT_TITLE,
-                "description":  PROJECT_DESCRIPTION,
-                "board_type":   "kanban",
-            },
-        )
-        print(f"✓ Created project: {PROJECT_TITLE}")
-    else:
-        print(f"✓ Project exists: {PROJECT_TITLE}")
-    project_id = project["id"]
-
-    cols = {c["title"]: c["id"] for c in _api(
-        "GET", f"/projects/{project_id}/columns",
-    )}
-    for title in PROJECT_COLUMNS:
-        if title in cols:
-            continue
-        c = _api(
-            "POST", f"/projects/{project_id}/columns",
-            {"title": title},
-        )
-        cols[title] = c["id"]
-        print(f"  + column: {title}")
-    return project_id, cols
-
-
 def ensure_issues(
     repo_full_name: str, labels: dict[str, int],
-    project_id: int, columns: dict[str, int],
 ) -> None:
     """Create one issue per ISSUES entry. Skip by title if already
-    present. Pin every new issue into the Backlog column."""
+    present. Every new issue gets the default status label
+    (status:backlog) on top of its topic labels so the Kanban-by-label
+    workflow has the right starting state.
+    """
     existing_titles = {
         i["title"] for i in _api(
             "GET",
@@ -652,30 +673,19 @@ def ensure_issues(
             f"?state=all&type=issues&limit=50",
         )
     }
-    backlog_col = columns[DEFAULT_COLUMN]
+    default_status_id = labels.get(DEFAULT_STATUS)
     created = skipped = 0
     for title, label_names, body in ISSUES:
         if title in existing_titles:
             skipped += 1
             continue
         label_ids = [labels[n] for n in label_names if n in labels]
+        if default_status_id is not None and default_status_id not in label_ids:
+            label_ids.append(default_status_id)
         issue = _api(
             "POST", f"/repos/{repo_full_name}/issues",
             {"title": title, "body": body, "labels": label_ids},
         )
-        # Pin into Backlog column. Gitea endpoint is on the project, not
-        # the issue — POST /projects/<pid>/<colid>/issues with the
-        # issue number.
-        try:
-            _api(
-                "POST",
-                f"/projects/{project_id}/{backlog_col}/issues",
-                {"issues": [{"id": issue["id"]}]},
-            )
-        except GiteaError as exc:
-            # Non-fatal — the issue still exists; project pinning can
-            # be done manually later.
-            print(f"  ! pin to project failed for #{issue['number']}: {exc}")
         created += 1
         print(f"  + #{issue['number']}: {title}")
     print(f"✓ Issues ready ({created} created, {skipped} skipped)")
@@ -687,27 +697,39 @@ def main() -> None:
     os.chdir(repo_root)
 
     repo = ensure_repo()
-    # Construct the clone URL from GITEA_URL ourselves rather than
-    # trusting repo["clone_url"]. Gitea returns whatever its `app.ini`
-    # `[server] ROOT_URL` is configured to advertise — if the server has
-    # moved interfaces / its ROOT_URL is stale (e.g. it says .64 while
-    # we actually reach it on .28), the API hands back a clone URL git
-    # can't talk to. Use the URL we *know* works (the one whose HTTP
-    # API we just successfully called) + repo's full_name.
-    clone_url = f"{GITEA_URL.rstrip('/')}/{repo['full_name']}.git"
-    wire_git_remotes(clone_url)
-    push_everything()
+
+    if repo.get("mirror"):
+        # Canonical case: repo is a pull mirror. Gitea is fetching
+        # refs from GitHub on its own schedule — no local git wiring
+        # needed. Trying to ``git push gitea`` here would be rejected
+        # ("denying non-fast-forward / mirror is read-only").
+        print("✓ Pull mirror — skipping local git remote wiring "
+              "(Gitea handles ref sync itself)")
+    else:
+        # Legacy / fallback path: someone created the repo as a
+        # regular non-mirror (e.g. an earlier run of this script
+        # before the migrate flip). Keep the dual-push wiring so
+        # the repo still gets refs.
+        # Construct the clone URL from GITEA_URL ourselves rather than
+        # trusting repo["clone_url"]: Gitea returns whatever its
+        # `app.ini` `[server] ROOT_URL` is configured to advertise,
+        # which may not be the URL we actually reached the API on
+        # (stale ROOT_URL after the host moved interfaces).
+        clone_url = f"{GITEA_URL.rstrip('/')}/{repo['full_name']}.git"
+        wire_git_remotes(clone_url)
+        push_everything()
 
     repo_full_name = repo["full_name"]
     labels = ensure_labels(repo_full_name)
-    project_id, columns = ensure_project(repo_full_name)
-    ensure_issues(repo_full_name, labels, project_id, columns)
+    ensure_issues(repo_full_name, labels)
 
     print(
         f"\nDone. Browse:\n"
         f"  Repo     → {GITEA_URL}/{repo_full_name}\n"
         f"  Issues   → {GITEA_URL}/{repo_full_name}/issues\n"
-        f"  Project  → {GITEA_URL}/{repo_full_name}/projects/{project_id}\n",
+        f"  Backlog  → {GITEA_URL}/{repo_full_name}/issues?labels=status:backlog\n"
+        f"\nKanban board is label-driven — see PROJECT_TITLE comment in "
+        f"this script for optional one-time UI setup.\n",
     )
 
 
