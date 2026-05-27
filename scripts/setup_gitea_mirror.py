@@ -687,7 +687,14 @@ def main() -> None:
     os.chdir(repo_root)
 
     repo = ensure_repo()
-    clone_url = repo["clone_url"]
+    # Construct the clone URL from GITEA_URL ourselves rather than
+    # trusting repo["clone_url"]. Gitea returns whatever its `app.ini`
+    # `[server] ROOT_URL` is configured to advertise — if the server has
+    # moved interfaces / its ROOT_URL is stale (e.g. it says .64 while
+    # we actually reach it on .28), the API hands back a clone URL git
+    # can't talk to. Use the URL we *know* works (the one whose HTTP
+    # API we just successfully called) + repo's full_name.
+    clone_url = f"{GITEA_URL.rstrip('/')}/{repo['full_name']}.git"
     wire_git_remotes(clone_url)
     push_everything()
 
