@@ -58,10 +58,12 @@ jobs:
             --skip-dirs '.git,node_modules,dist,.claude'
 
       - name: Upload findings as workflow artifact (best-effort)
-        # Gitea's stale ROOT_URL .64 makes act_runner artifact upload
-        # fail with EHOSTUNREACH; continue-on-error so this doesn't
-        # mask the actual CVE-gate result. Operator: fix app.ini
-        # ROOT_URL to http://192.168.0.196:3000/ to enable artifacts.
+        # Gitea's stale ROOT_URL makes act_runner artifact upload fail
+        # with EHOSTUNREACH; continue-on-error so this doesn't mask the
+        # actual CVE-gate result. Operator: fix [server] ROOT_URL in
+        # app.ini on the Gitea host to point at the current LAN IP, then
+        # `systemctl restart gitea`. See docs/CI.md for runner inventory
+        # and the IP-change recovery procedure.
         if: always()
         continue-on-error: true
         uses: actions/upload-artifact@v3
