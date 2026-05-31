@@ -29,10 +29,31 @@ jobs:
         poetry run pip install -e ./contracts
         poetry run pip install -e ./grow_unit
     - name: Run unit tests (excludes e2e)
-      # backup-e2e is deferred to Phase 3 of the pipeline plan — needs
-      # Docker-in-Docker validation on the runner (Phase 3 Task 8 in
-      # docs/superpowers/plans/2026-05-31-gitea-actions-pipeline.md).
-      # The GitHub Actions copy still runs the full e2e suite; we'll
-      # add the Gitea backup-e2e job back once DinD is verified.
+      # The backup-e2e job below runs the e2e suite separately so a
+      # Docker hiccup fails E2E without blocking the unit-test signal.
       run: |
         poetry run pytest tests/ -v -m "not e2e"
+
+  backup-e2e:
+    # End-to-end backup pipeline tests against real Postgres + MinIO
+    # containers via testcontainers-python. Requires Docker-in-Docker
+    # on the runner. DinD was verified green by .gitea/workflows/_dind_check.yml
+    # (commit ea23dfc, run #16-ish on the gittea-ci runner). That
+    # canary has now been deleted in this commit.
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install poetry
+        poetry install --with dev
+        poetry run pip install -e ./contracts
+        poetry run pip install -e ./grow_unit
+    - name: Run backup E2E tests
+      run: |
+        poetry run pytest tests/backup_e2e/ -v -m e2e
