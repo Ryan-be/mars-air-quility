@@ -1,15 +1,13 @@
 name: Trivy
 
 # Filesystem + dependency-lockfile CVE scan.
-# Fails the build on HIGH or CRITICAL findings; uploads a SARIF
-# report on every run regardless of pass/fail so we always have
-# a security-posture record.
+# Fails the build on HIGH or CRITICAL findings; prints findings as
+# a table to the workflow log so they're visible without needing
+# to download the SARIF artifact (artifact upload currently fails
+# because Gitea's [server] ROOT_URL points at the stale .64 IP —
+# operator fix needed in app.ini, tracked separately).
 #
 # Allowlist exceptions live in .trivyignore at repo root.
-#
-# Image-scan of the built Pi image happens in pi-image.yml (Phase 4),
-# NOT here — that scan is non-blocking because Raspberry Pi OS often
-# has unpatched LOW/MEDIUM CVEs we can't do anything about.
 
 on:
   push:
@@ -26,9 +24,6 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install trivy
-        # Aquasec's official install script: stable apt repo on
-        # Debian/Ubuntu. Faster + leaner than pulling the aquasec
-        # Docker image inside the act_runner container.
         run: |
           sudo apt-get update
           sudo apt-get install -y wget gnupg apt-transport-https
@@ -38,39 +33,39 @@ jobs:
           sudo apt-get install -y trivy
           trivy --version
 
-      - name: Trivy filesystem scan (HIGH + CRITICAL gate)
-        # Scans the repo for vulnerable Python deps (poetry.lock),
-        # JS deps (package-lock.json), Dockerfiles, and bare
-        # source patterns. Fails the build if any HIGH/CRITICAL
-        # finding lacks a .trivyignore entry.
+      - name: Trivy filesystem scan — printed findings (informational)
+        # Always runs, always prints, never fails the build. This is
+        # so the workflow log shows WHICH CVEs are blocking even
+        # when the gate step (next) exits non-zero.
+        if: always()
+        run: |
+          trivy fs . \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --format table \
+            --skip-dirs '.git,node_modules,dist,.claude'
+
+      - name: Trivy filesystem scan — HIGH + CRITICAL gate
+        # Same scan, exit 1 if findings → fails the build. The
+        # printed step above already shows what was found.
         run: |
           trivy fs . \
             --severity HIGH,CRITICAL \
             --exit-code 1 \
             --ignore-unfixed \
-            --format sarif \
-            --output trivy-fs.sarif \
+            --format json \
+            --output trivy-fs.json \
             --skip-dirs '.git,node_modules,dist,.claude'
 
-      - name: Trivy filesystem scan — informational (LOW + MEDIUM)
-        # Non-blocking second pass that captures lower-severity
-        # findings into a separate SARIF for review without
-        # blocking the build.
+      - name: Upload findings as workflow artifact (best-effort)
+        # Gitea's stale ROOT_URL .64 makes act_runner artifact upload
+        # fail with EHOSTUNREACH; continue-on-error so this doesn't
+        # mask the actual CVE-gate result. Operator: fix app.ini
+        # ROOT_URL to http://192.168.0.196:3000/ to enable artifacts.
         if: always()
-        run: |
-          trivy fs . \
-            --severity LOW,MEDIUM \
-            --format sarif \
-            --output trivy-fs-low.sarif \
-            --skip-dirs '.git,node_modules,dist,.claude' \
-            || true
-
-      - name: Upload SARIF reports
-        if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v3
         with:
-          name: trivy-sarif-reports
-          path: |
-            trivy-fs.sarif
-            trivy-fs-low.sarif
+          name: trivy-fs-findings
+          path: trivy-fs.json
           retention-days: 30
