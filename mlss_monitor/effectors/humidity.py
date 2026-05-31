@@ -23,8 +23,14 @@ from mlss_monitor.effectors.base import EffectorController, Scope
 
 
 def _humidity(reading: dict) -> float | None:
-    """Pull humidity from a reading; tolerates missing field."""
-    val = reading.get("humidity")
+    """Pull humidity from a reading; tolerates missing field.
+
+    The key is ``humidity_pct`` because the evaluator's reading dict
+    comes from ``dataclasses.asdict(NormalisedReading)`` which surfaces
+    the canonical column name. See the 2026-05-31 incident note in
+    ``tests/test_effectors_dispatch.py``.
+    """
+    val = reading.get("humidity_pct")
     if val is None:
         return None
     return float(val)

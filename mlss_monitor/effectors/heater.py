@@ -25,15 +25,20 @@ from mlss_monitor.effectors.base import EffectorController, Scope
 def _hub_temperature(reading: dict) -> float | None:
     """Pull the hub-scope temperature reading.
 
-    Tolerates two field names: the canonical hub one (``temperature``,
-    from :meth:`mlss_monitor.hot_tier.HotTier.snapshot`) and the
+    Tolerates two field names: the canonical hub one (``temperature_c``,
+    surfaced by ``dataclasses.asdict(NormalisedReading)`` in
+    :func:`mlss_monitor.effectors.evaluator._read_for_plug`) and the
     grow-scope one (``air_temp_c``, from ``grow_telemetry``). The
     fallback exists so a misconfigured row that swaps scopes between
     controller and reading still degrades gracefully rather than
     silently never firing.
+
+    The earlier Phase-3 implementation read ``temperature`` (no suffix)
+    which never matches the dataclass field — see the 2026-05-31
+    incident note in ``tests/test_effectors_dispatch.py``.
     """
-    if "temperature" in reading and reading["temperature"] is not None:
-        return float(reading["temperature"])
+    if "temperature_c" in reading and reading["temperature_c"] is not None:
+        return float(reading["temperature_c"])
     if "air_temp_c" in reading and reading["air_temp_c"] is not None:
         return float(reading["air_temp_c"])
     return None

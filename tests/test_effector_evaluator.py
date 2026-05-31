@@ -105,8 +105,25 @@ def _seed_hub_fan(db_path: str, *, auto_mode: int = 1,
 
 
 def _stub_hub_reading(state_module, **fields):
-    """Stand in for state.hot_tier — the evaluator calls .snapshot() on it."""
-    base = {"temperature": 18.0, "humidity": 50.0, "eco2": 400, "tvoc": 100}
+    """Stand in for state.hot_tier — the evaluator calls .snapshot() on it.
+
+    Keys mirror :class:`mlss_monitor.data_sources.base.NormalisedReading`
+    as surfaced by :func:`dataclasses.asdict` — that's what the real
+    :func:`mlss_monitor.effectors.evaluator._read_for_plug` returns to
+    the controllers, so the test fixture must use the same shape. The
+    earlier legacy-named version of this fixture hid a controller-side
+    bug where every hub-scope reading was read as ``None`` → ``0.0``
+    → all rules NO_OPINION → fan stayed off at 26°C in production
+    (2026-05-31 incident — see
+    ``test_effectors_dispatch.py``'s ``TestHubControllersReadCanonicalFieldNames``
+    regression guard).
+    """
+    base = {
+        "temperature_c": 18.0,
+        "humidity_pct":  50.0,
+        "eco2_ppm":      400,
+        "tvoc_ppb":      100,
+    }
     base.update(fields)
     hot_tier = MagicMock()
     hot_tier.snapshot.return_value = [base]
@@ -122,7 +139,7 @@ class TestEvaluateOnceHubFan:
         plug_id = _seed_hub_fan(db_path, current_state="off")
         mock_plug = MagicMock()
         state_module.smart_plugs = {plug_id: mock_plug}
-        _stub_hub_reading(state_module, temperature=25.0)  # > 20.0 max
+        _stub_hub_reading(state_module, temperature_c=25.0)  # > 20.0 max
 
         from mlss_monitor.effectors.evaluator import evaluate_once
         evaluate_once()
@@ -144,7 +161,7 @@ class TestEvaluateOnceHubFan:
         db_path, state_module = eval_env
         plug_id = _seed_hub_fan(db_path, current_state="on")
         state_module.smart_plugs = {plug_id: MagicMock()}
-        _stub_hub_reading(state_module, temperature=15.0)  # cool
+        _stub_hub_reading(state_module, temperature_c=15.0)  # cool
 
         from mlss_monitor.effectors.evaluator import evaluate_once
         evaluate_once()
@@ -163,7 +180,7 @@ class TestEvaluateOnceHubFan:
         db_path, state_module = eval_env
         plug_id = _seed_hub_fan(db_path, current_state="on")
         state_module.smart_plugs = {plug_id: MagicMock()}
-        _stub_hub_reading(state_module, temperature=25.0)  # ON desired
+        _stub_hub_reading(state_module, temperature_c=25.0)  # ON desired
 
         # Sentinel last-updated stamp; if the evaluator writes again
         # the column will move.
@@ -184,7 +201,7 @@ class TestEvaluateOnceHubFan:
         db_path, state_module = eval_env
         plug_id = _seed_hub_fan(db_path, current_state="off")
         state_module.smart_plugs = {plug_id: MagicMock()}
-        _stub_hub_reading(state_module, temperature=25.0)
+        _stub_hub_reading(state_module, temperature_c=25.0)
         bus = MagicMock()
         state_module.event_bus = bus
 
@@ -205,7 +222,7 @@ class TestEvaluateOnceHubFan:
         db_path, state_module = eval_env
         plug_id = _seed_hub_fan(db_path, current_state="off")
         state_module.smart_plugs = {plug_id: MagicMock()}
-        _stub_hub_reading(state_module, temperature=25.0)  # > 20.0 max
+        _stub_hub_reading(state_module, temperature_c=25.0)  # > 20.0 max
 
         from mlss_monitor.effectors.evaluator import evaluate_once
         evaluate_once()
@@ -235,7 +252,7 @@ class TestEvaluateOnceHubFan:
         # current_state already "on", and the reading keeps it ON.
         plug_id = _seed_hub_fan(db_path, current_state="on")
         state_module.smart_plugs = {plug_id: MagicMock()}
-        _stub_hub_reading(state_module, temperature=25.0)
+        _stub_hub_reading(state_module, temperature_c=25.0)
 
         from mlss_monitor.effectors.evaluator import evaluate_once
         evaluate_once()
@@ -253,7 +270,7 @@ class TestEvaluateOnceSkips:
         db_path, state_module = eval_env
         plug_id = _seed_hub_fan(db_path, is_enabled=0, current_state="off")
         state_module.smart_plugs = {plug_id: MagicMock()}
-        _stub_hub_reading(state_module, temperature=25.0)
+        _stub_hub_reading(state_module, temperature_c=25.0)
 
         from mlss_monitor.effectors.evaluator import evaluate_once
         evaluate_once()
@@ -272,7 +289,7 @@ class TestEvaluateOnceSkips:
         db_path, state_module = eval_env
         plug_id = _seed_hub_fan(db_path, auto_mode=0, current_state="off")
         state_module.smart_plugs = {plug_id: MagicMock()}
-        _stub_hub_reading(state_module, temperature=25.0)
+        _stub_hub_reading(state_module, temperature_c=25.0)
 
         from mlss_monitor.effectors.evaluator import evaluate_once
         evaluate_once()
@@ -290,7 +307,7 @@ class TestEvaluateOnceSkips:
         db_path, state_module = eval_env
         plug_id = _seed_hub_fan(db_path, current_state="off")
         state_module.smart_plugs = {}  # no entry for plug_id
-        _stub_hub_reading(state_module, temperature=25.0)
+        _stub_hub_reading(state_module, temperature_c=25.0)
 
         from mlss_monitor.effectors.evaluator import evaluate_once
         evaluate_once()  # Must NOT raise.
@@ -498,7 +515,7 @@ class TestEvaluatorDeployedRegressions:
         db_path, state_module = eval_env
         plug_id = _seed_hub_fan(db_path, current_state="off")
         state_module.smart_plugs = {plug_id: MagicMock()}
-        _stub_hub_reading(state_module, temperature=25.0)
+        _stub_hub_reading(state_module, temperature_c=25.0)
 
         import mlss_monitor.effectors.evaluator as ev
         # Force _evaluate_one to raise — proves evaluate_once's outer

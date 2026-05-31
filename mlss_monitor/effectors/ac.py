@@ -31,7 +31,11 @@ class AC(EffectorController):
     effector_type = "ac"
 
     def should_be_on(self, reading: dict, rules: dict) -> bool:
-        temp = reading.get("temperature")
+        # Canonical NormalisedReading field name — the evaluator's
+        # reading dict comes from ``dataclasses.asdict(NormalisedReading)``
+        # so the key is ``temperature_c`` not ``temperature``. See the
+        # 2026-05-31 incident note in tests/test_effectors_dispatch.py.
+        temp = reading.get("temperature_c")
         target = rules.get("target")
         if temp is None or target is None:
             return False
@@ -39,7 +43,7 @@ class AC(EffectorController):
 
     def evaluate(self, reading: dict, rules: dict) -> dict:
         """Rich decision shape for the side-panel "Why?" surface."""
-        temp = reading.get("temperature")
+        temp = reading.get("temperature_c")  # See should_be_on comment.
         target = rules.get("target")
         reasons: list[dict] = []
         if temp is None:

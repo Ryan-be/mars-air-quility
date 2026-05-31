@@ -7,6 +7,17 @@ Covers Phase 3 of the MLSS topology feature
 * Per-type ``should_be_on()`` rule logic for every type registered in
   ``database.effectors_schema._EFFECTOR_TYPES`` (Tasks 3.2 + 3.3)
 * Registry lookup parity with the canonical type list (Task 3.4 prereq)
+* :class:`TestHubControllersReadCanonicalFieldNames` — regression
+  guard against the 2026-05-31 production bug where every hub-scope
+  controller read legacy field names (``temperature``, ``humidity``,
+  ``tvoc``, ``eco2``, ``pm2_5``) that don't exist on the canonical
+  :class:`mlss_monitor.data_sources.base.NormalisedReading` dataclass.
+  The evaluator coerces the dataclass via :func:`dataclasses.asdict`,
+  which surfaces the canonical column names (``temperature_c``,
+  ``humidity_pct``, ``tvoc_ppb``, ``eco2_ppm``, ``pm25_ug_m3``). If
+  the controllers don't read those names, every rule sees None →
+  defaults to 0 → fan stays off at 26°C. This class exercises every
+  hub-scope controller against the actual NormalisedReading shape.
 
 Pure unit tests — no DB, no Flask, no asyncio. The evaluator-loop tests
 that DO need the rest of the stack live in ``test_effector_evaluator.py``.
@@ -63,12 +74,17 @@ class TestFanController:
     """Fan wraps Temperature/TVOC/Humidity/PM25 rules — any vote = ON."""
 
     def _reading(self, **kw):
+        # Canonical NormalisedReading field names — see the
+        # TestHubControllersReadCanonicalFieldNames docstring + the
+        # 2026-05-31 incident note for why these aren't the short
+        # legacy names (``temperature`` etc.) the controllers used
+        # to read.
         base = {
-            "temperature": 18.0,
-            "humidity":    50.0,
-            "eco2":        400,
-            "tvoc":        100,
-            "pm2_5":       None,
+            "temperature_c": 18.0,
+            "humidity_pct":  50.0,
+            "eco2_ppm":      400,
+            "tvoc_ppb":      100,
+            "pm25_ug_m3":    None,
         }
         base.update(kw)
         return base
@@ -92,21 +108,21 @@ class TestFanController:
         from mlss_monitor.effectors.fan import Fan
         ctrl = Fan()
         assert ctrl.should_be_on(
-            self._reading(temperature=25.0), self._rules(temp_max=20.0),
+            self._reading(temperature_c=25.0), self._rules(temp_max=20.0),
         ) is True
 
     def test_should_be_off_when_all_within_range(self):
         from mlss_monitor.effectors.fan import Fan
         ctrl = Fan()
         assert ctrl.should_be_on(
-            self._reading(temperature=18.0, tvoc=100), self._rules(),
+            self._reading(temperature_c=18.0, tvoc=100), self._rules(),
         ) is False
 
     def test_should_be_on_when_tvoc_exceeds(self):
         from mlss_monitor.effectors.fan import Fan
         ctrl = Fan()
         assert ctrl.should_be_on(
-            self._reading(tvoc=600), self._rules(tvoc_max=500),
+            self._reading(tvoc_ppb=600), self._rules(tvoc_max=500),
         ) is True
 
     def test_humidity_rule_off_by_default(self):
@@ -114,14 +130,14 @@ class TestFanController:
         ctrl = Fan()
         # humidity high but humidity_enabled=False (default) → no opinion
         assert ctrl.should_be_on(
-            self._reading(humidity=90.0), self._rules(),
+            self._reading(humidity_pct=90.0), self._rules(),
         ) is False
 
     def test_humidity_rule_engaged_when_enabled(self):
         from mlss_monitor.effectors.fan import Fan
         ctrl = Fan()
         assert ctrl.should_be_on(
-            self._reading(humidity=90.0),
+            self._reading(humidity_pct=90.0),
             self._rules(humidity_enabled=True, humidity_max=70.0),
         ) is True
 
@@ -129,7 +145,7 @@ class TestFanController:
         from mlss_monitor.effectors.fan import Fan
         ctrl = Fan()
         assert ctrl.should_be_on(
-            self._reading(pm2_5=42.5),
+            self._reading(pm25_ug_m3=42.5),
             self._rules(pm25_enabled=True, pm25_max=25.0),
         ) is True
 
@@ -150,7 +166,7 @@ class TestFanCarbonFilterController:
     def test_should_be_on_when_temp_exceeds_max(self):
         from mlss_monitor.effectors.fan import FanCarbonFilter
         ctrl = FanCarbonFilter()
-        reading = {"temperature": 25.0, "humidity": 50.0, "tvoc": 100}
+        reading = {"temperature_c": 25.0, "humidity_pct": 50.0, "tvoc_ppb": 100}
         rules = {"temp_max": 20.0, "tvoc_max": 500,
                  "humidity_max": 70.0, "pm25_max": 25.0,
                  "temp_enabled": True, "tvoc_enabled": True,
@@ -169,7 +185,7 @@ class TestCirculationFanController:
     def test_should_be_on_when_temp_exceeds_max(self):
         from mlss_monitor.effectors.fan import CirculationFan
         ctrl = CirculationFan()
-        reading = {"temperature": 25.0, "humidity": 50.0, "tvoc": 100}
+        reading = {"temperature_c": 25.0, "humidity_pct": 50.0, "tvoc_ppb": 100}
         rules = {"temp_max": 20.0, "tvoc_max": 500,
                  "humidity_max": 70.0, "pm25_max": 25.0,
                  "temp_enabled": True, "tvoc_enabled": True,
@@ -197,21 +213,21 @@ class TestWholeRoomHeater:
         from mlss_monitor.effectors.heater import WholeRoomHeater
         ctrl = WholeRoomHeater()
         assert ctrl.should_be_on(
-            {"temperature": 15.0}, {"target": 20.0},
+            {"temperature_c": 15.0}, {"target": 20.0},
         ) is True
 
     def test_off_when_temp_above_target(self):
         from mlss_monitor.effectors.heater import WholeRoomHeater
         ctrl = WholeRoomHeater()
         assert ctrl.should_be_on(
-            {"temperature": 22.0}, {"target": 20.0},
+            {"temperature_c": 22.0}, {"target": 20.0},
         ) is False
 
     def test_off_at_exact_target(self):
         from mlss_monitor.effectors.heater import WholeRoomHeater
         ctrl = WholeRoomHeater()
         assert ctrl.should_be_on(
-            {"temperature": 20.0}, {"target": 20.0},
+            {"temperature_c": 20.0}, {"target": 20.0},
         ) is False
 
     def test_grow_scope_reads_air_temp_c_field(self):
@@ -293,27 +309,27 @@ class TestACController:
         from mlss_monitor.effectors.ac import AC
         ctrl = AC()
         assert ctrl.should_be_on(
-            {"temperature": 28.0}, {"target": 22.0},
+            {"temperature_c": 28.0}, {"target": 22.0},
         ) is True
 
     def test_off_when_temp_below_target(self):
         from mlss_monitor.effectors.ac import AC
         ctrl = AC()
         assert ctrl.should_be_on(
-            {"temperature": 18.0}, {"target": 22.0},
+            {"temperature_c": 18.0}, {"target": 22.0},
         ) is False
 
     def test_off_at_exact_target(self):
         from mlss_monitor.effectors.ac import AC
         ctrl = AC()
         assert ctrl.should_be_on(
-            {"temperature": 22.0}, {"target": 22.0},
+            {"temperature_c": 22.0}, {"target": 22.0},
         ) is False
 
     def test_off_when_no_target_set(self):
         from mlss_monitor.effectors.ac import AC
         ctrl = AC()
-        assert ctrl.should_be_on({"temperature": 28.0}, {}) is False
+        assert ctrl.should_be_on({"temperature_c": 28.0}, {}) is False
 
     def test_min_off_compressor_protection_not_enforced_in_v1(self):
         """Regression guard for the documented v1 limitation.
@@ -325,7 +341,7 @@ class TestACController:
         """
         from mlss_monitor.effectors.ac import AC
         ctrl = AC()
-        reading = {"temperature": 28.0}
+        reading = {"temperature_c": 28.0}
         rules = {"target": 22.0}
         # Two back-to-back calls; v1 has no min-off state so both vote ON.
         assert ctrl.should_be_on(reading, rules) is True
@@ -347,21 +363,21 @@ class TestHumidifierController:
         from mlss_monitor.effectors.humidity import Humidifier
         ctrl = Humidifier()
         assert ctrl.should_be_on(
-            {"humidity": 40.0}, {"target": 60.0},
+            {"humidity_pct": 40.0}, {"target": 60.0},
         ) is True
 
     def test_off_when_humidity_above_target(self):
         from mlss_monitor.effectors.humidity import Humidifier
         ctrl = Humidifier()
         assert ctrl.should_be_on(
-            {"humidity": 70.0}, {"target": 60.0},
+            {"humidity_pct": 70.0}, {"target": 60.0},
         ) is False
 
     def test_off_at_exact_target(self):
         from mlss_monitor.effectors.humidity import Humidifier
         ctrl = Humidifier()
         assert ctrl.should_be_on(
-            {"humidity": 60.0}, {"target": 60.0},
+            {"humidity_pct": 60.0}, {"target": 60.0},
         ) is False
 
     def test_off_when_humidity_missing(self):
@@ -384,21 +400,21 @@ class TestDehumidifierController:
         from mlss_monitor.effectors.humidity import Dehumidifier
         ctrl = Dehumidifier()
         assert ctrl.should_be_on(
-            {"humidity": 80.0}, {"target": 60.0},
+            {"humidity_pct": 80.0}, {"target": 60.0},
         ) is True
 
     def test_off_when_humidity_below_target(self):
         from mlss_monitor.effectors.humidity import Dehumidifier
         ctrl = Dehumidifier()
         assert ctrl.should_be_on(
-            {"humidity": 50.0}, {"target": 60.0},
+            {"humidity_pct": 50.0}, {"target": 60.0},
         ) is False
 
     def test_off_at_exact_target(self):
         from mlss_monitor.effectors.humidity import Dehumidifier
         ctrl = Dehumidifier()
         assert ctrl.should_be_on(
-            {"humidity": 60.0}, {"target": 60.0},
+            {"humidity_pct": 60.0}, {"target": 60.0},
         ) is False
 
     def test_compatible_scopes_is_hub_only(self):
@@ -502,7 +518,7 @@ class TestGenericController:
         ctrl = Generic()
         # Even an extreme reading + populated rules shouldn't fire.
         assert ctrl.should_be_on(
-            {"temperature": 99.0, "humidity": 99.0, "tvoc": 99999},
+            {"temperature_c": 99.0, "humidity_pct": 99.0, "tvoc_ppb": 99999},
             {"target": 0.0, "schedule": [{"start_hr": 0, "end_hr": 24}]},
         ) is False
 
@@ -521,13 +537,117 @@ class TestCO2InjectorController:
         from mlss_monitor.effectors.generic import CO2Injector
         ctrl = CO2Injector()
         assert ctrl.should_be_on(
-            {"eco2": 200, "temperature": 22.0}, {"target": 800},
+            {"eco2_ppm": 200, "temperature_c": 22.0}, {"target": 800},
         ) is False
 
     def test_compatible_scopes_is_hub_only(self):
         from mlss_monitor.effectors.generic import CO2Injector
         from mlss_monitor.effectors.base import Scope
         assert CO2Injector.compatible_scopes() == {Scope.HUB}
+
+
+# ── 2026-05-31 regression: hub controllers must read canonical names ──────
+
+
+class TestHubControllersReadCanonicalFieldNames:
+    """Every hub-scope controller MUST read the canonical NormalisedReading
+    field names that hot_tier.snapshot() actually emits.
+
+    See module docstring for the production incident this guards against.
+    The test passes a dict shaped exactly like
+    ``dataclasses.asdict(NormalisedReading(...))`` and asserts each
+    controller sees the values and votes accordingly.
+
+    Catches regressions where someone "fixes" a controller back to the
+    legacy short names (``temperature`` etc.) without realising the
+    evaluator's reading dict uses ``temperature_c`` / ``humidity_pct`` /
+    ``tvoc_ppb`` / ``eco2_ppm`` / ``pm25_ug_m3``.
+    """
+
+    def _canonical_reading(self, **overrides) -> dict:
+        """Dict shaped like dataclasses.asdict(NormalisedReading(...))."""
+        from datetime import datetime, timezone
+        base = {
+            "timestamp":     datetime.now(timezone.utc),
+            "source":        "test",
+            "tvoc_ppb":      100,
+            "eco2_ppm":      400,
+            "temperature_c": 18.0,
+            "humidity_pct":  50.0,
+            "pm1_ug_m3":     None,
+            "pm25_ug_m3":    None,
+            "pm10_ug_m3":    None,
+            "co_ppb":        None,
+            "no2_ppb":       None,
+            "nh3_ppb":       None,
+        }
+        base.update(overrides)
+        return base
+
+    def test_fan_reads_temperature_c(self):
+        from mlss_monitor.effectors.fan import Fan
+        ctrl = Fan()
+        reading = self._canonical_reading(temperature_c=25.0)
+        rules = {"temp_max": 20.0, "temp_enabled": True, "tvoc_max": 9999,
+                 "tvoc_enabled": True, "humidity_enabled": False,
+                 "pm25_enabled": False}
+        assert ctrl.should_be_on(reading, rules) is True, (
+            "Fan must read 'temperature_c' (canonical NormalisedReading "
+            "field), not 'temperature' (legacy). Saw temperature_c=25.0 "
+            "vs temp_max=20.0 but controller voted OFF — field-name "
+            "mismatch regressed."
+        )
+
+    def test_fan_reads_humidity_pct(self):
+        from mlss_monitor.effectors.fan import Fan
+        ctrl = Fan()
+        reading = self._canonical_reading(humidity_pct=90.0)
+        rules = {"temp_max": 99, "temp_enabled": True, "tvoc_max": 9999,
+                 "tvoc_enabled": True, "humidity_enabled": True,
+                 "humidity_max": 70.0, "pm25_enabled": False}
+        assert ctrl.should_be_on(reading, rules) is True
+
+    def test_fan_reads_tvoc_ppb(self):
+        from mlss_monitor.effectors.fan import Fan
+        ctrl = Fan()
+        reading = self._canonical_reading(tvoc_ppb=600)
+        rules = {"temp_max": 99, "temp_enabled": True, "tvoc_max": 500,
+                 "tvoc_enabled": True, "humidity_enabled": False,
+                 "pm25_enabled": False}
+        assert ctrl.should_be_on(reading, rules) is True
+
+    def test_fan_reads_pm25_ug_m3(self):
+        from mlss_monitor.effectors.fan import Fan
+        ctrl = Fan()
+        reading = self._canonical_reading(pm25_ug_m3=42.5)
+        rules = {"temp_max": 99, "temp_enabled": True, "tvoc_max": 9999,
+                 "tvoc_enabled": True, "humidity_enabled": False,
+                 "pm25_enabled": True, "pm25_max": 25.0}
+        assert ctrl.should_be_on(reading, rules) is True
+
+    def test_ac_reads_temperature_c(self):
+        from mlss_monitor.effectors.ac import AC
+        ctrl = AC()
+        reading = self._canonical_reading(temperature_c=28.0)
+        assert ctrl.should_be_on(reading, {"target": 22.0}) is True
+
+    def test_humidifier_reads_humidity_pct(self):
+        from mlss_monitor.effectors.humidity import Humidifier
+        ctrl = Humidifier()
+        reading = self._canonical_reading(humidity_pct=40.0)
+        assert ctrl.should_be_on(reading, {"target": 60.0}) is True
+
+    def test_dehumidifier_reads_humidity_pct(self):
+        from mlss_monitor.effectors.humidity import Dehumidifier
+        ctrl = Dehumidifier()
+        reading = self._canonical_reading(humidity_pct=80.0)
+        assert ctrl.should_be_on(reading, {"target": 60.0}) is True
+
+    def test_whole_room_heater_reads_temperature_c(self):
+        from mlss_monitor.effectors.heater import WholeRoomHeater
+        ctrl = WholeRoomHeater()
+        reading = self._canonical_reading(temperature_c=15.0)
+        assert ctrl.should_be_on(reading, {"target": 20.0}) is True
 
 
 # ── Task 3.4: Registry ─────────────────────────────────────────────────────

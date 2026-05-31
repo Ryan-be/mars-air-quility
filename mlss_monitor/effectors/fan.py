@@ -42,19 +42,25 @@ _RULES = (TemperatureRule(), TVOCRule(), HumidityRule(), PM25Rule())
 def _reading_from_dict(reading: dict) -> SensorReading:
     """Coerce the evaluator's reading dict into a :class:`SensorReading`.
 
-    The dict shape varies slightly between hub-scope readings (which come
-    from :meth:`mlss_monitor.hot_tier.HotTier.snapshot` and use the
-    canonical sensor field names) and grow-scope readings (which come
-    from ``grow_telemetry`` and use ``air_temp_c`` / similar). Hub-scope
-    is the common case and what every fan-family controller expects
-    today, so we read the hub field names and tolerate missing values.
+    The dict is shaped like ``dataclasses.asdict(NormalisedReading(...))``
+    because :func:`mlss_monitor.effectors.evaluator._read_for_plug`
+    coerces :class:`mlss_monitor.data_sources.base.NormalisedReading`
+    (from :meth:`mlss_monitor.hot_tier.HotTier.snapshot`) to a dict via
+    :func:`dataclasses.asdict`. That surfaces the canonical column
+    names — ``temperature_c``, ``humidity_pct``, ``tvoc_ppb``,
+    ``eco2_ppm``, ``pm25_ug_m3`` — NOT the short legacy names. The
+    initial Phase 3 implementation read the legacy names and saw None
+    for every sensor → all rules defaulted to 0 → fan stayed off at
+    26°C in production (incident 2026-05-31). The regression guard
+    lives in
+    ``tests/test_effectors_dispatch.py::TestHubControllersReadCanonicalFieldNames``.
     """
     return SensorReading(
-        temperature=float(reading.get("temperature") or 0.0),
-        humidity=float(reading.get("humidity") or 0.0),
-        eco2=int(reading.get("eco2") or 0),
-        tvoc=int(reading.get("tvoc") or 0),
-        pm2_5=reading.get("pm2_5"),
+        temperature=float(reading.get("temperature_c") or 0.0),
+        humidity=float(reading.get("humidity_pct") or 0.0),
+        eco2=int(reading.get("eco2_ppm") or 0),
+        tvoc=int(reading.get("tvoc_ppb") or 0),
+        pm2_5=reading.get("pm25_ug_m3"),
     )
 
 
