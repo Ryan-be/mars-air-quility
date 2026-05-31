@@ -1,0 +1,76 @@
+name: Trivy
+
+# Filesystem + dependency-lockfile CVE scan.
+# Fails the build on HIGH or CRITICAL findings; uploads a SARIF
+# report on every run regardless of pass/fail so we always have
+# a security-posture record.
+#
+# Allowlist exceptions live in .trivyignore at repo root.
+#
+# Image-scan of the built Pi image happens in pi-image.yml (Phase 4),
+# NOT here — that scan is non-blocking because Raspberry Pi OS often
+# has unpatched LOW/MEDIUM CVEs we can't do anything about.
+
+on:
+  push:
+  workflow_dispatch:
+  schedule:
+    # Nightly at 03:00 UTC — catches new CVEs disclosed against
+    # deps we haven't touched in a while.
+    - cron: '0 3 * * *'
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install trivy
+        # Aquasec's official install script: stable apt repo on
+        # Debian/Ubuntu. Faster + leaner than pulling the aquasec
+        # Docker image inside the act_runner container.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget gnupg apt-transport-https
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo gpg --dearmor -o /usr/share/keyrings/trivy.gpg
+          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" | sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update
+          sudo apt-get install -y trivy
+          trivy --version
+
+      - name: Trivy filesystem scan (HIGH + CRITICAL gate)
+        # Scans the repo for vulnerable Python deps (poetry.lock),
+        # JS deps (package-lock.json), Dockerfiles, and bare
+        # source patterns. Fails the build if any HIGH/CRITICAL
+        # finding lacks a .trivyignore entry.
+        run: |
+          trivy fs . \
+            --severity HIGH,CRITICAL \
+            --exit-code 1 \
+            --ignore-unfixed \
+            --format sarif \
+            --output trivy-fs.sarif \
+            --skip-dirs '.git,node_modules,dist,.claude'
+
+      - name: Trivy filesystem scan — informational (LOW + MEDIUM)
+        # Non-blocking second pass that captures lower-severity
+        # findings into a separate SARIF for review without
+        # blocking the build.
+        if: always()
+        run: |
+          trivy fs . \
+            --severity LOW,MEDIUM \
+            --format sarif \
+            --output trivy-fs-low.sarif \
+            --skip-dirs '.git,node_modules,dist,.claude' \
+            || true
+
+      - name: Upload SARIF reports
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: trivy-sarif-reports
+          path: |
+            trivy-fs.sarif
+            trivy-fs-low.sarif
+          retention-days: 30
