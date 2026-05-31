@@ -120,7 +120,7 @@ def test_coalesce_window_updates_existing_row(env):
     d = NotificationDispatcher(env["bus"], env["db"])
     with patch("mlss_monitor.notifications.dispatcher.push_client.send",
                return_value=_ok()):
-        for i in range(3):
+        for _ in range(3):
             d._handle_event({"event": "inference_fired", "data": {
                 "severity": "warning", "title": "TVOC spike", "description": "..."
             }})

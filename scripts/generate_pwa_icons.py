@@ -14,7 +14,6 @@ with a polar cap hint), dashed orbit ring, small "MLSS" wordmark below.
 Matches the inline SVG in templates/base.html.
 """
 
-import math
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
@@ -78,7 +77,7 @@ def _draw_icon(size: int, *, maskable: bool = False) -> Image.Image:
             font = ImageFont.load_default()
         text = "MLSS"
         bbox = draw.textbbox((0, 0), text, font=font)
-        tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        tw, _ = bbox[2] - bbox[0], bbox[3] - bbox[1]
         draw.text(
             ((size - tw) // 2, cy + mars_r + max(4, size // 40)),
             text, fill=(220, 230, 240, 255), font=font,

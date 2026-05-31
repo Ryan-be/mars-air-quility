@@ -72,4 +72,5 @@ def build_mobileconfig(
             }
         ],
     }
+    # pylint: disable-next=no-member  # plistlib.FMT_XML is 3.8+; runtime check sufficient
     return plistlib.dumps(plist, fmt=plistlib.FMT_XML)
