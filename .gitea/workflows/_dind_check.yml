@@ -1,0 +1,42 @@
+# Phase 3 Task 8 canary — verify Docker-in-Docker works on the runner.
+#
+# The backup-e2e suite (deferred in commit 628dd9f) uses testcontainers
+# which needs to spin up containers from inside the act_runner-managed
+# container. This workflow confirms that's possible BEFORE we restore
+# backup-e2e. If this run goes green, the operator can re-enable
+# backup-e2e in .gitea/workflows/test.yml; if it fails, we need to
+# tweak act_runner's container config (most likely valid_volumes for
+# /var/run/docker.sock).
+#
+# Delete this file once Phase 3 backup-e2e is restored and stable.
+
+name: _dind_check
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Show docker availability inside the runner container
+        run: |
+          echo "==> docker socket:"
+          ls -la /var/run/docker.sock 2>&1 || echo "  NOT MOUNTED"
+          echo
+          echo "==> docker client version:"
+          docker --version 2>&1 || echo "  docker CLI not installed in this image"
+          echo
+          echo "==> docker daemon ping:"
+          docker info 2>&1 | head -20 || echo "  cannot reach daemon"
+
+      - name: Run a nested container (the real DinD test)
+        # If this succeeds, testcontainers will work. The runner
+        # container talks to the host's Docker daemon via the
+        # mounted socket and spawns the inner alpine container as
+        # a sibling (not a true nested container — that's docker-in-
+        # docker; we're doing docker-out-of-docker which is what
+        # testcontainers actually needs).
+        run: |
+          docker run --rm alpine sh -c 'echo "DinD via shared socket OK"'
