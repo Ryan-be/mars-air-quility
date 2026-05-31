@@ -1,9 +1,16 @@
 # Phase-0 canary. Delete after Phase 1 ports the real workflows.
 # Purpose: verify the runner is online, can pick up a job, can stream
-# logs back. Manually dispatched only — does not run on push.
-name: _runner_smoke
+# logs back.
+#
+# Triggered on BOTH push and workflow_dispatch so we can iterate on
+# the workflow itself from a feature branch (push fires per-branch,
+# while the dispatch UI button only appears on the default branch
+# until the file lands on main). This dual-trigger pattern is the
+# default for every workflow in this repo.
+name: runner-smoke
 
 on:
+  push:
   workflow_dispatch:
 
 jobs:
