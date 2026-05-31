@@ -253,9 +253,15 @@ def test_get_incident_detail_includes_edges(client, db):
     the component, each with {from, to, p, shared_sensors}."""
     # Seed two alerts sharing eco2 within the edge window + link them
     # into an incident via regroup.
+    # Use utcnow-relative timestamps so the incidents the grouper
+    # persists (started_at = earliest alert.created_at) stay inside the
+    # API's window=30d cutoff regardless of when the test runs.
+    from datetime import datetime, timedelta
     from mlss_monitor.incident_grouper import regroup_all
+    base = datetime.utcnow() - timedelta(hours=1)
     conn = sqlite3.connect(db)
-    for ts in ("2026-04-23 09:00:00", "2026-04-23 09:10:00"):
+    for offset_min in (0, 10):
+        ts = (base + timedelta(minutes=offset_min)).strftime("%Y-%m-%d %H:%M:%S")
         cur = conn.execute(
             "INSERT INTO inferences (created_at, event_type, severity, title, confidence) "
             "VALUES (?, ?, ?, ?, ?)",
@@ -288,14 +294,21 @@ def test_get_incident_detail_includes_edges(client, db):
 def test_split_endpoint_creates_marker_and_regroups(client, db):
     """POST /api/incidents/<id>/split creates an incident_splits row and
     triggers a regroup so the incident actually splits."""
+    # utcnow-relative timestamps keep the incident inside the API
+    # window=30d filter regardless of test run date.
+    from datetime import datetime, timedelta
     from mlss_monitor.incident_grouper import regroup_all
+    base = datetime.utcnow() - timedelta(hours=1)
+    ts_a = base.strftime("%Y-%m-%d %H:%M:%S")
+    ts_b = (base + timedelta(minutes=10)).strftime("%Y-%m-%d %H:%M:%S")
+    ts_c = (base + timedelta(minutes=20)).strftime("%Y-%m-%d %H:%M:%S")
     conn = sqlite3.connect(db)
     alert_ids = []
-    # Alert A (09:00): eco2_ppm only
+    # Alert A: eco2_ppm only
     cur = conn.execute(
         "INSERT INTO inferences (created_at, event_type, severity, title, confidence) "
         "VALUES (?, ?, ?, ?, ?)",
-        ("2026-04-23 09:00:00", "tvoc_spike", "info", "t-09:00", 0.9),
+        (ts_a, "tvoc_spike", "info", "t-A", 0.9),
     )
     alert_ids.append(cur.lastrowid)
     conn.execute(
@@ -303,11 +316,11 @@ def test_split_endpoint_creates_marker_and_regroups(client, db):
         "VALUES (?, ?, ?, ?)",
         (cur.lastrowid, "eco2_ppm", 0.8, 0),
     )
-    # Alert B (09:10): both eco2_ppm and tvoc_ppb
+    # Alert B (10 min later): both eco2_ppm and tvoc_ppb
     cur = conn.execute(
         "INSERT INTO inferences (created_at, event_type, severity, title, confidence) "
         "VALUES (?, ?, ?, ?, ?)",
-        ("2026-04-23 09:10:00", "tvoc_spike", "info", "t-09:10", 0.9),
+        (ts_b, "tvoc_spike", "info", "t-B", 0.9),
     )
     alert_ids.append(cur.lastrowid)
     conn.execute(
@@ -320,11 +333,11 @@ def test_split_endpoint_creates_marker_and_regroups(client, db):
         "VALUES (?, ?, ?, ?)",
         (cur.lastrowid, "tvoc_ppb", 0.8, 0),
     )
-    # Alert C (09:20): tvoc_ppb only
+    # Alert C (20 min later): tvoc_ppb only
     cur = conn.execute(
         "INSERT INTO inferences (created_at, event_type, severity, title, confidence) "
         "VALUES (?, ?, ?, ?, ?)",
-        ("2026-04-23 09:20:00", "tvoc_spike", "info", "t-09:20", 0.9),
+        (ts_c, "tvoc_spike", "info", "t-C", 0.9),
     )
     alert_ids.append(cur.lastrowid)
     conn.execute(
@@ -367,7 +380,15 @@ def test_split_endpoint_requires_alert_id(client, db):
 
 def test_unsplit_endpoint_removes_marker_and_regroups(client, db):
     """POST /unsplit removes the marker and regroups, merging the incidents back."""
+    # utcnow-relative timestamps so the incident the grouper creates
+    # stays inside the API window=30d filter.
+    from datetime import datetime, timedelta
     from mlss_monitor.incident_grouper import regroup_all
+    base = datetime.utcnow() - timedelta(hours=1)
+    timestamps = tuple(
+        (base + timedelta(minutes=m)).strftime("%Y-%m-%d %H:%M:%S")
+        for m in (0, 10, 20)
+    )
     conn = sqlite3.connect(db)
     alert_ids = []
     # Same disjoint-sensor-chain pattern as the split test: A=eco2 only,
@@ -378,10 +399,7 @@ def test_unsplit_endpoint_removes_marker_and_regroups(client, db):
         [("eco2_ppm", 0.8), ("tvoc_ppb", 0.8)],
         [("tvoc_ppb", 0.8)],
     ]
-    for ts, deps in zip(
-        ("2026-04-23 09:00:00", "2026-04-23 09:10:00", "2026-04-23 09:20:00"),
-        sensor_sets,
-    ):
+    for ts, deps in zip(timestamps, sensor_sets):
         cur = conn.execute(
             "INSERT INTO inferences (created_at, event_type, severity, title, confidence) "
             "VALUES (?, ?, ?, ?, ?)",
@@ -427,7 +445,15 @@ def test_unsplit_endpoint_removes_marker_and_regroups(client, db):
 def test_get_incident_detail_reports_operator_split(client, db):
     """detail.operator_split is True iff the earliest alert of the incident
     has a row in incident_splits."""
+    # utcnow-relative timestamps so the incidents the grouper creates
+    # stay inside the API window=30d filter.
+    from datetime import datetime, timedelta
     from mlss_monitor.incident_grouper import regroup_all
+    base = datetime.utcnow() - timedelta(hours=1)
+    timestamps = tuple(
+        (base + timedelta(minutes=m)).strftime("%Y-%m-%d %H:%M:%S")
+        for m in (0, 10, 20)
+    )
     conn = sqlite3.connect(db)
     alert_ids = []
     # Disjoint-sensor-chain so the split marker actually creates two incidents.
@@ -436,10 +462,7 @@ def test_get_incident_detail_reports_operator_split(client, db):
         [("eco2_ppm", 0.8), ("tvoc_ppb", 0.8)],
         [("tvoc_ppb", 0.8)],
     ]
-    for ts, deps in zip(
-        ("2026-04-23 09:00:00", "2026-04-23 09:10:00", "2026-04-23 09:20:00"),
-        sensor_sets,
-    ):
+    for ts, deps in zip(timestamps, sensor_sets):
         cur = conn.execute(
             "INSERT INTO inferences (created_at, event_type, severity, title, confidence) "
             "VALUES (?, ?, ?, ?, ?)",
@@ -493,12 +516,21 @@ def test_get_incidents_retains_signature_field(client, db):
 def test_get_incidents_summary_includes_severity_by_hour(client, db):
     """summary.severity_by_hour is a 24-int array of severity ranks
     (0 info, 1 warning, 2 critical, -1 if no incidents that hour)."""
-    _seed_incident(db, "INC-20260429-1500", max_severity="warning",
-                   started_at="2026-04-29 15:00:00",
-                   ended_at="2026-04-29 15:05:00")
-    _seed_incident(db, "INC-20260429-1530", max_severity="critical",
-                   started_at="2026-04-29 15:30:00",
-                   ended_at="2026-04-29 15:35:00")
+    # Anchor to yesterday at 15:00 UTC so the seeded incidents stay
+    # inside the API window=30d filter regardless of when the test runs.
+    # Hour 15 is preserved so the sbh[15] == 2 assertion still holds.
+    from datetime import datetime, timedelta
+    yesterday_15 = (datetime.utcnow() - timedelta(days=1)).replace(
+        hour=15, minute=0, second=0, microsecond=0
+    )
+    started_warn = yesterday_15.strftime("%Y-%m-%d %H:%M:%S")
+    ended_warn = (yesterday_15 + timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M:%S")
+    started_crit = (yesterday_15 + timedelta(minutes=30)).strftime("%Y-%m-%d %H:%M:%S")
+    ended_crit = (yesterday_15 + timedelta(minutes=35)).strftime("%Y-%m-%d %H:%M:%S")
+    _seed_incident(db, "INC-SEVHOUR-1500", max_severity="warning",
+                   started_at=started_warn, ended_at=ended_warn)
+    _seed_incident(db, "INC-SEVHOUR-1530", max_severity="critical",
+                   started_at=started_crit, ended_at=ended_crit)
     rv = client.get("/api/incidents?window=30d")
     data = rv.get_json()
     sbh = data["summary"]["severity_by_hour"]
