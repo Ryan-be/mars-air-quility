@@ -201,9 +201,33 @@ def tls_server_with_cert_path(monkeypatch, tmp_path):
     stop_ws_listener(handle)
 
 
+def _seed_resolver_with_loopback(monkeypatch):
+    """Make ``hub_candidates()`` yield exactly one 127.0.0.1 candidate.
+
+    Background: ``WSClient._try_connect_once`` iterates the mDNS-resilient
+    host_resolver (host file -> cache file -> mDNS) to pick the hub IP and
+    *ignores the URL's hostname* — by design, since prod URLs carry a
+    placeholder. In CI none of the 3 resolution steps yields anything (no
+    /etc/mlss/host, no /etc/mlss/host-cache, no mDNS responder), so the
+    test's ``wss://127.0.0.1:<port>`` URL is never even tried. Inject a
+    deterministic candidate so the integration code under test (SSLContext
+    build + handshake) actually runs.
+    """
+    from mlss_grow import host_resolver, ws_client
+
+    def _fake_candidates(*_args, **_kwargs):
+        yield host_resolver.Candidate(
+            ip="127.0.0.1", source=host_resolver.Source.HOST,
+        )
+    monkeypatch.setattr(ws_client, "hub_candidates", _fake_candidates)
+    # The success path also calls record_successful_connect, which writes
+    # to /etc/mlss/host-cache. Stub it so the test doesn't touch system paths.
+    monkeypatch.setattr(ws_client, "record_successful_connect", lambda *_a, **_k: None)
+
+
 @pytest.mark.asyncio
 async def test_ws_client_handshakes_with_pinned_cert_against_self_signed_listener(
-    tls_server_with_cert_path,
+    tls_server_with_cert_path, monkeypatch,
 ):
     """Stack-level proof: WSClient configured with server_cert_path can
     actually establish a TLS connection to a self-signed-cert listener.
@@ -221,6 +245,7 @@ async def test_ws_client_handshakes_with_pinned_cert_against_self_signed_listene
     from mlss_grow.ws_client import WSClient
 
     port, token, registry, cert_path = tls_server_with_cert_path
+    _seed_resolver_with_loopback(monkeypatch)
 
     # The listener cert was issued for CN=127.0.0.1 + SAN dnsName=127.0.0.1.
     # Connect to 127.0.0.1 so hostname verification (kept ON for the pinned
@@ -249,7 +274,7 @@ async def test_ws_client_handshakes_with_pinned_cert_against_self_signed_listene
 
 @pytest.mark.asyncio
 async def test_ws_client_fails_when_pinned_cert_is_for_a_different_host(
-    tls_server_with_cert_path, tmp_path,
+    tls_server_with_cert_path, tmp_path, monkeypatch,
 ):
     """Negative case: if the pinned cert is unrelated to the server's cert,
     the handshake must fail. Confirms verification is real, not a no-op.
@@ -265,6 +290,9 @@ async def test_ws_client_fails_when_pinned_cert_is_for_a_different_host(
     _td = timedelta
 
     port, token, _, _ = tls_server_with_cert_path
+    # Seed the resolver so the handshake actually reaches the listener
+    # (and therefore actually fails on cert mismatch, not on "no candidates").
+    _seed_resolver_with_loopback(monkeypatch)
 
     # Make a totally unrelated self-signed cert and pin against THAT.
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)

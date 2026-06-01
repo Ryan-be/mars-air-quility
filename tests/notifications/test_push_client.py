@@ -3,8 +3,6 @@
 import json
 from unittest.mock import patch, MagicMock
 
-import pytest
-
 from mlss_monitor.notifications import push_client
 
 
@@ -19,7 +17,7 @@ def test_send_calls_pywebpush_with_correct_payload():
                                    vapid_contact_email="a@b")
     assert result.delivered is True
     assert result.stale is False
-    args, kwargs = mock_wp.call_args
+    _args, kwargs = mock_wp.call_args
     assert kwargs["subscription_info"]["endpoint"] == "https://push.example/abc"
     assert json.loads(kwargs["data"]) == payload
     assert kwargs["vapid_private_key"] == "privk"

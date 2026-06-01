@@ -1,0 +1,15 @@
+# Trivy CVE allowlist for the MLSS repo.
+#
+# Format: one CVE per line.
+#   CVE-XXXX-YYYY    # short reason — review date YYYY-MM
+#
+# Trivy ignores any CVE listed here when computing the severity
+# gate in .gitea/workflows/trivy.yml. Each entry needs a comment
+# explaining WHY (transitive dep we can't bump, accepted risk,
+# false positive, etc.) plus a review date so we know when to
+# reassess (target: every 6 months, or when the underlying dep
+# bumps).
+#
+# Currently empty — populate when a real finding needs an
+# exception. Adding lines here without justification defeats
+# the security gate.

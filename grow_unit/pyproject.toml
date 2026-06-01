@@ -32,9 +32,12 @@ zeroconf = "^0.131"
 websockets = "^12.0"
 pydantic = "^2.0"
 pyyaml = "^6.0"
-# Pillow >=10,<12 — Pillow 10 lacks Python 3.13 wheels, so the lower
-# bound stays at 10 for dev compat but Trixie Pis will install 11.x.
-Pillow = ">=10.0,<12.0"
+# Pillow >=12.2.0 — closes HIGH CVE-2026-25990 / 40192 / 42311 from the
+# Trivy gate (see .gitea/workflows/trivy.yml). Pillow 12.x ships wheels
+# for every Python from 3.11 through 3.13, so this satisfies both Pi OS
+# Bookworm (3.11) and Trixie (3.13). API surface used by photo_storage
+# (Image.open / thumbnail / save) is stable across 10.x → 12.x.
+Pillow = ">=12.2.0,<13.0"
 requests = "^2.31"
 # In-tree dev: path-dependency keeps the contracts package live for editing.
 # PyPI release: scripts/prepare_pypi_release.py rewrites this line to a

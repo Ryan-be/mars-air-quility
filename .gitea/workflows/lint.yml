@@ -1,0 +1,34 @@
+name: Lint
+
+# Mirror of .github/workflows/lint.yml. Gitea Actions auto-discovers
+# .gitea/workflows/ when present and STOPS scanning .github/workflows/,
+# so we need our own copy here to keep lint running on the Gitea runner.
+# Dual push+workflow_dispatch trigger so feature-branch iteration works
+# (per the convention in docs/superpowers/plans/2026-05-31-gitea-actions-pipeline.md).
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - name: Install shellcheck
+      run: sudo apt-get update && sudo apt-get install -y shellcheck
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install poetry
+        poetry install --with dev
+        poetry run pip install pylint
+        poetry run pip install -e ./contracts
+        poetry run pip install -e ./grow_unit
+    - name: Run pylint
+      run: |
+        poetry run pylint $(git ls-files '*.py')

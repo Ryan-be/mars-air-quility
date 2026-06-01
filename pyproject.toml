@@ -12,7 +12,11 @@ adafruit-circuitpython-ahtx0 = "^1.0.27"
 adafruit-circuitpython-sgp30 = "^2.0.4"
 pimoroni-mics6814 = "^1.0.0"
 adafruit-blinka = "^8.2.1"
-Pillow = "^10.0"
+# Pillow >= 12.2.0 closes HIGH CVE-2026-25990 (OOB write), CVE-2026-40192
+# (decompression-bomb DoS) and CVE-2026-42311 — see .gitea/workflows/trivy.yml
+# gate. The API surface used here (Image.open / Image.thumbnail / ImageDraw
+# basic text) is stable across 10.x → 12.x.
+Pillow = ">=12.2.0,<13.0"
 adafruit-circuitpython-rgb-display = "^3.14.1"
 psutil = "==7.0.0"
 python-kasa = "==0.10.2"

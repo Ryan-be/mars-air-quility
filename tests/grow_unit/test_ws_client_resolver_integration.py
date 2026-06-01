@@ -19,15 +19,16 @@ def fake_connect():
     behaviour: dict = {"raise_at": set(), "ok_value": MagicMock()}
     async def _fake(url, token, cert_path):
         calls.append({"url": url, "token": token, "cert_path": cert_path})
-        if (len(calls) - 1) in behaviour["raise_at"]:
-            raise ConnectionError(f"refused at call {len(calls)-1}")
+        idx = len(calls) - 1
+        if idx in behaviour["raise_at"]:
+            raise ConnectionError(f"refused at call {idx}")
         return behaviour["ok_value"]
     return _fake, calls, behaviour
 
 
 @pytest.mark.asyncio
 async def test_ws_client_iterates_until_one_candidate_succeeds(fake_connect):
-    fake, calls, beh = fake_connect
+    fake, _calls, beh = fake_connect
     beh["raise_at"] = {0}     # first candidate fails, second succeeds
     candidates = iter([
         Candidate("192.0.2.10", Source.HOST),

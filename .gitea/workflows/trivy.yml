@@ -1,0 +1,69 @@
+name: Trivy
+
+# Filesystem + dependency-lockfile CVE scan.
+# Fails the build on HIGH or CRITICAL findings; prints findings as
+# a table to the workflow log so the actual CVE details are visible
+# inline (no artifact download needed).
+#
+# Artifact upload step is intentionally OMITTED: act_runner's upload
+# routes through Gitea's [server] ROOT_URL, which on this instance
+# points at a stale LAN IP. Each upload attempt burns ~5 min on
+# EHOSTUNREACH retries before giving up. When the operator fixes
+# ROOT_URL in app.ini (and `systemctl restart gitea`), re-add the
+# `actions/upload-artifact@v3` step that was here previously — the
+# trivy fs scan already writes trivy-fs.json to the workspace, so
+# the upload step just needs to point at that path. See docs/CI.md
+# for the runner runbook + IP-change recovery procedure.
+#
+# Allowlist exceptions live in .trivyignore at repo root.
+
+on:
+  push:
+  workflow_dispatch:
+  schedule:
+    # Nightly at 03:00 UTC — catches new CVEs disclosed against
+    # deps we haven't touched in a while.
+    - cron: '0 3 * * *'
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install trivy
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget gnupg apt-transport-https
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo gpg --dearmor -o /usr/share/keyrings/trivy.gpg
+          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" | sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update
+          sudo apt-get install -y trivy
+          trivy --version
+
+      - name: Trivy filesystem scan — printed findings (informational)
+        # Always runs, always prints, never fails the build. This is
+        # so the workflow log shows WHICH CVEs are blocking even
+        # when the gate step (next) exits non-zero.
+        if: always()
+        run: |
+          trivy fs . \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --format table \
+            --skip-dirs '.git,node_modules,dist,.claude'
+
+      - name: Trivy filesystem scan — HIGH + CRITICAL gate
+        # Same scan, exit 1 if findings → fails the build. The
+        # printed step above already shows what was found. JSON is
+        # also written to the workspace so the upload step (omitted
+        # until Gitea's ROOT_URL is fixed; see file header) can pick
+        # it up later without re-scanning.
+        run: |
+          trivy fs . \
+            --severity HIGH,CRITICAL \
+            --exit-code 1 \
+            --ignore-unfixed \
+            --format json \
+            --output trivy-fs.json \
+            --skip-dirs '.git,node_modules,dist,.claude'

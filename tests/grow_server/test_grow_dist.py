@@ -262,7 +262,7 @@ def test_ca_crt_served_when_present(tmp_path, monkeypatch):
     """install.sh pins /api/grow/ca.crt before enrollment so future leaf
     rotations don't break the grow unit's TLS pin. Endpoint is public
     by design (CA is a trust anchor, not a secret)."""
-    repo_root = (tmp_path / "fake_repo")
+    repo_root = tmp_path / "fake_repo"
     (repo_root / "certs").mkdir(parents=True)
     ca = repo_root / "certs" / "ca.crt"
     ca.write_bytes(
@@ -298,7 +298,7 @@ def test_ca_crt_served_when_present(tmp_path, monkeypatch):
 def test_ca_crt_404_when_missing(tmp_path, monkeypatch):
     """Older hubs (pre-CA) don't have certs/ca.crt — install.sh treats
     a 404 here as the signal to fall back to legacy TOFU leaf pinning."""
-    repo_root = (tmp_path / "fake_repo")
+    repo_root = tmp_path / "fake_repo"
     (repo_root / "certs").mkdir(parents=True)
     # No ca.crt written.
     import mlss_monitor.routes.api_grow_dist as mod

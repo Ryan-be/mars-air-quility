@@ -1,7 +1,5 @@
 """Tests for grow_unit.host_bootstrap - legacy yaml migration."""
 
-from pathlib import Path
-
 from mlss_grow.host_bootstrap import ensure_host_file
 
 
