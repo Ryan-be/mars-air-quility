@@ -14,8 +14,11 @@ Prerequisites
          read:user, read:organization (if using an org)
 2. Export it:
      export GITEA_TOKEN=<token>
-3. Optionally override defaults via env vars:
-     export GITEA_URL=http://192.168.0.28:3000
+3. **Required:** export the Gitea instance URL (no default — the LAN IP
+   isn't tracked in source, per the test_no_private_ips_committed.py
+   privacy guard). Use the RFC 5737 documentation range as a placeholder
+   below; substitute your actual LAN IP at run-time:
+     export GITEA_URL=http://192.0.2.10:3000     # ← your real Gitea IP
      export GITEA_OWNER=ryan_be
      export GITEA_REPO=mars-air-quility
      export GITHUB_REMOTE=https://github.com/Ryan-be/mars-air-quility.git
@@ -58,7 +61,10 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-GITEA_URL    = os.environ.get("GITEA_URL",    "http://192.168.0.28:3000")
+# GITEA_URL is REQUIRED — no LAN-IP default because that would commit a
+# private IP into source. The setup_gitea_mirror.py module raises at
+# import time if the env var isn't set (see check below).
+GITEA_URL    = os.environ.get("GITEA_URL", "")
 GITEA_OWNER  = os.environ.get("GITEA_OWNER",  "ryan_be")
 # Repo name on the Gitea side is `MLSS` (the user pre-created it).
 # Different from the GitHub side (`mars-air-quility`) on purpose —
@@ -531,6 +537,15 @@ def _git(*args: str) -> str:
 
 
 def _check_env() -> None:
+    if not GITEA_URL:
+        print(
+            "ERROR: set GITEA_URL to your Gitea instance, e.g. "
+            "`export GITEA_URL=http://<your-gitea-ip>:3000`. There is no "
+            "default because the LAN IP is intentionally not tracked in "
+            "source (see tests/test_no_private_ips_committed.py).",
+            file=sys.stderr,
+        )
+        sys.exit(2)
     if not TOKEN:
         print(
             "ERROR: set GITEA_TOKEN to a personal access token with "
