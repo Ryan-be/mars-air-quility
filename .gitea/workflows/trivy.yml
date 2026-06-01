@@ -2,10 +2,18 @@ name: Trivy
 
 # Filesystem + dependency-lockfile CVE scan.
 # Fails the build on HIGH or CRITICAL findings; prints findings as
-# a table to the workflow log so they're visible without needing
-# to download the SARIF artifact (artifact upload currently fails
-# because Gitea's [server] ROOT_URL points at the stale .64 IP —
-# operator fix needed in app.ini, tracked separately).
+# a table to the workflow log so the actual CVE details are visible
+# inline (no artifact download needed).
+#
+# Artifact upload step is intentionally OMITTED: act_runner's upload
+# routes through Gitea's [server] ROOT_URL, which on this instance
+# points at a stale LAN IP. Each upload attempt burns ~5 min on
+# EHOSTUNREACH retries before giving up. When the operator fixes
+# ROOT_URL in app.ini (and `systemctl restart gitea`), re-add the
+# `actions/upload-artifact@v3` step that was here previously — the
+# trivy fs scan already writes trivy-fs.json to the workspace, so
+# the upload step just needs to point at that path. See docs/CI.md
+# for the runner runbook + IP-change recovery procedure.
 #
 # Allowlist exceptions live in .trivyignore at repo root.
 
@@ -47,7 +55,10 @@ jobs:
 
       - name: Trivy filesystem scan — HIGH + CRITICAL gate
         # Same scan, exit 1 if findings → fails the build. The
-        # printed step above already shows what was found.
+        # printed step above already shows what was found. JSON is
+        # also written to the workspace so the upload step (omitted
+        # until Gitea's ROOT_URL is fixed; see file header) can pick
+        # it up later without re-scanning.
         run: |
           trivy fs . \
             --severity HIGH,CRITICAL \
@@ -56,18 +67,3 @@ jobs:
             --format json \
             --output trivy-fs.json \
             --skip-dirs '.git,node_modules,dist,.claude'
-
-      - name: Upload findings as workflow artifact (best-effort)
-        # Gitea's stale ROOT_URL makes act_runner artifact upload fail
-        # with EHOSTUNREACH; continue-on-error so this doesn't mask the
-        # actual CVE-gate result. Operator: fix [server] ROOT_URL in
-        # app.ini on the Gitea host to point at the current LAN IP, then
-        # `systemctl restart gitea`. See docs/CI.md for runner inventory
-        # and the IP-change recovery procedure.
-        if: always()
-        continue-on-error: true
-        uses: actions/upload-artifact@v3
-        with:
-          name: trivy-fs-findings
-          path: trivy-fs.json
-          retention-days: 30
