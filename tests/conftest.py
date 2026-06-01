@@ -80,6 +80,23 @@ def _patch_db(path: str):
     # patched above — so decorated writers (log_sensor_data, save_inference,
     # log_weather, add/remove/edit_annotation, add_inference_tag) now hit
     # the test DB rather than the production data/sensor_data.db.
+    #
+    # The topology branch added four modules that each snapshot DB_FILE
+    # at import time (legacy `from database.init_db import DB_FILE`
+    # pattern). Without these patches, any test that hits the effector
+    # surface — even indirectly via CSRF middleware tests that POST
+    # /api/effector — would open `data/sensor_data.db` (and silently
+    # auto-create it empty), then crash on "no such table: smart_plugs".
+    # Each module is patched defensively so import order doesn't matter.
+    for mod_name in (
+        "mlss_monitor.routes.api_effectors",
+        "mlss_monitor.routes.api_effectors_v2",
+        "mlss_monitor.effectors.store",
+        "mlss_monitor.effectors.evaluator",
+    ):
+        mod = sys.modules.get(mod_name)
+        if mod is not None and hasattr(mod, "DB_FILE"):
+            mod.DB_FILE = path
 
 
 @pytest.fixture
